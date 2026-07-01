@@ -137,6 +137,44 @@ class PrismConnection:
                 break
         return results
 
+    def v3_groups(
+        self, entity_type: str, attributes: list[str], page_size: int = 250
+    ) -> list[dict[str, Any]]:
+        """Query the Prism Central groups API for an entity type.
+
+        Some entities (notably storage containers) are not exposed via a dedicated
+        `.../list` endpoint on Prism Central and must be read through
+        `POST /api/nutanix/v3/groups`. Returns a list of flat dicts (attribute name → value)
+        per entity, so callers read simple keys rather than the raw grouped shape.
+        """
+        url = f"{self.creds.base}/api/nutanix/v3/groups"
+        results: list[dict[str, Any]] = []
+        offset = 0
+        while True:
+            body = {
+                "entity_type": entity_type,
+                "group_member_count": page_size,
+                "group_member_offset": offset,
+                "group_member_attributes": [{"attribute": a} for a in attributes],
+            }
+            page = self.post_json(url, body)
+            groups = page.get("group_results", []) or []
+            batch = 0
+            for group in groups:
+                for entity in group.get("entity_results", []) or []:
+                    flat: dict[str, Any] = {"entity_id": entity.get("entity_id")}
+                    for data in entity.get("data", []) or []:
+                        values = data.get("values", []) or []
+                        val = values[0].get("values", [None])[0] if values else None
+                        flat[data.get("name")] = val
+                    results.append(flat)
+                    batch += 1
+            total = page.get("total_entity_count") or page.get("filtered_entity_count")
+            offset += batch
+            if batch == 0 or (total is not None and offset >= total):
+                break
+        return results
+
     # ─── v4 REST (SDKs wrap these; collectors may call directly) ────
 
     def v4_get(self, path: str, params: dict[str, Any] | None = None) -> dict[str, Any]:

@@ -11,13 +11,60 @@ add Files/Objects/NDB/X-Play/NCM/IAM sections.
 
 from __future__ import annotations
 
-from pydantic import BaseModel, Field
+from typing import Any
+
+from pydantic import BaseModel, Field, field_validator
+
+
+def coerce_bool(value: Any) -> bool | None:
+    """Coerce Nutanix's varied boolean encodings (bool / 'ENABLED' / 'true' / 1) to bool.
+
+    Real API payloads use strings like 'ENABLED'/'DISABLED' where a bool is expected;
+    strict validation would drop the whole entity, so normalize instead.
+    """
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return bool(value)
+    if isinstance(value, str):
+        v = value.strip().lower()
+        if v in ("true", "enabled", "on", "yes", "1"):
+            return True
+        if v in ("false", "disabled", "off", "no", "0", ""):
+            return False
+    return None
 
 
 class _Base(BaseModel):
-    """Shared config for all inventory models."""
+    """Shared config for all inventory models.
+
+    A wildcard 'before' validator coerces any field annotated as bool from Nutanix's
+    varied encodings ('ENABLED'/'DISABLED'/'true'/1) so one oddly-typed value never drops
+    the whole entity during collection.
+    """
 
     model_config = {"extra": "ignore", "populate_by_name": True}
+
+    @field_validator("*", mode="before")
+    @classmethod
+    def _coerce_bools(cls, value: Any, info: Any) -> Any:
+        field = cls.model_fields.get(info.field_name)
+        anno = getattr(field, "annotation", None) if field else None
+        if anno is not None and _is_bool_annotation(anno):
+            return coerce_bool(value)
+        return value
+
+
+def _is_bool_annotation(anno: Any) -> bool:
+    """True if the annotation is bool or Optional[bool] (bool | None)."""
+    import typing
+
+    if anno is bool:
+        return True
+    args = typing.get_args(anno)
+    return bool(args) and bool in args and all(a in (bool, type(None)) for a in args)
 
 
 # ─── Compute: NICs & disks ─────────────────────────────────────────────
@@ -63,7 +110,9 @@ class VirtualMachine(_Base):
     host_uuid: str | None = None
     host_name: str | None = None
     is_agent_vm: bool = False
-    categories: dict[str, str] = Field(default_factory=dict)
+    # v3 categories_mapping is dict[str, list[str]] (a key can have multiple values);
+    # older/other payloads use dict[str, str]. Normalize both to dict[str, list[str]].
+    categories: dict[str, list[str]] = Field(default_factory=dict)
     protection_type: str | None = None  # UNPROTECTED / RULE / …
     protection_policy: str | None = None
     gpus: list[str] = Field(default_factory=list)
@@ -72,6 +121,27 @@ class VirtualMachine(_Base):
     boot_type: str | None = None
     creation_time: str | None = None
     api_source: str = "v4"  # provenance: which API version populated this
+
+    @field_validator("categories", mode="before")
+    @classmethod
+    def _normalize_categories(cls, value: Any) -> dict[str, list[str]]:
+        """Accept dict[str,str] or dict[str,list[str]] and normalize to lists of strings."""
+        if not isinstance(value, dict):
+            return {}
+        out: dict[str, list[str]] = {}
+        for key, val in value.items():
+            if isinstance(val, list):
+                out[str(key)] = [str(v) for v in val]
+            elif val is None:
+                out[str(key)] = []
+            else:
+                out[str(key)] = [str(val)]
+        return out
+
+    @property
+    def categories_display(self) -> str:
+        """Flatten categories to 'Key:v1,v2; Key2:v3' for reports."""
+        return "; ".join(f"{k}:{','.join(v)}" for k, v in self.categories.items() if v)
 
     @property
     def total_disk_bytes(self) -> int:

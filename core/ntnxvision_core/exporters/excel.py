@@ -116,7 +116,7 @@ class ExcelExporter:
         rows = []
         for v in env.vms:
             ips = ", ".join(ip for n in v.nics for ip in n.ip_addresses)
-            cats = ", ".join(f"{k}:{val}" for k, val in v.categories.items())
+            cats = v.categories_display
             rows.append(
                 [
                     v.name, v.power_state, v.cluster_name, v.host_name, v.num_vcpus,
@@ -318,8 +318,21 @@ class ExcelExporter:
         self._table(wb, "Licensing", headers, rows)
 
     def _notes_sheet(self, wb: Workbook, env: Environment) -> None:
-        headers = ["Collector", "Status"]
-        rows = [[k, v] for k, v in env.collection_notes.items()]
+        from ntnxvision_core.notes import clean_error, pretty_label
+
+        headers = ["Area", "Outcome", "Detail"]
+        rows: list[list[Any]] = []
+        for key, status in env.collection_notes.items():
+            if status == "ok":
+                outcome, detail = "Collected", ""
+            elif status.startswith("skipped"):
+                outcome = "Not present"
+                detail = status.split(":", 1)[1].strip() if ":" in status else status
+            else:
+                outcome, detail = "Error", clean_error(status)
+            rows.append([pretty_label(key), outcome, detail])
+        for w in env.warnings:
+            rows.append(["Compatibility", "Warning", w])
         self._table(wb, "Collection Notes", headers, rows)
 
     # ─── table helper ──────────────────────────────────────────────
