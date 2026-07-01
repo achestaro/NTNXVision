@@ -1,0 +1,72 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ntnxvision-core"
+version = "0.1.0"
+description = "Inventory & documentation core for Nutanix Prism Central (NTNXVision)"
+readme = "README.md"
+requires-python = ">=3.10"
+authors = [{ name = "Alberto Chestaro" }]
+license = { text = "Proprietary" }
+
+dependencies = [
+    "requests>=2.31",        # v3 / v2 REST fallback + NDB Era API
+    "urllib3>=2.0",
+    "pydantic>=2.6",         # normalized, version-independent data model
+    "typer>=0.12",           # CLI / sidecar entrypoint
+    "rich>=13.7",            # pretty CLI output & progress
+    "openpyxl>=3.1",         # Excel export
+    # PDF/Word added in Phase 3:
+    # "python-docx>=1.1",
+    # "weasyprint>=61.0",
+]
+
+[project.optional-dependencies]
+# Official Nutanix v4 Python SDKs (per-namespace). Installed as coverage grows.
+ntnx-v4 = [
+    "ntnx-clustermgmt-py-client",
+    "ntnx-vmm-py-client",
+    "ntnx-networking-py-client",
+    "ntnx-storage-py-client",
+    "ntnx-volumes-py-client",
+    "ntnx-dataprotection-py-client",
+    "ntnx-microseg-py-client",
+    "ntnx-files-py-client",
+    "ntnx-objects-py-client",
+    "ntnx-iam-py-client",
+    "ntnx-lifecycle-py-client",
+    "ntnx-licensing-py-client",
+    "ntnx-monitoring-py-client",
+]
+dev = [
+    "pytest>=8.0",
+    "pytest-cov>=4.1",
+    "ruff>=0.3",
+    "mypy>=1.9",
+    "types-requests",
+    "pyinstaller>=6.5",      # freeze the sidecar for packaging
+]
+
+[project.scripts]
+ntnxvision = "ntnxvision_core.__main__:app"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["ntnxvision_core*"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+
+[tool.mypy]
+python_version = "3.10"
+warn_unused_ignores = true
+plugins = ["pydantic.mypy"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
