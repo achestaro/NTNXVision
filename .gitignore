@@ -1,0 +1,66 @@
+# ─── Secrets / local-only (NEVER commit) ───────────────────────────
+.env
+.env.*
+*.local
+secrets/
+credentials.json
+*.pem
+*.key
+*.pfx
+*.crt
+
+# Collected environment data / snapshots (may contain sensitive topology)
+snapshots/
+*.snapshot
+*.ntnxsnap
+data/
+exports/
+*.xlsx
+*.pdf
+*.docx
+!core/templates/**/*.docx   # keep template docx files
+
+# ─── Python ────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.eggs/
+build/dist/
+dist/
+.venv/
+venv/
+env/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+*.spec.bak
+
+# ─── Node / Electron ───────────────────────────────────────────────
+node_modules/
+.npm/
+.pnpm-store/
+app/dist/
+app/out/
+app/.vite/
+release/
+*.log
+npm-debug.log*
+yarn-error.log*
+
+# ─── PyInstaller / packaged sidecar output ─────────────────────────
+# Keep the committed spec/entry under core/build/, ignore only frozen output.
+core/dist/
+core/build/build/
+core/build/*.log
+
+# ─── Local tooling / editor / OS ───────────────────────────────────
+.claude/
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
+desktop.ini
