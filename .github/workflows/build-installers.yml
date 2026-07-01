@@ -1,0 +1,58 @@
+name: Build installers
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ["v*"]
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            artifact: NTNXVision-windows-installer
+            glob: app/release/*.exe
+          - os: macos-latest
+            artifact: NTNXVision-macos-dmg
+            glob: app/release/*.dmg
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Freeze Python sidecar
+        working-directory: core
+        run: |
+          pip install -e ".[dev]"
+          pyinstaller build/ntnxvision-sidecar.spec
+
+      - name: Smoke-test frozen sidecar
+        shell: bash
+        working-directory: core
+        run: |
+          echo '{"jsonrpc":"2.0","id":1,"method":"ping","params":{}}' \
+            | ./dist/ntnxvision-sidecar/ntnxvision-sidecar* | grep '"pong": true'
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Package Electron app
+        working-directory: app
+        env:
+          # unsigned CI builds: skip mac code signing discovery
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"
+        run: |
+          npm ci
+          npm run package
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: ${{ matrix.glob }}
+          if-no-files-found: error
