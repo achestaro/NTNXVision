@@ -54,9 +54,13 @@ python -m ntnxvision_core --help
 ### Electron app
 ```bash
 cd app
-npm install
-npm run dev
+npm install          # builds keytar (needs Xcode CLT on macOS)
+npm run dev          # compiles main, starts Vite, launches Electron
 ```
+
+> **Validating on macOS?** See [`docs/RUNNING-ON-MACOS.md`](docs/RUNNING-ON-MACOS.md) for a
+> step-by-step setup + run guide (prerequisites, CLI smoke test, UI walkthrough,
+> troubleshooting).
 
 ## License
 
