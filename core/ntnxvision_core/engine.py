@@ -148,7 +148,7 @@ def _resolve_cross_references(env: Environment) -> None:
             cluster.num_nodes = host_by_cluster[cluster.uuid]
 
     # Backfill VM host/cluster names (collectors on some paths only capture uuids).
-    for vm in env.vms:
+    for vm in [*env.vms, *env.system_vms]:
         if not vm.host_name and vm.host_uuid:
             vm.host_name = host_name_by_uuid.get(vm.host_uuid)
         if not vm.cluster_uuid and vm.host_uuid:
@@ -175,9 +175,48 @@ def _resolve_cross_references(env: Environment) -> None:
                 if aos_compat.warning:
                     env.warnings.append(f"Cluster '{cluster.name}': {aos_compat.warning}")
 
+    _resolve_availability_zone_names(env)
+
     # Roll up protected-VM count from protection policies' category matches is non-trivial;
     # approximate with VMs that carry any category (best-effort until v4 DR SDK).
     env.data_protection.protected_vm_count = sum(1 for v in env.vms if v.categories)
+
+
+def _resolve_availability_zone_names(env: Environment) -> None:
+    """Replace raw AZ identifiers (UUIDs / URLs) on policies & plans with friendly names.
+
+    Protection policies and recovery plans reference AZs by an opaque
+    `availability_zone_url` (a UUID for the local AZ, a management URL for remote).
+    Build a lookup from every identifier we know for each AZ to its display name, and
+    label the local AZ as 'Local (<PC>)' when it matches the Prism Central.
+    """
+    az_names: dict[str, str] = {}
+    local_id = env.prism_central.uuid
+    for az in env.availability_zones:
+        display = az.name or az.region or "Availability Zone"
+        for ident in (az.uuid, az.url):
+            if ident:
+                az_names[ident] = display
+    # The local AZ often appears as the PC's own uuid with no matching AZ entry.
+    if local_id:
+        az_names.setdefault(local_id, f"Local ({env.prism_central.host or 'PC'})")
+
+    def resolve(ref: str | None) -> str | None:
+        if not ref:
+            return ref
+        if ref in az_names:
+            return az_names[ref]
+        # A management URL like https://<host>:9440 → keep the host.
+        if ref.startswith("http"):
+            return ref.split("//", 1)[-1].split(":")[0].split("/")[0]
+        return ref  # leave as-is if truly unknown
+
+    for pp in env.protection_policies:
+        pp.source_az = resolve(pp.source_az)
+        pp.target_az = resolve(pp.target_az)
+    for rp in env.recovery_plans:
+        rp.primary_location = resolve(rp.primary_location)
+        rp.recovery_location = resolve(rp.recovery_location)
 
 
 def _emit(progress: ProgressFn | None, idx: int, total: int, label: str, status: str) -> None:

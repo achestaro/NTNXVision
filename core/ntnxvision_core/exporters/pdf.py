@@ -1,8 +1,8 @@
 """PDF exporter (fpdf2).
 
-Produces a branded, paginated report with a cover page, a table of contents, and one
-section per feature area. fpdf2 is pure-Python (no native GTK/Pango), so it bundles
-cleanly with PyInstaller on both Windows and macOS.
+Produces a branded, enterprise-styled report: a full-bleed cover, a section per feature
+area with accent-underlined headings, zebra tables, and a ruled header/footer. fpdf2 is
+pure-Python (no native GTK/Pango), so it bundles cleanly with PyInstaller on Win + macOS.
 """
 
 from __future__ import annotations
@@ -15,41 +15,60 @@ from fpdf import FPDF
 from ntnxvision_core.models import Environment
 
 GIB = 1024**3
-_NAVY = (31, 78, 120)
-_LIGHT = (235, 240, 247)
-_GREY = (110, 120, 130)
+# Enterprise palette.
+_NAVY = (24, 58, 92)
+_ACCENT = (0, 122, 204)
+_HEADER = (31, 78, 120)
+_ZEBRA = (241, 245, 250)
+_GREY = (120, 130, 142)
+_INK = (40, 46, 54)
 
 
 class _Report(FPDF):
-    title_text = "NTNXVision - Environment Report"
+    title_text = "Nutanix Environment Report"
 
     def header(self) -> None:
         if self.page_no() == 1:
             return
         self.set_font("Helvetica", "B", 8)
+        self.set_text_color(*_NAVY)
+        self.cell(0, 6, "NTNXVision", align="L")
+        self.set_font("Helvetica", "", 8)
         self.set_text_color(*_GREY)
-        self.cell(0, 8, self.title_text, align="L")
-        self.cell(0, 8, "NTNXVision", align="R")
-        self.ln(10)
+        self.cell(0, 6, self.title_text, align="R")
+        self.ln(7)
+        # Thin rule under the header.
+        self.set_draw_color(*_ACCENT)
+        self.set_line_width(0.4)
+        self.line(self.l_margin, self.get_y(), self.w - self.r_margin, self.get_y())
+        self.ln(4)
 
     def footer(self) -> None:
         if self.page_no() == 1:
             return
         self.set_y(-12)
-        self.set_font("Helvetica", "", 8)
+        self.set_draw_color(220, 226, 232)
+        self.set_line_width(0.2)
+        self.line(self.l_margin, self.get_y(), self.w - self.r_margin, self.get_y())
+        self.ln(1)
+        self.set_font("Helvetica", "", 7.5)
         self.set_text_color(*_GREY)
-        self.cell(0, 8, f"Page {self.page_no()}", align="C")
+        self.cell(0, 6, "NTNXVision - Nutanix Environment Report", align="L")
+        self.cell(0, 6, f"Page {self.page_no() - 1}", align="R")
 
 
 class PdfExporter:
     def export(self, env: Environment, path: str | Path) -> Path:
         pdf = _Report(orientation="L", unit="mm", format="A4")
-        pdf.set_auto_page_break(auto=True, margin=15)
+        pdf.set_auto_page_break(auto=True, margin=16)
         pdf.set_title("NTNXVision Environment Report")
 
         self._cover(pdf, env)
         self._summary(pdf, env)
+        self._pc_config(pdf, env)
         self._infra_sections(pdf, env)
+        self._system_vms(pdf, env)
+        self._catalog(pdf, env)
         self._dr_section(pdf, env)
         self._flow_section(pdf, env)
         self._nus_section(pdf, env)
@@ -61,47 +80,79 @@ class PdfExporter:
         pdf.output(str(out))
         return out
 
-    # ─── pages ─────────────────────────────────────────────────────
+    # ─── cover & summary ───────────────────────────────────────────
 
     def _cover(self, pdf: _Report, env: Environment) -> None:
         pdf.add_page()
-        pdf.ln(50)
-        pdf.set_font("Helvetica", "B", 34)
-        pdf.set_text_color(*_NAVY)
-        pdf.cell(0, 18, "NTNXVision", align="C", new_x="LMARGIN", new_y="NEXT")
-        pdf.set_font("Helvetica", "", 16)
-        pdf.set_text_color(60, 60, 60)
-        pdf.cell(0, 10, "Nutanix Environment Report", align="C", new_x="LMARGIN", new_y="NEXT")
-        pdf.ln(16)
+        # Full-bleed navy band across the top third.
+        pdf.set_fill_color(*_NAVY)
+        pdf.rect(0, 0, pdf.w, 78, style="F")
+        pdf.set_fill_color(*_ACCENT)
+        pdf.rect(0, 78, pdf.w, 2.5, style="F")
+
+        pdf.set_y(28)
+        pdf.set_font("Helvetica", "B", 40)
+        pdf.set_text_color(255, 255, 255)
+        pdf.cell(0, 20, "NTNXVision", align="C", new_x="LMARGIN", new_y="NEXT")
+        pdf.set_font("Helvetica", "", 15)
+        pdf.set_text_color(205, 220, 235)
+        pdf.cell(0, 10, "Nutanix Cloud Platform - Environment Report", align="C",
+                 new_x="LMARGIN", new_y="NEXT")
+
+        pdf.set_y(110)
         pdf.set_font("Helvetica", "", 12)
-        pdf.set_text_color(*_GREY)
-        for line in [
-            f"Prism Central: {env.prism_central.host or 'n/a'}",
-            f"Version: {env.prism_central.version or 'unknown'}",
-            f"Collected (UTC): {env.collected_at or 'n/a'}",
+        pdf.set_text_color(*_INK)
+        for label, value in [
+            ("Prism Central", env.prism_central.host or "n/a"),
+            ("Version", env.prism_central.version or "unknown"),
+            ("Clusters", str(len(env.clusters))),
+            ("Collected (UTC)", (env.collected_at or "n/a")[:19].replace("T", "  ")),
         ]:
-            pdf.cell(0, 8, _latin1(line), align="C", new_x="LMARGIN", new_y="NEXT")
+            pdf.set_x(pdf.w / 2 - 55)
+            pdf.set_font("Helvetica", "B", 11)
+            pdf.set_text_color(*_NAVY)
+            pdf.cell(45, 9, label, align="L")
+            pdf.set_font("Helvetica", "", 11)
+            pdf.set_text_color(*_INK)
+            pdf.cell(65, 9, _latin1(value), align="L", new_x="LMARGIN", new_y="NEXT")
 
     def _summary(self, pdf: _Report, env: Environment) -> None:
         pdf.add_page()
         self._h1(pdf, "Executive Summary")
         pdf.set_font("Helvetica", "", 11)
-        pdf.set_text_color(40, 40, 40)
-        counts = env.summary()
+        pdf.set_text_color(*_INK)
+        c = env.summary()
         line = (
-            f"This environment comprises {counts['clusters']} cluster(s), "
-            f"{counts['hosts']} host(s), and {counts['vms']} virtual machine(s). "
-            f"It includes {counts['protection_policies']} protection policy(ies) and "
-            f"{counts['recovery_plans']} recovery plan(s) for data protection, "
-            f"{counts['security_policies']} Flow security policy(ies), "
-            f"{counts['file_servers']} file server(s), {counts['object_stores']} object store(s), "
-            f"and {counts['databases']} managed database(s)."
+            f"This environment is managed by Prism Central {env.prism_central.host or ''} "
+            f"(version {env.prism_central.version or 'unknown'}) and comprises "
+            f"{c['clusters']} cluster(s), {c['hosts']} host(s), and {c['vms']} user virtual "
+            f"machine(s) ({c['system_vms']} Nutanix system VM(s)). It includes "
+            f"{c['protection_policies']} protection policy(ies) and {c['recovery_plans']} "
+            f"recovery plan(s), {c['security_policies']} Flow security policy(ies), "
+            f"{c['storage_containers']} storage container(s), {c['templates']} template(s), "
+            f"and {c['images']} image(s)."
         )
-        pdf.multi_cell(0, 6, line)
+        pdf.multi_cell(0, 6, _latin1(line))
         pdf.ln(4)
-        # Key metrics grid as a simple table.
-        metrics = [(k.replace("_", " ").title(), str(v)) for k, v in counts.items() if v]
-        self._kv_table(pdf, metrics)
+        metrics = [(k.replace("_", " ").title(), str(v)) for k, v in c.items() if v]
+        self._metric_grid(pdf, metrics)
+
+    def _pc_config(self, pdf: _Report, env: Environment) -> None:
+        cfg = env.pc_config
+        rows = [
+            ["Version", cfg.version or "-"],
+            ["Deployment", "Scale-out (3-node)" if cfg.is_scale_out else "Single-node"
+             if cfg.is_scale_out is not None else "-"],
+            ["PC nodes", str(cfg.node_count or "-")],
+            ["Registered clusters", str(cfg.registered_cluster_count or "-")],
+            ["Total vCPU", str(cfg.num_vcpus or "-")],
+            ["Total memory (GiB)", str(_gib(cfg.memory_bytes) or "-")],
+            ["PC VM(s)", ", ".join(cfg.pc_vm_names) or "-"],
+            ["IP address(es)", ", ".join(cfg.ip_addresses) or "-"],
+        ]
+        pdf.add_page()
+        self._h1(pdf, "Prism Central - Management & Sizing")
+        self._kv_table(pdf, [(k, v) for k, v in rows])
 
     def _infra_sections(self, pdf: _Report, env: Environment) -> None:
         self._section_table(
@@ -118,7 +169,8 @@ class PdfExporter:
             [55, 45, 45, 25, 30, 20],
         )
         self._section_table(
-            pdf, "Virtual Machines", ["Name", "Power", "Cluster", "vCPU", "Mem GiB", "Disk GiB"],
+            pdf, "Virtual Machines (User Workloads)",
+            ["Name", "Power", "Cluster", "vCPU", "Mem GiB", "Disk GiB"],
             [[v.name, v.power_state, v.cluster_name, v.vcpu_total, _gib(v.memory_bytes),
               _gib(v.total_disk_bytes)] for v in env.vms],
             [70, 25, 55, 20, 30, 30],
@@ -132,13 +184,41 @@ class PdfExporter:
             [55, 45, 20, 40, 35, 35],
         )
 
+    def _system_vms(self, pdf: _Report, env: Environment) -> None:
+        self._section_table(
+            pdf, "Nutanix System VMs (CVMs / Prism Central)",
+            ["Name", "Type", "Power", "Cluster", "vCPU", "Mem GiB"],
+            [[v.name, v.vm_type, v.power_state, v.cluster_name, v.vcpu_total,
+              _gib(v.memory_bytes)] for v in env.system_vms],
+            [70, 40, 25, 55, 20, 30],
+        )
+
+    def _catalog(self, pdf: _Report, env: Environment) -> None:
+        self._section_table(
+            pdf, "VM Templates", ["Name", "Guest OS", "vCPU", "Mem GiB", "Version", "Versions"],
+            [[t.name, t.guest_os, t.num_vcpus, _gib(t.memory_bytes), t.active_version,
+              t.version_count] for t in env.templates],
+            [70, 55, 20, 30, 40, 25],
+        )
+        self._section_table(
+            pdf, "Images", ["Name", "Type", "Size GiB", "Arch", "Clusters", "State"],
+            [[i.name, i.image_type, _gib(i.size_bytes), i.architecture,
+              ", ".join(i.cluster_names), i.state] for i in env.images],
+            [70, 35, 30, 30, 55, 30],
+        )
+        self._section_table(
+            pdf, "OVAs", ["Name", "Size GiB", "Disks", "Cluster"],
+            [[o.name, _gib(o.size_bytes), o.disk_count, o.cluster_name] for o in env.ovas],
+            [80, 35, 25, 60],
+        )
+
     def _dr_section(self, pdf: _Report, env: Environment) -> None:
         self._section_table(
             pdf, "Protection Policies",
             ["Name", "RPO (s)", "Replication", "Source AZ", "Target AZ"],
             [[p.name, p.rpo_seconds, p.replication_type, p.source_az, p.target_az]
              for p in env.protection_policies],
-            [70, 30, 45, 60, 60],
+            [65, 28, 42, 65, 65],
         )
         self._section_table(
             pdf, "Recovery Plans", ["Name", "Stages", "Entities", "Primary", "Recovery"],
@@ -175,6 +255,12 @@ class PdfExporter:
               o.bucket_count, o.state] for o in env.object_stores],
             [55, 45, 25, 40, 25, 30],
         )
+        self._section_table(
+            pdf, "Volume Groups", ["Name", "Cluster", "Disks", "Capacity GiB", "Shared"],
+            [[v.name, v.cluster_name, v.disk_count, _gib(v.total_capacity_bytes),
+              "Yes" if v.is_shared else "No"] for v in env.volume_groups],
+            [70, 55, 25, 40, 30],
+        )
 
     def _ndb_section(self, pdf: _Report, env: Environment) -> None:
         self._section_table(
@@ -194,13 +280,18 @@ class PdfExporter:
             rows, [55, 80, 25, 80], force=True,
         )
 
-    # ─── helpers ───────────────────────────────────────────────────
+    # ─── styling helpers ───────────────────────────────────────────
 
     def _h1(self, pdf: _Report, text: str) -> None:
-        pdf.set_font("Helvetica", "B", 18)
+        pdf.set_font("Helvetica", "B", 17)
         pdf.set_text_color(*_NAVY)
-        pdf.cell(0, 12, _latin1(text), new_x="LMARGIN", new_y="NEXT")
-        pdf.ln(2)
+        pdf.cell(0, 11, _latin1(text), new_x="LMARGIN", new_y="NEXT")
+        # Accent underline.
+        y = pdf.get_y() + 0.5
+        pdf.set_draw_color(*_ACCENT)
+        pdf.set_line_width(0.8)
+        pdf.line(pdf.l_margin, y, pdf.l_margin + 60, y)
+        pdf.ln(4)
 
     def _section_table(
         self, pdf: _Report, title: str, headers: list[str],
@@ -216,34 +307,81 @@ class PdfExporter:
             pdf.cell(0, 8, "None configured / not detected.", new_x="LMARGIN", new_y="NEXT")
             return
         self._table(pdf, headers, rows, widths)
+        pdf.ln(2)
+        pdf.set_font("Helvetica", "I", 8)
+        pdf.set_text_color(*_GREY)
+        pdf.cell(0, 5, f"{len(rows)} item(s).", new_x="LMARGIN", new_y="NEXT")
 
     def _table(self, pdf: _Report, headers: list[str], rows: list[list[Any]],
                widths: list[float]) -> None:
         pdf.set_font("Helvetica", "B", 9)
-        pdf.set_fill_color(*_NAVY)
+        pdf.set_fill_color(*_HEADER)
         pdf.set_text_color(255, 255, 255)
+        pdf.set_draw_color(*_HEADER)
         for h, w in zip(headers, widths, strict=False):
             pdf.cell(w, 8, _latin1(str(h)), border=0, fill=True, align="L")
         pdf.ln()
         pdf.set_font("Helvetica", "", 8)
-        pdf.set_text_color(30, 30, 30)
+        pdf.set_text_color(*_INK)
         fill = False
         for row in rows:
-            if pdf.get_y() > pdf.h - 20:
+            if pdf.get_y() > pdf.h - 22:
                 pdf.add_page()
-            pdf.set_fill_color(*_LIGHT)
+                # Re-draw header on the continuation page.
+                pdf.set_font("Helvetica", "B", 9)
+                pdf.set_fill_color(*_HEADER)
+                pdf.set_text_color(255, 255, 255)
+                for h, w in zip(headers, widths, strict=False):
+                    pdf.cell(w, 8, _latin1(str(h)), border=0, fill=True, align="L")
+                pdf.ln()
+                pdf.set_font("Helvetica", "", 8)
+                pdf.set_text_color(*_INK)
+            pdf.set_fill_color(*_ZEBRA)
             for value, w in zip(row, widths, strict=False):
                 pdf.cell(w, 6, _truncate(value, w), border=0, fill=fill, align="L")
             pdf.ln()
             fill = not fill
 
+    def _metric_grid(self, pdf: _Report, pairs: list[tuple[str, str]]) -> None:
+        # Fixed 5-column card grid of key metrics, positioned absolutely per cell.
+        cols = 5
+        gutter = 4
+        col_w = (pdf.w - pdf.l_margin - pdf.r_margin - gutter * (cols - 1)) / cols
+        card_h = 16
+        row_gap = 4
+        x0 = pdf.l_margin
+        y0 = pdf.get_y() + 2
+        for i, (label, value) in enumerate(pairs):
+            col = i % cols
+            row = i // cols
+            x = x0 + col * (col_w + gutter)
+            y = y0 + row * (card_h + row_gap)
+            pdf.set_fill_color(*_ZEBRA)
+            pdf.set_draw_color(210, 220, 230)
+            pdf.rect(x, y, col_w, card_h, style="DF")
+            pdf.set_xy(x + 3, y + 2.5)
+            pdf.set_font("Helvetica", "B", 16)
+            pdf.set_text_color(*_NAVY)
+            pdf.cell(col_w - 6, 8, _latin1(value), align="L")
+            pdf.set_xy(x + 3, y + 10)
+            pdf.set_font("Helvetica", "", 7.5)
+            pdf.set_text_color(*_GREY)
+            pdf.cell(col_w - 6, 4, _latin1(label), align="L")
+        # Advance cursor below the grid.
+        rows = (len(pairs) + cols - 1) // cols
+        pdf.set_y(y0 + rows * (card_h + row_gap))
+
     def _kv_table(self, pdf: _Report, pairs: list[tuple[str, str]]) -> None:
         pdf.set_font("Helvetica", "", 10)
         for label, value in pairs:
-            pdf.set_text_color(*_GREY)
-            pdf.cell(70, 7, _latin1(label), border="B")
-            pdf.set_text_color(30, 30, 30)
-            pdf.cell(40, 7, _latin1(value), border="B", new_x="LMARGIN", new_y="NEXT")
+            pdf.set_fill_color(*_ZEBRA)
+            pdf.set_text_color(*_NAVY)
+            pdf.set_font("Helvetica", "B", 10)
+            pdf.cell(70, 8, _latin1(label), border=0, fill=True)
+            pdf.set_text_color(*_INK)
+            pdf.set_font("Helvetica", "", 10)
+            pdf.cell(120, 8, _truncate(value, 120), border=0, fill=True,
+                     new_x="LMARGIN", new_y="NEXT")
 
 
 def _truncate(value: Any, width: float) -> str:

@@ -28,11 +28,15 @@ class ExcelExporter:
         wb = Workbook()
         # Phase 1 — core infrastructure
         self._overview_sheet(wb, env)
+        self._pc_config_sheet(wb, env)
         self._clusters_sheet(wb, env)
         self._hosts_sheet(wb, env)
         self._vms_sheet(wb, env)
+        self._system_vms_sheet(wb, env)
         self._storage_sheet(wb, env)
         self._subnets_sheet(wb, env)
+        # PC catalog — templates / images / OVAs
+        self._catalog_sheets(wb, env)
         # Phase 2 — data protection / DR
         self._dr_sheets(wb, env)
         # Phase 2 — Flow
@@ -108,24 +112,71 @@ class ExcelExporter:
         self._table(wb, "Hosts", headers, rows)
 
     def _vms_sheet(self, wb: Workbook, env: Environment) -> None:
-        headers = [
-            "Name", "Power", "Cluster", "Host", "vCPUs", "Cores/vCPU", "Total vCPU",
-            "Memory (GiB)", "Provisioned Disk (GiB)", "Disks", "NICs", "IP Addresses",
-            "Guest OS", "GPUs", "Categories", "UUID", "API",
+        self._vm_table(wb, "VMs", env.vms)
+
+    def _system_vms_sheet(self, wb: Workbook, env: Environment) -> None:
+        self._vm_table(wb, "System VMs", env.system_vms, include_type=True)
+
+    def _vm_table(self, wb: Workbook, title: str, vms: list, include_type: bool = False) -> None:
+        headers = ["Name", "Power", "Cluster", "Host"]
+        if include_type:
+            headers.insert(1, "Type")
+        headers += [
+            "vCPUs", "Cores/vCPU", "Total vCPU", "Memory (GiB)", "Provisioned Disk (GiB)",
+            "Disks", "NICs", "IP Addresses", "Guest OS", "GPUs", "Categories", "UUID", "API",
         ]
         rows = []
-        for v in env.vms:
+        for v in vms:
             ips = ", ".join(ip for n in v.nics for ip in n.ip_addresses)
-            cats = v.categories_display
+            base = [v.name, v.power_state, v.cluster_name, v.host_name]
+            if include_type:
+                base.insert(1, v.vm_type)
             rows.append(
-                [
-                    v.name, v.power_state, v.cluster_name, v.host_name, v.num_vcpus,
-                    v.num_cores_per_vcpu, v.vcpu_total, _gib(v.memory_bytes),
+                base + [
+                    v.num_vcpus, v.num_cores_per_vcpu, v.vcpu_total, _gib(v.memory_bytes),
                     _gib(v.total_disk_bytes), len(v.disks), len(v.nics), ips,
-                    v.guest_os, ", ".join(v.gpus), cats, v.uuid, v.api_source,
+                    v.guest_os, ", ".join(v.gpus), v.categories_display, v.uuid, v.api_source,
                 ]
             )
-        self._table(wb, "VMs", headers, rows)
+        self._table(wb, title, headers, rows)
+
+    def _pc_config_sheet(self, wb: Workbook, env: Environment) -> None:
+        cfg = env.pc_config
+        headers = ["Property", "Value"]
+        rows = [
+            ["Version", cfg.version],
+            ["Deployment", "Scale-out" if cfg.is_scale_out else "Single-node"
+             if cfg.is_scale_out is not None else None],
+            ["PC Nodes", cfg.node_count],
+            ["Registered Clusters", cfg.registered_cluster_count],
+            ["Total vCPU", cfg.num_vcpus],
+            ["Total Memory (GiB)", _gib(cfg.memory_bytes)],
+            ["NCC Version", cfg.ncc_version],
+            ["PC VM(s)", ", ".join(cfg.pc_vm_names)],
+            ["IP Address(es)", ", ".join(cfg.ip_addresses)],
+        ]
+        self._table(wb, "Prism Central", headers, rows)
+
+    def _catalog_sheets(self, wb: Workbook, env: Environment) -> None:
+        self._table(
+            wb, "Templates",
+            ["Name", "Guest OS", "vCPU", "Memory (GiB)", "Active Version", "Versions",
+             "Created By", "Description"],
+            [[t.name, t.guest_os, t.num_vcpus, _gib(t.memory_bytes), t.active_version,
+              t.version_count, t.created_by, t.description] for t in env.templates],
+        )
+        self._table(
+            wb, "Images",
+            ["Name", "Type", "Size (GiB)", "Architecture", "Clusters", "State", "Source"],
+            [[i.name, i.image_type, _gib(i.size_bytes), i.architecture,
+              ", ".join(i.cluster_names), i.state, i.source] for i in env.images],
+        )
+        self._table(
+            wb, "OVAs",
+            ["Name", "Size (GiB)", "Disks", "Cluster", "Created"],
+            [[o.name, _gib(o.size_bytes), o.disk_count, o.cluster_name, o.created]
+             for o in env.ovas],
+        )
 
     def _storage_sheet(self, wb: Workbook, env: Environment) -> None:
         headers = [
@@ -338,7 +389,7 @@ class ExcelExporter:
     # ─── table helper ──────────────────────────────────────────────
 
     def _table(self, wb: Workbook, title: str, headers: list[str], rows: list[list[Any]]) -> None:
-        ws: Worksheet = wb.create_sheet(title)
+        ws: Worksheet = wb.create_sheet(_safe_title(title))
         ws.append(headers)
         for col_idx, _ in enumerate(headers, start=1):
             cell = ws.cell(row=1, column=col_idx)
@@ -361,6 +412,13 @@ class ExcelExporter:
                 if col_idx - 1 < len(row) and row[col_idx - 1] is not None:
                     width = max(width, len(str(row[col_idx - 1])))
             ws.column_dimensions[get_column_letter(col_idx)].width = min(width + 2, 50)
+
+
+def _safe_title(title: str) -> str:
+    """Excel sheet titles disallow []:*?/\\ and cap at 31 chars."""
+    for ch in "[]:*?/\\":
+        title = title.replace(ch, "-")
+    return title[:31]
 
 
 def _gib(value: int | None) -> float | None:

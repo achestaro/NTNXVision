@@ -7,16 +7,16 @@
   "private": true,
   "main": "dist/main/main.js",
   "scripts": {
-    "dev": "npm run build:main && concurrently -k -n vite,tsc,electron -c cyan,yellow,green \"npm:dev:renderer\" \"npm:dev:main\" \"npm:dev:electron\"",
-    "dev:renderer": "vite",
-    "dev:main": "tsc -p tsconfig.main.json -w",
-    "dev:electron": "wait-on http://localhost:5273 dist/main/main.js && electron .",
+    "dev": "npm run build:main && npx concurrently -k -n vite,tsc,electron -c cyan,yellow,green \"npm:dev:renderer\" \"npm:dev:main\" \"npm:dev:electron\"",
+    "dev:renderer": "npx vite",
+    "dev:main": "npx tsc -p tsconfig.main.json -w",
+    "dev:electron": "npx wait-on http://localhost:5273 dist/main/main.js && npx electron .",
     "build": "npm run build:renderer && npm run build:main",
-    "build:renderer": "vite build",
-    "build:main": "tsc -p tsconfig.main.json",
-    "start": "electron .",
-    "lint": "eslint . --ext .ts,.tsx",
-    "package": "npm run build && electron-builder"
+    "build:renderer": "npx vite build",
+    "build:main": "npx tsc -p tsconfig.main.json",
+    "start": "npx electron .",
+    "lint": "npx eslint . --ext .ts,.tsx",
+    "package": "npm run build && npx electron-builder"
   },
   "dependencies": {
     "keytar": "^7.9.0"

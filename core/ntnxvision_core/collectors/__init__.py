@@ -10,6 +10,11 @@ Phase 2 (platform):    data protection, flow security + networking, files, objec
 """
 
 from ntnxvision_core.collectors.base import Collector
+from ntnxvision_core.collectors.catalog import (
+    ImageCollector,
+    OvaCollector,
+    TemplateCollector,
+)
 from ntnxvision_core.collectors.clusters import ClusterCollector
 from ntnxvision_core.collectors.dataprotection import DataProtectionCollector
 from ntnxvision_core.collectors.flow import (
@@ -25,6 +30,7 @@ from ntnxvision_core.collectors.nus import (
     ObjectsCollector,
     VolumesCollector,
 )
+from ntnxvision_core.collectors.pc_config import PrismCentralConfigCollector
 from ntnxvision_core.collectors.storage import StorageCollector
 from ntnxvision_core.collectors.subnets import SubnetCollector
 from ntnxvision_core.collectors.vms import VmCollector
@@ -51,6 +57,11 @@ PHASE2_COLLECTORS: list[type[Collector]] = [
     IamCollector,
     XPlayCollector,
     NcmCollector,
+    # PC inventory objects + management config (pc_config runs last: needs system_vms).
+    ImageCollector,
+    TemplateCollector,
+    OvaCollector,
+    PrismCentralConfigCollector,
 ]
 
 #: The default full inventory — everything reachable through Prism Central.
