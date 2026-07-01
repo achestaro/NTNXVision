@@ -8,7 +8,7 @@ in GiB for readability.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from openpyxl import Workbook
 from openpyxl.styles import Alignment, Font, PatternFill
@@ -60,11 +60,11 @@ class ExcelExporter:
     # ─── sheets ────────────────────────────────────────────────────
 
     def _overview_sheet(self, wb: Workbook, env: Environment) -> None:
-        ws = wb.active
+        ws = cast(Worksheet, wb.active)
         ws.title = "Overview"
         ws["A1"] = "NTNXVision — Environment Inventory"
         ws["A1"].font = _TITLE_FONT
-        rows = [
+        rows: list[tuple[str, Any]] = [
             ("Prism Central", env.prism_central.host or ""),
             ("PC Version", env.prism_central.version or "unknown"),
             ("Collected At (UTC)", env.collected_at or ""),
@@ -143,7 +143,7 @@ class ExcelExporter:
     def _pc_config_sheet(self, wb: Workbook, env: Environment) -> None:
         cfg = env.pc_config
         headers = ["Property", "Value"]
-        rows = [
+        rows: list[list[Any]] = [
             ["Version", cfg.version],
             ["Deployment", "Scale-out" if cfg.is_scale_out else "Single-node"
              if cfg.is_scale_out is not None else None],

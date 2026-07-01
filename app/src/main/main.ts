@@ -25,6 +25,10 @@ function createWindow(): void {
       preload: join(__dirname, 'preload.js'),
       contextIsolation: true,
       nodeIntegration: false,
+      // The preload is compiled to CJS and requires ../shared/ipc at runtime; sandboxed
+      // preloads can't require relative modules, which would silently drop the bridge.
+      // The renderer only ever loads local content (Vite dev server / bundled files).
+      sandbox: false,
     },
   });
 

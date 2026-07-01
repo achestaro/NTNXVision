@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any
 
 from docx import Document
+from docx.document import Document as DocumentObject
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
@@ -56,12 +57,12 @@ class WordExporter:
 
     # ─── document scaffolding ──────────────────────────────────────
 
-    def _styles(self, doc: Document) -> None:
+    def _styles(self, doc: DocumentObject) -> None:
         normal = doc.styles["Normal"]
         normal.font.name = "Calibri"
         normal.font.size = Pt(11)
 
-    def _cover(self, doc: Document, env: Environment) -> None:
+    def _cover(self, doc: DocumentObject, env: Environment) -> None:
         for _ in range(4):
             doc.add_paragraph()
 
@@ -118,7 +119,7 @@ class WordExporter:
             vr.font.color.rgb = RGBColor(0x40, 0x40, 0x40)
         doc.add_page_break()
 
-    def _toc(self, doc: Document) -> None:
+    def _toc(self, doc: DocumentObject) -> None:
         self._heading(doc, "Table of Contents", level=1)
         p = doc.add_paragraph()
         run = p.add_run()
@@ -139,7 +140,7 @@ class WordExporter:
 
     # ─── sections ──────────────────────────────────────────────────
 
-    def _executive_summary(self, doc: Document, env: Environment) -> None:
+    def _executive_summary(self, doc: DocumentObject, env: Environment) -> None:
         self._heading(doc, "1. Executive Summary", level=1)
         c = env.summary()
         doc.add_paragraph(
@@ -168,7 +169,7 @@ class WordExporter:
             doc.add_paragraph(h, style="List Bullet")
         doc.add_page_break()
 
-    def _assumptions(self, doc: Document, env: Environment) -> None:
+    def _assumptions(self, doc: DocumentObject, env: Environment) -> None:
         self._heading(doc, "2. Assumptions & Constraints", level=1)
         for item in [
             "Inventory was collected read-only via the Prism Central v3/v4 APIs; no "
@@ -195,7 +196,7 @@ class WordExporter:
                 doc.add_paragraph(f"{_pretty(name)} — {_clean_error(status)}", style="List Bullet")
         doc.add_page_break()
 
-    def _pc_management(self, doc: Document, env: Environment) -> None:
+    def _pc_management(self, doc: DocumentObject, env: Environment) -> None:
         cfg = env.pc_config
         self._heading(doc, "3. Prism Central — Management & Sizing", level=1)
         doc.add_paragraph(
@@ -221,7 +222,7 @@ class WordExporter:
             "Table 3-1. Prism Central management-plane configuration.",
         )
 
-    def _catalog(self, doc: Document, env: Environment) -> None:
+    def _catalog(self, doc: DocumentObject, env: Environment) -> None:
         self._heading(doc, "6. Catalog — Templates, Images & OVAs", level=1)
         self._heading(doc, "6.1 VM Templates", level=2)
         self._table(
@@ -248,7 +249,7 @@ class WordExporter:
             empty="No OVAs are present in the Prism Central catalog.",
         )
 
-    def _logical_design(self, doc: Document, env: Environment) -> None:
+    def _logical_design(self, doc: DocumentObject, env: Environment) -> None:
         self._heading(doc, "4. Logical Design", level=1)
         doc.add_paragraph(
             "The environment is managed centrally through Prism Central, which registers and "
@@ -264,7 +265,7 @@ class WordExporter:
             "Table 4-1. Registered clusters.",
         )
 
-    def _physical_design(self, doc: Document, env: Environment) -> None:
+    def _physical_design(self, doc: DocumentObject, env: Environment) -> None:
         self._heading(doc, "5. Physical Design", level=1)
         self._heading(doc, "5.1 Nodes / Hosts", level=2)
         self._table(
@@ -284,7 +285,7 @@ class WordExporter:
             "Table 5-2. Storage containers and data-reduction settings.",
         )
 
-    def _storage_services(self, doc: Document, env: Environment) -> None:
+    def _storage_services(self, doc: DocumentObject, env: Environment) -> None:
         self._heading(doc, "7. Unified Storage Services (NUS)", level=1)
         self._heading(doc, "7.1 Files", level=2)
         self._table(
@@ -313,7 +314,7 @@ class WordExporter:
             empty="No volume groups are configured.",
         )
 
-    def _networking(self, doc: Document, env: Environment) -> None:
+    def _networking(self, doc: DocumentObject, env: Environment) -> None:
         self._heading(doc, "8. Networking", level=1)
         self._heading(doc, "8.1 Subnets", level=2)
         self._table(
@@ -331,7 +332,7 @@ class WordExporter:
             empty="Flow Virtual Networking is not enabled.",
         )
 
-    def _data_protection(self, doc: Document, env: Environment) -> None:
+    def _data_protection(self, doc: DocumentObject, env: Environment) -> None:
         self._heading(doc, "9. Data Protection & Disaster Recovery", level=1)
         doc.add_paragraph(
             "Data protection is delivered through protection policies (snapshot and "
@@ -356,7 +357,7 @@ class WordExporter:
             empty="No recovery plans are configured.",
         )
 
-    def _security(self, doc: Document, env: Environment) -> None:
+    def _security(self, doc: DocumentObject, env: Environment) -> None:
         self._heading(doc, "10. Security Posture (Flow)", level=1)
         self._table(
             doc, ["Policy", "Type", "State", "Inbound", "Outbound", "Secured Group"],
@@ -367,7 +368,7 @@ class WordExporter:
             empty="Flow Network Security is not configured.",
         )
 
-    def _databases(self, doc: Document, env: Environment) -> None:
+    def _databases(self, doc: DocumentObject, env: Environment) -> None:
         self._heading(doc, "11. Database Services (NDB)", level=1)
         self._table(
             doc, ["Database", "Engine", "Type", "Status", "SLA"],
@@ -377,7 +378,7 @@ class WordExporter:
             empty="Nutanix Database Service is not in use / not collected.",
         )
 
-    def _licensing(self, doc: Document, env: Environment) -> None:
+    def _licensing(self, doc: DocumentObject, env: Environment) -> None:
         self._heading(doc, "12. Licensing & Feature Usage", level=1)
         from ntnxvision_core.analysis import analyze_feature_usage
 
@@ -388,7 +389,7 @@ class WordExporter:
             "Table 12-1. Feature usage mapped to licensing product.",
         )
 
-    def _appendix(self, doc: Document, env: Environment) -> None:
+    def _appendix(self, doc: DocumentObject, env: Environment) -> None:
         self._heading(doc, "Appendix A. Full Virtual Machine Inventory", level=1)
         self._table(
             doc, ["VM", "Power", "Cluster", "vCPU", "Mem (GiB)", "Disk (GiB)"],
@@ -400,12 +401,12 @@ class WordExporter:
 
     # ─── helpers ───────────────────────────────────────────────────
 
-    def _heading(self, doc: Document, text: str, level: int) -> None:
+    def _heading(self, doc: DocumentObject, text: str, level: int) -> None:
         h = doc.add_heading(text, level=level)
         for run in h.runs:
             run.font.color.rgb = _NAVY if level == 1 else _ACCENT
 
-    def _table(self, doc: Document, headers: list[str], rows: list[list[Any]],
+    def _table(self, doc: DocumentObject, headers: list[str], rows: list[list[Any]],
                caption: str, empty: str | None = None) -> None:
         if not rows:
             if empty:
