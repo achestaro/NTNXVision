@@ -3,6 +3,7 @@
 // process relays them to the Python sidecar over JSON-RPC.
 
 export type ExportFormat = 'excel' | 'pdf' | 'word';
+export type ConnectionMode = 'prism_central' | 'prism_element';
 
 export interface NdbRequest {
   host: string;
@@ -11,6 +12,7 @@ export interface NdbRequest {
 }
 
 export interface InventoryRequest {
+  mode: ConnectionMode;
   host: string;
   username: string;
   password: string;
@@ -52,7 +54,9 @@ export interface PrismCentralInfo {
 
 export interface InventoryResult {
   summary: InventorySummary;
-  prism_central: PrismCentralInfo;
+  source_type: ConnectionMode;
+  prism_central: PrismCentralInfo & { version_supported?: boolean };
+  warnings: string[];
   collection_notes: Record<string, string>;
   snapshot_path: string;
   exports: Record<string, string>;

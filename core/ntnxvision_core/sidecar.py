@@ -24,9 +24,10 @@ from typing import Any
 
 from ntnxvision_core import __version__
 from ntnxvision_core.api import PrismCredentials
+from ntnxvision_core.api.element_client import ElementCredentials
 from ntnxvision_core.api.errors import NutanixApiError
 from ntnxvision_core.api.ndb_client import NdbCredentials
-from ntnxvision_core.engine import collect_environment
+from ntnxvision_core.engine import collect_element_environment, collect_environment
 from ntnxvision_core.exporters import export_environment
 from ntnxvision_core.paths import exports_dir, snapshots_dir
 from ntnxvision_core.store import SnapshotStore
@@ -71,6 +72,37 @@ def _m_ping(_req_id: Any, _params: dict[str, Any]) -> dict[str, Any]:
     return {"pong": True, "version": __version__}
 
 
+def _progress_fn(req_id: Any):
+    def progress(idx: int, total: int, label: str, status: str) -> None:
+        _notify("progress", {"id": req_id, "index": idx, "total": total,
+                             "label": label, "status": status})
+    return progress
+
+
+def _finalize(env: Any, name: str, params: dict[str, Any]) -> dict[str, Any]:
+    """Snapshot, export requested formats, and assemble the JSON-RPC result."""
+    snap_path = SnapshotStore(snapshots_dir()).save(env, name)
+    result: dict[str, Any] = {
+        "summary": env.summary(),
+        "source_type": env.source_type,
+        "prism_central": env.prism_central.model_dump(),
+        "warnings": env.warnings,
+        "collection_notes": env.collection_notes,
+        "snapshot_path": str(snap_path),
+        "exports": {},
+    }
+    formats = params.get("formats") or (["excel"] if params.get("export", True) else [])
+    for fmt in formats:
+        try:
+            out = export_environment(env, fmt, exports_dir(), name)
+            result["exports"][fmt] = str(out)
+        except Exception as exc:  # noqa: BLE001 — a failed export shouldn't lose the run
+            result["exports"][fmt] = f"error: {exc}"
+    if "excel" in result["exports"] and not result["exports"]["excel"].startswith("error"):
+        result["excel_path"] = result["exports"]["excel"]
+    return result
+
+
 def _m_inventory(req_id: Any, params: dict[str, Any]) -> dict[str, Any]:
     creds = PrismCredentials(
         host=params["host"],
@@ -91,32 +123,22 @@ def _m_inventory(req_id: Any, params: dict[str, Any]) -> dict[str, Any]:
             verify_ssl=not params.get("insecure", False),
         )
 
-    def progress(idx: int, total: int, label: str, status: str) -> None:
-        _notify("progress", {"id": req_id, "index": idx, "total": total,
-                             "label": label, "status": status})
+    env = collect_environment(creds, progress=_progress_fn(req_id), ndb_creds=ndb_creds)
+    return _finalize(env, name, params)
 
-    env = collect_environment(creds, progress=progress, ndb_creds=ndb_creds)
 
-    snap_path = SnapshotStore(snapshots_dir()).save(env, name)
-    result: dict[str, Any] = {
-        "summary": env.summary(),
-        "prism_central": env.prism_central.model_dump(),
-        "collection_notes": env.collection_notes,
-        "snapshot_path": str(snap_path),
-        "exports": {},
-    }
-    # Formats: default excel; UI may request ["excel", "pdf", "word"].
-    formats = params.get("formats") or (["excel"] if params.get("export", True) else [])
-    for fmt in formats:
-        try:
-            out = export_environment(env, fmt, exports_dir(), name)
-            result["exports"][fmt] = str(out)
-        except Exception as exc:  # noqa: BLE001 — a failed export shouldn't lose the run
-            result["exports"][fmt] = f"error: {exc}"
-    # Back-compat convenience key.
-    if "excel" in result["exports"] and not result["exports"]["excel"].startswith("error"):
-        result["excel_path"] = result["exports"]["excel"]
-    return result
+def _m_inventory_cluster(req_id: Any, params: dict[str, Any]) -> dict[str, Any]:
+    """Direct Prism Element (v2.0) inventory of a single cluster."""
+    creds = ElementCredentials(
+        host=params["host"],
+        username=params["username"],
+        password=params["password"],
+        port=int(params.get("port", 9440)),
+        verify_ssl=not params.get("insecure", False),
+    )
+    name = params.get("name") or "cluster"
+    env = collect_element_environment(creds, progress=_progress_fn(req_id))
+    return _finalize(env, name, params)
 
 
 def _m_list_snapshots(_req_id: Any, _params: dict[str, Any]) -> list[dict[str, Any]]:
@@ -158,6 +180,7 @@ def _snapshot_name(snap_path: str) -> str:
 _METHODS = {
     "ping": _m_ping,
     "inventory": _m_inventory,
+    "inventory_cluster": _m_inventory_cluster,
     "list_snapshots": _m_list_snapshots,
     "export": _m_export,
 }

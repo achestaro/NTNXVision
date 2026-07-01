@@ -50,7 +50,8 @@ ipcMain.handle(IPC.inventory, async (_e, req: InventoryRequest) => {
   if (!password) {
     password = (await secrets.getPassword(req.host, req.username)) ?? '';
   }
-  const result = await sidecar.call('inventory', {
+  const method = req.mode === 'prism_element' ? 'inventory_cluster' : 'inventory';
+  const result = await sidecar.call(method, {
     host: req.host,
     username: req.username,
     password,
@@ -58,7 +59,7 @@ ipcMain.handle(IPC.inventory, async (_e, req: InventoryRequest) => {
     insecure: req.insecure,
     name: req.name,
     formats: req.formats,
-    ndb: req.ndb,
+    ndb: req.mode === 'prism_central' ? req.ndb : undefined,
   });
   if (req.saveCredentials && password) {
     await secrets.setPassword(req.host, req.username, password);

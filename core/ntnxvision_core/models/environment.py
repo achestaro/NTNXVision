@@ -482,6 +482,7 @@ class PrismCentral(_Base):
     host: str | None = None
     version: str | None = None
     negotiated_api_versions: dict[str, str] = Field(default_factory=dict)
+    version_supported: bool = True  # within the tested compatibility window
 
 
 class Environment(_Base):
@@ -489,7 +490,12 @@ class Environment(_Base):
 
     collected_at: str | None = None
     tool_version: str = "0.1.0"
+    #: "prism_central" (collected via PC) or "prism_element" (direct cluster, v2.0).
+    source_type: str = "prism_central"
     prism_central: PrismCentral = Field(default_factory=PrismCentral)
+
+    #: Non-fatal compatibility / collection warnings surfaced to the user.
+    warnings: list[str] = Field(default_factory=list)
 
     # ─ Phase 1: core infrastructure ─
     clusters: list[Cluster] = Field(default_factory=list)

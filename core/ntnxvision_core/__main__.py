@@ -18,9 +18,10 @@ from rich.table import Table
 
 from ntnxvision_core import __version__
 from ntnxvision_core.api import PrismCredentials
+from ntnxvision_core.api.element_client import ElementCredentials
 from ntnxvision_core.api.errors import NutanixApiError
 from ntnxvision_core.api.ndb_client import NdbCredentials
-from ntnxvision_core.engine import collect_environment
+from ntnxvision_core.engine import collect_element_environment, collect_environment
 from ntnxvision_core.exporters import export_environment
 from ntnxvision_core.paths import exports_dir, snapshots_dir
 from ntnxvision_core.store import SnapshotStore
@@ -69,13 +70,49 @@ def inventory(
         console.print(f"[red]Collection failed:[/red] {exc}")
         raise typer.Exit(1) from exc
 
+    _finish(env, name, formats)
+
+
+@app.command()
+def cluster(
+    host: str = typer.Option(..., help="Cluster (Prism Element) FQDN or IP"),
+    username: str = typer.Option(..., help="Cluster username"),
+    password: str = typer.Option(None, help="Cluster password (prompted if omitted)"),
+    port: int = typer.Option(9440, help="Prism Element port"),
+    insecure: bool = typer.Option(False, "--insecure", help="Skip TLS verification (lab only)"),
+    name: str = typer.Option("cluster", help="Snapshot name"),
+    formats: str = typer.Option("excel", help="Comma-separated: excel,pdf,word"),
+) -> None:
+    """Connect directly to a cluster's Prism Element (v2.0 API, AOS 6.5–7.5) and inventory it."""
+    pwd = password or getpass.getpass("Cluster password: ")
+    creds = ElementCredentials(host=host, username=username, password=pwd, port=port,
+                               verify_ssl=not insecure)
+
+    def progress(idx: int, total: int, label: str, status: str) -> None:
+        console.print(f"  [{idx + 1}/{total}] {label}: [dim]{status}[/dim]")
+
+    try:
+        console.print(f"[bold]Connecting[/bold] directly to cluster {host} …")
+        env = collect_element_environment(creds, progress=progress)
+    except NutanixApiError as exc:
+        console.print(f"[red]Collection failed:[/red] {exc}")
+        raise typer.Exit(1) from exc
+
+    _finish(env, name, formats)
+
+
+def _finish(env: object, name: str, formats: str) -> None:
+    """Shared tail: print warnings + summary, snapshot, and export."""
+    for warning in env.warnings:  # type: ignore[attr-defined]
+        console.print(f"[yellow]⚠ {warning}[/yellow]")
+
     _print_summary(env)
 
-    snap_path = SnapshotStore(snapshots_dir()).save(env, name)
+    snap_path = SnapshotStore(snapshots_dir()).save(env, name)  # type: ignore[arg-type]
     console.print(f"Snapshot saved → [green]{snap_path}[/green]")
 
     for fmt in _parse_formats(formats):
-        out = export_environment(env, fmt, exports_dir(), name)
+        out = export_environment(env, fmt, exports_dir(), name)  # type: ignore[arg-type]
         console.print(f"{fmt.title()} exported → [green]{out}[/green]")
 
 
