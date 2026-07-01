@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import json
 import sys
+from pathlib import Path
 from typing import Any
 
 from ntnxvision_core import __version__
@@ -80,25 +81,35 @@ def _progress_fn(req_id: Any):
 
 
 def _finalize(env: Any, name: str, params: dict[str, Any]) -> dict[str, Any]:
-    """Snapshot, export requested formats, and assemble the JSON-RPC result."""
-    snap_path = SnapshotStore(snapshots_dir()).save(env, name)
+    """Snapshot, export requested formats, and assemble the JSON-RPC result.
+
+    A snapshot-save failure or a per-format export failure is captured as a warning /
+    structured error rather than aborting the whole request — a successful collection is
+    never discarded because a downstream write failed.
+    """
     result: dict[str, Any] = {
         "summary": env.summary(),
         "source_type": env.source_type,
         "prism_central": env.prism_central.model_dump(),
-        "warnings": env.warnings,
+        "warnings": list(env.warnings),
         "collection_notes": env.collection_notes,
-        "snapshot_path": str(snap_path),
+        "snapshot_path": None,
         "exports": {},
+        "export_errors": {},
     }
+
+    try:
+        result["snapshot_path"] = str(SnapshotStore(snapshots_dir()).save(env, name))
+    except Exception as exc:  # noqa: BLE001 — don't lose a successful run on a save error
+        result["warnings"].append(f"Snapshot could not be saved: {exc}")
+
     formats = params.get("formats") or (["excel"] if params.get("export", True) else [])
     for fmt in formats:
         try:
-            out = export_environment(env, fmt, exports_dir(), name)
-            result["exports"][fmt] = str(out)
-        except Exception as exc:  # noqa: BLE001 — a failed export shouldn't lose the run
-            result["exports"][fmt] = f"error: {exc}"
-    if "excel" in result["exports"] and not result["exports"]["excel"].startswith("error"):
+            result["exports"][fmt] = str(export_environment(env, fmt, exports_dir(), name))
+        except Exception as exc:  # noqa: BLE001 — one failed format shouldn't lose the run
+            result["export_errors"][fmt] = str(exc)
+    if "excel" in result["exports"]:
         result["excel_path"] = result["exports"]["excel"]
     return result
 
@@ -156,25 +167,38 @@ def _m_list_snapshots(_req_id: Any, _params: dict[str, Any]) -> list[dict[str, A
 
 
 def _m_export(_req_id: Any, params: dict[str, Any]) -> dict[str, Any]:
-    """Re-export a saved snapshot to one or more formats (excel / pdf / word)."""
-    snap_path = params["snapshot"]
+    """Re-export a saved snapshot to one or more formats (excel / pdf / word).
+
+    The snapshot path is confined to the snapshots directory (no arbitrary file reads)
+    and must exist; per-format failures are reported structurally, not as pseudo-success
+    strings, so callers can tell success from failure.
+    """
+    snap_path = _resolve_snapshot_path(params["snapshot"])
     env = SnapshotStore(snapshots_dir()).load(snap_path)
-    name = params.get("name") or _snapshot_name(snap_path)
+    name = params.get("name") or snap_path.stem.replace(".ntnxsnap", "")
     formats = params.get("formats") or [params.get("format", "excel")]
 
     paths: dict[str, str] = {}
+    errors: dict[str, str] = {}
     for fmt in formats:
         try:
             paths[fmt] = str(export_environment(env, fmt, exports_dir(), name))
         except Exception as exc:  # noqa: BLE001
-            paths[fmt] = f"error: {exc}"
-    return {"paths": paths, "path": next(iter(paths.values()), None)}
+            errors[fmt] = str(exc)
+    return {"paths": paths, "errors": errors, "path": next(iter(paths.values()), None)}
 
 
-def _snapshot_name(snap_path: str) -> str:
-    from pathlib import Path
-
-    return Path(snap_path).stem.replace(".ntnxsnap", "")
+def _resolve_snapshot_path(raw: str) -> Path:
+    """Resolve a snapshot path, requiring it to live inside the snapshots directory."""
+    root = snapshots_dir().resolve()
+    candidate = Path(raw)
+    # Bare names are resolved against the snapshots dir; full paths are validated.
+    resolved = (candidate if candidate.is_absolute() else root / candidate).resolve()
+    if root not in resolved.parents and resolved != root:
+        raise NutanixApiError("Snapshot path is outside the snapshots directory.")
+    if not resolved.is_file():
+        raise NutanixApiError(f"Snapshot not found: {resolved.name}")
+    return resolved
 
 
 _METHODS = {

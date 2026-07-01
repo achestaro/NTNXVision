@@ -58,9 +58,16 @@ export interface InventoryResult {
   prism_central: PrismCentralInfo & { version_supported?: boolean };
   warnings: string[];
   collection_notes: Record<string, string>;
-  snapshot_path: string;
+  snapshot_path: string | null;
   exports: Record<string, string>;
+  export_errors: Record<string, string>;
   excel_path?: string;
+}
+
+export interface ExportResult {
+  paths: Record<string, string>;
+  errors: Record<string, string>;
+  path: string | null;
 }
 
 export interface ProgressEvent {
@@ -93,7 +100,7 @@ export interface NtnxApi {
   ping(): Promise<{ pong: boolean; version: string }>;
   inventory(req: InventoryRequest): Promise<InventoryResult>;
   listSnapshots(): Promise<SnapshotInfo[]>;
-  exportSnapshot(snapshotPath: string, formats: ExportFormat[]): Promise<{ paths: Record<string, string> }>;
+  exportSnapshot(snapshotPath: string, formats: ExportFormat[]): Promise<ExportResult>;
   revealPath(path: string): Promise<void>;
   onProgress(cb: (e: ProgressEvent) => void): () => void;
 }

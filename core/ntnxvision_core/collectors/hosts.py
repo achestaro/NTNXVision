@@ -50,13 +50,28 @@ class HostCollector(Collector):
                     ipmi_ip=_nested(resources, "ipmi", "ip"),
                     cvm_ip=_nested(resources, "controller_vm", "ip"),
                     hypervisor_ip=_nested(resources, "hypervisor", "ip"),
-                    maintenance_state=resources.get("host_nics_id_list") and None,
+                    maintenance_state=_maintenance_state(resources),
                     num_vms=resources.get("num_vms"),
                     gpu_list=[g for g in gpus if g],
                     api_source="v3",
                 )
             )
         env.collection_notes[self.name] = "ok"
+
+
+def _maintenance_state(resources: dict[str, Any]) -> str | None:
+    """Derive a host's maintenance state from v3 host resources.
+
+    v3 exposes this as `node_state` (e.g. NORMAL / ENTERED_MAINTENANCE_MODE) and/or a
+    boolean `host_in_maintenance_mode`; fall back gracefully when neither is present.
+    """
+    node_state = resources.get("node_state")
+    if node_state:
+        return node_state
+    flag = resources.get("host_in_maintenance_mode")
+    if flag is None:
+        return None
+    return "ENTERED_MAINTENANCE_MODE" if flag else "NORMAL"
 
 
 def _nested(d: dict[str, Any], *keys: str) -> Any:

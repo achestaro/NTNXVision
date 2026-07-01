@@ -107,17 +107,28 @@ class ElementConnection:
         )
         return self._json_or_raise(resp)
 
-    def v2_list(self, path: str, page_size: int = 250) -> list[dict[str, Any]]:
-        """Fetch all entities from a v2.0 list endpoint, following offset paging."""
+    def v2_list(
+        self,
+        path: str,
+        page_size: int = 250,
+        extra_params: dict[str, Any] | None = None,
+    ) -> list[dict[str, Any]]:
+        """Fetch all entities from a v2.0 list endpoint, following offset paging.
+
+        `extra_params` are merged into every page request (e.g. the VM endpoint's
+        include_vm_disk_config / include_vm_nic_config flags).
+        """
         results: list[dict[str, Any]] = []
         offset = 0
         while True:
-            params = {"count": page_size, "offset": offset}
+            params = {"count": page_size, "offset": offset, **(extra_params or {})}
             payload = self.get(path, params=params)
             entities = payload.get("entities", []) or []
             results.extend(entities)
             metadata = payload.get("metadata", {}) or {}
-            total = metadata.get("grand_total_entities") or metadata.get("total_entities")
+            total = metadata.get("grand_total_entities")
+            if total is None:
+                total = metadata.get("total_entities")
             offset += len(entities)
             if not entities or (total is not None and offset >= total):
                 break
