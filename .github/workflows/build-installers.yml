@@ -45,8 +45,16 @@ jobs:
       - name: Package Electron app
         working-directory: app
         env:
-          # unsigned CI builds: skip mac code signing discovery
+          # Never scan the runner keychain; sign only with an explicitly provided cert.
           CSC_IDENTITY_AUTO_DISCOVERY: "false"
+          # macOS Developer ID signing + notarization — all optional. When the secrets
+          # are unset these are empty and electron-builder produces an unsigned build
+          # (Gatekeeper then requires `xattr -cr` after download). See build/README.md.
+          CSC_LINK: ${{ secrets.MAC_CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.MAC_CSC_KEY_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
           npm ci
           npm run package
