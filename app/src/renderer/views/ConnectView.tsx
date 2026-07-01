@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { ExportFormat, InventoryResult, ProgressEvent } from '@shared/ipc';
+import { ConnectionMode, ExportFormat, InventoryResult, ProgressEvent } from '@shared/ipc';
 
 const ALL_FORMATS: { key: ExportFormat; label: string }[] = [
   { key: 'excel', label: 'Excel (.xlsx)' },
@@ -8,6 +8,7 @@ const ALL_FORMATS: { key: ExportFormat; label: string }[] = [
 ];
 
 export function ConnectView(): JSX.Element {
+  const [mode, setMode] = useState<ConnectionMode>('prism_central');
   const [host, setHost] = useState('');
   const [username, setUsername] = useState('admin');
   const [password, setPassword] = useState('');
@@ -16,6 +17,8 @@ export function ConnectView(): JSX.Element {
   const [name, setName] = useState('environment');
   const [saveCreds, setSaveCreds] = useState(false);
   const [formats, setFormats] = useState<ExportFormat[]>(['excel']);
+
+  const isPE = mode === 'prism_element';
 
   const [ndbEnabled, setNdbEnabled] = useState(false);
   const [ndbHost, setNdbHost] = useState('');
@@ -53,6 +56,7 @@ export function ConnectView(): JSX.Element {
     setProgress([]);
     try {
       const res = await window.ntnx.inventory({
+        mode,
         host,
         username,
         password,
@@ -61,7 +65,10 @@ export function ConnectView(): JSX.Element {
         name,
         formats: formats.length ? formats : ['excel'],
         saveCredentials: saveCreds,
-        ndb: ndbEnabled && ndbHost ? { host: ndbHost, username: ndbUser, password: ndbPass } : undefined,
+        ndb:
+          !isPE && ndbEnabled && ndbHost
+            ? { host: ndbHost, username: ndbUser, password: ndbPass }
+            : undefined,
       });
       setResult(res);
     } catch (e) {
@@ -75,15 +82,33 @@ export function ConnectView(): JSX.Element {
     <>
       <h1>Collect Inventory</h1>
       <p className="subtitle">
-        Connect to Prism Central and generate a full Nutanix Cloud Platform report.
+        {isPE
+          ? 'Connect directly to a cluster (Prism Element, AOS 6.5–7.5) via the v2.0 API.'
+          : 'Connect to Prism Central and generate a full Nutanix Cloud Platform report.'}
       </p>
 
       {error && <div className="banner err">{error}</div>}
 
       <div className="card">
         <div className="field">
-          <label>Prism Central (FQDN or IP)</label>
-          <input type="text" value={host} placeholder="pc.example.com"
+          <label>Connection mode</label>
+          <div className="row" style={{ gap: 18 }}>
+            <label className="check">
+              <input type="radio" name="mode" checked={!isPE}
+                onChange={() => setMode('prism_central')} />
+              Prism Central (all registered clusters)
+            </label>
+            <label className="check">
+              <input type="radio" name="mode" checked={isPE}
+                onChange={() => setMode('prism_element')} />
+              Direct cluster (Prism Element)
+            </label>
+          </div>
+        </div>
+        <div className="field">
+          <label>{isPE ? 'Cluster / Prism Element (FQDN or IP)' : 'Prism Central (FQDN or IP)'}</label>
+          <input type="text" value={host}
+            placeholder={isPE ? 'cluster.example.com' : 'pc.example.com'}
             onChange={(e) => setHost(e.target.value)} />
         </div>
         <div className="row">
@@ -130,11 +155,13 @@ export function ConnectView(): JSX.Element {
           </label>
         </div>
 
+        {!isPE && (
         <label className="check" style={{ marginBottom: ndbEnabled ? 12 : 18 }}>
           <input type="checkbox" checked={ndbEnabled} onChange={(e) => setNdbEnabled(e.target.checked)} />
           Also inventory Nutanix Database Service (NDB / Era)
         </label>
-        {ndbEnabled && (
+        )}
+        {!isPE && ndbEnabled && (
           <div className="row" style={{ marginBottom: 18 }}>
             <div className="field">
               <label>NDB Host</label>
@@ -178,12 +205,14 @@ export function ConnectView(): JSX.Element {
 
 function ResultCard({ result }: { result: InventoryResult }): JSX.Element {
   const s = result.summary;
-  const stats: [string, number][] = [
+  const infraStats: [string, number][] = [
     ['Clusters', s.clusters],
     ['Hosts', s.hosts],
     ['VMs', s.vms],
     ['Storage', s.storage_containers],
     ['Subnets', s.subnets],
+  ];
+  const platformStats: [string, number][] = [
     ['Protection Policies', s.protection_policies ?? 0],
     ['Recovery Plans', s.recovery_plans ?? 0],
     ['Flow Policies', s.security_policies ?? 0],
@@ -192,12 +221,20 @@ function ResultCard({ result }: { result: InventoryResult }): JSX.Element {
     ['Object Stores', s.object_stores ?? 0],
     ['Databases', s.databases ?? 0],
   ];
+  const stats = result.source_type === 'prism_element'
+    ? infraStats
+    : [...infraStats, ...platformStats];
+  const isPE = result.source_type === 'prism_element';
   return (
     <>
       <div className="banner ok">
-        Collection complete — Prism Central {result.prism_central.version ?? ''} (
-        {result.prism_central.host}).
+        Collection complete — {isPE ? 'Cluster (AOS ' : 'Prism Central '}
+        {result.prism_central.version ?? ''}
+        {isPE ? ')' : ''} ({result.prism_central.host}).
       </div>
+      {(result.warnings ?? []).map((w, i) => (
+        <div className="banner warn" key={i}>⚠ {w}</div>
+      ))}
       <div className="summary-grid">
         {stats.map(([lbl, num]) => (
           <div className="stat" key={lbl}>
