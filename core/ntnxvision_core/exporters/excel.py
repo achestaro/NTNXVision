@@ -26,13 +26,26 @@ GIB = 1024**3
 class ExcelExporter:
     def export(self, env: Environment, path: str | Path) -> Path:
         wb = Workbook()
+        # Phase 1 — core infrastructure
         self._overview_sheet(wb, env)
         self._clusters_sheet(wb, env)
         self._hosts_sheet(wb, env)
         self._vms_sheet(wb, env)
         self._storage_sheet(wb, env)
         self._subnets_sheet(wb, env)
+        # Phase 2 — data protection / DR
+        self._dr_sheets(wb, env)
+        # Phase 2 — Flow
+        self._flow_sheets(wb, env)
+        # Phase 2 — NUS
+        self._nus_sheets(wb, env)
+        # Phase 2 — NDB
+        self._ndb_sheets(wb, env)
+        # Phase 2 — IAM / automation
+        self._iam_sheets(wb, env)
+        # Licensing + analysis + diagnostics
         self._licenses_sheet(wb, env)
+        self._feature_usage_sheet(wb, env)
         self._notes_sheet(wb, env)
 
         out = Path(path)
@@ -144,6 +157,157 @@ class ExcelExporter:
             for s in env.subnets
         ]
         self._table(wb, "Subnets", headers, rows)
+
+    # ─── Phase 2: Data Protection / DR ─────────────────────────────
+
+    def _dr_sheets(self, wb: Workbook, env: Environment) -> None:
+        self._table(
+            wb, "Protection Policies",
+            ["Name", "RPO (s)", "Replication", "Local Retention", "Remote Retention",
+             "Source AZ", "Target AZ", "Categories", "API"],
+            [[p.name, p.rpo_seconds, p.replication_type, p.local_retention, p.remote_retention,
+              p.source_az, p.target_az, ", ".join(p.categories), p.api_source]
+             for p in env.protection_policies],
+        )
+        self._table(
+            wb, "Recovery Plans",
+            ["Name", "Stages", "Entities", "Primary Location", "Recovery Location",
+             "Network Mappings", "API"],
+            [[r.name, r.stage_count, r.entities_count, r.primary_location, r.recovery_location,
+              r.network_mappings, r.api_source] for r in env.recovery_plans],
+        )
+        self._table(
+            wb, "Availability Zones",
+            ["Name", "Type", "Region", "URL", "Connection", "API"],
+            [[a.name, a.az_type, a.region, a.url, a.connection_status, a.api_source]
+             for a in env.availability_zones],
+        )
+
+    # ─── Phase 2: Flow ─────────────────────────────────────────────
+
+    def _flow_sheets(self, wb: Workbook, env: Environment) -> None:
+        self._table(
+            wb, "Flow Security Policies",
+            ["Name", "Type", "State", "Inbound Rules", "Outbound Rules", "Secured Group", "API"],
+            [[p.name, p.policy_type, p.state, p.inbound_rule_count, p.outbound_rule_count,
+              p.secured_group, p.api_source] for p in env.security_policies],
+        )
+        self._table(
+            wb, "Flow Categories",
+            ["Name", "Value", "Description", "API"],
+            [[c.name, c.value, c.description, c.api_source] for c in env.categories],
+        )
+        self._table(
+            wb, "Service Groups",
+            ["Name", "System", "TCP Ports", "UDP Ports", "ICMP", "API"],
+            [[s.name, "Yes" if s.is_system else "No", s.tcp_ports, s.udp_ports,
+              "Yes" if s.icmp else "No", s.api_source] for s in env.service_groups],
+        )
+        self._table(
+            wb, "Address Groups",
+            ["Name", "System", "IP Ranges", "API"],
+            [[a.name, "Yes" if a.is_system else "No", ", ".join(a.ip_ranges), a.api_source]
+             for a in env.address_groups],
+        )
+        self._table(
+            wb, "VPCs",
+            ["Name", "External Subnets", "Routable Prefixes", "DNS Servers", "API"],
+            [[v.name, ", ".join(v.external_subnets), ", ".join(v.externally_routable_prefixes),
+              ", ".join(v.dns_servers), v.api_source] for v in env.vpcs],
+        )
+
+    # ─── Phase 2: NUS (Files / Objects / Volumes) ──────────────────
+
+    def _nus_sheets(self, wb: Workbook, env: Environment) -> None:
+        self._table(
+            wb, "File Servers",
+            ["Name", "Cluster", "Version", "FSVMs", "Size (GiB)", "Used (GiB)", "Shares", "API"],
+            [[f.name, f.cluster_name, f.version, f.num_fsvm, _gib(f.size_bytes),
+              _gib(f.used_bytes), f.share_count, f.api_source] for f in env.file_servers],
+        )
+        self._table(
+            wb, "File Shares",
+            ["Name", "File Server", "Type", "Protocol", "Max Size (GiB)", "Used (GiB)", "API"],
+            [[s.name, s.file_server_name, s.share_type, s.protocol, _gib(s.max_size_bytes),
+              _gib(s.used_bytes), s.api_source] for s in env.file_shares],
+        )
+        self._table(
+            wb, "Object Stores",
+            ["Name", "Cluster", "Version", "Workers", "Capacity (GiB)", "Used (GiB)",
+             "Buckets", "State", "API"],
+            [[o.name, o.cluster_name, o.deployment_version, o.num_worker_nodes,
+              _gib(o.total_capacity_bytes), _gib(o.used_bytes), o.bucket_count, o.state,
+              o.api_source] for o in env.object_stores],
+        )
+        self._table(
+            wb, "Volume Groups",
+            ["Name", "Cluster", "Disks", "Capacity (GiB)", "Shared", "iSCSI Target",
+             "Attachments", "API"],
+            [[v.name, v.cluster_name, v.disk_count, _gib(v.total_capacity_bytes),
+              "Yes" if v.is_shared else "No", v.iscsi_target, v.attachment_count, v.api_source]
+             for v in env.volume_groups],
+        )
+
+    # ─── Phase 2: NDB ──────────────────────────────────────────────
+
+    def _ndb_sheets(self, wb: Workbook, env: Environment) -> None:
+        self._table(
+            wb, "Databases",
+            ["Name", "Engine", "Type", "Status", "DB Server", "Time Machine", "SLA",
+             "Clone", "API"],
+            [[d.name, d.db_engine, d.db_type, d.status, d.db_server_name, d.time_machine_name,
+              d.sla_name, "Yes" if d.clone else "No", d.api_source] for d in env.databases],
+        )
+        self._table(
+            wb, "Database Servers",
+            ["Name", "Engine", "IPs", "Status", "Cluster", "Cores", "Memory (GB)", "API"],
+            [[s.name, s.db_engine, ", ".join(s.ip_addresses), s.status, s.cluster_name,
+              s.vm_cores, s.memory_gb, s.api_source] for s in env.database_servers],
+        )
+        self._table(
+            wb, "Time Machines",
+            ["Name", "Database", "SLA", "Status", "Schedule", "Clones", "API"],
+            [[t.name, t.database_name, t.sla_name, t.status, t.schedule, t.clone_count,
+              t.api_source] for t in env.time_machines],
+        )
+
+    # ─── Phase 2: IAM / automation ─────────────────────────────────
+
+    def _iam_sheets(self, wb: Workbook, env: Environment) -> None:
+        self._table(
+            wb, "Users",
+            ["Username", "Display Name", "Type", "Directory", "State", "API"],
+            [[u.username, u.display_name, u.user_type, u.directory, u.state, u.api_source]
+             for u in env.users],
+        )
+        self._table(
+            wb, "Roles",
+            ["Name", "Description", "System", "Permissions", "API"],
+            [[r.name, r.description, "Yes" if r.is_system else "No", r.permission_count,
+              r.api_source] for r in env.roles],
+        )
+        self._table(
+            wb, "Projects",
+            ["Name", "Description", "Users", "API"],
+            [[p.name, p.description, p.user_count, p.api_source] for p in env.projects],
+        )
+        self._table(
+            wb, "Playbooks (X-Play)",
+            ["Name", "Trigger", "Actions", "Enabled", "Description", "API"],
+            [[p.name, p.trigger_type, p.action_count, "Yes" if p.is_enabled else "No",
+              p.description, p.api_source] for p in env.playbooks],
+        )
+        self._table(
+            wb, "NCM Reports",
+            ["Name", "Type", "Schedule", "API"],
+            [[r.name, r.report_type, r.schedule, r.api_source] for r in env.ncm_reports],
+        )
+
+    def _feature_usage_sheet(self, wb: Workbook, env: Environment) -> None:
+        from ntnxvision_core.analysis import analyze_feature_usage
+
+        rows = [fu.as_row() for fu in analyze_feature_usage(env)]
+        self._table(wb, "Feature Usage", ["Product", "Feature", "In Use", "Detail"], rows)
 
     def _licenses_sheet(self, wb: Workbook, env: Environment) -> None:
         headers = ["Product", "Edition", "Category", "Quantity", "Expiry", "Compliance"]

@@ -84,3 +84,105 @@ def test_snapshot_roundtrip(tmp_path) -> None:
     loaded = store.load(path)
     assert loaded.summary() == _sample_env().summary()
     assert loaded.vms[0].name == "app-01"
+
+
+# ─── Phase 2 coverage ──────────────────────────────────────────────────
+
+
+def _phase2_env() -> Environment:
+    from ntnxvision_core.models import (
+        Database,
+        FileServer,
+        ProtectionPolicy,
+        RecoveryPlan,
+        SecurityPolicy,
+        User,
+        Vpc,
+    )
+
+    env = _sample_env()
+    env.protection_policies.append(
+        ProtectionPolicy(uuid="pp1", name="gold", rpo_seconds=3600, replication_type="ASYNC")
+    )
+    env.recovery_plans.append(RecoveryPlan(uuid="rp1", name="dr-plan", stage_count=2))
+    env.security_policies.append(
+        SecurityPolicy(uuid="sp1", name="web-tier", policy_type="APPLICATION", state="ENFORCE")
+    )
+    env.vpcs.append(Vpc(uuid="vpc1", name="prod-vpc"))
+    env.file_servers.append(FileServer(uuid="fs1", name="files-01", num_fsvm=3))
+    env.databases.append(Database(id="db1", name="ORCL", db_engine="oracle", status="READY"))
+    env.users.append(User(uuid="u1", username="admin", user_type="LOCAL"))
+    return env
+
+
+def test_phase2_summary_and_sheets(tmp_path) -> None:
+    env = _phase2_env()
+    s = env.summary()
+    assert s["protection_policies"] == 1
+    assert s["security_policies"] == 1
+    assert s["vpcs"] == 1
+    assert s["file_servers"] == 1
+    assert s["databases"] == 1
+
+    out = tmp_path / "p2.xlsx"
+    ExcelExporter().export(env, out)
+    wb = load_workbook(out)
+    for sheet in [
+        "Protection Policies", "Recovery Plans", "Flow Security Policies", "VPCs",
+        "File Servers", "Databases", "Users", "Feature Usage",
+    ]:
+        assert sheet in wb.sheetnames
+
+
+def test_feature_usage_analysis() -> None:
+    from ntnxvision_core.analysis import analyze_feature_usage
+
+    rows = analyze_feature_usage(_phase2_env())
+    by_feature = {r.feature: r for r in rows}
+    assert by_feature["Async DR replication"].in_use is True
+    assert by_feature["Microsegmentation policies"].in_use is True
+    assert by_feature["File servers"].in_use is True
+    assert by_feature["Managed databases"].in_use is True
+    # Something not configured in the sample should be flagged not-in-use.
+    assert by_feature["Metro Availability"].in_use is False
+
+
+# ─── Phase 3: PDF + Word exporters + dispatcher ────────────────────────
+
+
+def test_export_dispatcher_all_formats(tmp_path) -> None:
+    from ntnxvision_core.exporters import export_environment
+
+    env = _phase2_env()
+    xlsx = export_environment(env, "excel", tmp_path, "env")
+    pdf = export_environment(env, "pdf", tmp_path, "env")
+    docx = export_environment(env, "word", tmp_path, "env")
+
+    assert xlsx.exists() and xlsx.suffix == ".xlsx"
+    assert pdf.exists() and pdf.suffix == ".pdf"
+    assert docx.exists() and docx.suffix == ".docx"
+    # Non-trivial output sizes (files actually got written).
+    assert pdf.stat().st_size > 1000
+    assert docx.stat().st_size > 1000
+
+
+def test_export_dispatcher_rejects_unknown_format(tmp_path) -> None:
+    import pytest
+
+    from ntnxvision_core.exporters import export_environment
+
+    with pytest.raises(ValueError):
+        export_environment(_sample_env(), "csv", tmp_path, "env")
+
+
+def test_word_doc_has_headings(tmp_path) -> None:
+    from docx import Document
+
+    from ntnxvision_core.exporters.word import WordExporter
+
+    out = WordExporter().export(_phase2_env(), tmp_path / "add.docx")
+    doc = Document(str(out))
+    headings = [p.text for p in doc.paragraphs if p.style.name.startswith("Heading")]
+    assert any("Executive Summary" in h for h in headings)
+    assert any("Data Protection" in h for h in headings)
+    assert any("Licensing" in h for h in headings)

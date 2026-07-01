@@ -57,7 +57,8 @@ ipcMain.handle(IPC.inventory, async (_e, req: InventoryRequest) => {
     port: req.port,
     insecure: req.insecure,
     name: req.name,
-    export: req.export,
+    formats: req.formats,
+    ndb: req.ndb,
   });
   if (req.saveCredentials && password) {
     await secrets.setPassword(req.host, req.username, password);
@@ -67,8 +68,8 @@ ipcMain.handle(IPC.inventory, async (_e, req: InventoryRequest) => {
 
 ipcMain.handle(IPC.listSnapshots, () => sidecar.call('list_snapshots'));
 
-ipcMain.handle(IPC.exportSnapshot, (_e, snapshotPath: string) =>
-  sidecar.call('export', { snapshot: snapshotPath }),
+ipcMain.handle(IPC.exportSnapshot, (_e, snapshotPath: string, formats: string[]) =>
+  sidecar.call('export', { snapshot: snapshotPath, formats }),
 );
 
 ipcMain.handle(IPC.revealPath, (_e, p: string) => {

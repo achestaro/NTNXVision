@@ -18,9 +18,8 @@ dependencies = [
     "typer>=0.12",           # CLI / sidecar entrypoint
     "rich>=13.7",            # pretty CLI output & progress
     "openpyxl>=3.1",         # Excel export
-    # PDF/Word added in Phase 3:
-    # "python-docx>=1.1",
-    # "weasyprint>=61.0",
+    "fpdf2>=2.7",            # PDF export — pure Python, no native GTK/Pango deps
+    "python-docx>=1.1",     # Word Architecture Design Document
 ]
 
 [project.optional-dependencies]

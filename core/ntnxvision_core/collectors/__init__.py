@@ -4,20 +4,33 @@ Each collector takes a `PrismConnection`, calls the appropriate API (v4 preferre
 v3 fallback), and returns normalized model objects. The `engine` runs them and
 assembles an `Environment`.
 
-Phase 1 collectors: clusters, hosts, vms, storage, subnets, licenses.
-Later phases add: dataprotection, flow_microseg, flow_vpc, files, objects, ndb,
-iam, lifecycle, monitoring, xplay, ncm_reports.
+Phase 1 (core infra): clusters, hosts, storage, subnets, vms, licenses.
+Phase 2 (platform):    data protection, flow security + networking, files, objects,
+                       volumes, iam, x-play, ncm reports.  NDB is separate (own conn).
 """
 
 from ntnxvision_core.collectors.base import Collector
 from ntnxvision_core.collectors.clusters import ClusterCollector
+from ntnxvision_core.collectors.dataprotection import DataProtectionCollector
+from ntnxvision_core.collectors.flow import (
+    FlowNetworkingCollector,
+    FlowSecurityCollector,
+)
 from ntnxvision_core.collectors.hosts import HostCollector
+from ntnxvision_core.collectors.iam import IamCollector
 from ntnxvision_core.collectors.licenses import LicenseCollector
+from ntnxvision_core.collectors.ncm import NcmCollector
+from ntnxvision_core.collectors.nus import (
+    FilesCollector,
+    ObjectsCollector,
+    VolumesCollector,
+)
 from ntnxvision_core.collectors.storage import StorageCollector
 from ntnxvision_core.collectors.subnets import SubnetCollector
 from ntnxvision_core.collectors.vms import VmCollector
+from ntnxvision_core.collectors.xplay import XPlayCollector
 
-#: Ordered list of Phase 1 collectors the engine runs by default.
+#: Phase 1 collectors — core infrastructure inventory.
 PHASE1_COLLECTORS: list[type[Collector]] = [
     ClusterCollector,
     HostCollector,
@@ -27,6 +40,22 @@ PHASE1_COLLECTORS: list[type[Collector]] = [
     LicenseCollector,
 ]
 
+#: Phase 2 collectors — full platform coverage (all PrismConnection-based).
+PHASE2_COLLECTORS: list[type[Collector]] = [
+    DataProtectionCollector,
+    FlowSecurityCollector,
+    FlowNetworkingCollector,
+    FilesCollector,
+    ObjectsCollector,
+    VolumesCollector,
+    IamCollector,
+    XPlayCollector,
+    NcmCollector,
+]
+
+#: The default full inventory — everything reachable through Prism Central.
+ALL_COLLECTORS: list[type[Collector]] = PHASE1_COLLECTORS + PHASE2_COLLECTORS
+
 __all__ = [
     "Collector",
     "ClusterCollector",
@@ -35,5 +64,16 @@ __all__ = [
     "SubnetCollector",
     "VmCollector",
     "LicenseCollector",
+    "DataProtectionCollector",
+    "FlowSecurityCollector",
+    "FlowNetworkingCollector",
+    "FilesCollector",
+    "ObjectsCollector",
+    "VolumesCollector",
+    "IamCollector",
+    "XPlayCollector",
+    "NcmCollector",
     "PHASE1_COLLECTORS",
+    "PHASE2_COLLECTORS",
+    "ALL_COLLECTORS",
 ]

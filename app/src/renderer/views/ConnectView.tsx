@@ -1,5 +1,11 @@
 import React, { useEffect, useState } from 'react';
-import { InventoryResult, ProgressEvent } from '@shared/ipc';
+import { ExportFormat, InventoryResult, ProgressEvent } from '@shared/ipc';
+
+const ALL_FORMATS: { key: ExportFormat; label: string }[] = [
+  { key: 'excel', label: 'Excel (.xlsx)' },
+  { key: 'pdf', label: 'PDF report' },
+  { key: 'word', label: 'Word ADD (.docx)' },
+];
 
 export function ConnectView(): JSX.Element {
   const [host, setHost] = useState('');
@@ -9,6 +15,12 @@ export function ConnectView(): JSX.Element {
   const [insecure, setInsecure] = useState(true);
   const [name, setName] = useState('environment');
   const [saveCreds, setSaveCreds] = useState(false);
+  const [formats, setFormats] = useState<ExportFormat[]>(['excel']);
+
+  const [ndbEnabled, setNdbEnabled] = useState(false);
+  const [ndbHost, setNdbHost] = useState('');
+  const [ndbUser, setNdbUser] = useState('admin');
+  const [ndbPass, setNdbPass] = useState('');
 
   const [running, setRunning] = useState(false);
   const [progress, setProgress] = useState<ProgressEvent[]>([]);
@@ -26,9 +38,13 @@ export function ConnectView(): JSX.Element {
     return off;
   }, []);
 
-  const total = progress.length ? progress[0]?.total ?? 6 : 6;
+  const total = progress.length ? progress[0]?.total ?? 15 : 15;
   const done = progress.filter((p) => p && p.status !== 'running').length;
   const pct = Math.round((done / total) * 100);
+
+  function toggleFormat(f: ExportFormat): void {
+    setFormats((prev) => (prev.includes(f) ? prev.filter((x) => x !== f) : [...prev, f]));
+  }
 
   async function run(): Promise<void> {
     setRunning(true);
@@ -43,8 +59,9 @@ export function ConnectView(): JSX.Element {
         port,
         insecure,
         name,
-        export: true,
+        formats: formats.length ? formats : ['excel'],
         saveCredentials: saveCreds,
+        ndb: ndbEnabled && ndbHost ? { host: ndbHost, username: ndbUser, password: ndbPass } : undefined,
       });
       setResult(res);
     } catch (e) {
@@ -57,7 +74,9 @@ export function ConnectView(): JSX.Element {
   return (
     <>
       <h1>Collect Inventory</h1>
-      <p className="subtitle">Connect to Prism Central and generate a full environment report.</p>
+      <p className="subtitle">
+        Connect to Prism Central and generate a full Nutanix Cloud Platform report.
+      </p>
 
       {error && <div className="banner err">{error}</div>}
 
@@ -86,7 +105,21 @@ export function ConnectView(): JSX.Element {
           <label>Snapshot / report name</label>
           <input type="text" value={name} onChange={(e) => setName(e.target.value)} />
         </div>
-        <div className="row" style={{ marginBottom: 18 }}>
+
+        <div className="field">
+          <label>Export formats</label>
+          <div className="row" style={{ gap: 18 }}>
+            {ALL_FORMATS.map((f) => (
+              <label className="check" key={f.key}>
+                <input type="checkbox" checked={formats.includes(f.key)}
+                  onChange={() => toggleFormat(f.key)} />
+                {f.label}
+              </label>
+            ))}
+          </div>
+        </div>
+
+        <div className="row" style={{ marginBottom: 14 }}>
           <label className="check">
             <input type="checkbox" checked={insecure} onChange={(e) => setInsecure(e.target.checked)} />
             Skip TLS verification (lab / self-signed)
@@ -96,8 +129,31 @@ export function ConnectView(): JSX.Element {
             Save credentials to OS keychain
           </label>
         </div>
+
+        <label className="check" style={{ marginBottom: ndbEnabled ? 12 : 18 }}>
+          <input type="checkbox" checked={ndbEnabled} onChange={(e) => setNdbEnabled(e.target.checked)} />
+          Also inventory Nutanix Database Service (NDB / Era)
+        </label>
+        {ndbEnabled && (
+          <div className="row" style={{ marginBottom: 18 }}>
+            <div className="field">
+              <label>NDB Host</label>
+              <input type="text" value={ndbHost} placeholder="ndb.example.com"
+                onChange={(e) => setNdbHost(e.target.value)} />
+            </div>
+            <div className="field">
+              <label>NDB Username</label>
+              <input type="text" value={ndbUser} onChange={(e) => setNdbUser(e.target.value)} />
+            </div>
+            <div className="field">
+              <label>NDB Password</label>
+              <input type="password" value={ndbPass} onChange={(e) => setNdbPass(e.target.value)} />
+            </div>
+          </div>
+        )}
+
         <button className="btn" disabled={running || !host || !username} onClick={run}>
-          {running ? 'Collecting…' : 'Collect & Export to Excel'}
+          {running ? 'Collecting…' : 'Collect & Export'}
         </button>
 
         {(running || progress.length > 0) && (
@@ -126,9 +182,15 @@ function ResultCard({ result }: { result: InventoryResult }): JSX.Element {
     ['Clusters', s.clusters],
     ['Hosts', s.hosts],
     ['VMs', s.vms],
-    ['Storage Containers', s.storage_containers],
+    ['Storage', s.storage_containers],
     ['Subnets', s.subnets],
-    ['Licenses', s.licenses],
+    ['Protection Policies', s.protection_policies ?? 0],
+    ['Recovery Plans', s.recovery_plans ?? 0],
+    ['Flow Policies', s.security_policies ?? 0],
+    ['VPCs', s.vpcs ?? 0],
+    ['File Servers', s.file_servers ?? 0],
+    ['Object Stores', s.object_stores ?? 0],
+    ['Databases', s.databases ?? 0],
   ];
   return (
     <>
@@ -144,14 +206,18 @@ function ResultCard({ result }: { result: InventoryResult }): JSX.Element {
           </div>
         ))}
       </div>
-      {result.excel_path && (
-        <p style={{ marginTop: 18 }}>
-          Excel report:{' '}
-          <span className="link" onClick={() => window.ntnx.revealPath(result.excel_path!)}>
-            {result.excel_path}
-          </span>
-        </p>
-      )}
+      <div style={{ marginTop: 18 }}>
+        {Object.entries(result.exports || {}).map(([fmt, path]) => (
+          <p key={fmt}>
+            {fmt.toUpperCase()}:{' '}
+            {path.startsWith('error') ? (
+              <span className="muted">{path}</span>
+            ) : (
+              <span className="link" onClick={() => window.ntnx.revealPath(path)}>{path}</span>
+            )}
+          </p>
+        ))}
+      </div>
     </>
   );
 }

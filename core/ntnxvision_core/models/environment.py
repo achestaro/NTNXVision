@@ -186,7 +186,276 @@ class LicenseInfo(_Base):
     compliance: str | None = None
 
 
-# ─── Feature-area summaries (populated in later phases) ────────────────
+# ─── Data Protection / DR ──────────────────────────────────────────────
+
+
+class ProtectionPolicy(_Base):
+    uuid: str
+    name: str | None = None
+    rpo_seconds: int | None = None
+    replication_type: str | None = None  # ASYNC / NEARSYNC / SYNC / METRO
+    local_retention: int | None = None
+    remote_retention: int | None = None
+    source_az: str | None = None
+    target_az: str | None = None
+    categories: list[str] = Field(default_factory=list)
+    api_source: str = "v3"
+
+
+class RecoveryPlan(_Base):
+    uuid: str
+    name: str | None = None
+    stage_count: int | None = None
+    entities_count: int | None = None
+    primary_location: str | None = None
+    recovery_location: str | None = None
+    network_mappings: int | None = None
+    has_test_failover: bool | None = None
+    api_source: str = "v3"
+
+
+class AvailabilityZone(_Base):
+    uuid: str | None = None
+    name: str | None = None
+    az_type: str | None = None  # PHYSICAL / XI
+    region: str | None = None
+    url: str | None = None
+    connection_status: str | None = None
+    api_source: str = "v3"
+
+
+class RemoteSite(_Base):
+    uuid: str | None = None
+    name: str | None = None
+    cluster_name: str | None = None
+    address: str | None = None
+    status: str | None = None
+    api_source: str = "v3"
+
+
+# ─── Flow Network Security ─────────────────────────────────────────────
+
+
+class SecurityPolicy(_Base):
+    uuid: str
+    name: str | None = None
+    policy_type: str | None = None  # APPLICATION / ISOLATION / QUARANTINE
+    state: str | None = None  # MONITOR / ENFORCE / SAVE
+    app_rule_action: str | None = None
+    inbound_rule_count: int | None = None
+    outbound_rule_count: int | None = None
+    secured_group: str | None = None
+    api_source: str = "v3"
+
+
+class Category(_Base):
+    name: str
+    value: str | None = None
+    description: str | None = None
+    api_source: str = "v3"
+
+
+class ServiceGroup(_Base):
+    uuid: str
+    name: str | None = None
+    is_system: bool | None = None
+    tcp_ports: str | None = None
+    udp_ports: str | None = None
+    icmp: bool = False
+    api_source: str = "v3"
+
+
+class AddressGroup(_Base):
+    uuid: str
+    name: str | None = None
+    is_system: bool | None = None
+    ip_ranges: list[str] = Field(default_factory=list)
+    api_source: str = "v3"
+
+
+# ─── Flow Virtual Networking ───────────────────────────────────────────
+
+
+class Vpc(_Base):
+    uuid: str
+    name: str | None = None
+    external_subnets: list[str] = Field(default_factory=list)
+    externally_routable_prefixes: list[str] = Field(default_factory=list)
+    dns_servers: list[str] = Field(default_factory=list)
+    api_source: str = "v4"
+
+
+class FloatingIp(_Base):
+    uuid: str | None = None
+    floating_ip: str | None = None
+    vpc_name: str | None = None
+    external_subnet: str | None = None
+    associated_private_ip: str | None = None
+    api_source: str = "v4"
+
+
+# ─── Nutanix Unified Storage: Files / Objects / Volumes ────────────────
+
+
+class FileServer(_Base):
+    uuid: str
+    name: str | None = None
+    cluster_name: str | None = None
+    version: str | None = None
+    num_fsvm: int | None = None
+    internal_network: str | None = None
+    external_network: str | None = None
+    size_bytes: int | None = None
+    used_bytes: int | None = None
+    share_count: int | None = None
+    api_source: str = "v3"
+
+
+class FileShare(_Base):
+    uuid: str
+    name: str | None = None
+    file_server_name: str | None = None
+    share_type: str | None = None  # SMB / NFS
+    max_size_bytes: int | None = None
+    used_bytes: int | None = None
+    protocol: str | None = None
+    api_source: str = "v3"
+
+
+class ObjectStore(_Base):
+    uuid: str
+    name: str | None = None
+    cluster_name: str | None = None
+    deployment_version: str | None = None
+    num_worker_nodes: int | None = None
+    total_capacity_bytes: int | None = None
+    used_bytes: int | None = None
+    bucket_count: int | None = None
+    state: str | None = None
+    api_source: str = "v3"
+
+
+class Bucket(_Base):
+    name: str
+    object_store_name: str | None = None
+    versioning: bool | None = None
+    worm_enabled: bool | None = None
+    object_count: int | None = None
+    used_bytes: int | None = None
+    api_source: str = "v3"
+
+
+class VolumeGroup(_Base):
+    uuid: str
+    name: str | None = None
+    cluster_name: str | None = None
+    disk_count: int | None = None
+    total_capacity_bytes: int | None = None
+    is_shared: bool | None = None
+    iscsi_target: str | None = None
+    attachment_count: int | None = None
+    flash_mode: bool | None = None
+    api_source: str = "v4"
+
+
+# ─── NDB — Nutanix Database Service ────────────────────────────────────
+
+
+class DatabaseServer(_Base):
+    id: str
+    name: str | None = None
+    db_engine: str | None = None
+    ip_addresses: list[str] = Field(default_factory=list)
+    status: str | None = None
+    cluster_name: str | None = None
+    vm_cores: int | None = None
+    memory_gb: float | None = None
+    api_source: str = "ndb"
+
+
+class Database(_Base):
+    id: str
+    name: str | None = None
+    db_engine: str | None = None  # oracle / postgres / sqlserver / mysql / mongodb
+    db_type: str | None = None  # single / HA cluster
+    status: str | None = None
+    db_server_name: str | None = None
+    time_machine_name: str | None = None
+    sla_name: str | None = None
+    clone: bool = False
+    provisioned: str | None = None
+    api_source: str = "ndb"
+
+
+class TimeMachine(_Base):
+    id: str
+    name: str | None = None
+    database_name: str | None = None
+    sla_name: str | None = None
+    status: str | None = None
+    schedule: str | None = None
+    clone_count: int | None = None
+    api_source: str = "ndb"
+
+
+# ─── IAM ───────────────────────────────────────────────────────────────
+
+
+class User(_Base):
+    uuid: str | None = None
+    username: str | None = None
+    display_name: str | None = None
+    user_type: str | None = None  # LOCAL / SAML / LDAP
+    directory: str | None = None
+    state: str | None = None
+    api_source: str = "v3"
+
+
+class Role(_Base):
+    uuid: str | None = None
+    name: str | None = None
+    description: str | None = None
+    is_system: bool | None = None
+    permission_count: int | None = None
+    api_source: str = "v3"
+
+
+class Project(_Base):
+    uuid: str | None = None
+    name: str | None = None
+    description: str | None = None
+    resource_domain: str | None = None
+    user_count: int | None = None
+    api_source: str = "v3"
+
+
+# ─── X-Play (Playbooks) ────────────────────────────────────────────────
+
+
+class Playbook(_Base):
+    uuid: str
+    name: str | None = None
+    description: str | None = None
+    trigger_type: str | None = None  # ALERT / MANUAL / WEBHOOK / SCHEDULED
+    action_count: int | None = None
+    is_enabled: bool | None = None
+    execution_count: int | None = None
+    api_source: str = "v3"
+
+
+# ─── NCM Reports ───────────────────────────────────────────────────────
+
+
+class NcmReport(_Base):
+    uuid: str | None = None
+    name: str | None = None
+    report_type: str | None = None
+    schedule: str | None = None
+    last_run: str | None = None
+    api_source: str = "v3"
+
+
+# ─── Feature-area summaries ────────────────────────────────────────────
 
 
 class DataProtectionSummary(_Base):
@@ -222,6 +491,7 @@ class Environment(_Base):
     tool_version: str = "0.1.0"
     prism_central: PrismCentral = Field(default_factory=PrismCentral)
 
+    # ─ Phase 1: core infrastructure ─
     clusters: list[Cluster] = Field(default_factory=list)
     hosts: list[Host] = Field(default_factory=list)
     vms: list[VirtualMachine] = Field(default_factory=list)
@@ -229,6 +499,40 @@ class Environment(_Base):
     subnets: list[Subnet] = Field(default_factory=list)
     licenses: list[LicenseInfo] = Field(default_factory=list)
 
+    # ─ Phase 2: Data Protection / DR ─
+    protection_policies: list[ProtectionPolicy] = Field(default_factory=list)
+    recovery_plans: list[RecoveryPlan] = Field(default_factory=list)
+    availability_zones: list[AvailabilityZone] = Field(default_factory=list)
+    remote_sites: list[RemoteSite] = Field(default_factory=list)
+
+    # ─ Phase 2: Flow ─
+    security_policies: list[SecurityPolicy] = Field(default_factory=list)
+    categories: list[Category] = Field(default_factory=list)
+    service_groups: list[ServiceGroup] = Field(default_factory=list)
+    address_groups: list[AddressGroup] = Field(default_factory=list)
+    vpcs: list[Vpc] = Field(default_factory=list)
+    floating_ips: list[FloatingIp] = Field(default_factory=list)
+
+    # ─ Phase 2: NUS (Files / Objects / Volumes) ─
+    file_servers: list[FileServer] = Field(default_factory=list)
+    file_shares: list[FileShare] = Field(default_factory=list)
+    object_stores: list[ObjectStore] = Field(default_factory=list)
+    buckets: list[Bucket] = Field(default_factory=list)
+    volume_groups: list[VolumeGroup] = Field(default_factory=list)
+
+    # ─ Phase 2: NDB ─
+    database_servers: list[DatabaseServer] = Field(default_factory=list)
+    databases: list[Database] = Field(default_factory=list)
+    time_machines: list[TimeMachine] = Field(default_factory=list)
+
+    # ─ Phase 2: IAM / X-Play / NCM ─
+    users: list[User] = Field(default_factory=list)
+    roles: list[Role] = Field(default_factory=list)
+    projects: list[Project] = Field(default_factory=list)
+    playbooks: list[Playbook] = Field(default_factory=list)
+    ncm_reports: list[NcmReport] = Field(default_factory=list)
+
+    # Roll-up summaries
     data_protection: DataProtectionSummary = Field(default_factory=DataProtectionSummary)
     flow: FlowSummary = Field(default_factory=FlowSummary)
 
@@ -243,4 +547,25 @@ class Environment(_Base):
             "storage_containers": len(self.storage_containers),
             "subnets": len(self.subnets),
             "licenses": len(self.licenses),
+            "protection_policies": len(self.protection_policies),
+            "recovery_plans": len(self.recovery_plans),
+            "availability_zones": len(self.availability_zones),
+            "security_policies": len(self.security_policies),
+            "categories": len(self.categories),
+            "service_groups": len(self.service_groups),
+            "address_groups": len(self.address_groups),
+            "vpcs": len(self.vpcs),
+            "file_servers": len(self.file_servers),
+            "file_shares": len(self.file_shares),
+            "object_stores": len(self.object_stores),
+            "buckets": len(self.buckets),
+            "volume_groups": len(self.volume_groups),
+            "database_servers": len(self.database_servers),
+            "databases": len(self.databases),
+            "time_machines": len(self.time_machines),
+            "users": len(self.users),
+            "roles": len(self.roles),
+            "projects": len(self.projects),
+            "playbooks": len(self.playbooks),
+            "ncm_reports": len(self.ncm_reports),
         }

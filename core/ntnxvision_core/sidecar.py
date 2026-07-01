@@ -25,8 +25,9 @@ from typing import Any
 from ntnxvision_core import __version__
 from ntnxvision_core.api import PrismCredentials
 from ntnxvision_core.api.errors import NutanixApiError
+from ntnxvision_core.api.ndb_client import NdbCredentials
 from ntnxvision_core.engine import collect_environment
-from ntnxvision_core.exporters import ExcelExporter
+from ntnxvision_core.exporters import export_environment
 from ntnxvision_core.paths import exports_dir, snapshots_dir
 from ntnxvision_core.store import SnapshotStore
 
@@ -80,11 +81,21 @@ def _m_inventory(req_id: Any, params: dict[str, Any]) -> dict[str, Any]:
     )
     name = params.get("name") or "environment"
 
+    ndb_creds = None
+    ndb = params.get("ndb") or {}
+    if ndb.get("host") and ndb.get("username"):
+        ndb_creds = NdbCredentials(
+            host=ndb["host"],
+            username=ndb["username"],
+            password=ndb.get("password", ""),
+            verify_ssl=not params.get("insecure", False),
+        )
+
     def progress(idx: int, total: int, label: str, status: str) -> None:
         _notify("progress", {"id": req_id, "index": idx, "total": total,
                              "label": label, "status": status})
 
-    env = collect_environment(creds, progress=progress)
+    env = collect_environment(creds, progress=progress, ndb_creds=ndb_creds)
 
     snap_path = SnapshotStore(snapshots_dir()).save(env, name)
     result: dict[str, Any] = {
@@ -92,11 +103,19 @@ def _m_inventory(req_id: Any, params: dict[str, Any]) -> dict[str, Any]:
         "prism_central": env.prism_central.model_dump(),
         "collection_notes": env.collection_notes,
         "snapshot_path": str(snap_path),
+        "exports": {},
     }
-    if params.get("export", True):
-        out = exports_dir() / f"{name}.xlsx"
-        ExcelExporter().export(env, out)
-        result["excel_path"] = str(out)
+    # Formats: default excel; UI may request ["excel", "pdf", "word"].
+    formats = params.get("formats") or (["excel"] if params.get("export", True) else [])
+    for fmt in formats:
+        try:
+            out = export_environment(env, fmt, exports_dir(), name)
+            result["exports"][fmt] = str(out)
+        except Exception as exc:  # noqa: BLE001 — a failed export shouldn't lose the run
+            result["exports"][fmt] = f"error: {exc}"
+    # Back-compat convenience key.
+    if "excel" in result["exports"] and not result["exports"]["excel"].startswith("error"):
+        result["excel_path"] = result["exports"]["excel"]
     return result
 
 
@@ -115,10 +134,25 @@ def _m_list_snapshots(_req_id: Any, _params: dict[str, Any]) -> list[dict[str, A
 
 
 def _m_export(_req_id: Any, params: dict[str, Any]) -> dict[str, Any]:
-    env = SnapshotStore(snapshots_dir()).load(params["snapshot"])
-    out = params.get("out") or str(exports_dir() / "environment.xlsx")
-    ExcelExporter().export(env, out)
-    return {"path": out}
+    """Re-export a saved snapshot to one or more formats (excel / pdf / word)."""
+    snap_path = params["snapshot"]
+    env = SnapshotStore(snapshots_dir()).load(snap_path)
+    name = params.get("name") or _snapshot_name(snap_path)
+    formats = params.get("formats") or [params.get("format", "excel")]
+
+    paths: dict[str, str] = {}
+    for fmt in formats:
+        try:
+            paths[fmt] = str(export_environment(env, fmt, exports_dir(), name))
+        except Exception as exc:  # noqa: BLE001
+            paths[fmt] = f"error: {exc}"
+    return {"paths": paths, "path": next(iter(paths.values()), None)}
+
+
+def _snapshot_name(snap_path: str) -> str:
+    from pathlib import Path
+
+    return Path(snap_path).stem.replace(".ntnxsnap", "")
 
 
 _METHODS = {

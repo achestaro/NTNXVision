@@ -8,7 +8,8 @@ contextBridge.exposeInMainWorld('ntnx', {
   ping: () => ipcRenderer.invoke(IPC.ping),
   inventory: (req: InventoryRequest) => ipcRenderer.invoke(IPC.inventory, req),
   listSnapshots: () => ipcRenderer.invoke(IPC.listSnapshots),
-  exportSnapshot: (path: string) => ipcRenderer.invoke(IPC.exportSnapshot, path),
+  exportSnapshot: (path: string, formats: string[]) =>
+    ipcRenderer.invoke(IPC.exportSnapshot, path, formats),
   revealPath: (path: string) => ipcRenderer.invoke(IPC.revealPath, path),
   onProgress: (cb: (e: ProgressEvent) => void) => {
     const listener = (_: unknown, params: ProgressEvent) => cb(params);
