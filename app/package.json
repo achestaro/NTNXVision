@@ -7,9 +7,10 @@
   "private": true,
   "main": "dist/main/main.js",
   "scripts": {
-    "dev": "concurrently -k \"npm:dev:renderer\" \"npm:dev:main\"",
+    "dev": "npm run build:main && concurrently -k -n vite,tsc,electron -c cyan,yellow,green \"npm:dev:renderer\" \"npm:dev:main\" \"npm:dev:electron\"",
     "dev:renderer": "vite",
     "dev:main": "tsc -p tsconfig.main.json -w",
+    "dev:electron": "wait-on http://localhost:5273 dist/main/main.js && electron .",
     "build": "npm run build:renderer && npm run build:main",
     "build:renderer": "vite build",
     "build:main": "tsc -p tsconfig.main.json",
@@ -31,7 +32,8 @@
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "typescript": "^5.4.0",
-    "vite": "^5.2.0"
+    "vite": "^5.2.0",
+    "wait-on": "^7.2.0"
   },
   "build": {
     "appId": "com.achestaro.ntnxvision",
