@@ -7,19 +7,24 @@ name = "ntnxvision-core"
 version = "0.1.0"
 description = "Inventory & documentation core for Nutanix Prism Central (NTNXVision)"
 readme = "README.md"
-requires-python = ">=3.10"
+# Cap the upper bound: brand-new Python releases (e.g. 3.14) often lack prebuilt wheels
+# for pydantic-core/lxml, which forces pip into a long backtracking search that can end
+# in ResolutionImpossible. 3.10–3.13 all have wheels for every runtime dep.
+requires-python = ">=3.10,<3.14"
 authors = [{ name = "Alberto Chestaro" }]
 license = { text = "Proprietary" }
 
+# Runtime dependencies only — small and wheel-only (no native build tools required).
+# Install with `pip install -e .` (NOT `.[dev]`) to run the app.
 dependencies = [
-    "requests>=2.31",        # v3 / v2 REST fallback + NDB Era API
-    "urllib3>=2.0",
-    "pydantic>=2.6",         # normalized, version-independent data model
-    "typer>=0.12",           # CLI / sidecar entrypoint
-    "rich>=13.7",            # pretty CLI output & progress
-    "openpyxl>=3.1",         # Excel export
-    "fpdf2>=2.7",            # PDF export — pure Python, no native GTK/Pango deps
-    "python-docx>=1.1",     # Word Architecture Design Document
+    "requests>=2.31,<3",     # v3 / v2 REST fallback + NDB Era API
+    "urllib3>=2.0,<3",
+    "pydantic>=2.6,<3",      # normalized, version-independent data model
+    "typer>=0.12,<1",        # CLI / sidecar entrypoint
+    "rich>=13.7,<15",        # pretty CLI output & progress
+    "openpyxl>=3.1,<4",      # Excel export
+    "fpdf2>=2.7,<3",         # PDF export — pure Python, no native GTK/Pango deps
+    "python-docx>=1.1,<2",   # Word Architecture Design Document
 ]
 
 [project.optional-dependencies]

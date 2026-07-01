@@ -34,7 +34,7 @@ class HostCollector(Collector):
                     name=status.get("name"),
                     cluster_uuid=self._uuid_of(cluster_ref),
                     cluster_name=self._name_of(cluster_ref),
-                    hypervisor_type=_nested(resources, "hypervisor", "hypervisor_type"),
+                    hypervisor_type=_hypervisor_type(resources),
                     hypervisor_version=_nested(resources, "hypervisor", "hypervisor_full_name"),
                     cpu_model=resources.get("cpu_model"),
                     num_cpu_sockets=resources.get("num_cpu_sockets"),
@@ -57,6 +57,32 @@ class HostCollector(Collector):
                 )
             )
         env.collection_notes[self.name] = "ok"
+
+
+def _hypervisor_type(resources: dict[str, Any]) -> str | None:
+    """Derive the hypervisor type from the v3 host resources.
+
+    v3 does not always populate `hypervisor.hypervisor_type`; infer it from the
+    hypervisor's full name (AHV builds report 'Nutanix'/'AHV'; ESXi reports 'VMware').
+    """
+    explicit = _nested(resources, "hypervisor", "hypervisor_type")
+    if explicit:
+        return _short(explicit)
+    full = _nested(resources, "hypervisor", "hypervisor_full_name") or ""
+    return _short(full)
+
+
+def _short(value: str) -> str | None:
+    v = value.lower()
+    if not v:
+        return None
+    if "ahv" in v or "nutanix" in v or "kvm" in v or "el" in v.split():
+        return "AHV"
+    if "esx" in v or "vmware" in v:
+        return "ESXi"
+    if "hyper-v" in v or "hyperv" in v:
+        return "Hyper-V"
+    return value or None
 
 
 def _maintenance_state(resources: dict[str, Any]) -> str | None:

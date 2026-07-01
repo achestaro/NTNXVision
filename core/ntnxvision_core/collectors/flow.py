@@ -144,18 +144,20 @@ class FlowNetworkingCollector(Collector):
                 s.get("external_subnet_reference", {}).get("name")
                 for s in resources.get("external_subnet_list", []) or []
             ]
-            prefixes = [
-                f"{p.get('ip')}/{p.get('prefix_length')}"
-                for p in resources.get("externally_routable_prefix_list", []) or []
-                if p.get("ip")
-            ]
+            prefixes = [_prefix_str(p) for p in
+                        resources.get("externally_routable_prefix_list", []) or []]
             env.vpcs.append(
                 Vpc(
                     uuid=entity.get("metadata", {}).get("uuid", ""),
                     name=spec.get("name"),
                     external_subnets=[s for s in ext_subnets if s],
-                    externally_routable_prefixes=prefixes,
-                    dns_servers=resources.get("common_domain_name_server_ip_list", []) or [],
+                    externally_routable_prefixes=[p for p in prefixes if p],
+                    # Each DNS entry is a {'ip': ...} dict in v3, not a bare string.
+                    dns_servers=[
+                        _ip_of(d)
+                        for d in resources.get("common_domain_name_server_ip_list", []) or []
+                        if _ip_of(d)
+                    ],
                     api_source="v3",
                 )
             )
@@ -183,6 +185,29 @@ class FlowNetworkingCollector(Collector):
 
 
 # ─── helpers ───────────────────────────────────────────────────────────
+
+
+def _ip_of(entry: Any) -> str | None:
+    """A DNS/IP entry may be a bare string or a {'ip': ...} dict."""
+    if isinstance(entry, str):
+        return entry
+    if isinstance(entry, dict):
+        return entry.get("ip")
+    return None
+
+
+def _prefix_str(p: Any) -> str | None:
+    """Format an externally-routable prefix, which may nest ip/prefix_length in an 'ip' dict."""
+    if not isinstance(p, dict):
+        return None
+    ip = p.get("ip")
+    prefix_len = p.get("prefix_length")
+    if isinstance(ip, dict):  # some payloads nest as {'ip': {'ip': ..., 'prefix_length': ...}}
+        prefix_len = ip.get("prefix_length", prefix_len)
+        ip = ip.get("ip")
+    if not ip:
+        return None
+    return f"{ip}/{prefix_len}" if prefix_len is not None else str(ip)
 
 
 def _target_group(filter_spec: dict[str, Any]) -> str | None:

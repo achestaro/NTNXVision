@@ -19,6 +19,8 @@ from docx.oxml.ns import qn
 from docx.shared import Pt, RGBColor
 
 from ntnxvision_core.models import Environment
+from ntnxvision_core.notes import clean_error as _clean_error
+from ntnxvision_core.notes import pretty_label as _pretty
 
 GIB = 1024**3
 _NAVY = RGBColor(0x1F, 0x4E, 0x78)
@@ -145,11 +147,21 @@ class WordExporter:
             "areas not deployed are noted as such in the relevant sections.",
         ]:
             doc.add_paragraph(item, style="List Bullet")
-        notes = [(k, v) for k, v in env.collection_notes.items() if not v.startswith("ok")]
-        if notes:
-            doc.add_paragraph("Collection notes (skipped / errored areas):")
-            for name, status in notes:
-                doc.add_paragraph(f"{name}: {status}", style="List Bullet")
+        for w in env.warnings:
+            p = doc.add_paragraph(w, style="List Bullet")
+            p.runs[0].italic = True
+
+        skipped = {k: v for k, v in env.collection_notes.items() if v.startswith("skipped")}
+        errored = {k: v for k, v in env.collection_notes.items() if v.startswith("error")}
+        if skipped:
+            doc.add_paragraph("Areas not present / not deployed in this environment:")
+            for name, status in skipped.items():
+                reason = status.split(":", 1)[1].strip() if ":" in status else status
+                doc.add_paragraph(f"{_pretty(name)} — {reason}", style="List Bullet")
+        if errored:
+            doc.add_paragraph("Areas that could not be fully collected:")
+            for name, status in errored.items():
+                doc.add_paragraph(f"{_pretty(name)} — {_clean_error(status)}", style="List Bullet")
         doc.add_page_break()
 
     def _logical_design(self, doc: Document, env: Environment) -> None:

@@ -24,10 +24,10 @@ class XPlayCollector(Collector):
             return
 
         for entity in entities:
-            spec = entity.get("spec", {})
-            resources = spec.get("resources", {})
-            trigger = _first(resources.get("trigger_list", []))
-            actions = resources.get("action_list", []) or []
+            spec = entity.get("spec") or {}
+            resources = spec.get("resources") or {}
+            trigger = _first(resources.get("trigger_list") or [])
+            actions = resources.get("action_list") or []
             env.playbooks.append(
                 Playbook(
                     uuid=entity.get("metadata", {}).get("uuid", ""),
@@ -43,7 +43,8 @@ class XPlayCollector(Collector):
 
 
 def _first(items: list[Any]) -> dict[str, Any]:
-    return items[0] if items else {}
+    first = items[0] if items else None
+    return first if isinstance(first, dict) else {}
 
 
 def _trigger_type(trigger: dict[str, Any]) -> str | None:
