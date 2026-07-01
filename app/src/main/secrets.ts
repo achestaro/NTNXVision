@@ -9,7 +9,7 @@ const SERVICE = 'NTNXVision';
 type Keytar = typeof import('keytar');
 let keytar: Keytar | null = null;
 try {
-  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
   keytar = require('keytar');
 } catch {
   keytar = null;

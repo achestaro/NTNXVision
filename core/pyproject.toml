@@ -50,6 +50,7 @@ dev = [
     "ruff>=0.3",
     "mypy>=1.9",
     "types-requests",
+    "types-openpyxl",
     "pyinstaller>=6.5",      # freeze the sidecar for packaging
 ]
 

@@ -57,7 +57,7 @@ def _handle(request: dict[str, Any]) -> None:
     method = request.get("method")
     params = request.get("params") or {}
     try:
-        handler = _METHODS.get(method)
+        handler = _METHODS.get(method) if isinstance(method, str) else None
         if handler is None:
             _error(req_id, -32601, f"Method not found: {method}")
             return
