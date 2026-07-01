@@ -5,7 +5,14 @@
 # Produces dist/ntnxvision-sidecar/ which electron-builder bundles as resources/sidecar.
 
 # -*- mode: python ; coding: utf-8 -*-
+import os
+
 from PyInstaller.utils.hooks import collect_submodules
+
+# Anchor to the spec file so the build works from any cwd. The package is installed
+# editable (PEP 660 finder) which PyInstaller can't trace — putting the real source
+# tree on pathex lets Analysis resolve ntnxvision_core directly.
+CORE_DIR = os.path.abspath(os.path.join(SPECPATH, ".."))  # noqa: F821
 
 hiddenimports = (
     collect_submodules("ntnxvision_core")
@@ -14,8 +21,8 @@ hiddenimports = (
 )
 
 a = Analysis(
-    ["entry.py"],
-    pathex=[".."],
+    [os.path.join(SPECPATH, "entry.py")],  # noqa: F821
+    pathex=[CORE_DIR],
     binaries=[],
     datas=[],
     hiddenimports=hiddenimports,

@@ -42,6 +42,9 @@
   "build": {
     "appId": "com.achestaro.ntnxvision",
     "productName": "NTNXVision",
+    "directories": {
+      "output": "release"
+    },
     "files": [
       "dist/**/*",
       "node_modules/**/*"
