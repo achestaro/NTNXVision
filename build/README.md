@@ -29,9 +29,14 @@ main process launches the frozen binary in packaged builds, or the dev venv Pyth
 | OS      | Output | Signing |
 |---------|--------|---------|
 | Windows | NSIS installer (`.exe`) | Authenticode (configure cert) |
-| macOS   | `.dmg` (universal)      | Apple notarization (configure identity) |
+| macOS   | `.dmg` (arm64)          | Apple notarization (configure identity) |
 
-## CI (future)
+Local packaged output lands in `app/release/` (git-ignored).
 
-A GitHub Actions matrix (windows-latest + macos-latest) can run PyInstaller then
-electron-builder per-OS and attach installers to a release. Not committed yet.
+## CI
+
+`.github/workflows/build-installers.yml` runs a windows-latest + macos-latest matrix:
+PyInstaller freeze → sidecar ping smoke test → `npm run package`, and uploads the
+installers as artifacts (`NTNXVision-windows-installer`, `NTNXVision-macos-dmg`).
+Trigger manually (`gh workflow run build-installers.yml`) or push a `v*` tag.
+CI builds are unsigned (`CSC_IDENTITY_AUTO_DISCOVERY=false`); configure certs later.
