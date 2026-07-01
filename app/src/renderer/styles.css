@@ -23,8 +23,12 @@ body { margin: 0; background: var(--bg); color: var(--text); }
   border-right: 1px solid var(--border);
   padding: 20px 14px;
 }
-.brand { font-size: 20px; font-weight: 700; letter-spacing: 0.5px; margin-bottom: 4px; }
-.brand span { color: var(--accent); }
+.brand {
+  display: flex; align-items: center; gap: 10px;
+  font-size: 20px; font-weight: 700; letter-spacing: 0.5px; margin-bottom: 4px;
+}
+.brand-logo { width: 34px; height: 34px; border-radius: 8px; }
+.brand-name span { color: var(--accent); }
 .tagline { font-size: 11px; color: var(--muted); margin-bottom: 24px; }
 .nav button {
   display: block; width: 100%; text-align: left; padding: 10px 12px; margin-bottom: 4px;
