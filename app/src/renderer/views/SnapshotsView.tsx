@@ -14,13 +14,14 @@ export function SnapshotsView(): JSX.Element {
     void refresh();
   }, []);
 
-  async function reexport(path: string): Promise<void> {
+  async function reexport(path: string, format: 'excel' | 'pdf' | 'word'): Promise<void> {
     setBusy(true);
     setMsg(null);
     try {
-      const { path: out } = await window.ntnx.exportSnapshot(path);
+      const { paths } = await window.ntnx.exportSnapshot(path, [format]);
+      const out = Object.values(paths)[0];
       setMsg(`Exported → ${out}`);
-      window.ntnx.revealPath(out);
+      if (out && !out.startsWith('error')) window.ntnx.revealPath(out);
     } catch (e) {
       setMsg(e instanceof Error ? e.message : String(e));
     } finally {
@@ -60,10 +61,18 @@ export function SnapshotsView(): JSX.Element {
                   <td>{s.summary.clusters}</td>
                   <td>{s.summary.hosts}</td>
                   <td>{s.summary.vms}</td>
-                  <td>
+                  <td style={{ whiteSpace: 'nowrap' }}>
                     <button className="btn secondary" disabled={busy}
-                      onClick={() => reexport(s.path)}>
-                      Export Excel
+                      onClick={() => reexport(s.path, 'excel')}>
+                      Excel
+                    </button>{' '}
+                    <button className="btn secondary" disabled={busy}
+                      onClick={() => reexport(s.path, 'pdf')}>
+                      PDF
+                    </button>{' '}
+                    <button className="btn secondary" disabled={busy}
+                      onClick={() => reexport(s.path, 'word')}>
+                      Word
                     </button>
                   </td>
                 </tr>

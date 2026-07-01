@@ -6,23 +6,47 @@ field came from.
 """
 
 from ntnxvision_core.models.environment import (
+    AddressGroup,
+    AvailabilityZone,
+    Bucket,
+    Category,
     Cluster,
+    Database,
+    DatabaseServer,
     DataProtectionSummary,
     Environment,
+    FileServer,
+    FileShare,
+    FloatingIp,
     FlowSummary,
     Host,
     LicenseInfo,
+    NcmReport,
     Nic,
+    ObjectStore,
+    Playbook,
     PrismCentral,
+    Project,
+    ProtectionPolicy,
+    RecoveryPlan,
+    RemoteSite,
+    Role,
+    SecurityPolicy,
+    ServiceGroup,
     StorageContainer,
     Subnet,
+    TimeMachine,
+    User,
     VirtualDisk,
     VirtualMachine,
+    VolumeGroup,
+    Vpc,
 )
 
 __all__ = [
     "Environment",
     "PrismCentral",
+    # Phase 1
     "Cluster",
     "Host",
     "StorageContainer",
@@ -31,6 +55,35 @@ __all__ = [
     "Nic",
     "Subnet",
     "LicenseInfo",
+    # Data Protection / DR
+    "ProtectionPolicy",
+    "RecoveryPlan",
+    "AvailabilityZone",
+    "RemoteSite",
+    # Flow
+    "SecurityPolicy",
+    "Category",
+    "ServiceGroup",
+    "AddressGroup",
+    "Vpc",
+    "FloatingIp",
+    # NUS
+    "FileServer",
+    "FileShare",
+    "ObjectStore",
+    "Bucket",
+    "VolumeGroup",
+    # NDB
+    "DatabaseServer",
+    "Database",
+    "TimeMachine",
+    # IAM / X-Play / NCM
+    "User",
+    "Role",
+    "Project",
+    "Playbook",
+    "NcmReport",
+    # Summaries
     "DataProtectionSummary",
     "FlowSummary",
 ]

@@ -15,7 +15,7 @@ well-formatted **Word Architecture Design Document**.
 - **UI shell:** Electron + React + TypeScript (modern, point-and-click, cross-platform)
 - **Core:** Python — official Nutanix **v4 SDKs** with **v3 / v2 REST** fallback for
   features not yet in v4 (recovery plans, X-Play, some Flow rules)
-- **Exports:** `openpyxl` (Excel), `weasyprint` (PDF), `python-docx` (Word ADD)
+- **Exports:** `openpyxl` (Excel), `fpdf2` (PDF), `python-docx` (Word ADD)
 - **Safety:** read-only collection; credentials in the OS keychain; local-only IPC
 
 See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for the full design, the Nutanix
@@ -32,8 +32,11 @@ build/  Packaging config (electron-builder + PyInstaller)
 
 ## Development status
 
-**Phase 1 (in progress):** connect → inventory clusters/hosts/VMs/storage/networking →
-snapshot → Excel export, driven from the Electron UI.
+**Phases 1–3 complete** (pending live-lab validation). Full Nutanix Cloud Platform
+inventory — infrastructure, Data Protection/DR, Flow (security + VPC networking),
+Files/Objects/Volumes, IAM, X-Play, NCM reports, and NDB — with a license/feature-usage
+analysis and exports to **Excel**, **PDF**, and a **Word Architecture Design Document**,
+driven from the Electron UI (with format picker and optional NDB collection).
 
 See the roadmap in [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md#10-roadmap-phased).
 
