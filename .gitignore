@@ -15,10 +15,11 @@ snapshots/
 *.ntnxsnap
 data/
 exports/
-resources/lab/          # local lab run outputs & logs (real IPs / usernames / VM names)
+resources/             # local lab run artifacts & downloads (real IPs / usernames / VM names)
 *.xlsx
 *.pdf
 *.docx
+*.zip
 !core/templates/**/*.docx   # keep template docx files
 
 # ─── Python ────────────────────────────────────────────────────────

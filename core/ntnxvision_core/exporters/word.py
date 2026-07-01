@@ -23,7 +23,10 @@ from ntnxvision_core.notes import clean_error as _clean_error
 from ntnxvision_core.notes import pretty_label as _pretty
 
 GIB = 1024**3
-_NAVY = RGBColor(0x1F, 0x4E, 0x78)
+_NAVY = RGBColor(0x18, 0x3A, 0x5C)
+_ACCENT = RGBColor(0x00, 0x7A, 0xCC)
+_HEADER_BG = "1F4E78"
+_ZEBRA_BG = "F1F5FA"
 
 
 class WordExporter:
@@ -34,8 +37,10 @@ class WordExporter:
         self._toc(doc)
         self._executive_summary(doc, env)
         self._assumptions(doc, env)
+        self._pc_management(doc, env)
         self._logical_design(doc, env)
         self._physical_design(doc, env)
+        self._catalog(doc, env)
         self._storage_services(doc, env)
         self._networking(doc, env)
         self._data_protection(doc, env)
@@ -57,12 +62,21 @@ class WordExporter:
         normal.font.size = Pt(11)
 
     def _cover(self, doc: Document, env: Environment) -> None:
-        for _ in range(6):
+        for _ in range(4):
             doc.add_paragraph()
+
+        # Branded product name with an accent kicker.
+        kicker = doc.add_paragraph()
+        kicker.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        krun = kicker.add_run("NTNXVISION")
+        krun.font.size = Pt(14)
+        krun.font.bold = True
+        krun.font.color.rgb = _ACCENT
+
         title = doc.add_paragraph()
         title.alignment = WD_ALIGN_PARAGRAPH.CENTER
         run = title.add_run("Nutanix Cloud Platform")
-        run.font.size = Pt(30)
+        run.font.size = Pt(32)
         run.font.bold = True
         run.font.color.rgb = _NAVY
 
@@ -72,19 +86,36 @@ class WordExporter:
         srun.font.size = Pt(20)
         srun.font.color.rgb = RGBColor(0x40, 0x40, 0x40)
 
-        for _ in range(4):
+        # Accent rule under the title.
+        rule = doc.add_paragraph()
+        rule.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        rrun = rule.add_run("________________________")
+        rrun.font.color.rgb = _ACCENT
+
+        for _ in range(3):
             doc.add_paragraph()
-        for label, value in [
+
+        # Metadata as a centered 2-column table for a clean, aligned look.
+        meta = [
             ("Prism Central", env.prism_central.host or "n/a"),
             ("PC Version", env.prism_central.version or "unknown"),
-            ("Collected (UTC)", env.collected_at or "n/a"),
+            ("Clusters", str(len(env.clusters))),
+            ("Collected (UTC)", (env.collected_at or "n/a")[:19].replace("T", "  ")),
             ("Prepared by", "NTNXVision"),
-        ]:
-            p = doc.add_paragraph()
-            p.alignment = WD_ALIGN_PARAGRAPH.CENTER
-            r = p.add_run(f"{label}:  {value}")
-            r.font.size = Pt(12)
-            r.font.color.rgb = RGBColor(0x60, 0x60, 0x60)
+        ]
+        table = doc.add_table(rows=0, cols=2)
+        table.alignment = 1  # center
+        for label, value in meta:
+            cells = table.add_row().cells
+            lp = cells[0].paragraphs[0]
+            lp.alignment = WD_ALIGN_PARAGRAPH.RIGHT
+            lr = lp.add_run(f"{label}   ")
+            lr.font.bold = True
+            lr.font.size = Pt(11)
+            lr.font.color.rgb = _NAVY
+            vr = cells[1].paragraphs[0].add_run(value)
+            vr.font.size = Pt(11)
+            vr.font.color.rgb = RGBColor(0x40, 0x40, 0x40)
         doc.add_page_break()
 
     def _toc(self, doc: Document) -> None:
@@ -164,148 +195,201 @@ class WordExporter:
                 doc.add_paragraph(f"{_pretty(name)} — {_clean_error(status)}", style="List Bullet")
         doc.add_page_break()
 
+    def _pc_management(self, doc: Document, env: Environment) -> None:
+        cfg = env.pc_config
+        self._heading(doc, "3. Prism Central — Management & Sizing", level=1)
+        doc.add_paragraph(
+            "Prism Central is the management plane for this environment. The table below "
+            "records its version, sizing, and the number of clusters it manages."
+        )
+        deployment = (
+            "Scale-out (multi-node)" if cfg.is_scale_out
+            else "Single-node" if cfg.is_scale_out is not None else "Unknown"
+        )
+        self._table(
+            doc, ["Property", "Value"],
+            [
+                ["Version", cfg.version or "—"],
+                ["Deployment", deployment],
+                ["PC nodes", str(cfg.node_count or "—")],
+                ["Registered clusters", str(cfg.registered_cluster_count or "—")],
+                ["Total vCPU", str(cfg.num_vcpus or "—")],
+                ["Total memory (GiB)", str(_gib(cfg.memory_bytes) or "—")],
+                ["PC VM(s)", ", ".join(cfg.pc_vm_names) or "—"],
+                ["IP address(es)", ", ".join(cfg.ip_addresses) or "—"],
+            ],
+            "Table 3-1. Prism Central management-plane configuration.",
+        )
+
+    def _catalog(self, doc: Document, env: Environment) -> None:
+        self._heading(doc, "6. Catalog — Templates, Images & OVAs", level=1)
+        self._heading(doc, "6.1 VM Templates", level=2)
+        self._table(
+            doc, ["Template", "Guest OS", "vCPU", "Memory (GiB)", "Active Version"],
+            [[t.name, t.guest_os, str(t.num_vcpus or ""), str(_gib(t.memory_bytes) or ""),
+              t.active_version or "—"] for t in env.templates],
+            "Table 6-1. VM templates.",
+            empty="No VM templates are defined in Prism Central.",
+        )
+        self._heading(doc, "6.2 Images", level=2)
+        self._table(
+            doc, ["Image", "Type", "Size (GiB)", "Architecture", "Clusters"],
+            [[i.name, i.image_type, str(_gib(i.size_bytes) or ""), i.architecture or "—",
+              ", ".join(i.cluster_names) or "—"] for i in env.images],
+            "Table 6-2. Images.",
+            empty="No images are present in the Prism Central catalog.",
+        )
+        self._heading(doc, "6.3 OVAs", level=2)
+        self._table(
+            doc, ["OVA", "Size (GiB)", "Disks", "Cluster"],
+            [[o.name, str(_gib(o.size_bytes) or ""), str(o.disk_count or ""),
+              o.cluster_name or "—"] for o in env.ovas],
+            "Table 6-3. OVAs.",
+            empty="No OVAs are present in the Prism Central catalog.",
+        )
+
     def _logical_design(self, doc: Document, env: Environment) -> None:
-        self._heading(doc, "3. Logical Design", level=1)
+        self._heading(doc, "4. Logical Design", level=1)
         doc.add_paragraph(
             "The environment is managed centrally through Prism Central, which registers and "
             "orchestrates the clusters below. Workloads are organised using categories and "
             "projects, protected by protection policies, and secured by Flow policies."
         )
-        self._heading(doc, "3.1 Clusters Overview", level=2)
+        self._heading(doc, "4.1 Clusters Overview", level=2)
         self._table(
             doc, ["Cluster", "AOS", "Hypervisor", "Nodes", "RF", "Encryption"],
             [[c.name, c.aos_version, ", ".join(c.hypervisor_types), str(c.num_nodes or ""),
               str(c.redundancy_factor or ""), "Yes" if c.encryption_enabled else "No"]
              for c in env.clusters],
-            "Table 3-1. Registered clusters.",
+            "Table 4-1. Registered clusters.",
         )
 
     def _physical_design(self, doc: Document, env: Environment) -> None:
-        self._heading(doc, "4. Physical Design", level=1)
-        self._heading(doc, "4.1 Nodes / Hosts", level=2)
+        self._heading(doc, "5. Physical Design", level=1)
+        self._heading(doc, "5.1 Nodes / Hosts", level=2)
         self._table(
             doc, ["Host", "Cluster", "CPU Model", "Cores", "Memory (GiB)", "GPUs"],
             [[h.name, h.cluster_name, h.cpu_model, str(h.num_cpu_cores or ""),
               str(_gib(h.memory_bytes) or ""), ", ".join(h.gpu_list) or "—"]
              for h in env.hosts],
-            "Table 4-1. Physical hosts.",
+            "Table 5-1. Physical hosts.",
         )
-        self._heading(doc, "4.2 Storage Containers", level=2)
+        self._heading(doc, "5.2 Storage Containers", level=2)
         self._table(
             doc, ["Container", "Cluster", "RF", "Compression", "Dedup", "EC-X", "Max (GiB)"],
             [[s.name, s.cluster_name, str(s.replication_factor or ""),
               "On" if s.compression_enabled else "Off", s.deduplication or "None",
               s.erasure_coding or "Off", str(_gib(s.max_capacity_bytes) or "")]
              for s in env.storage_containers],
-            "Table 4-2. Storage containers and data-reduction settings.",
+            "Table 5-2. Storage containers and data-reduction settings.",
         )
 
     def _storage_services(self, doc: Document, env: Environment) -> None:
-        self._heading(doc, "5. Unified Storage Services (NUS)", level=1)
-        self._heading(doc, "5.1 Files", level=2)
+        self._heading(doc, "7. Unified Storage Services (NUS)", level=1)
+        self._heading(doc, "7.1 Files", level=2)
         self._table(
             doc, ["File Server", "Cluster", "Version", "FSVMs", "Shares"],
             [[f.name, f.cluster_name, f.version, str(f.num_fsvm or ""), str(f.share_count or "")]
              for f in env.file_servers],
-            "Table 5-1. Nutanix Files servers.",
+            "Table 7-1. Nutanix Files servers.",
             empty="Nutanix Files is not deployed in this environment.",
         )
-        self._heading(doc, "5.2 Objects", level=2)
+        self._heading(doc, "7.2 Objects", level=2)
         self._table(
             doc, ["Object Store", "Cluster", "Workers", "Capacity (GiB)", "Buckets"],
             [[o.name, o.cluster_name, str(o.num_worker_nodes or ""),
               str(_gib(o.total_capacity_bytes) or ""), str(o.bucket_count or "")]
              for o in env.object_stores],
-            "Table 5-2. Nutanix Objects stores.",
+            "Table 7-2. Nutanix Objects stores.",
             empty="Nutanix Objects is not deployed in this environment.",
         )
-        self._heading(doc, "5.3 Volumes", level=2)
+        self._heading(doc, "7.3 Volumes", level=2)
         self._table(
             doc, ["Volume Group", "Cluster", "Disks", "Capacity (GiB)", "Shared"],
             [[v.name, v.cluster_name, str(v.disk_count or ""),
               str(_gib(v.total_capacity_bytes) or ""), "Yes" if v.is_shared else "No"]
              for v in env.volume_groups],
-            "Table 5-3. Volume groups.",
+            "Table 7-3. Volume groups.",
             empty="No volume groups are configured.",
         )
 
     def _networking(self, doc: Document, env: Environment) -> None:
-        self._heading(doc, "6. Networking", level=1)
-        self._heading(doc, "6.1 Subnets", level=2)
+        self._heading(doc, "8. Networking", level=1)
+        self._heading(doc, "8.1 Subnets", level=2)
         self._table(
             doc, ["Subnet", "Cluster", "Type", "VLAN", "VPC"],
             [[s.name, s.cluster_name, s.subnet_type, str(s.vlan_id or ""), s.vpc_name or "—"]
              for s in env.subnets],
-            "Table 6-1. Subnets.",
+            "Table 8-1. Subnets.",
         )
-        self._heading(doc, "6.2 Virtual Networking (VPCs)", level=2)
+        self._heading(doc, "8.2 Virtual Networking (VPCs)", level=2)
         self._table(
             doc, ["VPC", "External Subnets", "Routable Prefixes"],
             [[v.name, ", ".join(v.external_subnets), ", ".join(v.externally_routable_prefixes)]
              for v in env.vpcs],
-            "Table 6-2. Flow virtual networking VPCs.",
+            "Table 8-2. Flow virtual networking VPCs.",
             empty="Flow Virtual Networking is not enabled.",
         )
 
     def _data_protection(self, doc: Document, env: Environment) -> None:
-        self._heading(doc, "7. Data Protection & Disaster Recovery", level=1)
+        self._heading(doc, "9. Data Protection & Disaster Recovery", level=1)
         doc.add_paragraph(
             "Data protection is delivered through protection policies (snapshot and "
             "replication schedules) and recovery plans (orchestrated failover). The tables "
             "below document the configured strategy."
         )
-        self._heading(doc, "7.1 Protection Policies", level=2)
+        self._heading(doc, "9.1 Protection Policies", level=2)
         self._table(
             doc, ["Policy", "RPO (s)", "Replication", "Source AZ", "Target AZ"],
             [[p.name, str(p.rpo_seconds or ""), p.replication_type, p.source_az or "—",
               p.target_az or "—"] for p in env.protection_policies],
-            "Table 7-1. Protection policies.",
+            "Table 9-1. Protection policies.",
             empty="No protection policies are configured.",
         )
-        self._heading(doc, "7.2 Recovery Plans", level=2)
+        self._heading(doc, "9.2 Recovery Plans", level=2)
         self._table(
             doc, ["Plan", "Stages", "Entities", "Primary", "Recovery"],
             [[r.name, str(r.stage_count or ""), str(r.entities_count or ""),
               r.primary_location or "—", r.recovery_location or "—"]
              for r in env.recovery_plans],
-            "Table 7-2. Recovery plans.",
+            "Table 9-2. Recovery plans.",
             empty="No recovery plans are configured.",
         )
 
     def _security(self, doc: Document, env: Environment) -> None:
-        self._heading(doc, "8. Security Posture (Flow)", level=1)
+        self._heading(doc, "10. Security Posture (Flow)", level=1)
         self._table(
             doc, ["Policy", "Type", "State", "Inbound", "Outbound", "Secured Group"],
             [[p.name, p.policy_type, p.state, str(p.inbound_rule_count or ""),
               str(p.outbound_rule_count or ""), p.secured_group or "—"]
              for p in env.security_policies],
-            "Table 8-1. Flow network security policies.",
+            "Table 10-1. Flow network security policies.",
             empty="Flow Network Security is not configured.",
         )
 
     def _databases(self, doc: Document, env: Environment) -> None:
-        self._heading(doc, "9. Database Services (NDB)", level=1)
+        self._heading(doc, "11. Database Services (NDB)", level=1)
         self._table(
             doc, ["Database", "Engine", "Type", "Status", "SLA"],
             [[d.name, d.db_engine, d.db_type, d.status, d.sla_name or "—"]
              for d in env.databases],
-            "Table 9-1. NDB-managed databases.",
+            "Table 11-1. NDB-managed databases.",
             empty="Nutanix Database Service is not in use / not collected.",
         )
 
     def _licensing(self, doc: Document, env: Environment) -> None:
-        self._heading(doc, "10. Licensing & Feature Usage", level=1)
+        self._heading(doc, "12. Licensing & Feature Usage", level=1)
         from ntnxvision_core.analysis import analyze_feature_usage
 
         self._table(
             doc, ["Product", "Feature", "In Use", "Detail"],
             [[fu.product, fu.feature, "Yes" if fu.in_use else "No", fu.detail]
              for fu in analyze_feature_usage(env)],
-            "Table 10-1. Feature usage mapped to licensing product.",
+            "Table 12-1. Feature usage mapped to licensing product.",
         )
 
     def _appendix(self, doc: Document, env: Environment) -> None:
-        self._heading(doc, "Appendix A. Virtual Machine Inventory", level=1)
+        self._heading(doc, "Appendix A. Full Virtual Machine Inventory", level=1)
         self._table(
             doc, ["VM", "Power", "Cluster", "vCPU", "Mem (GiB)", "Disk (GiB)"],
             [[v.name, v.power_state, v.cluster_name, str(v.vcpu_total or ""),
@@ -319,7 +403,7 @@ class WordExporter:
     def _heading(self, doc: Document, text: str, level: int) -> None:
         h = doc.add_heading(text, level=level)
         for run in h.runs:
-            run.font.color.rgb = _NAVY
+            run.font.color.rgb = _NAVY if level == 1 else _ACCENT
 
     def _table(self, doc: Document, headers: list[str], rows: list[list[Any]],
                caption: str, empty: str | None = None) -> None:
@@ -329,21 +413,38 @@ class WordExporter:
                 p.runs[0].italic = True
             return
         table = doc.add_table(rows=1, cols=len(headers))
-        table.style = "Light Grid Accent 1"
+        table.style = "Table Grid"
+        # Branded header row: navy fill, white bold text.
         for i, h in enumerate(headers):
             cell = table.rows[0].cells[i]
-            cell.text = h
-            for p in cell.paragraphs:
-                for run in p.runs:
-                    run.font.bold = True
-        for row in rows:
+            _shade_cell(cell, _HEADER_BG)
+            cell.text = ""
+            run = cell.paragraphs[0].add_run(h)
+            run.font.bold = True
+            run.font.size = Pt(9)
+            run.font.color.rgb = RGBColor(0xFF, 0xFF, 0xFF)
+        for r_idx, row in enumerate(rows):
             cells = table.add_row().cells
             for i, value in enumerate(row):
-                cells[i].text = "" if value is None else str(value)
+                cells[i].text = ""
+                run = cells[i].paragraphs[0].add_run("" if value is None else str(value))
+                run.font.size = Pt(9)
+                if r_idx % 2 == 1:  # zebra striping
+                    _shade_cell(cells[i], _ZEBRA_BG)
         cap = doc.add_paragraph(caption)
         cap.runs[0].italic = True
         cap.runs[0].font.size = Pt(9)
         cap.runs[0].font.color.rgb = RGBColor(0x70, 0x70, 0x70)
+
+
+def _shade_cell(cell: Any, hex_color: str) -> None:
+    """Set a table cell's background fill (docx has no direct API for this)."""
+    tc_pr = cell._tc.get_or_add_tcPr()
+    shd = OxmlElement("w:shd")
+    shd.set(qn("w:val"), "clear")
+    shd.set(qn("w:color"), "auto")
+    shd.set(qn("w:fill"), hex_color)
+    tc_pr.append(shd)
 
 
 def _gib(value: int | None) -> float | None:

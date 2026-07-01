@@ -110,6 +110,8 @@ class VirtualMachine(_Base):
     host_uuid: str | None = None
     host_name: str | None = None
     is_agent_vm: bool = False
+    #: USER (normal workload) | CVM (Nutanix Controller VM) | PRISM_CENTRAL | SYSTEM
+    vm_type: str = "USER"
     # v3 categories_mapping is dict[str, list[str]] (a key can have multiple values);
     # older/other payloads use dict[str, str]. Normalize both to dict[str, list[str]].
     categories: dict[str, list[str]] = Field(default_factory=dict)
@@ -254,6 +256,59 @@ class LicenseInfo(_Base):
     expiry: str | None = None
     quantity: int | None = None
     compliance: str | None = None
+
+
+# ─── Prism Central inventory objects: Templates / Images / OVAs ────────
+
+
+class Template(_Base):
+    uuid: str
+    name: str | None = None
+    description: str | None = None
+    guest_os: str | None = None
+    num_vcpus: int | None = None
+    memory_bytes: int | None = None
+    active_version: str | None = None
+    version_count: int | None = None
+    created_by: str | None = None
+    api_source: str = "v4"
+
+
+class Image(_Base):
+    uuid: str
+    name: str | None = None
+    image_type: str | None = None  # DISK_IMAGE / ISO_IMAGE
+    size_bytes: int | None = None
+    architecture: str | None = None
+    source: str | None = None
+    cluster_names: list[str] = Field(default_factory=list)
+    state: str | None = None
+    api_source: str = "v3"
+
+
+class Ova(_Base):
+    uuid: str
+    name: str | None = None
+    size_bytes: int | None = None
+    disk_count: int | None = None
+    cluster_name: str | None = None
+    created: str | None = None
+    api_source: str = "v4"
+
+
+class PrismCentralConfig(_Base):
+    """Prism Central management-plane configuration & sizing."""
+
+    version: str | None = None
+    build: str | None = None
+    num_vcpus: int | None = None
+    memory_bytes: int | None = None
+    node_count: int | None = None  # 1 = single, 3 = scale-out
+    is_scale_out: bool | None = None
+    registered_cluster_count: int | None = None
+    ncc_version: str | None = None
+    ip_addresses: list[str] = Field(default_factory=list)
+    pc_vm_names: list[str] = Field(default_factory=list)
 
 
 # ─── Data Protection / DR ──────────────────────────────────────────────
@@ -570,10 +625,17 @@ class Environment(_Base):
     # ─ Phase 1: core infrastructure ─
     clusters: list[Cluster] = Field(default_factory=list)
     hosts: list[Host] = Field(default_factory=list)
-    vms: list[VirtualMachine] = Field(default_factory=list)
+    vms: list[VirtualMachine] = Field(default_factory=list)  # USER workloads only
+    #: Nutanix system VMs (CVMs, Prism Central VMs) — kept separate from user VMs.
+    system_vms: list[VirtualMachine] = Field(default_factory=list)
     storage_containers: list[StorageContainer] = Field(default_factory=list)
     subnets: list[Subnet] = Field(default_factory=list)
     licenses: list[LicenseInfo] = Field(default_factory=list)
+    # ─ Prism Central inventory objects ─
+    templates: list[Template] = Field(default_factory=list)
+    images: list[Image] = Field(default_factory=list)
+    ovas: list[Ova] = Field(default_factory=list)
+    pc_config: PrismCentralConfig = Field(default_factory=lambda: PrismCentralConfig())
 
     # ─ Phase 2: Data Protection / DR ─
     protection_policies: list[ProtectionPolicy] = Field(default_factory=list)
@@ -620,6 +682,10 @@ class Environment(_Base):
             "clusters": len(self.clusters),
             "hosts": len(self.hosts),
             "vms": len(self.vms),
+            "system_vms": len(self.system_vms),
+            "templates": len(self.templates),
+            "images": len(self.images),
+            "ovas": len(self.ovas),
             "storage_containers": len(self.storage_containers),
             "subnets": len(self.subnets),
             "licenses": len(self.licenses),

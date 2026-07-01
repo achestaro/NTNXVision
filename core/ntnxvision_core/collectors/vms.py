@@ -50,11 +50,17 @@ class VmCollector(Collector):
                 ],
                 boot_type=_nested(resources, "boot_config", "boot_type"),
                 creation_time=metadata.get("creation_time"),
+                vm_type=_classify_vm(status.get("name", ""), resources, metadata),
                 api_source="v3",
             )
             vm.disks = _disks(resources)
             vm.nics = _nics(resources)
-            env.vms.append(vm)
+            # Route Nutanix system VMs (CVMs, Prism Central) to a separate list so the
+            # user-VM inventory reflects actual workloads.
+            if vm.vm_type == "USER":
+                env.vms.append(vm)
+            else:
+                env.system_vms.append(vm)
         env.collection_notes[self.name] = "ok"
 
 
@@ -103,6 +109,27 @@ def _nics(resources: dict[str, Any]) -> list[Nic]:
             )
         )
     return out
+
+
+def _classify_vm(name: str, resources: dict[str, Any], metadata: dict[str, Any]) -> str:
+    """Classify a VM as USER / CVM / PRISM_CENTRAL / SYSTEM.
+
+    Nutanix Controller VMs and Prism Central VMs are infrastructure, not workloads, and
+    belong in a separate inventory section from user VMs.
+    """
+    n = (name or "").upper()
+    # CVMs are named NTNX-<serial>-A / NTNX-*-CVM and may carry an is_cvm flag.
+    if resources.get("is_cvm") or (n.startswith("NTNX-") and n.endswith(("-CVM", "-A", "-B"))):
+        return "CVM"
+    if "NTNX-" in n and "CVM" in n:
+        return "CVM"
+    # Prism Central VMs are named PC-* or carry a PC category.
+    cats = metadata.get("categories_mapping") or metadata.get("categories") or {}
+    cat_values = {str(v).upper() for vals in cats.values() for v in
+                  (vals if isinstance(vals, list) else [vals])}
+    if n.startswith("PC-") or "PRISM_CENTRAL" in cat_values or n.startswith("NUTANIX-PC"):
+        return "PRISM_CENTRAL"
+    return "USER"
 
 
 def _guest_os(resources: dict[str, Any]) -> str | None:

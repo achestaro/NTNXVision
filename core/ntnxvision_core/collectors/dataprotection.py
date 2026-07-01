@@ -41,7 +41,7 @@ class DataProtectionCollector(Collector):
             rpo, repl_type, local_ret, remote_ret = _first_schedule(schedules)
 
             src_az, tgt_az = _az_pair(resources.get("ordered_availability_zone_list", []))
-            cat_filter = resources.get("category_filter", {}).get("params", {}) or {}
+            cat_filter = (resources.get("category_filter") or {}).get("params") or {}
             categories = [f"{k}:{','.join(v)}" for k, v in cat_filter.items()]
 
             env.protection_policies.append(
@@ -93,16 +93,20 @@ class DataProtectionCollector(Collector):
         for entity in entities:
             spec = entity.get("spec", {})
             resources = spec.get("resources", {})
+            status_res = (entity.get("status", {}) or {}).get("resources", {}) or {}
+            name = (
+                spec.get("name")
+                or resources.get("display_name")
+                or status_res.get("display_name")
+            )
             env.availability_zones.append(
                 AvailabilityZone(
                     uuid=entity.get("metadata", {}).get("uuid"),
-                    name=spec.get("name") or resources.get("display_name"),
+                    name=name,
                     az_type=resources.get("availability_zone_type"),
                     region=resources.get("region"),
                     url=resources.get("management_url"),
-                    connection_status=entity.get("status", {})
-                    .get("resources", {})
-                    .get("connection_status"),
+                    connection_status=status_res.get("connection_status"),
                     api_source="v3",
                 )
             )

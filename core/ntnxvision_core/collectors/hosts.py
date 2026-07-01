@@ -16,8 +16,17 @@ class HostCollector(Collector):
         for entity in self.conn.v3_list("hosts"):
             status = entity.get("status", {})
             resources = status.get("resources", {})
+            # Skip non-physical host entries: Prism Central hosts have no resources, and
+            # some clusters return a placeholder entry with resources but no real node
+            # data (no CPU model, serial, or block info) — those produce empty rows.
             if not resources:
-                # Prism Central host entries have no resources; skip.
+                continue
+            if not (
+                resources.get("cpu_model")
+                or resources.get("serial_number")
+                or resources.get("block")
+                or resources.get("num_cpu_cores")
+            ):
                 continue
 
             cluster_ref = status.get("cluster_reference", {})
