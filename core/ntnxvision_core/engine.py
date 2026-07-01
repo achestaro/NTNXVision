@@ -121,14 +121,48 @@ def _collect_ndb_step(
 
 
 def _resolve_cross_references(env: Environment) -> None:
-    """Fill in host counts on clusters and any name backfills after all data is in."""
+    """Fill in host counts on clusters and backfill name/VLAN fields after all data is in."""
+    # uuid → name maps used to backfill fields that collectors only had as uuids.
+    cluster_name_by_uuid = {c.uuid: c.name for c in env.clusters if c.uuid and c.name}
+    host_name_by_uuid = {h.uuid: h.name for h in env.hosts if h.uuid and h.name}
+    host_cluster_by_uuid = {h.uuid: h.cluster_uuid for h in env.hosts if h.uuid}
+    vlan_by_subnet_uuid = {
+        s.uuid: s.vlan_id for s in env.subnets if s.uuid and s.vlan_id is not None
+    }
+
+    # For a single-cluster (PE) run, every host/VM belongs to that one cluster.
+    sole_cluster = env.clusters[0] if len(env.clusters) == 1 else None
+
     host_by_cluster: dict[str, int] = {}
     for host in env.hosts:
+        if not host.cluster_uuid and sole_cluster:
+            host.cluster_uuid = sole_cluster.uuid
+        if not host.cluster_name and host.cluster_uuid:
+            host.cluster_name = cluster_name_by_uuid.get(host.cluster_uuid) or (
+                sole_cluster.name if sole_cluster else None
+            )
         if host.cluster_uuid:
             host_by_cluster[host.cluster_uuid] = host_by_cluster.get(host.cluster_uuid, 0) + 1
     for cluster in env.clusters:
         if not cluster.num_nodes and cluster.uuid in host_by_cluster:
             cluster.num_nodes = host_by_cluster[cluster.uuid]
+
+    # Backfill VM host/cluster names (collectors on some paths only capture uuids).
+    for vm in env.vms:
+        if not vm.host_name and vm.host_uuid:
+            vm.host_name = host_name_by_uuid.get(vm.host_uuid)
+        if not vm.cluster_uuid and vm.host_uuid:
+            vm.cluster_uuid = host_cluster_by_uuid.get(vm.host_uuid)
+        if not vm.cluster_uuid and sole_cluster:
+            vm.cluster_uuid = sole_cluster.uuid
+        if not vm.cluster_name:
+            vm.cluster_name = cluster_name_by_uuid.get(vm.cluster_uuid or "") or (
+                sole_cluster.name if sole_cluster else None
+            )
+        # Backfill each NIC's VLAN from its referenced subnet.
+        for nic in vm.nics:
+            if nic.vlan_id is None and nic.subnet_uuid:
+                nic.vlan_id = vlan_by_subnet_uuid.get(nic.subnet_uuid)
 
     # Per-cluster AOS compatibility check (warn but proceed); de-duplicated.
     # Skipped in PE mode, where the AOS check already ran at connect time.

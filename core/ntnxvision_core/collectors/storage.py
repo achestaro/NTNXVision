@@ -34,7 +34,10 @@ class StorageCollector(Collector):
                     compression_delay_secs=compression.get("delay_in_secs"),
                     deduplication=_dedup(resources),
                     erasure_coding=erasure,
-                    max_capacity_bytes=_as_int(adv.get("max_capacity_bytes")),
+                    # Physical max capacity comes from usage stats; the advertised
+                    # (admin-set) capacity is a separate block and may be unset.
+                    max_capacity_bytes=_as_int(usage.get("storage.capacity_bytes"))
+                    or _as_int(adv.get("max_capacity_bytes")),
                     advertised_capacity_bytes=_as_int(adv.get("max_capacity_bytes")),
                     used_bytes=_as_int(usage.get("storage.user_usage_bytes")),
                     free_bytes=_as_int(usage.get("storage.user_free_bytes")),

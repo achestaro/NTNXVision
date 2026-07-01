@@ -42,7 +42,7 @@ class VmCollector(Collector):
                 categories=metadata.get("categories_mapping")
                 or metadata.get("categories")
                 or {},
-                protection_type=_protection_type(metadata),
+                protection_type=_protection_type(resources),
                 gpus=[
                     g.get("vendor", "") + " " + g.get("mode", "")
                     for g in resources.get("gpu_list", []) or []
@@ -96,7 +96,9 @@ def _nics(resources: dict[str, Any]) -> list[Nic]:
                 subnet_uuid=subnet_ref.get("uuid"),
                 ip_addresses=ips,
                 is_connected=nic.get("is_connected"),
-                vlan_id=nic.get("vlan_mode") and None,
+                # VLAN lives on the referenced subnet, not the NIC; backfilled from
+                # the collected subnets in the engine's cross-reference pass.
+                vlan_id=None,
                 nic_type=nic.get("nic_type"),
             )
         )
@@ -108,9 +110,9 @@ def _guest_os(resources: dict[str, Any]) -> str | None:
     return guest.get("guest_os_version") or resources.get("guest_os_id")
 
 
-def _protection_type(metadata: dict[str, Any]) -> str | None:
-    # v3 exposes protection under status elsewhere; metadata carries a hint.
-    return metadata.get("entity_version") and None or None
+def _protection_type(resources: dict[str, Any]) -> str | None:
+    """VM protection status (v3): UNPROTECTED / RULE_PROTECTED / PD_PROTECTED / …"""
+    return resources.get("protection_type") or resources.get("protection_policy_state")
 
 
 def _mib_to_bytes(mib: Any) -> int | None:

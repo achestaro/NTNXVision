@@ -162,15 +162,12 @@ def _networks(conn: ElementConnection, env: Any) -> None:
 
 
 def _vms(conn: ElementConnection, env: Any) -> None:
-    params = {"include_vm_disk_config": "true", "include_vm_nic_config": "true"}
-    for vm in conn.v2_list("vms") or _vms_with_params(conn, params):
+    # The v2.0 /vms endpoint omits disk and NIC config unless these include flags are
+    # passed, so request them on every page (paginated via v2_list).
+    include = {"include_vm_disk_config": "true", "include_vm_nic_config": "true"}
+    for vm in conn.v2_list("vms", extra_params=include):
         env.vms.append(_map_vm(vm))
     env.collection_notes["vms"] = "ok"
-
-
-def _vms_with_params(conn: ElementConnection, params: dict[str, Any]) -> list[dict[str, Any]]:
-    # Some AOS versions need the disk/nic include flags; retry with them.
-    return conn.get("vms", params=params).get("entities", []) or []
 
 
 def _map_vm(vm: dict[str, Any]) -> VirtualMachine:

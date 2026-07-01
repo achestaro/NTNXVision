@@ -5,6 +5,7 @@ export function SnapshotsView(): JSX.Element {
   const [snaps, setSnaps] = useState<SnapshotInfo[]>([]);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
+  const [err, setErr] = useState<string | null>(null);
 
   async function refresh(): Promise<void> {
     setSnaps(await window.ntnx.listSnapshots());
@@ -17,13 +18,19 @@ export function SnapshotsView(): JSX.Element {
   async function reexport(path: string, format: 'excel' | 'pdf' | 'word'): Promise<void> {
     setBusy(true);
     setMsg(null);
+    setErr(null);
     try {
-      const { paths } = await window.ntnx.exportSnapshot(path, [format]);
+      const { paths, errors } = await window.ntnx.exportSnapshot(path, [format]);
       const out = Object.values(paths)[0];
-      setMsg(`Exported → ${out}`);
-      if (out && !out.startsWith('error')) window.ntnx.revealPath(out);
+      const failure = Object.values(errors ?? {})[0];
+      if (out) {
+        setMsg(`Exported → ${out}`);
+        window.ntnx.revealPath(out);
+      } else {
+        setErr(`Export failed: ${failure ?? 'unknown error'}`);
+      }
     } catch (e) {
-      setMsg(e instanceof Error ? e.message : String(e));
+      setErr(e instanceof Error ? e.message : String(e));
     } finally {
       setBusy(false);
     }
@@ -37,6 +44,7 @@ export function SnapshotsView(): JSX.Element {
       </p>
 
       {msg && <div className="banner ok">{msg}</div>}
+      {err && <div className="banner err">{err}</div>}
 
       <div className="card" style={{ maxWidth: 820 }}>
         {snaps.length === 0 ? (

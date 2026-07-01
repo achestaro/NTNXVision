@@ -96,3 +96,74 @@ def test_map_vm_from_v2_payload() -> None:
     assert vm.total_disk_bytes == 50 * GIB
     assert vm.nics[0].ip_addresses == ["10.0.0.5"]
     assert vm.api_source == "v2.0"
+
+
+# ─── Cross-reference backfill (regression: PE VM host/cluster names + NIC VLAN) ─────
+
+
+def test_cross_reference_backfills_pe_vm_names_and_vlan() -> None:
+    from ntnxvision_core.engine import _resolve_cross_references
+    from ntnxvision_core.models import Cluster, Environment, Host, Nic, Subnet, VirtualMachine
+
+    env = Environment(source_type="prism_element")
+    env.clusters.append(Cluster(uuid="c1", name="cluster-01"))
+    env.hosts.append(Host(uuid="h1", name="node-a"))  # no cluster_name set (PE mode)
+    env.subnets.append(Subnet(uuid="net-1", name="vlan-100", vlan_id=100))
+    vm = VirtualMachine(uuid="v1", name="web-01", host_uuid="h1")
+    vm.nics.append(Nic(subnet_uuid="net-1"))
+    env.vms.append(vm)
+
+    _resolve_cross_references(env)
+
+    # Host gets its cluster name from the sole cluster.
+    assert env.hosts[0].cluster_name == "cluster-01"
+    # VM gets host_name (uuid->name) and cluster_name (sole cluster).
+    assert env.vms[0].host_name == "node-a"
+    assert env.vms[0].cluster_name == "cluster-01"
+    # NIC VLAN backfilled from the referenced subnet.
+    assert env.vms[0].nics[0].vlan_id == 100
+
+
+# ─── Collector field-mapping regressions (previously always-None) ──────────────────
+
+
+def test_host_maintenance_state_mapped() -> None:
+    from ntnxvision_core.collectors.hosts import _maintenance_state
+
+    assert _maintenance_state({"node_state": "ENTERED_MAINTENANCE_MODE"}) == (
+        "ENTERED_MAINTENANCE_MODE"
+    )
+    assert _maintenance_state({"host_in_maintenance_mode": True}) == "ENTERED_MAINTENANCE_MODE"
+    assert _maintenance_state({"host_in_maintenance_mode": False}) == "NORMAL"
+    assert _maintenance_state({}) is None
+
+
+def test_vm_protection_type_mapped() -> None:
+    from ntnxvision_core.collectors.vms import _protection_type
+
+    assert _protection_type({"protection_type": "RULE_PROTECTED"}) == "RULE_PROTECTED"
+    assert _protection_type({}) is None
+
+
+def test_storage_advertised_distinct_from_max() -> None:
+    # Regression: advertised and max must come from different sources.
+    from ntnxvision_core.collectors.storage import _as_int
+
+    usage = {"storage.capacity_bytes": "1000"}
+    adv = {"max_capacity_bytes": "500"}
+    max_cap = _as_int(usage.get("storage.capacity_bytes")) or _as_int(adv.get("max_capacity_bytes"))
+    advertised = _as_int(adv.get("max_capacity_bytes"))
+    assert max_cap == 1000
+    assert advertised == 500
+    assert max_cap != advertised
+
+
+def test_retention_returns_int_or_none() -> None:
+    from ntnxvision_core.collectors.dataprotection import _retention
+
+    assert _retention({"num_snapshots": 7}) == 7
+    rollup = {"rollup_retention_policy": {"multiple": 3, "snapshot_interval_type": "DAILY"}}
+    assert _retention(rollup) == 3
+    # interval_type present but multiple missing -> None, not a garbled value.
+    assert _retention({"rollup_retention_policy": {"snapshot_interval_type": "DAILY"}}) is None
+    assert _retention({}) is None

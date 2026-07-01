@@ -243,15 +243,19 @@ function ResultCard({ result }: { result: InventoryResult }): JSX.Element {
           </div>
         ))}
       </div>
+      {result.snapshot_path === null && (
+        <div className="banner warn">⚠ The snapshot could not be saved to disk (see warnings above), but the collection and exports below succeeded.</div>
+      )}
       <div style={{ marginTop: 18 }}>
         {Object.entries(result.exports || {}).map(([fmt, path]) => (
           <p key={fmt}>
             {fmt.toUpperCase()}:{' '}
-            {path.startsWith('error') ? (
-              <span className="muted">{path}</span>
-            ) : (
-              <span className="link" onClick={() => window.ntnx.revealPath(path)}>{path}</span>
-            )}
+            <span className="link" onClick={() => window.ntnx.revealPath(path)}>{path}</span>
+          </p>
+        ))}
+        {Object.entries(result.export_errors || {}).map(([fmt, msg]) => (
+          <p key={fmt} className="banner err" style={{ marginTop: 6 }}>
+            {fmt.toUpperCase()} export failed: {msg}
           </p>
         ))}
       </div>

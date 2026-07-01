@@ -143,8 +143,9 @@ def _retention(policy: dict[str, Any]) -> int | None:
     linear = policy.get("num_snapshots")
     if linear is not None:
         return linear
-    rollup = policy.get("rollup_retention_policy", {})
-    return rollup.get("snapshot_interval_type") and rollup.get("multiple")
+    rollup = policy.get("rollup_retention_policy", {}) or {}
+    multiple = rollup.get("multiple")
+    return multiple if isinstance(multiple, int) else None
 
 
 def _az_pair(az_list: list[dict[str, Any]]) -> tuple[str | None, str | None]:
