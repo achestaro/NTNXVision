@@ -43,16 +43,29 @@ class PrismCentralConfigCollector(Collector):
         env.collection_notes[self.name] = "ok"
 
     def _pc_details(self) -> dict[str, Any] | None:
+        """Read the PC's own cluster entity (v1 gateway on the PC itself).
+
+        Prism Central is itself a cluster; its gateway reports the true PCVM node
+        count and service IPs. (The previous source — multicluster
+        cluster_external_state — lists *registered PE clusters*, whose IP count made
+        a single-node PC look scaled-out.)
+        """
         try:
             data = self.conn.get_json(
-                f"{self.conn.creds.base}/PrismGateway/services/rest/v1/multicluster/cluster_external_state"
+                f"{self.conn.creds.base}/PrismGateway/services/rest/v1/cluster"
             )
         except NutanixApiError:
             return None
-        if not isinstance(data, list) or not data:
+        if not isinstance(data, dict) or not data:
             return None
-        ips: list[str] = []
-        for entry in data:
-            cd = entry.get("clusterDetails", {}) or {}
-            ips += cd.get("ipAddresses", []) or []
-        return {"node_count": len(ips) or None, "ips": ips, "build": None}
+        ips = [ip for ip in (data.get("clusterExternalIPAddress"),) if ip]
+        svm_ips = data.get("svmips")
+        if isinstance(svm_ips, str):
+            ips += [p.strip() for p in svm_ips.split(",") if p.strip()]
+        elif isinstance(svm_ips, list):
+            ips += [str(p) for p in svm_ips]
+        return {
+            "node_count": data.get("numNodes"),
+            "ips": list(dict.fromkeys(ips)),
+            "build": data.get("fullVersion"),
+        }

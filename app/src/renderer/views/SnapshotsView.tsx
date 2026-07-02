@@ -6,6 +6,9 @@ export function SnapshotsView(): JSX.Element {
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
+  const [renaming, setRenaming] = useState<string | null>(null); // snapshot path being renamed
+  const [newName, setNewName] = useState('');
+  const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
 
   async function refresh(): Promise<void> {
     setSnaps(await window.ntnx.listSnapshots());
@@ -36,6 +39,43 @@ export function SnapshotsView(): JSX.Element {
     }
   }
 
+  function startRename(s: SnapshotInfo): void {
+    setRenaming(s.path);
+    setNewName(s.name);
+    setConfirmDelete(null);
+  }
+
+  async function commitRename(): Promise<void> {
+    if (!renaming || !newName.trim()) return;
+    setBusy(true);
+    setErr(null);
+    try {
+      const res = await window.ntnx.renameSnapshot(renaming, newName.trim());
+      setMsg(`Renamed to “${res.name}”.`);
+      setRenaming(null);
+      await refresh();
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function remove(path: string): Promise<void> {
+    setBusy(true);
+    setErr(null);
+    try {
+      await window.ntnx.deleteSnapshot(path);
+      setMsg('Snapshot deleted.');
+      setConfirmDelete(null);
+      await refresh();
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return (
     <>
       <h1>Snapshots &amp; Exports</h1>
@@ -46,7 +86,7 @@ export function SnapshotsView(): JSX.Element {
       {msg && <div className="banner ok">{msg}</div>}
       {err && <div className="banner err">{err}</div>}
 
-      <div className="card" style={{ maxWidth: 820 }}>
+      <div className="card" style={{ maxWidth: 980 }}>
         {snaps.length === 0 ? (
           <p className="muted">No snapshots yet. Run a collection from “Collect Inventory”.</p>
         ) : (
@@ -54,7 +94,7 @@ export function SnapshotsView(): JSX.Element {
             <thead>
               <tr>
                 <th>Name</th>
-                <th>Collected (UTC)</th>
+                <th>Collected</th>
                 <th>Clusters</th>
                 <th>Hosts</th>
                 <th>VMs</th>
@@ -64,8 +104,25 @@ export function SnapshotsView(): JSX.Element {
             <tbody>
               {snaps.map((s) => (
                 <tr key={s.path}>
-                  <td>{s.name}</td>
-                  <td className="muted">{s.collected_at ?? '—'}</td>
+                  <td>
+                    {renaming === s.path ? (
+                      <span style={{ display: 'inline-flex', gap: 6 }}>
+                        <input type="text" value={newName} autoFocus
+                          onChange={(e) => setNewName(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') void commitRename();
+                            if (e.key === 'Escape') setRenaming(null);
+                          }} />
+                        <button className="btn secondary" disabled={busy}
+                          onClick={() => void commitRename()}>Save</button>
+                        <button className="btn secondary" disabled={busy}
+                          onClick={() => setRenaming(null)}>Cancel</button>
+                      </span>
+                    ) : (
+                      s.name
+                    )}
+                  </td>
+                  <td className="muted">{localTime(s.collected_at)}</td>
                   <td>{s.summary.clusters}</td>
                   <td>{s.summary.hosts}</td>
                   <td>{s.summary.vms}</td>
@@ -81,7 +138,28 @@ export function SnapshotsView(): JSX.Element {
                     <button className="btn secondary" disabled={busy}
                       onClick={() => reexport(s.path, 'word')}>
                       Word
-                    </button>
+                    </button>{' '}
+                    <button className="btn secondary" disabled={busy}
+                      onClick={() => startRename(s)}>
+                      Rename
+                    </button>{' '}
+                    {confirmDelete === s.path ? (
+                      <>
+                        <button className="btn danger" disabled={busy}
+                          onClick={() => void remove(s.path)}>
+                          Confirm Delete
+                        </button>{' '}
+                        <button className="btn secondary" disabled={busy}
+                          onClick={() => setConfirmDelete(null)}>
+                          Cancel
+                        </button>
+                      </>
+                    ) : (
+                      <button className="btn secondary" disabled={busy}
+                        onClick={() => { setConfirmDelete(s.path); setRenaming(null); }}>
+                        Delete
+                      </button>
+                    )}
                   </td>
                 </tr>
               ))}
@@ -91,4 +169,15 @@ export function SnapshotsView(): JSX.Element {
       </div>
     </>
   );
+}
+
+/** Render the collection timestamp in the user's local timezone. */
+function localTime(iso: string | null | undefined): string {
+  if (!iso) return '—';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  return d.toLocaleString(undefined, {
+    year: 'numeric', month: 'short', day: 'numeric',
+    hour: '2-digit', minute: '2-digit',
+  });
 }

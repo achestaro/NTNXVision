@@ -318,15 +318,20 @@ class WordExporter:
         self._heading(doc, "8. Networking", level=1)
         self._heading(doc, "8.1 Subnets", level=2)
         self._table(
-            doc, ["Subnet", "Cluster", "Type", "VLAN", "VPC"],
-            [[s.name, s.cluster_name, s.subnet_type, str(s.vlan_id or ""), s.vpc_name or "—"]
+            doc, ["Subnet", "Cluster", "Type", "VLAN", "vSwitch", "VPC"],
+            [[s.name, s.cluster_name, s.subnet_type, str(s.vlan_id or ""),
+              s.virtual_switch or "—", s.vpc_name or "—"]
              for s in env.subnets],
             "Table 8-1. Subnets.",
         )
         self._heading(doc, "8.2 Virtual Networking (VPCs)", level=2)
         self._table(
-            doc, ["VPC", "External Subnets", "Routable Prefixes"],
-            [[v.name, ", ".join(v.external_subnets), ", ".join(v.externally_routable_prefixes)]
+            doc, ["VPC", "Subnets", "External Subnets", "Routable Prefixes", "Routes",
+                  "Routing Policies"],
+            [[v.name, ", ".join(v.subnet_names) or "—", ", ".join(v.external_subnets),
+              ", ".join(v.externally_routable_prefixes),
+              str(v.route_count) if v.route_count is not None else "—",
+              str(v.routing_policy_count) if v.routing_policy_count is not None else "—"]
              for v in env.vpcs],
             "Table 8-2. Flow virtual networking VPCs.",
             empty="Flow Virtual Networking is not enabled.",

@@ -3,11 +3,12 @@
 // Owns the app window, the Python sidecar, secret storage (OS keychain via keytar),
 // and the IPC handlers that relay renderer requests to the Python core.
 
-import { app, BrowserWindow, ipcMain, shell } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron';
 import { join } from 'node:path';
-import { IPC, InventoryRequest } from '../shared/ipc';
+import { AppSettings, ConnectionProfile, IPC, InventoryRequest } from '../shared/ipc';
 import { SidecarClient } from './sidecar';
 import * as secrets from './secrets';
+import * as store from './store';
 
 const isDev = !app.isPackaged;
 const sidecar = new SidecarClient();
@@ -63,6 +64,7 @@ ipcMain.handle(IPC.inventory, async (_e, req: InventoryRequest) => {
     insecure: req.insecure,
     name: req.name,
     formats: req.formats,
+    export_dir: req.exportDir || store.getSettings().exportDir,
     ndb: req.mode === 'prism_central' ? req.ndb : undefined,
   });
   if (req.saveCredentials && password) {
@@ -73,12 +75,44 @@ ipcMain.handle(IPC.inventory, async (_e, req: InventoryRequest) => {
 
 ipcMain.handle(IPC.listSnapshots, () => sidecar.call('list_snapshots'));
 
-ipcMain.handle(IPC.exportSnapshot, (_e, snapshotPath: string, formats: string[]) =>
-  sidecar.call('export', { snapshot: snapshotPath, formats }),
+ipcMain.handle(
+  IPC.exportSnapshot,
+  (_e, snapshotPath: string, formats: string[], exportDir?: string) =>
+    sidecar.call('export', {
+      snapshot: snapshotPath,
+      formats,
+      export_dir: exportDir || store.getSettings().exportDir,
+    }),
+);
+
+ipcMain.handle(IPC.renameSnapshot, (_e, snapshotPath: string, newName: string) =>
+  sidecar.call('rename_snapshot', { snapshot: snapshotPath, new_name: newName }),
+);
+
+ipcMain.handle(IPC.deleteSnapshot, (_e, snapshotPath: string) =>
+  sidecar.call('delete_snapshot', { snapshot: snapshotPath }),
 );
 
 ipcMain.handle(IPC.revealPath, (_e, p: string) => {
   shell.showItemInFolder(p);
+});
+
+// ─── connection profiles & settings ────────────────────────────────────
+
+ipcMain.handle(IPC.listConnections, () => store.listConnections());
+ipcMain.handle(IPC.saveConnection, (_e, profile: ConnectionProfile) =>
+  store.saveConnection(profile),
+);
+ipcMain.handle(IPC.deleteConnection, (_e, id: string) => store.deleteConnection(id));
+ipcMain.handle(IPC.getSettings, () => store.getSettings());
+ipcMain.handle(IPC.setSettings, (_e, settings: AppSettings) => store.setSettings(settings));
+
+ipcMain.handle(IPC.chooseDirectory, async () => {
+  const result = await dialog.showOpenDialog(mainWindow!, {
+    properties: ['openDirectory', 'createDirectory'],
+    title: 'Choose where reports are saved',
+  });
+  return result.canceled ? null : result.filePaths[0] ?? null;
 });
 
 // ─── lifecycle ─────────────────────────────────────────────────────────

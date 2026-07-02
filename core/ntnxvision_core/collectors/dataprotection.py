@@ -67,8 +67,24 @@ class DataProtectionCollector(Collector):
             resources = spec.get("resources", {})
             stages = resources.get("stage_list", []) or []
             entities = sum(_stage_entity_count(s) for s in stages)
-            network_maps = resources.get("network_mapping_list", []) or []
-            locations = _plan_locations(network_maps)
+            # Network mappings and the AZ order live under resources.parameters in v3
+            # (reading them off resources directly always yielded 0 / no locations).
+            parameters = resources.get("parameters", {}) or {}
+            network_maps = (
+                parameters.get("network_mapping_list")
+                or resources.get("network_mapping_list")
+                or []
+            )
+            az_order = (
+                parameters.get("availability_zone_list")
+                or resources.get("availability_zone_list")
+                or []
+            )
+            locations = [
+                az.get("availability_zone_url")
+                for az in az_order
+                if isinstance(az, dict) and az.get("availability_zone_url")
+            ] or _plan_locations(network_maps)
 
             env.recovery_plans.append(
                 RecoveryPlan(
@@ -103,16 +119,38 @@ class DataProtectionCollector(Collector):
                 AvailabilityZone(
                     uuid=entity.get("metadata", {}).get("uuid"),
                     name=name,
-                    az_type=resources.get("availability_zone_type"),
-                    region=resources.get("region"),
-                    url=resources.get("management_url"),
-                    connection_status=status_res.get("connection_status"),
+                    az_type=resources.get("availability_zone_type")
+                    or status_res.get("availability_zone_type"),
+                    region=resources.get("region") or status_res.get("region"),
+                    url=resources.get("management_url") or status_res.get("management_url"),
+                    connection_status=_az_connectivity(status_res, entity),
                     api_source="v3",
                 )
             )
 
 
 # ─── helpers ───────────────────────────────────────────────────────────
+
+
+def _az_connectivity(status_res: dict[str, Any], entity: dict[str, Any]) -> str | None:
+    """AZ connectivity across v3 shape variants.
+
+    Different PC builds report it as status.resources.connection_status, a nested
+    connectivity_status object, or status.state.
+    """
+    direct = status_res.get("connection_status")
+    if isinstance(direct, str) and direct:
+        return direct
+    nested = status_res.get("connectivity_status")
+    if isinstance(nested, dict):
+        for key in ("connection_status", "status", "state"):
+            v = nested.get(key)
+            if isinstance(v, str) and v:
+                return v
+    elif isinstance(nested, str) and nested:
+        return nested
+    state = (entity.get("status", {}) or {}).get("state")
+    return state if isinstance(state, str) and state else None
 
 
 def _stage_entity_count(stage: dict[str, Any]) -> int:

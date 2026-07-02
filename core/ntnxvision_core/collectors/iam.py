@@ -22,8 +22,15 @@ class IamCollector(Collector):
         for entity in self.conn.v3_list("users"):
             spec = entity.get("spec", {})
             resources = spec.get("resources", {})
-            directory = resources.get("directory_service_user", {})
-            saml = resources.get("identity_provider_user", {})
+            # The human display name lives on the *status* side for directory/SAML
+            # users; the spec often has none.
+            status_res = (entity.get("status", {}) or {}).get("resources", {}) or {}
+            directory = resources.get("directory_service_user", {}) or status_res.get(
+                "directory_service_user", {}
+            )
+            saml = resources.get("identity_provider_user", {}) or status_res.get(
+                "identity_provider_user", {}
+            )
             if directory:
                 user_type, name, dirname = "LDAP", directory.get("user_principal_name"), \
                     directory.get("directory_service_reference", {}).get("name")
@@ -37,7 +44,10 @@ class IamCollector(Collector):
                 User(
                     uuid=entity.get("metadata", {}).get("uuid"),
                     username=name,
-                    display_name=resources.get("display_name"),
+                    display_name=status_res.get("display_name")
+                    or resources.get("display_name")
+                    or (directory or {}).get("display_name")
+                    or (saml or {}).get("display_name"),
                     user_type=user_type,
                     directory=dirname,
                     state=entity.get("status", {}).get("state"),

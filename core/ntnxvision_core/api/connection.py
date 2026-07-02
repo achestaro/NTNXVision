@@ -138,7 +138,11 @@ class PrismConnection:
         return results
 
     def v3_groups(
-        self, entity_type: str, attributes: list[str], page_size: int = 250
+        self,
+        entity_type: str,
+        attributes: list[str],
+        page_size: int = 250,
+        filter_criteria: str | None = None,
     ) -> list[dict[str, Any]]:
         """Query the Prism Central groups API for an entity type.
 
@@ -157,6 +161,8 @@ class PrismConnection:
                 "group_member_offset": offset,
                 "group_member_attributes": [{"attribute": a} for a in attributes],
             }
+            if filter_criteria:
+                body["filter_criteria"] = filter_criteria
             page = self.post_json(url, body)
             groups = page.get("group_results", []) or []
             batch = 0

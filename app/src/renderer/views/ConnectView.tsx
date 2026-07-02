@@ -1,5 +1,11 @@
 import React, { useEffect, useState } from 'react';
-import { ConnectionMode, ExportFormat, InventoryResult, ProgressEvent } from '@shared/ipc';
+import {
+  ConnectionMode,
+  ConnectionProfile,
+  ExportFormat,
+  InventoryResult,
+  ProgressEvent,
+} from '@shared/ipc';
 
 const ALL_FORMATS: { key: ExportFormat; label: string }[] = [
   { key: 'excel', label: 'Excel (.xlsx)' },
@@ -30,6 +36,10 @@ export function ConnectView(): JSX.Element {
   const [result, setResult] = useState<InventoryResult | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  const [profiles, setProfiles] = useState<ConnectionProfile[]>([]);
+  const [selectedProfile, setSelectedProfile] = useState('');
+  const [exportDir, setExportDir] = useState('');
+
   useEffect(() => {
     const off = window.ntnx.onProgress((e) => {
       setProgress((prev) => {
@@ -38,8 +48,60 @@ export function ConnectView(): JSX.Element {
         return next;
       });
     });
+    void window.ntnx.listConnections().then(setProfiles);
+    void window.ntnx.getSettings().then((s) => setExportDir(s.exportDir ?? ''));
     return off;
   }, []);
+
+  function applyProfile(id: string): void {
+    setSelectedProfile(id);
+    const p = profiles.find((x) => x.id === id);
+    if (!p) return;
+    setMode(p.mode);
+    setHost(p.host);
+    setUsername(p.username);
+    setPort(p.port);
+    setInsecure(p.insecure);
+    setName(p.name);
+    setPassword(''); // passwords are never stored with the target
+    if (p.ndbHost) {
+      setNdbEnabled(true);
+      setNdbHost(p.ndbHost);
+      setNdbUser(p.ndbUser ?? 'admin');
+    } else {
+      setNdbEnabled(false);
+    }
+  }
+
+  async function saveTarget(): Promise<void> {
+    const profile: ConnectionProfile = {
+      id: `${host}:${port}:${username}`,
+      mode, host, username, port, insecure, name,
+      ndbHost: ndbEnabled && ndbHost ? ndbHost : undefined,
+      ndbUser: ndbEnabled && ndbHost ? ndbUser : undefined,
+    };
+    setProfiles(await window.ntnx.saveConnection(profile));
+    setSelectedProfile(profile.id);
+  }
+
+  async function deleteTarget(): Promise<void> {
+    if (!selectedProfile) return;
+    setProfiles(await window.ntnx.deleteConnection(selectedProfile));
+    setSelectedProfile('');
+  }
+
+  async function browseExportDir(): Promise<void> {
+    const dir = await window.ntnx.chooseDirectory();
+    if (dir) {
+      setExportDir(dir);
+      await window.ntnx.setSettings({ exportDir: dir });
+    }
+  }
+
+  async function resetExportDir(): Promise<void> {
+    setExportDir('');
+    await window.ntnx.setSettings({ exportDir: '' });
+  }
 
   const total = progress.length ? progress[0]?.total ?? 15 : 15;
   const done = progress.filter((p) => p && p.status !== 'running').length;
@@ -65,6 +127,7 @@ export function ConnectView(): JSX.Element {
         name,
         formats: formats.length ? formats : ['excel'],
         saveCredentials: saveCreds,
+        exportDir: exportDir || undefined,
         ndb:
           !isPE && ndbEnabled && ndbHost
             ? { host: ndbHost, username: ndbUser, password: ndbPass }
@@ -90,6 +153,26 @@ export function ConnectView(): JSX.Element {
       {error && <div className="banner err">{error}</div>}
 
       <div className="card">
+        {profiles.length > 0 && (
+          <div className="field">
+            <label>Saved targets</label>
+            <div className="row" style={{ gap: 8 }}>
+              <select value={selectedProfile} onChange={(e) => applyProfile(e.target.value)}>
+                <option value="">— choose a saved target —</option>
+                {profiles.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.host} ({p.username}){p.mode === 'prism_element' ? ' — PE' : ''}
+                  </option>
+                ))}
+              </select>
+              {selectedProfile && (
+                <button className="btn secondary" onClick={deleteTarget} type="button">
+                  Remove
+                </button>
+              )}
+            </div>
+          </div>
+        )}
         <div className="field">
           <label>Connection mode</label>
           <div className="row" style={{ gap: 18 }}>
@@ -129,6 +212,22 @@ export function ConnectView(): JSX.Element {
         <div className="field">
           <label>Snapshot / report name</label>
           <input type="text" value={name} onChange={(e) => setName(e.target.value)} />
+        </div>
+
+        <div className="field">
+          <label>Report save location</label>
+          <div className="row" style={{ gap: 8 }}>
+            <input type="text" value={exportDir} readOnly
+              placeholder="Default (app data folder)" style={{ flex: 1 }} />
+            <button className="btn secondary" onClick={browseExportDir} type="button">
+              Browse…
+            </button>
+            {exportDir && (
+              <button className="btn secondary" onClick={resetExportDir} type="button">
+                Reset
+              </button>
+            )}
+          </div>
         </div>
 
         <div className="field">
@@ -179,9 +278,15 @@ export function ConnectView(): JSX.Element {
           </div>
         )}
 
-        <button className="btn" disabled={running || !host || !username} onClick={run}>
-          {running ? 'Collecting…' : 'Collect & Export'}
-        </button>
+        <div className="row" style={{ gap: 10 }}>
+          <button className="btn" disabled={running || !host || !username} onClick={run}>
+            {running ? 'Collecting…' : 'Collect & Export'}
+          </button>
+          <button className="btn secondary" disabled={running || !host || !username}
+            onClick={saveTarget} type="button">
+            Save Target
+          </button>
+        </div>
 
         {(running || progress.length > 0) && (
           <div className="progress">
@@ -190,7 +295,7 @@ export function ConnectView(): JSX.Element {
               {progress.map((p, i) => p && (
                 <div className="step" key={i}>
                   <span>{p.label}</span>
-                  <span className={statusClass(p.status)}>{p.status}</span>
+                  <span className={statusClass(p.status)}>{prettyStatus(p.status)}</span>
                 </div>
               ))}
             </div>
@@ -268,4 +373,12 @@ function statusClass(status: string): string {
   if (status.startsWith('skipped')) return 'status skip';
   if (status === 'running') return 'status';
   return 'status ok';
+}
+
+function prettyStatus(status: string): string {
+  if (status === 'ok') return 'OK';
+  if (status === 'running') return 'Running…';
+  if (status.startsWith('skipped:')) return `Skipped: ${status.slice(8).trim()}`;
+  if (status.startsWith('error:')) return `Error: ${status.slice(6).trim()}`;
+  return status.charAt(0).toUpperCase() + status.slice(1);
 }
