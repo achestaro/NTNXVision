@@ -9,6 +9,7 @@ tables.
 
 from __future__ import annotations
 
+import io
 from pathlib import Path
 from typing import Any
 
@@ -17,8 +18,10 @@ from docx.document import Document as DocumentObject
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
-from docx.shared import Pt, RGBColor
+from docx.shared import Inches, Pt, RGBColor
 
+from ntnxvision_core.exporters import diagrams
+from ntnxvision_core.exporters.diagrams import Diagram
 from ntnxvision_core.models import Environment
 from ntnxvision_core.notes import clean_error as _clean_error
 from ntnxvision_core.notes import pretty_label as _pretty
@@ -256,6 +259,10 @@ class WordExporter:
             "orchestrates the clusters below. Workloads are organised using categories and "
             "projects, protected by protection policies, and secured by Flow policies."
         )
+        self._figure(
+            doc, diagrams.management_topology(env),
+            "Figure 4-1. Management topology — Prism Central and its registered clusters.",
+        )
         self._heading(doc, "4.1 Clusters Overview", level=2)
         self._table(
             doc, ["Cluster", "AOS", "Hypervisor", "Nodes", "RF", "Encryption"],
@@ -275,6 +282,13 @@ class WordExporter:
              for h in env.hosts],
             "Table 5-1. Physical hosts.",
         )
+        fig = 0
+        for cluster in env.clusters[:8]:
+            d = diagrams.cluster_compute(env, cluster)
+            if d:
+                fig += 1
+                self._figure(doc, d, f"Figure 5-{fig}. Cluster {cluster.name} — "
+                                     "node composition and capacity.")
         self._heading(doc, "5.2 Storage Containers", level=2)
         self._table(
             doc, ["Container", "Cluster", "RF", "Compression", "Dedup", "EC-X", "Max (GiB)"],
@@ -324,6 +338,13 @@ class WordExporter:
              for s in env.subnets],
             "Table 8-1. Subnets.",
         )
+        fig = 0
+        for cluster in env.clusters[:8]:
+            d = diagrams.network_topology(env, cluster)
+            if d:
+                fig += 1
+                self._figure(doc, d, f"Figure 8-{fig}. Cluster {cluster.name} — "
+                                     "virtual switch and VLAN layout.")
         self._heading(doc, "8.2 Virtual Networking (VPCs)", level=2)
         self._table(
             doc, ["VPC", "Subnets", "External Subnets", "Routable Prefixes", "Routes",
@@ -336,6 +357,11 @@ class WordExporter:
             "Table 8-2. Flow virtual networking VPCs.",
             empty="Flow Virtual Networking is not enabled.",
         )
+        self._figure(
+            doc, diagrams.vpc_topology(env),
+            f"Figure 8-{fig + 1}. Flow Virtual Networking — VPCs with overlay and "
+            "external subnets.",
+        )
 
     def _data_protection(self, doc: DocumentObject, env: Environment) -> None:
         self._heading(doc, "9. Data Protection & Disaster Recovery", level=1)
@@ -343,6 +369,11 @@ class WordExporter:
             "Data protection is delivered through protection policies (snapshot and "
             "replication schedules) and recovery plans (orchestrated failover). The tables "
             "below document the configured strategy."
+        )
+        self._figure(
+            doc, diagrams.replication_topology(env),
+            "Figure 9-1. Replication topology — protection policy flows between "
+            "availability zones.",
         )
         self._heading(doc, "9.1 Protection Policies", level=2)
         self._table(
@@ -405,6 +436,20 @@ class WordExporter:
         )
 
     # ─── helpers ───────────────────────────────────────────────────
+
+    def _figure(self, doc: DocumentObject, diag: Diagram | None, caption: str) -> None:
+        """Embed a rendered topology diagram, centered, with an italic caption."""
+        if diag is None:
+            return
+        p = doc.add_paragraph()
+        p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        run = p.add_run()
+        run.add_picture(io.BytesIO(diag.png), width=Inches(min(6.3, diag.width_in)))
+        cap = doc.add_paragraph(caption)
+        cap.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        cap.runs[0].italic = True
+        cap.runs[0].font.size = Pt(9)
+        cap.runs[0].font.color.rgb = RGBColor(0x70, 0x70, 0x70)
 
     def _heading(self, doc: DocumentObject, text: str, level: int) -> None:
         h = doc.add_heading(text, level=level)
