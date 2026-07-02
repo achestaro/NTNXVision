@@ -43,19 +43,28 @@ jobs:
           node-version: "22"
 
       - name: Package Electron app
+        shell: bash
         working-directory: app
         env:
-          # Never scan the runner keychain; sign only with an explicitly provided cert.
-          CSC_IDENTITY_AUTO_DISCOVERY: "false"
-          # macOS Developer ID signing + notarization — all optional. When the secrets
-          # are unset these are empty and electron-builder produces an unsigned build
-          # (Gatekeeper then requires `xattr -cr` after download). See build/README.md.
-          CSC_LINK: ${{ secrets.MAC_CSC_LINK }}
-          CSC_KEY_PASSWORD: ${{ secrets.MAC_CSC_KEY_PASSWORD }}
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          # macOS Developer ID signing + notarization — all optional secrets. They are
+          # exported to electron-builder names below ONLY when non-empty: an empty
+          # CSC_LINK makes electron-builder treat "" as a cert path and abort.
+          SEC_CSC_LINK: ${{ secrets.MAC_CSC_LINK }}
+          SEC_CSC_KEY_PASSWORD: ${{ secrets.MAC_CSC_KEY_PASSWORD }}
+          SEC_APPLE_ID: ${{ secrets.APPLE_ID }}
+          SEC_APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          SEC_APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
+          # Never scan the runner keychain; sign only with an explicitly provided cert.
+          export CSC_IDENTITY_AUTO_DISCOVERY=false
+          if [ -n "$SEC_CSC_LINK" ]; then
+            export CSC_LINK="$SEC_CSC_LINK" CSC_KEY_PASSWORD="$SEC_CSC_KEY_PASSWORD"
+          fi
+          if [ -n "$SEC_APPLE_ID" ]; then
+            export APPLE_ID="$SEC_APPLE_ID"
+            export APPLE_APP_SPECIFIC_PASSWORD="$SEC_APPLE_APP_SPECIFIC_PASSWORD"
+            export APPLE_TEAM_ID="$SEC_APPLE_TEAM_ID"
+          fi
           npm ci
           npm run package
 
