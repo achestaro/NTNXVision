@@ -48,10 +48,13 @@ h1 { font-size: 22px; margin: 0 0 4px; }
 }
 .field { margin-bottom: 14px; }
 .field label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 6px; }
-.field input[type='text'], .field input[type='password'], .field input[type='number'] {
+.field input[type='text'], .field input[type='password'], .field input[type='number'],
+.field select, .snaps input[type='text'] {
   width: 100%; padding: 10px 12px; background: #0b1220; border: 1px solid var(--border);
   border-radius: 8px; color: var(--text); font-size: 14px;
 }
+.field select { appearance: none; }
+.snaps input[type='text'] { width: auto; padding: 6px 8px; font-size: 13px; }
 .row { display: flex; gap: 12px; }
 .row .field { flex: 1; }
 .check { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--muted); }
@@ -63,6 +66,8 @@ h1 { font-size: 22px; margin: 0 0 4px; }
 .btn:hover { background: #2563eb; }
 .btn:disabled { opacity: 0.5; cursor: not-allowed; }
 .btn.secondary { background: var(--panel-2); }
+.btn.danger { background: #b91c1c; }
+.btn.danger:hover { background: #dc2626; }
 
 .progress { margin-top: 18px; }
 .progress .bar { height: 8px; background: #0b1220; border-radius: 6px; overflow: hidden; }

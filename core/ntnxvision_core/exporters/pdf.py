@@ -235,10 +235,11 @@ class PdfExporter:
             [55, 40, 30, 15, 15, 90],
         )
         self._section_table(
-            pdf, "VPCs", ["Name", "External Subnets", "Routable Prefixes"],
-            [[v.name, ", ".join(v.external_subnets), ", ".join(v.externally_routable_prefixes)]
+            pdf, "VPCs", ["Name", "Subnets", "External Subnets", "Routes", "Policies"],
+            [[v.name, ", ".join(v.subnet_names), ", ".join(v.external_subnets),
+              v.route_count, v.routing_policy_count]
              for v in env.vpcs],
-            [60, 90, 100],
+            [55, 80, 75, 20, 20],
         )
 
     def _nus_section(self, pdf: _Report, env: Environment) -> None:

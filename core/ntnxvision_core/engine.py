@@ -11,6 +11,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from datetime import datetime, timezone
+from typing import Any
 
 from ntnxvision_core.api import PrismConnection, PrismCredentials
 from ntnxvision_core.api.element_client import ElementConnection, ElementCredentials
@@ -146,6 +147,17 @@ def _resolve_cross_references(env: Environment) -> None:
     for cluster in env.clusters:
         if not cluster.num_nodes and cluster.uuid in host_by_cluster:
             cluster.num_nodes = host_by_cluster[cluster.uuid]
+        # v3 cluster config often lacks node_list/hypervisor data — derive from hosts.
+        if not cluster.hypervisor_types:
+            cluster.hypervisor_types = sorted(
+                {
+                    h.hypervisor_type
+                    for h in env.hosts
+                    if h.cluster_uuid == cluster.uuid and h.hypervisor_type
+                }
+            )
+
+    _reclassify_pc_vms(env)
 
     # Backfill VM host/cluster names (collectors on some paths only capture uuids).
     for vm in [*env.vms, *env.system_vms]:
@@ -164,6 +176,32 @@ def _resolve_cross_references(env: Environment) -> None:
             if nic.vlan_id is None and nic.subnet_uuid:
                 nic.vlan_id = vlan_by_subnet_uuid.get(nic.subnet_uuid)
 
+    # Per-host VM counts: v3 hosts/list often omits num_vms — count what we collected.
+    vms_per_host: dict[str, int] = {}
+    for vm in [*env.vms, *env.system_vms]:
+        key = vm.host_uuid or vm.host_name
+        if key:
+            vms_per_host[key] = vms_per_host.get(key, 0) + 1
+    for host in env.hosts:
+        if host.num_vms is None:
+            host.num_vms = vms_per_host.get(host.uuid) or (
+                vms_per_host.get(host.name) if host.name else None
+            )
+
+    # Image placement: the collector records cluster uuids; resolve to names here.
+    for image in env.images:
+        if not image.cluster_names and image.cluster_uuids:
+            image.cluster_names = [
+                cluster_name_by_uuid.get(u, u) for u in image.cluster_uuids
+            ]
+
+    # VPC → overlay subnets (the subnet collector already knows its vpc).
+    for vpc in env.vpcs:
+        if not vpc.subnet_names:
+            vpc.subnet_names = sorted(
+                s.name for s in env.subnets if s.name and s.vpc_name == vpc.name
+            )
+
     # Per-cluster AOS compatibility check (warn but proceed); de-duplicated.
     # Skipped in PE mode, where the AOS check already ran at connect time.
     if env.source_type != "prism_element":
@@ -180,6 +218,45 @@ def _resolve_cross_references(env: Environment) -> None:
     # Roll up protected-VM count from protection policies' category matches is non-trivial;
     # approximate with VMs that carry any category (best-effort until v4 DR SDK).
     env.data_protection.protected_vm_count = sum(1 for v in env.vms if v.categories)
+
+
+def _reclassify_pc_vms(env: Environment) -> None:
+    """Move the Prism Central VM(s) from user VMs to system VMs by IP match.
+
+    PC VMs carry arbitrary names, so name-based classification misses them. The PC's
+    own IPs are known (the connect host + the multicluster-reported addresses); any VM
+    holding one of those IPs is the Prism Central VM.
+    """
+    pc_ips = {ip for ip in env.pc_config.ip_addresses if ip}
+    if env.prism_central.host:
+        pc_ips.add(env.prism_central.host)
+    if not pc_ips:
+        return
+    still_user: list[Any] = []
+    for vm in env.vms:
+        vm_ips = {ip for nic in vm.nics for ip in nic.ip_addresses}
+        if vm_ips & pc_ips:
+            vm.vm_type = "PRISM_CENTRAL"
+            env.system_vms.append(vm)
+        else:
+            still_user.append(vm)
+    if len(still_user) != len(env.vms):
+        env.vms[:] = still_user
+
+    # The pc_config collector sized the PC before this reclassification could run —
+    # fill in anything it missed now that the PC VMs are identified.
+    cfg = env.pc_config
+    pc_vms = [v for v in env.system_vms if v.vm_type == "PRISM_CENTRAL"]
+    if pc_vms:
+        if not cfg.pc_vm_names:
+            cfg.pc_vm_names = [v.name for v in pc_vms if v.name]
+        if cfg.num_vcpus is None:
+            cfg.num_vcpus = sum(v.vcpu_total or 0 for v in pc_vms) or None
+        if cfg.memory_bytes is None:
+            cfg.memory_bytes = sum(v.memory_bytes or 0 for v in pc_vms) or None
+        if cfg.node_count is None:
+            cfg.node_count = len(pc_vms)
+            cfg.is_scale_out = len(pc_vms) > 1
 
 
 def _resolve_availability_zone_names(env: Environment) -> None:

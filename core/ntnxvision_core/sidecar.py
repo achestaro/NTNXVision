@@ -80,6 +80,22 @@ def _progress_fn(req_id: Any):
     return progress
 
 
+def _export_dir_from(params: dict[str, Any]) -> Path:
+    """The export target directory — the user's configured folder or the default.
+
+    Falls back to the default exports dir if the configured one cannot be created.
+    """
+    raw = params.get("export_dir")
+    if isinstance(raw, str) and raw.strip():
+        candidate = Path(raw).expanduser()
+        try:
+            candidate.mkdir(parents=True, exist_ok=True)
+            return candidate
+        except OSError:
+            pass
+    return exports_dir()
+
+
 def _finalize(env: Any, name: str, params: dict[str, Any]) -> dict[str, Any]:
     """Snapshot, export requested formats, and assemble the JSON-RPC result.
 
@@ -104,9 +120,10 @@ def _finalize(env: Any, name: str, params: dict[str, Any]) -> dict[str, Any]:
         result["warnings"].append(f"Snapshot could not be saved: {exc}")
 
     formats = params.get("formats") or (["excel"] if params.get("export", True) else [])
+    out_dir = _export_dir_from(params)
     for fmt in formats:
         try:
-            result["exports"][fmt] = str(export_environment(env, fmt, exports_dir(), name))
+            result["exports"][fmt] = str(export_environment(env, fmt, out_dir, name))
         except Exception as exc:  # noqa: BLE001 — one failed format shouldn't lose the run
             result["export_errors"][fmt] = str(exc)
     if "excel" in result["exports"]:
@@ -180,12 +197,36 @@ def _m_export(_req_id: Any, params: dict[str, Any]) -> dict[str, Any]:
 
     paths: dict[str, str] = {}
     errors: dict[str, str] = {}
+    out_dir = _export_dir_from(params)
     for fmt in formats:
         try:
-            paths[fmt] = str(export_environment(env, fmt, exports_dir(), name))
+            paths[fmt] = str(export_environment(env, fmt, out_dir, name))
         except Exception as exc:  # noqa: BLE001
             errors[fmt] = str(exc)
     return {"paths": paths, "errors": errors, "path": next(iter(paths.values()), None)}
+
+
+def _m_rename_snapshot(_req_id: Any, params: dict[str, Any]) -> dict[str, Any]:
+    """Rename a saved snapshot (its file stem, confined to the snapshots directory)."""
+    snap_path = _resolve_snapshot_path(params["snapshot"])
+    new_name = str(params.get("new_name") or "").strip()
+    if not new_name:
+        raise NutanixApiError("A new name is required.")
+    safe = "".join(c if c.isalnum() or c in "-_. " else "_" for c in new_name).strip()
+    if not safe:
+        raise NutanixApiError("The new name has no usable characters.")
+    target = snap_path.with_name(f"{safe}.ntnxsnap.json")
+    if target.exists() and target != snap_path:
+        raise NutanixApiError(f"A snapshot named '{safe}' already exists.")
+    snap_path.rename(target)
+    return {"path": str(target), "name": safe}
+
+
+def _m_delete_snapshot(_req_id: Any, params: dict[str, Any]) -> dict[str, Any]:
+    """Delete a saved snapshot (confined to the snapshots directory)."""
+    snap_path = _resolve_snapshot_path(params["snapshot"])
+    snap_path.unlink()
+    return {"deleted": True}
 
 
 def _resolve_snapshot_path(raw: str) -> Path:
@@ -207,6 +248,8 @@ _METHODS = {
     "inventory_cluster": _m_inventory_cluster,
     "list_snapshots": _m_list_snapshots,
     "export": _m_export,
+    "rename_snapshot": _m_rename_snapshot,
+    "delete_snapshot": _m_delete_snapshot,
 }
 
 

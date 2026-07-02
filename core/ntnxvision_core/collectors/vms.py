@@ -61,7 +61,48 @@ class VmCollector(Collector):
                 env.vms.append(vm)
             else:
                 env.system_vms.append(vm)
+        self._collect_cvms(env)
         env.collection_notes[self.name] = "ok"
+
+    def _collect_cvms(self, env: Any) -> None:
+        """Collect Controller VMs via the groups API.
+
+        v3 `vms/list` never returns CVMs (they aren't v3 VM intents); the groups API —
+        the same one the Prism UI uses — does, when filtered on `is_cvm`. Best-effort:
+        a PC version whose groups schema differs just leaves the CVM list empty.
+        """
+        seen = {v.uuid for v in env.system_vms} | {v.uuid for v in env.vms}
+        try:
+            rows = self.conn.v3_groups(
+                "vm",
+                ["vm_name", "power_state", "cluster_name", "host_name",
+                 "memory_size_bytes", "num_vcpus", "ip_addresses", "hypervisor_type"],
+                filter_criteria="is_cvm==1",
+            )
+        except Exception:  # noqa: BLE001 — groups filter unsupported on this PC
+            return
+        for row in rows:
+            uuid = row.get("entity_id") or ""
+            name = row.get("vm_name") or ""
+            if not uuid or uuid in seen or not name.upper().startswith("NTNX-"):
+                continue
+            ips = row.get("ip_addresses")
+            env.system_vms.append(
+                VirtualMachine(
+                    uuid=uuid,
+                    name=name,
+                    cluster_name=row.get("cluster_name"),
+                    power_state=row.get("power_state"),
+                    num_vcpus=_int_or_none(row.get("num_vcpus")),
+                    memory_bytes=_int_or_none(row.get("memory_size_bytes")),
+                    host_name=row.get("host_name"),
+                    hypervisor=row.get("hypervisor_type"),
+                    nics=[Nic(ip_addresses=[ip for ip in _split_ips(ips) if ip])]
+                    if ips else [],
+                    vm_type="CVM",
+                    api_source="v3-groups",
+                )
+            )
 
 
 # ─── mappers ───────────────────────────────────────────────────────────
@@ -140,6 +181,22 @@ def _guest_os(resources: dict[str, Any]) -> str | None:
 def _protection_type(resources: dict[str, Any]) -> str | None:
     """VM protection status (v3): UNPROTECTED / RULE_PROTECTED / PD_PROTECTED / …"""
     return resources.get("protection_type") or resources.get("protection_policy_state")
+
+
+def _int_or_none(value: Any) -> int | None:
+    try:
+        return int(value) if value is not None else None
+    except (TypeError, ValueError):
+        return None
+
+
+def _split_ips(value: Any) -> list[str]:
+    """Groups API returns ip_addresses as a single value or comma-separated string."""
+    if isinstance(value, list):
+        return [str(v) for v in value]
+    if isinstance(value, str):
+        return [p.strip() for p in value.split(",") if p.strip()]
+    return []
 
 
 def _mib_to_bytes(mib: Any) -> int | None:

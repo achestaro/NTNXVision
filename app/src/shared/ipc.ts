@@ -21,7 +21,26 @@ export interface InventoryRequest {
   name: string;
   formats: ExportFormat[];
   saveCredentials: boolean;
+  exportDir?: string;
   ndb?: NdbRequest;
+}
+
+// A saved connection target. Passwords are NEVER stored here — they live in the OS
+// keychain (opt-in) or are typed per run.
+export interface ConnectionProfile {
+  id: string;
+  mode: ConnectionMode;
+  host: string;
+  username: string;
+  port: number;
+  insecure: boolean;
+  name: string;
+  ndbHost?: string;
+  ndbUser?: string;
+}
+
+export interface AppSettings {
+  exportDir?: string;
 }
 
 // The Python summary returns a count per object type across all phases. Known keys are
@@ -90,7 +109,15 @@ export const IPC = {
   inventory: 'core:inventory',
   listSnapshots: 'core:listSnapshots',
   exportSnapshot: 'core:exportSnapshot',
+  renameSnapshot: 'core:renameSnapshot',
+  deleteSnapshot: 'core:deleteSnapshot',
   revealPath: 'shell:revealPath',
+  listConnections: 'store:listConnections',
+  saveConnection: 'store:saveConnection',
+  deleteConnection: 'store:deleteConnection',
+  getSettings: 'store:getSettings',
+  setSettings: 'store:setSettings',
+  chooseDirectory: 'shell:chooseDirectory',
   // main → renderer (events)
   progress: 'core:progress',
 } as const;
@@ -100,8 +127,20 @@ export interface NtnxApi {
   ping(): Promise<{ pong: boolean; version: string }>;
   inventory(req: InventoryRequest): Promise<InventoryResult>;
   listSnapshots(): Promise<SnapshotInfo[]>;
-  exportSnapshot(snapshotPath: string, formats: ExportFormat[]): Promise<ExportResult>;
+  exportSnapshot(
+    snapshotPath: string,
+    formats: ExportFormat[],
+    exportDir?: string,
+  ): Promise<ExportResult>;
+  renameSnapshot(snapshotPath: string, newName: string): Promise<{ path: string; name: string }>;
+  deleteSnapshot(snapshotPath: string): Promise<{ deleted: boolean }>;
   revealPath(path: string): Promise<void>;
+  listConnections(): Promise<ConnectionProfile[]>;
+  saveConnection(profile: ConnectionProfile): Promise<ConnectionProfile[]>;
+  deleteConnection(id: string): Promise<ConnectionProfile[]>;
+  getSettings(): Promise<AppSettings>;
+  setSettings(settings: AppSettings): Promise<AppSettings>;
+  chooseDirectory(): Promise<string | null>;
   onProgress(cb: (e: ProgressEvent) => void): () => void;
 }
 

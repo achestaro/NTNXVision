@@ -262,9 +262,12 @@ class ExcelExporter:
         )
         self._table(
             wb, "VPCs",
-            ["Name", "External Subnets", "Routable Prefixes", "DNS Servers", "API"],
-            [[v.name, ", ".join(v.external_subnets), ", ".join(v.externally_routable_prefixes),
-              ", ".join(v.dns_servers), v.api_source] for v in env.vpcs],
+            ["Name", "Subnets", "External Subnets", "Routable Prefixes", "Routes",
+             "Routing Policies", "DNS Servers", "API"],
+            [[v.name, ", ".join(v.subnet_names), ", ".join(v.external_subnets),
+              ", ".join(v.externally_routable_prefixes), v.route_count,
+              v.routing_policy_count, ", ".join(v.dns_servers), v.api_source]
+             for v in env.vpcs],
         )
 
     # ─── Phase 2: NUS (Files / Objects / Volumes) ──────────────────

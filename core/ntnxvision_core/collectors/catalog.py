@@ -29,11 +29,20 @@ class ImageCollector(Collector):
         for entity in entities:
             status = entity.get("status", {}) or {}
             resources = status.get("resources", {}) or {}
-            clusters = [
-                self._name_of(ref.get("cluster_reference", {}))
-                for ref in resources.get("current_cluster_reference_list", []) or []
-                if isinstance(ref, dict)
-            ]
+            # current_cluster_reference_list holds the references themselves
+            # ({kind, uuid[, name]}), not wrappers around a cluster_reference key.
+            names: list[str] = []
+            uuids: list[str] = []
+            for ref in resources.get("current_cluster_reference_list", []) or []:
+                if not isinstance(ref, dict):
+                    continue
+                inner = ref.get("cluster_reference") if "cluster_reference" in ref else ref
+                if not isinstance(inner, dict):
+                    continue
+                if inner.get("name"):
+                    names.append(inner["name"])
+                if inner.get("uuid"):
+                    uuids.append(inner["uuid"])
             env.images.append(
                 Image(
                     uuid=entity.get("metadata", {}).get("uuid", ""),
@@ -42,7 +51,8 @@ class ImageCollector(Collector):
                     size_bytes=resources.get("size_bytes"),
                     architecture=resources.get("architecture"),
                     source=resources.get("source_uri"),
-                    cluster_names=[c for c in clusters if c],
+                    cluster_names=names,
+                    cluster_uuids=uuids,  # engine resolves these to names post-collection
                     state=status.get("state"),
                     api_source="v3",
                 )
@@ -75,7 +85,7 @@ class TemplateCollector(Collector):
                     memory_bytes=_mem_bytes(vm_spec),
                     active_version=str(active) if active is not None else None,
                     version_count=t.get("versionCount"),
-                    created_by=t.get("createdBy"),
+                    created_by=_user_str(t.get("createdBy")),
                     api_source="v4",
                 )
             )
@@ -97,23 +107,61 @@ class OvaCollector(Collector):
 
     def collect(self, env: Any) -> None:
         data = self._fetch()
-        if data is None:
-            env.collection_notes[self.name] = "skipped: OVA API not available"
+        if data is not None:
+            for o in data:
+                info = o.get("ovaInfo") or {}
+                env.ovas.append(
+                    Ova(
+                        uuid=o.get("extId") or o.get("uuid", ""),
+                        name=o.get("name"),
+                        size_bytes=o.get("sizeBytes") or info.get("sizeBytes"),
+                        disk_count=len(o.get("diskList") or info.get("diskList") or [])
+                        or None,
+                        cluster_name=self._name_of(o.get("clusterReference", {})),
+                        created=o.get("createTime"),
+                        api_source="v4",
+                    )
+                )
+            env.collection_notes[self.name] = "ok"
             return
-        for o in data:
-            info = o.get("ovaInfo") or {}
+        if self._collect_v3(env):
+            env.collection_notes[self.name] = "ok"
+        else:
+            env.collection_notes[self.name] = "skipped: OVA API not available"
+
+    def _collect_v3(self, env: Any) -> bool:
+        """v3 `ovas/list` — present on every PC that has the OVA feature (pc.2020.7+);
+        the v4 content endpoint above only exists on much newer builds."""
+        try:
+            entities = self.conn.v3_list("ovas")
+        except NutanixApiError:
+            return False
+        for entity in entities:
+            info = entity.get("info", {}) or {}
+            metadata = entity.get("metadata", {}) or {}
+            vm_spec = (
+                (info.get("vm_spec") or {}).get("spec", {}).get("resources", {})
+                if isinstance(info.get("vm_spec"), dict)
+                else {}
+            )
+            cluster_refs = info.get("current_cluster_reference_list") or []
+            cluster = None
+            for ref in cluster_refs:
+                if isinstance(ref, dict) and ref.get("name"):
+                    cluster = ref["name"]
+                    break
             env.ovas.append(
                 Ova(
-                    uuid=o.get("extId") or o.get("uuid", ""),
-                    name=o.get("name"),
-                    size_bytes=o.get("sizeBytes") or info.get("sizeBytes"),
-                    disk_count=len(o.get("diskList") or info.get("diskList") or []) or None,
-                    cluster_name=self._name_of(o.get("clusterReference", {})),
-                    created=o.get("createTime"),
-                    api_source="v4",
+                    uuid=metadata.get("uuid") or entity.get("uuid", ""),
+                    name=info.get("name") or entity.get("name"),
+                    size_bytes=info.get("size_bytes"),
+                    disk_count=len(vm_spec.get("disk_list") or []) or None,
+                    cluster_name=cluster,
+                    created=info.get("create_time") or metadata.get("creation_time"),
+                    api_source="v3",
                 )
             )
-        env.collection_notes[self.name] = "ok"
+        return True
 
     def _fetch(self) -> list[dict[str, Any]] | None:
         for path in ("vmm/v4.0/content/ovas", "vmm/v4.0.b1/content/ovas"):
@@ -125,6 +173,35 @@ class OvaCollector(Collector):
 
 
 # ─── helpers ───────────────────────────────────────────────────────────
+
+
+def _user_str(value: Any) -> str | None:
+    """Extract a username from a v4 'created_by' value.
+
+    Newer PC builds return a user *object* (sometimes wrapped in a '$reserved'
+    envelope) where older ones returned a plain string; find the first plausible
+    string identity inside.
+    """
+    if value is None:
+        return None
+    if isinstance(value, str):
+        return value
+    if isinstance(value, dict):
+        for key in ("username", "userName", "name", "extId"):
+            v = value.get(key)
+            if isinstance(v, str) and v:
+                return v
+        for v in value.values():
+            found = _user_str(v)
+            # Prefer something that looks like an identity over reserved markers.
+            if found and not found.startswith("$") and not found.startswith("v4"):
+                return found
+    if isinstance(value, list):
+        for v in value:
+            found = _user_str(v)
+            if found:
+                return found
+    return None
 
 
 def _vcpus(vm_spec: dict[str, Any]) -> int | None:

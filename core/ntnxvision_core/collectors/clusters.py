@@ -51,12 +51,23 @@ class ClusterCollector(Collector):
                     num_nodes=len(config.get("node_list", []) or []) or None,
                     external_ip=network.get("external_ip"),
                     timezone=config.get("timezone"),
-                    encryption_enabled=config.get("encryption_status") not in (None, "DISABLED"),
+                    encryption_enabled=_encryption_enabled(config.get("encryption_status")),
                     operation_mode=config.get("operation_mode"),
                     api_source="v3",
                 )
             )
         env.collection_notes[self.name] = "ok"
+
+
+def _encryption_enabled(status: Any) -> bool | None:
+    """True only for explicitly enabled states.
+
+    v3 reports values like ENABLED / PARTIALLY_ENABLED / DISABLED / NOT_SUPPORTED —
+    treating anything != DISABLED as encrypted produced false positives.
+    """
+    if not isinstance(status, str) or not status:
+        return None
+    return status.upper() in ("ENABLED", "PARTIALLY_ENABLED", "PARTIAL")
 
 
 def _software_version(config: dict[str, Any]) -> str | None:

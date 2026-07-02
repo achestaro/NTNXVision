@@ -33,14 +33,42 @@ class LicenseCollector(Collector):
             return
 
         for lic in data:
+            expiry = lic.get("expiryDate") or lic.get("expiry")
             env.licenses.append(
                 LicenseInfo(
                     product=lic.get("category") or lic.get("name"),
                     edition=lic.get("type") or lic.get("edition"),
                     category=lic.get("category"),
-                    expiry=lic.get("expiryDate") or lic.get("expiry"),
+                    expiry=expiry,
                     quantity=lic.get("quantity"),
-                    compliance=lic.get("complianceStatus"),
+                    compliance=_compliance(lic, expiry),
                 )
             )
         env.collection_notes[self.name] = "ok"
+
+
+def _compliance(lic: dict[str, Any], expiry: Any) -> str | None:
+    """Compliance from the API when present, else derived from the expiry date.
+
+    The licensing config API frequently omits complianceStatus, which left the
+    Compliance column empty even for visibly expired licenses.
+    """
+    for key in ("complianceStatus", "compliance_status", "compliance"):
+        v = lic.get(key)
+        if isinstance(v, str) and v:
+            return v
+    if isinstance(expiry, str) and expiry:
+        from datetime import datetime, timezone
+
+        raw = expiry.strip().replace("Z", "+00:00")
+        try:
+            dt = datetime.fromisoformat(raw)
+        except ValueError:
+            try:
+                dt = datetime.strptime(raw[:10], "%Y-%m-%d").replace(tzinfo=timezone.utc)
+            except ValueError:
+                return None
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return "EXPIRED" if dt < datetime.now(timezone.utc) else "COMPLIANT"
+    return None

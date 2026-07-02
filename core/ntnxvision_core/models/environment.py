@@ -282,6 +282,8 @@ class Image(_Base):
     architecture: str | None = None
     source: str | None = None
     cluster_names: list[str] = Field(default_factory=list)
+    #: Placement cluster uuids; the engine resolves them to cluster_names post-collection.
+    cluster_uuids: list[str] = Field(default_factory=list)
     state: str | None = None
     api_source: str = "v3"
 
@@ -407,6 +409,10 @@ class Vpc(_Base):
     external_subnets: list[str] = Field(default_factory=list)
     externally_routable_prefixes: list[str] = Field(default_factory=list)
     dns_servers: list[str] = Field(default_factory=list)
+    #: Overlay subnets inside this VPC (backfilled from the subnet inventory).
+    subnet_names: list[str] = Field(default_factory=list)
+    route_count: int | None = None
+    routing_policy_count: int | None = None
     api_source: str = "v4"
 
 

@@ -128,8 +128,45 @@ class FlowNetworkingCollector(Collector):
     def collect(self, env: Any) -> None:
         self._vpcs(env)
         self._floating_ips(env)
+        self._vpc_routing(env)
         env.flow.vpc_count = len(env.vpcs)
         env.collection_notes[self.name] = "ok"
+
+    def _vpc_routing(self, env: Any) -> None:
+        """Per-VPC route and routing-policy counts (v4 networking, best-effort).
+
+        Subnet membership is backfilled by the engine from the subnet inventory.
+        """
+        if not env.vpcs:
+            return
+        by_uuid = {v.uuid: v for v in env.vpcs if v.uuid}
+        try:
+            tables = self.conn.v4_list("networking/v4.0/config/route-tables")
+        except Exception:  # noqa: BLE001 — v4 networking absent
+            tables = []
+        for table in tables:
+            vpc_ref = table.get("vpcReference")
+            vpc_uuid = vpc_ref if isinstance(vpc_ref, str) else (vpc_ref or {}).get("extId")
+            vpc = by_uuid.get(vpc_uuid or "")
+            if not vpc:
+                continue
+            routes = (
+                table.get("staticRoutes")
+                or table.get("dynamicRoutes")
+                or table.get("routes")
+                or []
+            )
+            vpc.route_count = (vpc.route_count or 0) + len(routes)
+        try:
+            policies = self.conn.v4_list("networking/v4.0/config/routing-policies")
+        except Exception:  # noqa: BLE001
+            policies = []
+        for policy in policies:
+            vpc_ref = policy.get("vpcExtId") or policy.get("vpcReference")
+            vpc_uuid = vpc_ref if isinstance(vpc_ref, str) else (vpc_ref or {}).get("extId")
+            vpc = by_uuid.get(vpc_uuid or "")
+            if vpc:
+                vpc.routing_policy_count = (vpc.routing_policy_count or 0) + 1
 
     def _vpcs(self, env: Any) -> None:
         try:
