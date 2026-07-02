@@ -7,11 +7,14 @@ pure-Python (no native GTK/Pango), so it bundles cleanly with PyInstaller on Win
 
 from __future__ import annotations
 
+import io
 from pathlib import Path
 from typing import Any
 
 from fpdf import FPDF
 
+from ntnxvision_core.exporters import diagrams
+from ntnxvision_core.exporters.diagrams import Diagram
 from ntnxvision_core.models import Environment
 
 GIB = 1024**3
@@ -65,6 +68,7 @@ class PdfExporter:
 
         self._cover(pdf, env)
         self._summary(pdf, env)
+        self._topology(pdf, env)
         self._pc_config(pdf, env)
         self._infra_sections(pdf, env)
         self._system_vms(pdf, env)
@@ -137,6 +141,12 @@ class PdfExporter:
         metrics = [(k.replace("_", " ").title(), str(v)) for k, v in c.items() if v]
         self._metric_grid(pdf, metrics)
 
+    def _topology(self, pdf: _Report, env: Environment) -> None:
+        self._diagram_page(pdf, "Environment Topology", [
+            ("Management topology - Prism Central and registered clusters.",
+             diagrams.management_topology(env)),
+        ])
+
     def _pc_config(self, pdf: _Report, env: Environment) -> None:
         cfg = env.pc_config
         rows = [
@@ -168,6 +178,10 @@ class PdfExporter:
               _gib(h.memory_bytes), h.num_vms] for h in env.hosts],
             [55, 45, 45, 25, 30, 20],
         )
+        self._diagram_page(pdf, "Cluster Compute Topology", [
+            (f"Cluster {c.name} - node composition and capacity.",
+             diagrams.cluster_compute(env, c)) for c in env.clusters[:8]
+        ])
         self._section_table(
             pdf, "Virtual Machines (User Workloads)",
             ["Name", "Power", "Cluster", "vCPU", "Mem GiB", "Disk GiB"],
@@ -226,6 +240,10 @@ class PdfExporter:
              for r in env.recovery_plans],
             [70, 25, 30, 65, 65],
         )
+        self._diagram_page(pdf, "Replication Topology", [
+            ("Protection policy flows between availability zones.",
+             diagrams.replication_topology(env)),
+        ])
 
     def _flow_section(self, pdf: _Report, env: Environment) -> None:
         self._section_table(
@@ -241,6 +259,13 @@ class PdfExporter:
              for v in env.vpcs],
             [55, 80, 75, 20, 20],
         )
+        self._diagram_page(pdf, "Network Topology", [
+            (f"Cluster {c.name} - virtual switch and VLAN layout.",
+             diagrams.network_topology(env, c)) for c in env.clusters[:8]
+        ] + [
+            ("Flow Virtual Networking - VPCs with overlay and external subnets.",
+             diagrams.vpc_topology(env)),
+        ])
 
     def _nus_section(self, pdf: _Report, env: Environment) -> None:
         self._section_table(
@@ -293,6 +318,30 @@ class PdfExporter:
         pdf.set_line_width(0.8)
         pdf.line(pdf.l_margin, y, pdf.l_margin + 60, y)
         pdf.ln(4)
+
+    def _diagram_page(self, pdf: _Report, title: str,
+                      items: list[tuple[str, Diagram | None]]) -> None:
+        """One section of stacked topology diagrams; skipped entirely if none rendered."""
+        drawn = [(caption, d) for caption, d in items if d is not None]
+        if not drawn:
+            return
+        pdf.add_page()
+        self._h1(pdf, title)
+        for caption, diag in drawn:
+            # Landscape pages afford a bit more room than the logical size.
+            w_mm = min(pdf.epw, diag.width_in * 25.4 * 1.15)
+            h_mm = w_mm * diag.height / diag.width
+            max_h = pdf.h - 70  # keep one diagram within a single page
+            if h_mm > max_h:
+                w_mm, h_mm = w_mm * max_h / h_mm, max_h
+            if pdf.get_y() + h_mm + 10 > pdf.h - 18:
+                pdf.add_page()
+            pdf.image(io.BytesIO(diag.png), x=pdf.l_margin, w=w_mm)
+            pdf.ln(1)
+            pdf.set_font("Helvetica", "I", 8)
+            pdf.set_text_color(*_GREY)
+            pdf.cell(0, 5, _latin1(caption), new_x="LMARGIN", new_y="NEXT")
+            pdf.ln(4)
 
     def _section_table(
         self, pdf: _Report, title: str, headers: list[str],
