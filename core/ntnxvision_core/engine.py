@@ -195,6 +195,11 @@ def _resolve_cross_references(env: Environment) -> None:
                 cluster_name_by_uuid.get(u, u) for u in image.cluster_uuids
             ]
 
+    # Alerts carry only a cluster uuid; resolve it to the friendly name here.
+    for alert in env.alerts:
+        if not alert.cluster_name and alert.cluster_uuid:
+            alert.cluster_name = cluster_name_by_uuid.get(alert.cluster_uuid)
+
     # VPC → overlay subnets (the subnet collector already knows its vpc).
     for vpc in env.vpcs:
         if not vpc.subnet_names:

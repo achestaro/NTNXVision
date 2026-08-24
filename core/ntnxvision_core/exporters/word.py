@@ -45,6 +45,7 @@ class WordExporter:
         self._pc_management(doc, env)
         self._logical_design(doc, env)
         self._physical_design(doc, env)
+        self._health(doc, env)
         self._catalog(doc, env)
         self._storage_services(doc, env)
         self._networking(doc, env)
@@ -120,7 +121,7 @@ class WordExporter:
         self._figure(
             doc, diagrams.executive_dashboard(env),
             "Figure 1-1. Executive summary dashboard — clusters, hosts, VMs, storage "
-            "capacity, projects, and protection policies at a glance.",
+            "capacity, active alerts, and projects at a glance.",
         )
         highlights = [
             f"{c['protection_policies']} protection policy(ies) and {c['recovery_plans']} "
@@ -188,29 +189,29 @@ class WordExporter:
         )
 
     def _catalog(self, doc: DocumentObject, env: Environment) -> None:
-        self._heading(doc, "7. Catalog — Templates, Images & OVAs", level=1)
-        self._heading(doc, "7.1 VM Templates", level=2)
+        self._heading(doc, "8. Catalog — Templates, Images & OVAs", level=1)
+        self._heading(doc, "8.1 VM Templates", level=2)
         self._table(
             doc, ["Template", "Guest OS", "vCPU", "Memory (GiB)", "Active Version"],
             [[t.name, t.guest_os, str(t.num_vcpus or ""), str(_gib(t.memory_bytes) or ""),
               t.active_version or "—"] for t in env.templates],
-            "Table 7-1. VM templates.",
+            "Table 8-1. VM templates.",
             empty="No VM templates are defined in Prism Central.",
         )
-        self._heading(doc, "7.2 Images", level=2)
+        self._heading(doc, "8.2 Images", level=2)
         self._table(
             doc, ["Image", "Type", "Size (GiB)", "Architecture", "Clusters"],
             [[i.name, i.image_type, str(_gib(i.size_bytes) or ""), i.architecture or "—",
               ", ".join(i.cluster_names) or "—"] for i in env.images],
-            "Table 7-2. Images.",
+            "Table 8-2. Images.",
             empty="No images are present in the Prism Central catalog.",
         )
-        self._heading(doc, "7.3 OVAs", level=2)
+        self._heading(doc, "8.3 OVAs", level=2)
         self._table(
             doc, ["OVA", "Size (GiB)", "Disks", "Cluster"],
             [[o.name, str(_gib(o.size_bytes) or ""), str(o.disk_count or ""),
               o.cluster_name or "—"] for o in env.ovas],
-            "Table 7-3. OVAs.",
+            "Table 8-3. OVAs.",
             empty="No OVAs are present in the Prism Central catalog.",
         )
 
@@ -274,53 +275,67 @@ class WordExporter:
             f"Figure 6-{fig + 3}. Virtual machines per cluster.",
         )
 
+    def _health(self, doc: DocumentObject, env: Environment) -> None:
+        self._heading(doc, "7. Health & Alerts", level=1)
+        self._table(
+            doc, ["Severity", "Title", "Entity", "Cluster", "Resolved"],
+            [[a.severity, a.title, a.entity_name, a.cluster_name,
+              "Yes" if a.resolved else "No"] for a in env.alerts],
+            "Table 7-1. Health alerts.",
+            empty="No open alerts were reported at collection time.",
+        )
+        self._figure(
+            doc, diagrams.alert_severity_chart(env),
+            "Figure 7-1. Alert severity breakdown.",
+        )
+
     def _storage_services(self, doc: DocumentObject, env: Environment) -> None:
-        self._heading(doc, "8. Unified Storage Services (NUS)", level=1)
-        self._heading(doc, "8.1 Files", level=2)
+        self._heading(doc, "9. Unified Storage Services (NUS)", level=1)
+        self._heading(doc, "9.1 Files", level=2)
         self._table(
             doc, ["File Server", "Cluster", "Version", "FSVMs", "Shares"],
             [[f.name, f.cluster_name, f.version, str(f.num_fsvm or ""), str(f.share_count or "")]
              for f in env.file_servers],
-            "Table 8-1. Nutanix Files servers.",
+            "Table 9-1. Nutanix Files servers.",
             empty="Nutanix Files is not deployed in this environment.",
         )
-        self._heading(doc, "8.2 Objects", level=2)
+        self._heading(doc, "9.2 Objects", level=2)
         self._table(
             doc, ["Object Store", "Cluster", "Workers", "Capacity (GiB)", "Buckets"],
             [[o.name, o.cluster_name, str(o.num_worker_nodes or ""),
               str(_gib(o.total_capacity_bytes) or ""), str(o.bucket_count or "")]
              for o in env.object_stores],
-            "Table 8-2. Nutanix Objects stores.",
+            "Table 9-2. Nutanix Objects stores.",
             empty="Nutanix Objects is not deployed in this environment.",
         )
-        self._heading(doc, "8.3 Volumes", level=2)
+        self._heading(doc, "9.3 Volumes", level=2)
         self._table(
             doc, ["Volume Group", "Cluster", "Disks", "Capacity (GiB)", "Shared"],
             [[v.name, v.cluster_name, str(v.disk_count or ""),
               str(_gib(v.total_capacity_bytes) or ""), "Yes" if v.is_shared else "No"]
              for v in env.volume_groups],
-            "Table 8-3. Volume groups.",
+            "Table 9-3. Volume groups.",
             empty="No volume groups are configured.",
         )
 
     def _networking(self, doc: DocumentObject, env: Environment) -> None:
-        self._heading(doc, "9. Networking", level=1)
-        self._heading(doc, "9.1 Subnets", level=2)
+        self._heading(doc, "10. Networking", level=1)
+        self._heading(doc, "10.1 Subnets", level=2)
         self._table(
             doc, ["Subnet", "Cluster", "Type", "VLAN", "vSwitch", "VPC"],
             [[s.name, s.cluster_name, s.subnet_type, str(s.vlan_id or ""),
               s.virtual_switch or "—", s.vpc_name or "—"]
              for s in env.subnets],
-            "Table 9-1. Subnets.",
+            "Table 10-1. Subnets.",
         )
         fig = 0
         for cluster in env.clusters[:8]:
             d = diagrams.network_topology(env, cluster)
             if d:
                 fig += 1
-                self._figure(doc, d, f"Figure 9-{fig}. Cluster {cluster.name} — "
+                self._figure(doc, d, f"Figure 10-{fig}. Cluster {cluster.name} — "
                                      "virtual switch and VLAN layout.")
-        self._heading(doc, "9.2 Virtual Networking (VPCs)", level=2)
+        self._heading(doc, "10.2 Virtual Networking (VPCs)", level=2)
         self._table(
             doc, ["VPC", "Subnets", "External Subnets", "Routable Prefixes", "Routes",
                   "Routing Policies"],
@@ -329,17 +344,17 @@ class WordExporter:
               str(v.route_count) if v.route_count is not None else "—",
               str(v.routing_policy_count) if v.routing_policy_count is not None else "—"]
              for v in env.vpcs],
-            "Table 9-2. Flow virtual networking VPCs.",
+            "Table 10-2. Flow virtual networking VPCs.",
             empty="Flow Virtual Networking is not enabled.",
         )
         self._figure(
             doc, diagrams.vpc_topology(env),
-            f"Figure 9-{fig + 1}. Flow Virtual Networking — VPCs with overlay and "
+            f"Figure 10-{fig + 1}. Flow Virtual Networking — VPCs with overlay and "
             "external subnets.",
         )
 
     def _data_protection(self, doc: DocumentObject, env: Environment) -> None:
-        self._heading(doc, "10. Data Protection & Disaster Recovery", level=1)
+        self._heading(doc, "11. Data Protection & Disaster Recovery", level=1)
         doc.add_paragraph(
             "Data protection is delivered through protection policies (snapshot and "
             "replication schedules) and recovery plans (orchestrated failover). The tables "
@@ -347,45 +362,45 @@ class WordExporter:
         )
         self._figure(
             doc, diagrams.replication_topology(env),
-            "Figure 10-1. Replication topology — protection policy flows between "
+            "Figure 11-1. Replication topology — protection policy flows between "
             "availability zones.",
         )
-        self._heading(doc, "10.1 Protection Policies", level=2)
+        self._heading(doc, "11.1 Protection Policies", level=2)
         self._table(
             doc, ["Policy", "RPO (s)", "Replication", "Source AZ", "Target AZ"],
             [[p.name, str(p.rpo_seconds or ""), p.replication_type, p.source_az or "—",
               p.target_az or "—"] for p in env.protection_policies],
-            "Table 10-1. Protection policies.",
+            "Table 11-1. Protection policies.",
             empty="No protection policies are configured.",
         )
-        self._heading(doc, "10.2 Recovery Plans", level=2)
+        self._heading(doc, "11.2 Recovery Plans", level=2)
         self._table(
             doc, ["Plan", "Stages", "Entities", "Primary", "Recovery"],
             [[r.name, str(r.stage_count or ""), str(r.entities_count or ""),
               r.primary_location or "—", r.recovery_location or "—"]
              for r in env.recovery_plans],
-            "Table 10-2. Recovery plans.",
+            "Table 11-2. Recovery plans.",
             empty="No recovery plans are configured.",
         )
 
     def _security(self, doc: DocumentObject, env: Environment) -> None:
-        self._heading(doc, "11. Security Posture (Flow)", level=1)
+        self._heading(doc, "12. Security Posture (Flow)", level=1)
         self._table(
             doc, ["Policy", "Type", "State", "Inbound", "Outbound", "Secured Group"],
             [[p.name, p.policy_type, p.state, str(p.inbound_rule_count or ""),
               str(p.outbound_rule_count or ""), p.secured_group or "—"]
              for p in env.security_policies],
-            "Table 11-1. Flow network security policies.",
+            "Table 12-1. Flow network security policies.",
             empty="Flow Network Security is not configured.",
         )
 
     def _databases(self, doc: DocumentObject, env: Environment) -> None:
-        self._heading(doc, "12. Database Services (NDB)", level=1)
+        self._heading(doc, "13. Database Services (NDB)", level=1)
         self._table(
             doc, ["Database", "Engine", "Type", "Status", "SLA"],
             [[d.name, d.db_engine, d.db_type, d.status, d.sla_name or "—"]
              for d in env.databases],
-            "Table 12-1. NDB-managed databases.",
+            "Table 13-1. NDB-managed databases.",
             empty="Nutanix Database Service is not in use / not collected.",
         )
 
