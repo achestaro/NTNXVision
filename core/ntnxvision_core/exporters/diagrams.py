@@ -54,6 +54,10 @@ _TRACK = (238, 242, 246)
 _VM_ON = (34, 153, 79)
 _VM_OFF = (148, 158, 171)
 _VM_OTHER = (194, 121, 10)
+_ALERT_CRIT = (214, 71, 63)
+_ALERT_WARN = (232, 145, 45)
+_ALERT_INFO = (46, 120, 214)
+_ALERT_OTHER = (154, 167, 180)
 #: Fixed hue order for per-cluster identity — never reassigned per render, so
 #: the same cluster gets the same color across the storage/VM charts in a report.
 _CLUSTER_PALETTE = [
@@ -584,7 +588,7 @@ def _draw_donut(draw: ImageDraw.ImageDraw, cx: float, cy: float, r: float, thick
 
 
 def executive_dashboard(env: Environment) -> Diagram | None:
-    """Six-tile at-a-glance summary: clusters, hosts, VMs, storage, projects, DR policies."""
+    """Six-tile at-a-glance summary: clusters, hosts, VMs, storage, alerts, projects."""
     if not env.clusters and not env.hosts and not env.vms:
         return None
     storage_total = sum(c.max_capacity_bytes or 0 for c in env.storage_containers)
@@ -593,8 +597,8 @@ def executive_dashboard(env: Environment) -> Diagram | None:
         ("Hosts", str(len(env.hosts))),
         ("Virtual Machines", str(len(env.vms))),
         ("Storage Capacity", _size_label(storage_total) if storage_total else "—"),
+        ("Active Alerts", str(len(env.alerts))),
         ("Projects", str(len(env.projects))),
-        ("Protection Policies", str(len(env.protection_policies))),
     ]
     w = 2 * _FRAME_PAD + len(tiles) * _TILE_W + (len(tiles) - 1) * _TILE_GAP
     h = 2 * _FRAME_PAD + _TILE_H
@@ -637,6 +641,43 @@ def vm_power_state_chart(env: Environment) -> Diagram | None:
     lx = pad + _DONUT_R * 2 + 30
     ly = cy - (len(labelled) - 1) * 11
     for label, color, _count in labelled:
+        _legend_item(draw, lx, ly, label, color, f_leg)
+        ly += 22
+    return _finish(img, w, h)
+
+
+def alert_severity_chart(env: Environment) -> Diagram | None:
+    """Donut of open alert severity — critical / warning / info / other.
+
+    Returns None for a clean environment, same as the vendor script omits this
+    figure entirely when there are zero alerts.
+    """
+    total = len(env.alerts)
+    if not total:
+        return None
+    s = env.alerts_summary
+    counts = [
+        ("Critical", _ALERT_CRIT, s.critical_count),
+        ("Warning", _ALERT_WARN, s.warning_count),
+        ("Info", _ALERT_INFO, s.info_count),
+        ("Other", _ALERT_OTHER, s.other_count),
+    ]
+    segments = [(v, c) for _label, c, v in counts if v > 0]
+
+    legend_w = 230
+    pad = _FRAME_PAD
+    w = pad * 2 + _DONUT_R * 2 + 30 + legend_w
+    h = pad * 2 + _DONUT_R * 2
+    img, draw = _new_canvas(w, h)
+    cx, cy = pad + _DONUT_R, h / 2
+    _draw_donut(draw, cx, cy, _DONUT_R, _DONUT_THICK, segments,
+                center_value=str(total), center_label="open alerts")
+
+    labelled = [(f"{label} — {v} ({v / total:.0%})", c) for label, c, v in counts if v > 0]
+    f_leg = _font(9.5)
+    lx = pad + _DONUT_R * 2 + 30
+    ly = cy - (len(labelled) - 1) * 11
+    for label, color in labelled:
         _legend_item(draw, lx, ly, label, color, f_leg)
         ly += 22
     return _finish(img, w, h)

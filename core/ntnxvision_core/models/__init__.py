@@ -7,6 +7,8 @@ field came from.
 
 from ntnxvision_core.models.environment import (
     AddressGroup,
+    Alert,
+    AlertSummary,
     AvailabilityZone,
     Bucket,
     Category,
@@ -69,6 +71,8 @@ __all__ = [
     "RecoveryPlan",
     "AvailabilityZone",
     "RemoteSite",
+    # Health / Alerts
+    "Alert",
     # Flow
     "SecurityPolicy",
     "Category",
@@ -95,4 +99,5 @@ __all__ = [
     # Summaries
     "DataProtectionSummary",
     "FlowSummary",
+    "AlertSummary",
 ]

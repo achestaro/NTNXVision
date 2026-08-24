@@ -9,6 +9,7 @@ Phase 2 (platform):    data protection, flow security + networking, files, objec
                        volumes, iam, x-play, ncm reports.  NDB is separate (own conn).
 """
 
+from ntnxvision_core.collectors.alerts import AlertsCollector
 from ntnxvision_core.collectors.base import Collector
 from ntnxvision_core.collectors.catalog import (
     ImageCollector,
@@ -49,6 +50,7 @@ PHASE1_COLLECTORS: list[type[Collector]] = [
 #: Phase 2 collectors — full platform coverage (all PrismConnection-based).
 PHASE2_COLLECTORS: list[type[Collector]] = [
     DataProtectionCollector,
+    AlertsCollector,
     FlowSecurityCollector,
     FlowNetworkingCollector,
     FilesCollector,
@@ -76,6 +78,7 @@ __all__ = [
     "VmCollector",
     "LicenseCollector",
     "DataProtectionCollector",
+    "AlertsCollector",
     "FlowSecurityCollector",
     "FlowNetworkingCollector",
     "FilesCollector",

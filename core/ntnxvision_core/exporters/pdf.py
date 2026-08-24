@@ -87,6 +87,7 @@ class PdfExporter:
         self._pc_config(pdf, env)
         self._infra_sections(pdf, env)
         self._system_vms(pdf, env)
+        self._health(pdf, env)
         self._catalog(pdf, env)
         self._dr_section(pdf, env)
         self._flow_section(pdf, env)
@@ -248,6 +249,16 @@ class PdfExporter:
               _gib(v.memory_bytes)] for v in env.system_vms],
             [70, 40, 25, 55, 20, 30],
         )
+
+    def _health(self, pdf: _Report, env: Environment) -> None:
+        self._section_table(
+            pdf, "Health Alerts", ["Severity", "Title", "Entity", "Cluster", "Resolved"],
+            [[a.severity, a.title, a.entity_name, a.cluster_name, "Yes" if a.resolved else "No"]
+             for a in env.alerts],
+            [25, 90, 55, 55, 25],
+        )
+        self._inline_figure(pdf, diagrams.alert_severity_chart(env),
+                            "Alert severity breakdown.")
 
     def _catalog(self, pdf: _Report, env: Environment) -> None:
         self._section_table(

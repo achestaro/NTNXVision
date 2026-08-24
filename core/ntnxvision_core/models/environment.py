@@ -351,6 +351,26 @@ class AvailabilityZone(_Base):
     api_source: str = "v3"
 
 
+# ─── Health / Alerts ────────────────────────────────────────────────────
+
+
+class Alert(_Base):
+    uuid: str | None = None
+    title: str | None = None
+    message: str | None = None
+    severity: str | None = None  # CRITICAL / WARNING / INFO / OTHER (normalized)
+    resolved: bool | None = None
+    acknowledged: bool | None = None
+    auto_resolved: bool | None = None
+    entity_type: str | None = None
+    entity_name: str | None = None
+    cluster_uuid: str | None = None
+    cluster_name: str | None = None
+    created_at: str | None = None
+    classifications: list[str] = Field(default_factory=list)
+    api_source: str = "v3"
+
+
 class RemoteSite(_Base):
     uuid: str | None = None
     name: str | None = None
@@ -605,6 +625,15 @@ class FlowSummary(_Base):
     vpc_count: int = 0
 
 
+class AlertSummary(_Base):
+    total_count: int = 0
+    critical_count: int = 0
+    warning_count: int = 0
+    info_count: int = 0
+    other_count: int = 0
+    unresolved_count: int = 0
+
+
 # ─── Root ──────────────────────────────────────────────────────────────
 
 
@@ -649,6 +678,9 @@ class Environment(_Base):
     availability_zones: list[AvailabilityZone] = Field(default_factory=list)
     remote_sites: list[RemoteSite] = Field(default_factory=list)
 
+    # ─ Phase 2: Health / Alerts ─
+    alerts: list[Alert] = Field(default_factory=list)
+
     # ─ Phase 2: Flow ─
     security_policies: list[SecurityPolicy] = Field(default_factory=list)
     categories: list[Category] = Field(default_factory=list)
@@ -679,6 +711,7 @@ class Environment(_Base):
     # Roll-up summaries
     data_protection: DataProtectionSummary = Field(default_factory=DataProtectionSummary)
     flow: FlowSummary = Field(default_factory=FlowSummary)
+    alerts_summary: AlertSummary = Field(default_factory=AlertSummary)
 
     # Collection diagnostics: {collector_name: "ok" | "skipped: reason" | "error: ..."}
     collection_notes: dict[str, str] = Field(default_factory=dict)
@@ -698,6 +731,7 @@ class Environment(_Base):
             "protection_policies": len(self.protection_policies),
             "recovery_plans": len(self.recovery_plans),
             "availability_zones": len(self.availability_zones),
+            "alerts": len(self.alerts),
             "security_policies": len(self.security_policies),
             "categories": len(self.categories),
             "service_groups": len(self.service_groups),
