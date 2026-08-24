@@ -300,6 +300,12 @@ class PdfExporter:
 
     def _flow_section(self, pdf: _Report, env: Environment) -> None:
         self._section_table(
+            pdf, "Subnets", ["Name", "Cluster", "Type", "VLAN", "vSwitch", "VPC"],
+            [[s.name, s.cluster_name, s.subnet_type, s.vlan_id, s.virtual_switch, s.vpc_name]
+             for s in env.subnets],
+            [55, 45, 25, 20, 40, 45],
+        )
+        self._section_table(
             pdf, "Flow Security Policies", ["Name", "Type", "State", "In", "Out", "Secured Group"],
             [[p.name, p.policy_type, p.state, p.inbound_rule_count, p.outbound_rule_count,
               p.secured_group] for p in env.security_policies],
