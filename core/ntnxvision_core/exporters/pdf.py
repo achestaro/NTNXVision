@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any
 
 from fpdf import FPDF
+from fpdf.outline import OutlineSection
 
 from ntnxvision_core.exporters import diagrams
 from ntnxvision_core.exporters.diagrams import Diagram
@@ -25,6 +26,11 @@ _HEADER = (31, 78, 120)
 _ZEBRA = (241, 245, 250)
 _GREY = (120, 130, 142)
 _INK = (40, 46, 54)
+# Exact brand hex from the coworker's script's spec (#024DA1 / #00A3E0), used only
+# where we're explicitly matching it (cover, TOC) — the rest of the report keeps
+# its own established navy/accent pair above.
+_TOC_BLUE = (2, 77, 161)
+_TOC_CYAN = (0, 163, 224)
 
 
 class _Report(FPDF):
@@ -57,7 +63,13 @@ class _Report(FPDF):
         self.set_font("Helvetica", "", 7.5)
         self.set_text_color(*_GREY)
         self.cell(0, 6, "NTNXVision - Nutanix Environment Report", align="L")
-        self.cell(0, 6, f"Page {self.page_no() - 1}", align="R")
+        # Pages added mid-render during the deferred ToC pass (in_toc_rendering) — and
+        # the last such page, whose footer fpdf2 flushes just *after* that flag resets
+        # (see _toc_inserted_pages) — report a bogus page_no() until fpdf2 re-splices
+        # them into place, so skip the number rather than show it wrong.
+        in_toc_overflow = self.in_toc_rendering or getattr(self, "_toc_inserted_pages", 0) > 0
+        page_label = "" if in_toc_overflow else f"Page {self.page_no() - 1}"
+        self.cell(0, 6, page_label, align="R")
 
 
 class PdfExporter:
@@ -67,7 +79,10 @@ class PdfExporter:
         pdf.set_title("NTNXVision Environment Report")
 
         self._cover(pdf, env)
+        pdf.add_page()  # dedicated blank page: insert_toc_placeholder reserves *this* one
+        pdf.insert_toc_placeholder(self._render_toc, pages=1, allow_extra_pages=True)
         self._summary(pdf, env)
+        self._feature_usage(pdf, env)
         self._topology(pdf, env)
         self._pc_config(pdf, env)
         self._infra_sections(pdf, env)
@@ -77,7 +92,7 @@ class PdfExporter:
         self._flow_section(pdf, env)
         self._nus_section(pdf, env)
         self._ndb_section(pdf, env)
-        self._feature_usage(pdf, env)
+        self._vm_inventory(pdf, env)
 
         out = Path(path)
         out.parent.mkdir(parents=True, exist_ok=True)
@@ -87,41 +102,19 @@ class PdfExporter:
     # ─── cover & summary ───────────────────────────────────────────
 
     def _cover(self, pdf: _Report, env: Environment) -> None:
+        """Report cover — embeds the shared diagrams.cover_page() raster so the
+        PDF and Word covers are pixel-identical rather than two hand-drawn
+        approximations.
+        """
         pdf.add_page()
-        # Full-bleed navy band across the top third.
-        pdf.set_fill_color(*_NAVY)
-        pdf.rect(0, 0, pdf.w, 78, style="F")
-        pdf.set_fill_color(*_ACCENT)
-        pdf.rect(0, 78, pdf.w, 2.5, style="F")
-
-        pdf.set_y(28)
-        pdf.set_font("Helvetica", "B", 40)
-        pdf.set_text_color(255, 255, 255)
-        pdf.cell(0, 20, "NTNXVision", align="C", new_x="LMARGIN", new_y="NEXT")
-        pdf.set_font("Helvetica", "", 15)
-        pdf.set_text_color(205, 220, 235)
-        pdf.cell(0, 10, "Nutanix Cloud Platform - Environment Report", align="C",
-                 new_x="LMARGIN", new_y="NEXT")
-
-        pdf.set_y(110)
-        pdf.set_font("Helvetica", "", 12)
-        pdf.set_text_color(*_INK)
-        for label, value in [
-            ("Prism Central", env.prism_central.host or "n/a"),
-            ("Version", env.prism_central.version or "unknown"),
-            ("Clusters", str(len(env.clusters))),
-            ("Collected (UTC)", (env.collected_at or "n/a")[:19].replace("T", "  ")),
-        ]:
-            pdf.set_x(pdf.w / 2 - 55)
-            pdf.set_font("Helvetica", "B", 11)
-            pdf.set_text_color(*_NAVY)
-            pdf.cell(45, 9, label, align="L")
-            pdf.set_font("Helvetica", "", 11)
-            pdf.set_text_color(*_INK)
-            pdf.cell(65, 9, _latin1(value), align="L", new_x="LMARGIN", new_y="NEXT")
+        diag = diagrams.cover_page(env)
+        w_mm = min(pdf.w - 20, diag.width_in * 25.4)
+        h_mm = w_mm * diag.height / diag.width
+        pdf.image(io.BytesIO(diag.png), x=(pdf.w - w_mm) / 2, y=(pdf.h - h_mm) / 2, w=w_mm)
 
     def _summary(self, pdf: _Report, env: Environment) -> None:
-        pdf.add_page()
+        # No pdf.add_page() here: insert_toc_placeholder() already advances to a
+        # fresh page right before this runs.
         self._h1(pdf, "Executive Summary")
         pdf.set_font("Helvetica", "", 11)
         pdf.set_text_color(*_INK)
@@ -138,8 +131,8 @@ class PdfExporter:
         )
         pdf.multi_cell(0, 6, _latin1(line))
         pdf.ln(4)
-        metrics = [(k.replace("_", " ").title(), str(v)) for k, v in c.items() if v]
-        self._metric_grid(pdf, metrics)
+        self._inline_figure(pdf, diagrams.executive_dashboard(env),
+                            "Figure 1. Executive summary dashboard.")
 
     def _topology(self, pdf: _Report, env: Environment) -> None:
         self._diagram_page(pdf, "Environment Topology", [
@@ -183,19 +176,68 @@ class PdfExporter:
              diagrams.cluster_compute(env, c)) for c in env.clusters[:8]
         ])
         self._section_table(
-            pdf, "Virtual Machines (User Workloads)",
-            ["Name", "Power", "Cluster", "vCPU", "Mem GiB", "Disk GiB"],
-            [[v.name, v.power_state, v.cluster_name, v.vcpu_total, _gib(v.memory_bytes),
-              _gib(v.total_disk_bytes)] for v in env.vms],
-            [70, 25, 55, 20, 30, 30],
-        )
-        self._section_table(
             pdf, "Storage Containers",
             ["Name", "Cluster", "RF", "Compression", "Max GiB", "Used GiB"],
             [[s.name, s.cluster_name, s.replication_factor,
               "On" if s.compression_enabled else "Off", _gib(s.max_capacity_bytes),
               _gib(s.used_bytes)] for s in env.storage_containers],
             [55, 45, 20, 40, 35, 35],
+        )
+        self._storage_vm_distribution(pdf, env)
+
+    def _storage_vm_distribution(self, pdf: _Report, env: Environment) -> None:
+        """Storage capacity full-width, then power-state + per-cluster charts side
+        by side — three stacked figures didn't fit one page, spilling the third
+        onto a page of its own; two columns for the smaller pair does.
+        """
+        cap = diagrams.storage_capacity_chart(env)
+        power = diagrams.vm_power_state_chart(env)
+        per_cluster = diagrams.vms_per_cluster_chart(env)
+        if not (cap or power or per_cluster):
+            return
+        pdf.add_page()
+        self._h1(pdf, "Storage & VM Distribution")
+
+        if cap:
+            w_mm = pdf.epw
+            pdf.image(io.BytesIO(cap.png), x=pdf.l_margin, w=w_mm)  # advances pdf.y itself
+            pdf.set_font("Helvetica", "I", 8)
+            pdf.set_text_color(*_GREY)
+            pdf.cell(0, 5, "Storage container capacity - used vs. free per container.",
+                     new_x="LMARGIN", new_y="NEXT")
+            pdf.ln(6)
+
+        row_y = pdf.get_y()
+        gap = 10.0
+        col_w = (pdf.epw - gap) / 2
+        max_bottom = row_y
+        for diag, caption, col_x in (
+            (power, "VM power state distribution.", pdf.l_margin),
+            (per_cluster, "Virtual machines per cluster.", pdf.l_margin + col_w + gap),
+        ):
+            if not diag:
+                continue
+            w_mm = min(col_w, diag.width_in * 25.4)
+            h_mm = w_mm * diag.height / diag.width
+            img_x = col_x + (col_w - w_mm) / 2  # center within its column
+            pdf.image(io.BytesIO(diag.png), x=img_x, y=row_y, w=w_mm)
+            pdf.set_xy(col_x, row_y + h_mm + 1)
+            pdf.set_font("Helvetica", "I", 8)
+            pdf.set_text_color(*_GREY)
+            pdf.multi_cell(col_w, 5, caption)
+            max_bottom = max(max_bottom, pdf.get_y())
+        pdf.set_y(max_bottom + 4)
+
+    def _vm_inventory(self, pdf: _Report, env: Environment) -> None:
+        """Full per-VM listing — kept last since a large fleet makes it run for
+        many pages, which otherwise breaks up the narrative sections around it.
+        """
+        self._section_table(
+            pdf, "Virtual Machines (User Workloads)",
+            ["Name", "Power", "Cluster", "vCPU", "Mem GiB", "Disk GiB"],
+            [[v.name, v.power_state, v.cluster_name, v.vcpu_total, _gib(v.memory_bytes),
+              _gib(v.total_disk_bytes)] for v in env.vms],
+            [70, 25, 55, 20, 30, 30],
         )
 
     def _system_vms(self, pdf: _Report, env: Environment) -> None:
@@ -309,6 +351,7 @@ class PdfExporter:
     # ─── styling helpers ───────────────────────────────────────────
 
     def _h1(self, pdf: _Report, text: str) -> None:
+        pdf.start_section(text, level=0)
         pdf.set_font("Helvetica", "B", 17)
         pdf.set_text_color(*_NAVY)
         pdf.cell(0, 11, _latin1(text), new_x="LMARGIN", new_y="NEXT")
@@ -342,6 +385,57 @@ class PdfExporter:
             pdf.set_text_color(*_GREY)
             pdf.cell(0, 5, _latin1(caption), new_x="LMARGIN", new_y="NEXT")
             pdf.ln(4)
+
+    def _render_toc(self, pdf: FPDF, outline: list[OutlineSection]) -> None:
+        """Render the reserved Table of Contents page(s) from the recorded H1
+        sections — numbered rows on a dotted underline, matching the evaluation
+        mockup's .toc-list styling (Nutanix Blue #024DA1 numbers/title, a
+        Nutanix Cyan #00A3E0 rule) rather than a classic dot-leader TOC.
+        """
+        pdf.set_y(20)
+        pdf.set_font("Helvetica", "B", 17)
+        pdf.set_text_color(*_TOC_BLUE)
+        pdf.cell(0, 11, "Table of Contents", new_x="LMARGIN", new_y="NEXT")
+        y = pdf.get_y() + 0.5
+        pdf.set_draw_color(*_TOC_CYAN)
+        pdf.set_line_width(0.8)
+        pdf.line(pdf.l_margin, y, pdf.l_margin + 60, y)
+        pdf.ln(9)
+        num_w, page_w, row_h = 10.0, 14.0, 8.0
+        for i, entry in enumerate(outline, start=1):
+            if pdf.get_y() + row_h > pdf.h - 18:
+                pdf.add_page()
+                pdf.set_y(20)
+            row_x0, row_y0 = pdf.l_margin, pdf.get_y()
+            pdf.set_font("Helvetica", "B", 11)
+            pdf.set_text_color(*_TOC_BLUE)
+            pdf.cell(num_w, row_h, str(i))
+            pdf.set_font("Helvetica", "", 11)
+            pdf.set_text_color(*_INK)
+            pdf.cell(pdf.epw - num_w - page_w, row_h, _latin1(entry.name))
+            pdf.set_font("Helvetica", "B", 11)
+            pdf.set_text_color(*_TOC_BLUE)
+            pdf.cell(page_w, row_h, str(entry.page_number), align="R",
+                     new_x="LMARGIN", new_y="NEXT")
+            pdf.set_draw_color(215, 226, 236)
+            pdf.set_dash_pattern(dash=0.4, gap=0.8)
+            pdf.line(row_x0, row_y0 + row_h, row_x0 + pdf.epw, row_y0 + row_h)
+            pdf.set_dash_pattern()  # reset to solid for whatever draws next
+
+    def _inline_figure(self, pdf: _Report, diag: Diagram | None, caption: str) -> None:
+        """Embed a diagram at the current cursor position, no page break forced."""
+        if diag is None:
+            return
+        w_mm = min(pdf.epw, diag.width_in * 25.4)
+        h_mm = w_mm * diag.height / diag.width
+        if pdf.get_y() + h_mm + 10 > pdf.h - 18:
+            pdf.add_page()
+        pdf.image(io.BytesIO(diag.png), x=pdf.l_margin, w=w_mm)
+        pdf.ln(1)
+        pdf.set_font("Helvetica", "I", 8)
+        pdf.set_text_color(*_GREY)
+        pdf.cell(0, 5, _latin1(caption), new_x="LMARGIN", new_y="NEXT")
+        pdf.ln(4)
 
     def _section_table(
         self, pdf: _Report, title: str, headers: list[str],
@@ -391,35 +485,6 @@ class PdfExporter:
                 pdf.cell(w, 6, _truncate(value, w), border=0, fill=fill, align="L")
             pdf.ln()
             fill = not fill
-
-    def _metric_grid(self, pdf: _Report, pairs: list[tuple[str, str]]) -> None:
-        # Fixed 5-column card grid of key metrics, positioned absolutely per cell.
-        cols = 5
-        gutter = 4
-        col_w = (pdf.w - pdf.l_margin - pdf.r_margin - gutter * (cols - 1)) / cols
-        card_h = 16
-        row_gap = 4
-        x0 = pdf.l_margin
-        y0 = pdf.get_y() + 2
-        for i, (label, value) in enumerate(pairs):
-            col = i % cols
-            row = i // cols
-            x = x0 + col * (col_w + gutter)
-            y = y0 + row * (card_h + row_gap)
-            pdf.set_fill_color(*_ZEBRA)
-            pdf.set_draw_color(210, 220, 230)
-            pdf.rect(x, y, col_w, card_h, style="DF")
-            pdf.set_xy(x + 3, y + 2.5)
-            pdf.set_font("Helvetica", "B", 16)
-            pdf.set_text_color(*_NAVY)
-            pdf.cell(col_w - 6, 8, _latin1(value), align="L")
-            pdf.set_xy(x + 3, y + 10)
-            pdf.set_font("Helvetica", "", 7.5)
-            pdf.set_text_color(*_GREY)
-            pdf.cell(col_w - 6, 4, _latin1(label), align="L")
-        # Advance cursor below the grid.
-        rows = (len(pairs) + cols - 1) // cols
-        pdf.set_y(y0 + rows * (card_h + row_gap))
 
     def _kv_table(self, pdf: _Report, pairs: list[tuple[str, str]]) -> None:
         pdf.set_font("Helvetica", "", 10)
