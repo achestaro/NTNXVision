@@ -39,6 +39,8 @@ class ExcelExporter:
         self._catalog_sheets(wb, env)
         # Phase 2 — data protection / DR
         self._dr_sheets(wb, env)
+        # Phase 2 — Health / Alerts
+        self._alerts_sheet(wb, env)
         # Phase 2 — Flow
         self._flow_sheets(wb, env)
         # Phase 2 — NUS
@@ -233,6 +235,24 @@ class ExcelExporter:
             [[a.name, a.az_type, a.region, a.url, a.connection_status, a.api_source]
              for a in env.availability_zones],
         )
+        self._table(
+            wb, "Remote Sites",
+            ["Name", "Cluster", "Address", "Status", "API"],
+            [[r.name, r.cluster_name, r.address, r.status, r.api_source]
+             for r in env.remote_sites],
+        )
+
+    # ─── Phase 2: Health / Alerts ───────────────────────────────────
+
+    def _alerts_sheet(self, wb: Workbook, env: Environment) -> None:
+        self._table(
+            wb, "Alerts",
+            ["Severity", "Title", "Entity Type", "Entity", "Cluster", "Resolved",
+             "Acknowledged", "Created", "API"],
+            [[a.severity, a.title, a.entity_type, a.entity_name, a.cluster_name,
+              "Yes" if a.resolved else "No", "Yes" if a.acknowledged else "No",
+              a.created_at, a.api_source] for a in env.alerts],
+        )
 
     # ─── Phase 2: Flow ─────────────────────────────────────────────
 
@@ -269,6 +289,12 @@ class ExcelExporter:
               v.routing_policy_count, ", ".join(v.dns_servers), v.api_source]
              for v in env.vpcs],
         )
+        self._table(
+            wb, "Floating IPs",
+            ["Floating IP", "VPC", "External Subnet", "Private IP", "API"],
+            [[f.floating_ip, f.vpc_name, f.external_subnet, f.associated_private_ip,
+              f.api_source] for f in env.floating_ips],
+        )
 
     # ─── Phase 2: NUS (Files / Objects / Volumes) ──────────────────
 
@@ -292,6 +318,13 @@ class ExcelExporter:
             [[o.name, o.cluster_name, o.deployment_version, o.num_worker_nodes,
               _gib(o.total_capacity_bytes), _gib(o.used_bytes), o.bucket_count, o.state,
               o.api_source] for o in env.object_stores],
+        )
+        self._table(
+            wb, "Buckets",
+            ["Name", "Object Store", "Versioning", "WORM", "Objects", "Used (GiB)", "API"],
+            [[b.name, b.object_store_name, "Yes" if b.versioning else "No",
+              "Yes" if b.worm_enabled else "No", b.object_count, _gib(b.used_bytes),
+              b.api_source] for b in env.buckets],
         )
         self._table(
             wb, "Volume Groups",
