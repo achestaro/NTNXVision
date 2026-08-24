@@ -8,6 +8,7 @@ from ntnxvision_core.models import (
     Environment,
     Host,
     ProtectionPolicy,
+    StorageContainer,
     Subnet,
     VirtualMachine,
     Vpc,
@@ -30,7 +31,14 @@ def _env() -> Environment:
             cpu_model="Intel Xeon Gold 6338", num_cpu_cores=32,
             memory_bytes=256 * GIB, num_vms=10,
         ))
-    env.vms.append(VirtualMachine(uuid="v1", name="app-01", cluster_name="cluster-01"))
+    env.vms.append(VirtualMachine(uuid="v1", name="app-01", cluster_name="cluster-01",
+                                   power_state="ON"))
+    env.vms.append(VirtualMachine(uuid="v2", name="app-02", cluster_name="cluster-01",
+                                   power_state="OFF"))
+    env.storage_containers.append(StorageContainer(
+        uuid="s1", name="default-container", cluster_name="cluster-01",
+        max_capacity_bytes=100 * GIB, used_bytes=60 * GIB,
+    ))
     env.subnets.append(Subnet(
         uuid="n1", name="vlan-100", cluster_uuid="c1", cluster_name="cluster-01",
         subnet_type="VLAN", vlan_id=100, virtual_switch="vs0", ip_prefix="10.0.100.0/24",
@@ -66,9 +74,34 @@ def test_empty_environment_renders_nothing() -> None:
     assert diagrams.management_topology(env) is None
     assert diagrams.vpc_topology(env) is None
     assert diagrams.replication_topology(env) is None
+    assert diagrams.executive_dashboard(env) is None
+    assert diagrams.vm_power_state_chart(env) is None
+    assert diagrams.storage_capacity_chart(env) is None
+    assert diagrams.vms_per_cluster_chart(env) is None
     lone = Cluster(uuid="cx", name="empty")
     assert diagrams.cluster_compute(env, lone) is None
     assert diagrams.network_topology(env, lone) is None
+
+
+def test_chart_builders_render_png() -> None:
+    env = _env()
+    assert _is_png(diagrams.executive_dashboard(env))
+    assert _is_png(diagrams.vm_power_state_chart(env))
+    assert _is_png(diagrams.storage_capacity_chart(env))
+    assert _is_png(diagrams.vms_per_cluster_chart(env))
+
+
+def test_vms_per_cluster_skips_clusters_with_no_vms() -> None:
+    env = _env()
+    env.clusters.append(Cluster(uuid="c2", name="cluster-02"))
+    d = diagrams.vms_per_cluster_chart(env)
+    assert _is_png(d)  # cluster-01 still has VMs even though cluster-02 doesn't
+
+
+def test_storage_capacity_skips_containers_without_max_capacity() -> None:
+    env = Environment()
+    env.storage_containers.append(StorageContainer(uuid="s1", name="no-capacity"))
+    assert diagrams.storage_capacity_chart(env) is None
 
 
 def test_overflow_is_capped_not_crashing() -> None:
@@ -89,8 +122,9 @@ def test_word_export_embeds_diagrams(tmp_path) -> None:
 
     out = WordExporter().export(_env(), tmp_path / "add.docx")
     doc = Document(str(out))
-    # management + compute + network + vpc + replication figures
-    assert len(doc.inline_shapes) >= 5
+    # management + compute + network + vpc + replication + exec dashboard +
+    # storage capacity + VM power state + VMs-per-cluster figures
+    assert len(doc.inline_shapes) >= 9
 
 
 def test_pdf_export_with_diagrams(tmp_path) -> None:
