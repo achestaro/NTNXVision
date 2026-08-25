@@ -103,15 +103,13 @@ class PdfExporter:
     # ─── cover & summary ───────────────────────────────────────────
 
     def _cover(self, pdf: _Report, env: Environment) -> None:
-        """Report cover — embeds the shared diagrams.cover_page() raster so the
-        PDF and Word covers are pixel-identical rather than two hand-drawn
-        approximations.
+        """Report cover — full-bleed, edge-to-edge (matching the coworker script's
+        cover), embedding the shared diagrams.cover_page() raster so the PDF and
+        Word covers are otherwise pixel-identical.
         """
         pdf.add_page()
         diag = diagrams.cover_page(env)
-        w_mm = min(pdf.w - 20, diag.width_in * 25.4)
-        h_mm = w_mm * diag.height / diag.width
-        pdf.image(io.BytesIO(diag.png), x=(pdf.w - w_mm) / 2, y=(pdf.h - h_mm) / 2, w=w_mm)
+        pdf.image(io.BytesIO(diag.png), x=0, y=0, w=pdf.w, h=pdf.h)
 
     def _summary(self, pdf: _Report, env: Environment) -> None:
         # No pdf.add_page() here: insert_toc_placeholder() already advances to a
