@@ -93,7 +93,7 @@ class PdfExporter:
         self._flow_section(pdf, env)
         self._nus_section(pdf, env)
         self._ndb_section(pdf, env)
-        self._vm_inventory(pdf, env)
+        self._iam_section(pdf, env)
 
         out = Path(path)
         out.parent.mkdir(parents=True, exist_ok=True)
@@ -229,18 +229,6 @@ class PdfExporter:
             max_bottom = max(max_bottom, pdf.get_y())
         pdf.set_y(max_bottom + 4)
 
-    def _vm_inventory(self, pdf: _Report, env: Environment) -> None:
-        """Full per-VM listing — kept last since a large fleet makes it run for
-        many pages, which otherwise breaks up the narrative sections around it.
-        """
-        self._section_table(
-            pdf, "Virtual Machines (User Workloads)",
-            ["Name", "Power", "Cluster", "vCPU", "Mem GiB", "Disk GiB"],
-            [[v.name, v.power_state, v.cluster_name, v.vcpu_total, _gib(v.memory_bytes),
-              _gib(v.total_disk_bytes)] for v in env.vms],
-            [70, 25, 55, 20, 30, 30],
-        )
-
     def _system_vms(self, pdf: _Report, env: Environment) -> None:
         self._section_table(
             pdf, "Nutanix System VMs (CVMs / Prism Central)",
@@ -318,6 +306,11 @@ class PdfExporter:
              for v in env.vpcs],
             [55, 80, 75, 20, 20],
         )
+        self._section_table(
+            pdf, "Categories", ["Name", "Value", "Description"],
+            [[c.name, c.value, c.description] for c in env.categories],
+            [55, 55, 130],
+        )
         self._diagram_page(pdf, "Network Topology", [
             (f"Cluster {c.name} - virtual switch and VLAN layout.",
              diagrams.network_topology(env, c)) for c in env.clusters[:8]
@@ -334,11 +327,26 @@ class PdfExporter:
             [55, 45, 35, 25, 35, 25],
         )
         self._section_table(
+            pdf, "File Shares",
+            ["Name", "File Server", "Type", "Protocol", "Max GiB", "Used GiB"],
+            [[s.name, s.file_server_name, s.share_type, s.protocol,
+              _gib(s.max_size_bytes), _gib(s.used_bytes)] for s in env.file_shares],
+            [55, 55, 30, 30, 30, 30],
+        )
+        self._section_table(
             pdf, "Object Stores",
             ["Name", "Cluster", "Workers", "Capacity GiB", "Buckets", "State"],
             [[o.name, o.cluster_name, o.num_worker_nodes, _gib(o.total_capacity_bytes),
               o.bucket_count, o.state] for o in env.object_stores],
             [55, 45, 25, 40, 25, 30],
+        )
+        self._section_table(
+            pdf, "Buckets",
+            ["Name", "Object Store", "Versioning", "WORM", "Objects", "Used GiB"],
+            [[b.name, b.object_store_name, "Yes" if b.versioning else "No",
+              "Yes" if b.worm_enabled else "No", b.object_count, _gib(b.used_bytes)]
+             for b in env.buckets],
+            [55, 55, 30, 25, 30, 30],
         )
         self._section_table(
             pdf, "Volume Groups", ["Name", "Cluster", "Disks", "Capacity GiB", "Shared"],
@@ -353,6 +361,45 @@ class PdfExporter:
             [[d.name, d.db_engine, d.db_type, d.status, d.time_machine_name, d.sla_name]
              for d in env.databases],
             [55, 40, 40, 35, 55, 40],
+        )
+        self._section_table(
+            pdf, "Database Servers",
+            ["Name", "Engine", "Status", "Cluster", "Cores", "Memory GB"],
+            [[s.name, s.db_engine, s.status, s.cluster_name, s.vm_cores, s.memory_gb]
+             for s in env.database_servers],
+            [55, 40, 30, 55, 25, 30],
+        )
+        self._section_table(
+            pdf, "Time Machines", ["Name", "Database", "SLA", "Status", "Schedule", "Clones"],
+            [[t.name, t.database_name, t.sla_name, t.status, t.schedule, t.clone_count]
+             for t in env.time_machines],
+            [55, 55, 30, 30, 45, 25],
+        )
+
+    def _iam_section(self, pdf: _Report, env: Environment) -> None:
+        self._section_table(
+            pdf, "Users", ["Username", "Display Name", "Type", "Directory", "State"],
+            [[u.username, u.display_name, u.user_type, u.directory, u.state]
+             for u in env.users],
+            [65, 55, 30, 55, 30],
+        )
+        self._section_table(
+            pdf, "Roles", ["Name", "Description", "System", "Permissions"],
+            [[r.name, r.description, "Yes" if r.is_system else "No", r.permission_count]
+             for r in env.roles],
+            [55, 100, 25, 30],
+        )
+        self._section_table(
+            pdf, "Playbooks (X-Play)",
+            ["Name", "Trigger", "Actions", "Enabled", "Executions"],
+            [[p.name, p.trigger_type, p.action_count, "Yes" if p.is_enabled else "No",
+              p.execution_count] for p in env.playbooks],
+            [55, 40, 25, 25, 30],
+        )
+        self._section_table(
+            pdf, "NCM Reports", ["Name", "Type", "Schedule", "Last Run"],
+            [[r.name, r.report_type, r.schedule, r.last_run] for r in env.ncm_reports],
+            [65, 45, 45, 55],
         )
 
     def _feature_usage(self, pdf: _Report, env: Environment) -> None:
