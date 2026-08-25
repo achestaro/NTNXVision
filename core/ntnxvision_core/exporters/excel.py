@@ -2,7 +2,10 @@
 
 Produces an RVTools-style workbook: an Overview sheet plus one sheet per object type,
 each with a frozen, styled header row and an auto-filter. Byte-valued fields are rendered
-in GiB for readability.
+in GiB for readability. A sheet is omitted entirely when its object type has zero rows
+(feature not deployed / not licensed) — Feature Usage and Collection Notes still record
+that status, so the workbook stays a place to check "is X in use" without a noise sheet
+per absent feature.
 """
 
 from __future__ import annotations
@@ -425,6 +428,8 @@ class ExcelExporter:
     # ─── table helper ──────────────────────────────────────────────
 
     def _table(self, wb: Workbook, title: str, headers: list[str], rows: list[list[Any]]) -> None:
+        if not rows:
+            return
         ws: Worksheet = wb.create_sheet(_safe_title(title))
         ws.append(headers)
         for col_idx, _ in enumerate(headers, start=1):
