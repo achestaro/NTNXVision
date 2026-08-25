@@ -5,6 +5,13 @@ architecture design deliverable — cover page, executive summary, assumptions, 
 physical design, data protection strategy, security posture, storage services, databases,
 licensing, and appendices — styled with headings, a table of contents field, and captioned
 tables.
+
+Every non-core section (anything gated behind a licensed/optional feature — DR, Flow,
+NUS, NDB, IAM, X-Play, NCM, Alerts, Catalog) is skipped entirely when the environment has
+no data for it, rather than rendering a heading over an empty table. Top-level section
+numbers are assigned at render time (see `_h1`) so skipped sections leave no gap in the
+sequence. Feature Usage & Licensing and Assumptions & Constraints are the places a reader
+learns *why* a section is missing — not a lone "not configured" line under its own heading.
 """
 
 from __future__ import annotations
@@ -34,8 +41,11 @@ _ZEBRA_BG = "F1F5FA"
 
 
 class WordExporter:
+    _h1n: int
+
     def export(self, env: Environment, path: str | Path) -> Path:
         doc = Document()
+        self._h1n = 0
         self._styles(doc)
         self._cover(doc, env)
         self._toc(doc)
@@ -100,9 +110,15 @@ class WordExporter:
         doc.add_page_break()
 
     # ─── sections ──────────────────────────────────────────────────
+    # Core sections (Executive Summary, Licensing, Assumptions, PC Management,
+    # Logical/Physical Design) always render — every environment has clusters,
+    # hosts, and a management plane. Everything else is gated: a section is
+    # skipped entirely when the environment has no data for it at all, and its
+    # subsections are gated independently so a partially-used feature area
+    # (e.g. Files but not Objects) doesn't produce empty subsections either.
 
     def _executive_summary(self, doc: DocumentObject, env: Environment) -> None:
-        self._heading(doc, "1. Executive Summary", level=1)
+        n = self._h1(doc, "Executive Summary")
         c = env.summary()
         doc.add_paragraph(
             f"This document presents the architecture of the Nutanix Cloud Platform "
@@ -116,11 +132,12 @@ class WordExporter:
             "recovery, network security (Flow), unified storage services (Files, Objects, "
             "Volumes), database services (NDB), identity and access management, and licensing. "
             "Each section documents the as-built configuration discovered during inventory "
-            "collection."
+            "collection; sections for features not present in this environment are omitted "
+            "and instead noted in Feature Usage & Licensing and Assumptions & Constraints."
         )
         self._figure(
             doc, diagrams.executive_dashboard(env),
-            "Figure 1-1. Executive summary dashboard — clusters, hosts, VMs, storage "
+            f"Figure {n}-1. Executive summary dashboard — clusters, hosts, VMs, storage "
             "capacity, active alerts, and projects at a glance.",
         )
         highlights = [
@@ -135,14 +152,25 @@ class WordExporter:
             doc.add_paragraph(h, style="List Bullet")
         doc.add_page_break()
 
+    def _licensing(self, doc: DocumentObject, env: Environment) -> None:
+        n = self._h1(doc, "Licensing & Feature Usage")
+        from ntnxvision_core.analysis import analyze_feature_usage
+
+        self._table(
+            doc, ["Product", "Feature", "In Use", "Detail"],
+            [[fu.product, fu.feature, "Yes" if fu.in_use else "No", fu.detail]
+             for fu in analyze_feature_usage(env)],
+            f"Table {n}-1. Feature usage mapped to licensing product.",
+        )
+
     def _assumptions(self, doc: DocumentObject, env: Environment) -> None:
-        self._heading(doc, "3. Assumptions & Constraints", level=1)
+        self._h1(doc, "Assumptions & Constraints")
         for item in [
             "Inventory was collected read-only via the Prism Central v3/v4 APIs; no "
             "configuration changes were made.",
             "Data reflects the environment state at the collection timestamp on the cover page.",
             "Feature availability depends on installed licenses and Prism Central version; "
-            "areas not deployed are noted as such in the relevant sections.",
+            "areas not deployed are noted as such below rather than as an empty section.",
         ]:
             doc.add_paragraph(item, style="List Bullet")
         for w in env.warnings:
@@ -164,7 +192,7 @@ class WordExporter:
 
     def _pc_management(self, doc: DocumentObject, env: Environment) -> None:
         cfg = env.pc_config
-        self._heading(doc, "4. Prism Central — Management & Sizing", level=1)
+        n = self._h1(doc, "Prism Central — Management & Sizing")
         doc.add_paragraph(
             "Prism Central is the management plane for this environment. The table below "
             "records its version, sizing, and the number of clusters it manages."
@@ -185,38 +213,11 @@ class WordExporter:
                 ["PC VM(s)", ", ".join(cfg.pc_vm_names) or "—"],
                 ["IP address(es)", ", ".join(cfg.ip_addresses) or "—"],
             ],
-            "Table 4-1. Prism Central management-plane configuration.",
-        )
-
-    def _catalog(self, doc: DocumentObject, env: Environment) -> None:
-        self._heading(doc, "8. Catalog — Templates, Images & OVAs", level=1)
-        self._heading(doc, "8.1 VM Templates", level=2)
-        self._table(
-            doc, ["Template", "Guest OS", "vCPU", "Memory (GiB)", "Active Version"],
-            [[t.name, t.guest_os, str(t.num_vcpus or ""), str(_gib(t.memory_bytes) or ""),
-              t.active_version or "—"] for t in env.templates],
-            "Table 8-1. VM templates.",
-            empty="No VM templates are defined in Prism Central.",
-        )
-        self._heading(doc, "8.2 Images", level=2)
-        self._table(
-            doc, ["Image", "Type", "Size (GiB)", "Architecture", "Clusters"],
-            [[i.name, i.image_type, str(_gib(i.size_bytes) or ""), i.architecture or "—",
-              ", ".join(i.cluster_names) or "—"] for i in env.images],
-            "Table 8-2. Images.",
-            empty="No images are present in the Prism Central catalog.",
-        )
-        self._heading(doc, "8.3 OVAs", level=2)
-        self._table(
-            doc, ["OVA", "Size (GiB)", "Disks", "Cluster"],
-            [[o.name, str(_gib(o.size_bytes) or ""), str(o.disk_count or ""),
-              o.cluster_name or "—"] for o in env.ovas],
-            "Table 8-3. OVAs.",
-            empty="No OVAs are present in the Prism Central catalog.",
+            f"Table {n}-1. Prism Central management-plane configuration.",
         )
 
     def _logical_design(self, doc: DocumentObject, env: Environment) -> None:
-        self._heading(doc, "5. Logical Design", level=1)
+        n = self._h1(doc, "Logical Design")
         doc.add_paragraph(
             "The environment is managed centrally through Prism Central, which registers and "
             "orchestrates the clusters below. Workloads are organised using categories and "
@@ -224,153 +225,215 @@ class WordExporter:
         )
         self._figure(
             doc, diagrams.management_topology(env),
-            "Figure 5-1. Management topology — Prism Central and its registered clusters.",
+            f"Figure {n}-1. Management topology — Prism Central and its registered clusters.",
         )
-        self._heading(doc, "5.1 Clusters Overview", level=2)
+        self._heading(doc, f"{n}.1 Clusters Overview", level=2)
         self._table(
             doc, ["Cluster", "AOS", "Hypervisor", "Nodes", "RF", "Encryption"],
             [[c.name, c.aos_version, ", ".join(c.hypervisor_types), str(c.num_nodes or ""),
               str(c.redundancy_factor or ""), "Yes" if c.encryption_enabled else "No"]
              for c in env.clusters],
-            "Table 5-1. Registered clusters.",
+            f"Table {n}-1. Registered clusters.",
         )
 
     def _physical_design(self, doc: DocumentObject, env: Environment) -> None:
-        self._heading(doc, "6. Physical Design", level=1)
-        self._heading(doc, "6.1 Nodes / Hosts", level=2)
+        n = self._h1(doc, "Physical Design")
+        self._heading(doc, f"{n}.1 Nodes / Hosts", level=2)
         self._table(
             doc, ["Host", "Cluster", "CPU Model", "Cores", "Memory (GiB)", "GPUs"],
             [[h.name, h.cluster_name, h.cpu_model, str(h.num_cpu_cores or ""),
               str(_gib(h.memory_bytes) or ""), ", ".join(h.gpu_list) or "—"]
              for h in env.hosts],
-            "Table 6-1. Physical hosts.",
+            f"Table {n}-1. Physical hosts.",
         )
         fig = 0
         for cluster in env.clusters[:8]:
             d = diagrams.cluster_compute(env, cluster)
             if d:
                 fig += 1
-                self._figure(doc, d, f"Figure 6-{fig}. Cluster {cluster.name} — "
+                self._figure(doc, d, f"Figure {n}-{fig}. Cluster {cluster.name} — "
                                      "node composition and capacity.")
-        self._heading(doc, "6.2 Storage Containers", level=2)
+        self._heading(doc, f"{n}.2 Storage Containers", level=2)
         self._table(
             doc, ["Container", "Cluster", "RF", "Compression", "Dedup", "EC-X", "Max (GiB)"],
             [[s.name, s.cluster_name, str(s.replication_factor or ""),
               "On" if s.compression_enabled else "Off", s.deduplication or "None",
               s.erasure_coding or "Off", str(_gib(s.max_capacity_bytes) or "")]
              for s in env.storage_containers],
-            "Table 6-2. Storage containers and data-reduction settings.",
+            f"Table {n}-2. Storage containers and data-reduction settings.",
         )
         self._figure(
             doc, diagrams.storage_capacity_chart(env),
-            f"Figure 6-{fig + 1}. Storage container capacity — used vs. free per container.",
+            f"Figure {n}-{fig + 1}. Storage container capacity — used vs. free per container.",
         )
-        self._heading(doc, "6.3 Virtual Machine Distribution", level=2)
+        self._heading(doc, f"{n}.3 Virtual Machine Distribution", level=2)
         self._figure(
             doc, diagrams.vm_power_state_chart(env),
-            f"Figure 6-{fig + 2}. VM power state distribution.",
+            f"Figure {n}-{fig + 2}. VM power state distribution.",
         )
         self._figure(
             doc, diagrams.vms_per_cluster_chart(env),
-            f"Figure 6-{fig + 3}. Virtual machines per cluster.",
+            f"Figure {n}-{fig + 3}. Virtual machines per cluster.",
         )
 
     def _health(self, doc: DocumentObject, env: Environment) -> None:
-        self._heading(doc, "7. Health & Alerts", level=1)
+        if not env.alerts:
+            return
+        n = self._h1(doc, "Health & Alerts")
         self._table(
             doc, ["Severity", "Title", "Entity", "Cluster", "Resolved"],
             [[a.severity, a.title, a.entity_name, a.cluster_name,
               "Yes" if a.resolved else "No"] for a in env.alerts],
-            "Table 7-1. Health alerts.",
-            empty="No open alerts were reported at collection time.",
+            f"Table {n}-1. Health alerts.",
         )
         self._figure(
             doc, diagrams.alert_severity_chart(env),
-            "Figure 7-1. Alert severity breakdown.",
+            f"Figure {n}-1. Alert severity breakdown.",
         )
+
+    def _catalog(self, doc: DocumentObject, env: Environment) -> None:
+        if not (env.templates or env.images or env.ovas):
+            return
+        n = self._h1(doc, "Catalog — Templates, Images & OVAs")
+        sub = 0
+        if env.templates:
+            sub += 1
+            self._heading(doc, f"{n}.{sub} VM Templates", level=2)
+            self._table(
+                doc, ["Template", "Guest OS", "vCPU", "Memory (GiB)", "Active Version"],
+                [[t.name, t.guest_os, str(t.num_vcpus or ""), str(_gib(t.memory_bytes) or ""),
+                  t.active_version or "—"] for t in env.templates],
+                f"Table {n}-{sub}. VM templates.",
+            )
+        if env.images:
+            sub += 1
+            self._heading(doc, f"{n}.{sub} Images", level=2)
+            self._table(
+                doc, ["Image", "Type", "Size (GiB)", "Architecture", "Clusters"],
+                [[i.name, i.image_type, str(_gib(i.size_bytes) or ""), i.architecture or "—",
+                  ", ".join(i.cluster_names) or "—"] for i in env.images],
+                f"Table {n}-{sub}. Images.",
+            )
+        if env.ovas:
+            sub += 1
+            self._heading(doc, f"{n}.{sub} OVAs", level=2)
+            self._table(
+                doc, ["OVA", "Size (GiB)", "Disks", "Cluster"],
+                [[o.name, str(_gib(o.size_bytes) or ""), str(o.disk_count or ""),
+                  o.cluster_name or "—"] for o in env.ovas],
+                f"Table {n}-{sub}. OVAs.",
+            )
 
     def _storage_services(self, doc: DocumentObject, env: Environment) -> None:
-        self._heading(doc, "9. Unified Storage Services (NUS)", level=1)
-        self._heading(doc, "9.1 Files", level=2)
-        self._table(
-            doc, ["File Server", "Cluster", "Version", "FSVMs", "Shares"],
-            [[f.name, f.cluster_name, f.version, str(f.num_fsvm or ""), str(f.share_count or "")]
-             for f in env.file_servers],
-            "Table 9-1. Nutanix Files servers.",
-            empty="Nutanix Files is not deployed in this environment.",
-        )
-        self._table(
-            doc, ["Share", "File Server", "Type", "Protocol", "Max Size (GiB)", "Used (GiB)"],
-            [[s.name, s.file_server_name, s.share_type, s.protocol,
-              str(_gib(s.max_size_bytes) or ""), str(_gib(s.used_bytes) or "")]
-             for s in env.file_shares],
-            "Table 9-2. File shares.",
-            empty="No file shares are configured.",
-        )
-        self._heading(doc, "9.2 Objects", level=2)
-        self._table(
-            doc, ["Object Store", "Cluster", "Workers", "Capacity (GiB)", "Buckets"],
-            [[o.name, o.cluster_name, str(o.num_worker_nodes or ""),
-              str(_gib(o.total_capacity_bytes) or ""), str(o.bucket_count or "")]
-             for o in env.object_stores],
-            "Table 9-3. Nutanix Objects stores.",
-            empty="Nutanix Objects is not deployed in this environment.",
-        )
-        self._table(
-            doc, ["Bucket", "Object Store", "Versioning", "WORM", "Objects", "Used (GiB)"],
-            [[b.name, b.object_store_name, "Yes" if b.versioning else "No",
-              "Yes" if b.worm_enabled else "No", str(b.object_count or ""),
-              str(_gib(b.used_bytes) or "")] for b in env.buckets],
-            "Table 9-4. Buckets.",
-            empty="No buckets are configured.",
-        )
-        self._heading(doc, "9.3 Volumes", level=2)
-        self._table(
-            doc, ["Volume Group", "Cluster", "Disks", "Capacity (GiB)", "Shared"],
-            [[v.name, v.cluster_name, str(v.disk_count or ""),
-              str(_gib(v.total_capacity_bytes) or ""), "Yes" if v.is_shared else "No"]
-             for v in env.volume_groups],
-            "Table 9-5. Volume groups.",
-            empty="No volume groups are configured.",
-        )
+        if not (env.file_servers or env.file_shares or env.object_stores
+                or env.buckets or env.volume_groups):
+            return
+        n = self._h1(doc, "Unified Storage Services (NUS)")
+        sub = 0
+        tbl = 0
+        if env.file_servers or env.file_shares:
+            sub += 1
+            self._heading(doc, f"{n}.{sub} Files", level=2)
+            if env.file_servers:
+                tbl += 1
+                self._table(
+                    doc, ["File Server", "Cluster", "Version", "FSVMs", "Shares"],
+                    [[f.name, f.cluster_name, f.version, str(f.num_fsvm or ""),
+                      str(f.share_count or "")] for f in env.file_servers],
+                    f"Table {n}-{tbl}. Nutanix Files servers.",
+                )
+            if env.file_shares:
+                tbl += 1
+                self._table(
+                    doc, ["Share", "File Server", "Type", "Protocol", "Max Size (GiB)",
+                          "Used (GiB)"],
+                    [[s.name, s.file_server_name, s.share_type, s.protocol,
+                      str(_gib(s.max_size_bytes) or ""), str(_gib(s.used_bytes) or "")]
+                     for s in env.file_shares],
+                    f"Table {n}-{tbl}. File shares.",
+                )
+        if env.object_stores or env.buckets:
+            sub += 1
+            self._heading(doc, f"{n}.{sub} Objects", level=2)
+            if env.object_stores:
+                tbl += 1
+                self._table(
+                    doc, ["Object Store", "Cluster", "Workers", "Capacity (GiB)", "Buckets"],
+                    [[o.name, o.cluster_name, str(o.num_worker_nodes or ""),
+                      str(_gib(o.total_capacity_bytes) or ""), str(o.bucket_count or "")]
+                     for o in env.object_stores],
+                    f"Table {n}-{tbl}. Nutanix Objects stores.",
+                )
+            if env.buckets:
+                tbl += 1
+                self._table(
+                    doc, ["Bucket", "Object Store", "Versioning", "WORM", "Objects",
+                          "Used (GiB)"],
+                    [[b.name, b.object_store_name, "Yes" if b.versioning else "No",
+                      "Yes" if b.worm_enabled else "No", str(b.object_count or ""),
+                      str(_gib(b.used_bytes) or "")] for b in env.buckets],
+                    f"Table {n}-{tbl}. Buckets.",
+                )
+        if env.volume_groups:
+            sub += 1
+            tbl += 1
+            self._heading(doc, f"{n}.{sub} Volumes", level=2)
+            self._table(
+                doc, ["Volume Group", "Cluster", "Disks", "Capacity (GiB)", "Shared"],
+                [[v.name, v.cluster_name, str(v.disk_count or ""),
+                  str(_gib(v.total_capacity_bytes) or ""), "Yes" if v.is_shared else "No"]
+                 for v in env.volume_groups],
+                f"Table {n}-{tbl}. Volume groups.",
+            )
 
     def _networking(self, doc: DocumentObject, env: Environment) -> None:
-        self._heading(doc, "10. Networking", level=1)
-        self._heading(doc, "10.1 Subnets", level=2)
-        self._table(
-            doc, ["Subnet", "Cluster", "Type", "VLAN", "vSwitch", "VPC"],
-            [[s.name, s.cluster_name, s.subnet_type, str(s.vlan_id or ""),
-              s.virtual_switch or "—", s.vpc_name or "—"]
-             for s in env.subnets],
-            "Table 10-1. Subnets.",
-        )
+        if not (env.subnets or env.vpcs):
+            return
+        n = self._h1(doc, "Networking")
+        sub = 0
+        tbl = 0
         fig = 0
-        for cluster in env.clusters[:8]:
-            d = diagrams.network_topology(env, cluster)
-            if d:
-                fig += 1
-                self._figure(doc, d, f"Figure 10-{fig}. Cluster {cluster.name} — "
-                                     "virtual switch and VLAN layout.")
-        self._heading(doc, "10.2 Virtual Networking (VPCs)", level=2)
-        self._table(
-            doc, ["VPC", "Subnets", "External Subnets", "Routable Prefixes", "Routes",
-                  "Routing Policies"],
-            [[v.name, ", ".join(v.subnet_names) or "—", ", ".join(v.external_subnets),
-              ", ".join(v.externally_routable_prefixes),
-              str(v.route_count) if v.route_count is not None else "—",
-              str(v.routing_policy_count) if v.routing_policy_count is not None else "—"]
-             for v in env.vpcs],
-            "Table 10-2. Flow virtual networking VPCs.",
-            empty="Flow Virtual Networking is not enabled.",
-        )
-        self._figure(
-            doc, diagrams.vpc_topology(env),
-            f"Figure 10-{fig + 1}. Flow Virtual Networking — VPCs with overlay and "
-            "external subnets.",
-        )
+        if env.subnets:
+            sub += 1
+            tbl += 1
+            self._heading(doc, f"{n}.{sub} Subnets", level=2)
+            self._table(
+                doc, ["Subnet", "Cluster", "Type", "VLAN", "vSwitch", "VPC"],
+                [[s.name, s.cluster_name, s.subnet_type, str(s.vlan_id or ""),
+                  s.virtual_switch or "—", s.vpc_name or "—"]
+                 for s in env.subnets],
+                f"Table {n}-{tbl}. Subnets.",
+            )
+            for cluster in env.clusters[:8]:
+                d = diagrams.network_topology(env, cluster)
+                if d:
+                    fig += 1
+                    self._figure(doc, d, f"Figure {n}-{fig}. Cluster {cluster.name} — "
+                                         "virtual switch and VLAN layout.")
+        if env.vpcs:
+            sub += 1
+            tbl += 1
+            self._heading(doc, f"{n}.{sub} Virtual Networking (VPCs)", level=2)
+            self._table(
+                doc, ["VPC", "Subnets", "External Subnets", "Routable Prefixes", "Routes",
+                      "Routing Policies"],
+                [[v.name, ", ".join(v.subnet_names) or "—", ", ".join(v.external_subnets),
+                  ", ".join(v.externally_routable_prefixes),
+                  str(v.route_count) if v.route_count is not None else "—",
+                  str(v.routing_policy_count) if v.routing_policy_count is not None else "—"]
+                 for v in env.vpcs],
+                f"Table {n}-{tbl}. Flow virtual networking VPCs.",
+            )
+            self._figure(
+                doc, diagrams.vpc_topology(env),
+                f"Figure {n}-{fig + 1}. Flow Virtual Networking — VPCs with overlay and "
+                "external subnets.",
+            )
 
     def _data_protection(self, doc: DocumentObject, env: Environment) -> None:
-        self._heading(doc, "11. Data Protection & Disaster Recovery", level=1)
+        if not (env.protection_policies or env.recovery_plans):
+            return
+        n = self._h1(doc, "Data Protection & Disaster Recovery")
         doc.add_paragraph(
             "Data protection is delivered through protection policies (snapshot and "
             "replication schedules) and recovery plans (orchestrated failover). The tables "
@@ -378,119 +441,133 @@ class WordExporter:
         )
         self._figure(
             doc, diagrams.replication_topology(env),
-            "Figure 11-1. Replication topology — protection policy flows between "
+            f"Figure {n}-1. Replication topology — protection policy flows between "
             "availability zones.",
         )
-        self._heading(doc, "11.1 Protection Policies", level=2)
-        self._table(
-            doc, ["Policy", "RPO (s)", "Replication", "Source AZ", "Target AZ"],
-            [[p.name, str(p.rpo_seconds or ""), p.replication_type, p.source_az or "—",
-              p.target_az or "—"] for p in env.protection_policies],
-            "Table 11-1. Protection policies.",
-            empty="No protection policies are configured.",
-        )
-        self._heading(doc, "11.2 Recovery Plans", level=2)
-        self._table(
-            doc, ["Plan", "Stages", "Entities", "Primary", "Recovery"],
-            [[r.name, str(r.stage_count or ""), str(r.entities_count or ""),
-              r.primary_location or "—", r.recovery_location or "—"]
-             for r in env.recovery_plans],
-            "Table 11-2. Recovery plans.",
-            empty="No recovery plans are configured.",
-        )
+        sub = 0
+        tbl = 0
+        if env.protection_policies:
+            sub += 1
+            tbl += 1
+            self._heading(doc, f"{n}.{sub} Protection Policies", level=2)
+            self._table(
+                doc, ["Policy", "RPO (s)", "Replication", "Source AZ", "Target AZ"],
+                [[p.name, str(p.rpo_seconds or ""), p.replication_type, p.source_az or "—",
+                  p.target_az or "—"] for p in env.protection_policies],
+                f"Table {n}-{tbl}. Protection policies.",
+            )
+        if env.recovery_plans:
+            sub += 1
+            tbl += 1
+            self._heading(doc, f"{n}.{sub} Recovery Plans", level=2)
+            self._table(
+                doc, ["Plan", "Stages", "Entities", "Primary", "Recovery"],
+                [[r.name, str(r.stage_count or ""), str(r.entities_count or ""),
+                  r.primary_location or "—", r.recovery_location or "—"]
+                 for r in env.recovery_plans],
+                f"Table {n}-{tbl}. Recovery plans.",
+            )
 
     def _security(self, doc: DocumentObject, env: Environment) -> None:
-        self._heading(doc, "12. Security Posture (Flow)", level=1)
-        self._heading(doc, "12.1 Security Policies", level=2)
-        self._table(
-            doc, ["Policy", "Type", "State", "Inbound", "Outbound", "Secured Group"],
-            [[p.name, p.policy_type, p.state, str(p.inbound_rule_count or ""),
-              str(p.outbound_rule_count or ""), p.secured_group or "—"]
-             for p in env.security_policies],
-            "Table 12-1. Flow network security policies.",
-            empty="Flow Network Security is not configured.",
-        )
-        self._heading(doc, "12.2 Categories", level=2)
-        self._table(
-            doc, ["Category", "Value", "Description"],
-            [[c.name, c.value or "—", c.description or "—"] for c in env.categories],
-            "Table 12-2. Categories.",
-            empty="No categories are defined.",
-        )
+        if not (env.security_policies or env.categories):
+            return
+        n = self._h1(doc, "Security Posture (Flow)")
+        sub = 0
+        if env.security_policies:
+            sub += 1
+            self._heading(doc, f"{n}.{sub} Security Policies", level=2)
+            self._table(
+                doc, ["Policy", "Type", "State", "Inbound", "Outbound", "Secured Group"],
+                [[p.name, p.policy_type, p.state, str(p.inbound_rule_count or ""),
+                  str(p.outbound_rule_count or ""), p.secured_group or "—"]
+                 for p in env.security_policies],
+                f"Table {n}-{sub}. Flow network security policies.",
+            )
+        if env.categories:
+            sub += 1
+            self._heading(doc, f"{n}.{sub} Categories", level=2)
+            self._table(
+                doc, ["Category", "Value", "Description"],
+                [[c.name, c.value or "—", c.description or "—"] for c in env.categories],
+                f"Table {n}-{sub}. Categories.",
+            )
 
     def _databases(self, doc: DocumentObject, env: Environment) -> None:
-        self._heading(doc, "13. Database Services (NDB)", level=1)
-        self._heading(doc, "13.1 Databases", level=2)
-        self._table(
-            doc, ["Database", "Engine", "Type", "Status", "SLA"],
-            [[d.name, d.db_engine, d.db_type, d.status, d.sla_name or "—"]
-             for d in env.databases],
-            "Table 13-1. NDB-managed databases.",
-            empty="Nutanix Database Service is not in use / not collected.",
-        )
-        self._heading(doc, "13.2 Database Servers", level=2)
-        self._table(
-            doc, ["Server", "Engine", "Status", "Cluster", "Cores", "Memory (GB)"],
-            [[s.name, s.db_engine, s.status, s.cluster_name or "—",
-              str(s.vm_cores or ""), str(s.memory_gb or "")] for s in env.database_servers],
-            "Table 13-2. Database servers.",
-            empty="No NDB database servers are provisioned.",
-        )
-        self._heading(doc, "13.3 Time Machines", level=2)
-        self._table(
-            doc, ["Time Machine", "Database", "SLA", "Status", "Schedule", "Clones"],
-            [[t.name, t.database_name, t.sla_name or "—", t.status, t.schedule or "—",
-              str(t.clone_count or "")] for t in env.time_machines],
-            "Table 13-3. Time machines.",
-            empty="No NDB time machines are configured.",
-        )
+        if not (env.databases or env.database_servers or env.time_machines):
+            return
+        n = self._h1(doc, "Database Services (NDB)")
+        sub = 0
+        if env.databases:
+            sub += 1
+            self._heading(doc, f"{n}.{sub} Databases", level=2)
+            self._table(
+                doc, ["Database", "Engine", "Type", "Status", "SLA"],
+                [[d.name, d.db_engine, d.db_type, d.status, d.sla_name or "—"]
+                 for d in env.databases],
+                f"Table {n}-{sub}. NDB-managed databases.",
+            )
+        if env.database_servers:
+            sub += 1
+            self._heading(doc, f"{n}.{sub} Database Servers", level=2)
+            self._table(
+                doc, ["Server", "Engine", "Status", "Cluster", "Cores", "Memory (GB)"],
+                [[s.name, s.db_engine, s.status, s.cluster_name or "—",
+                  str(s.vm_cores or ""), str(s.memory_gb or "")]
+                 for s in env.database_servers],
+                f"Table {n}-{sub}. Database servers.",
+            )
+        if env.time_machines:
+            sub += 1
+            self._heading(doc, f"{n}.{sub} Time Machines", level=2)
+            self._table(
+                doc, ["Time Machine", "Database", "SLA", "Status", "Schedule", "Clones"],
+                [[t.name, t.database_name, t.sla_name or "—", t.status, t.schedule or "—",
+                  str(t.clone_count or "")] for t in env.time_machines],
+                f"Table {n}-{sub}. Time machines.",
+            )
 
     def _iam_automation(self, doc: DocumentObject, env: Environment) -> None:
-        self._heading(doc, "14. Identity, Automation & Reporting", level=1)
-        self._heading(doc, "14.1 Users", level=2)
-        self._table(
-            doc, ["User", "Display Name", "Type", "Directory", "State"],
-            [[u.username, u.display_name or "—", u.user_type, u.directory or "—", u.state]
-             for u in env.users],
-            "Table 14-1. Users.",
-            empty="No users are enumerated.",
-        )
-        self._heading(doc, "14.2 Roles", level=2)
-        self._table(
-            doc, ["Role", "Description", "System", "Permissions"],
-            [[r.name, r.description or "—", "Yes" if r.is_system else "No",
-              str(r.permission_count or "")] for r in env.roles],
-            "Table 14-2. Roles.",
-            empty="No roles are enumerated.",
-        )
-        self._heading(doc, "14.3 Playbooks (X-Play)", level=2)
-        self._table(
-            doc, ["Playbook", "Trigger", "Actions", "Enabled", "Executions"],
-            [[p.name, p.trigger_type, str(p.action_count or ""),
-              "Yes" if p.is_enabled else "No", str(p.execution_count or "")]
-             for p in env.playbooks],
-            "Table 14-3. X-Play playbooks.",
-            empty="No X-Play playbooks are configured.",
-        )
-        self._heading(doc, "14.4 NCM Reports", level=2)
-        self._table(
-            doc, ["Report", "Type", "Schedule", "Last Run"],
-            [[r.name, r.report_type or "—", r.schedule or "—", r.last_run or "—"]
-             for r in env.ncm_reports],
-            "Table 14-4. NCM reports.",
-            empty="No NCM reports are configured.",
-        )
-
-    def _licensing(self, doc: DocumentObject, env: Environment) -> None:
-        self._heading(doc, "2. Licensing & Feature Usage", level=1)
-        from ntnxvision_core.analysis import analyze_feature_usage
-
-        self._table(
-            doc, ["Product", "Feature", "In Use", "Detail"],
-            [[fu.product, fu.feature, "Yes" if fu.in_use else "No", fu.detail]
-             for fu in analyze_feature_usage(env)],
-            "Table 2-1. Feature usage mapped to licensing product.",
-        )
+        if not (env.users or env.roles or env.playbooks or env.ncm_reports):
+            return
+        n = self._h1(doc, "Identity, Automation & Reporting")
+        sub = 0
+        if env.users:
+            sub += 1
+            self._heading(doc, f"{n}.{sub} Users", level=2)
+            self._table(
+                doc, ["User", "Display Name", "Type", "Directory", "State"],
+                [[u.username, u.display_name or "—", u.user_type, u.directory or "—", u.state]
+                 for u in env.users],
+                f"Table {n}-{sub}. Users.",
+            )
+        if env.roles:
+            sub += 1
+            self._heading(doc, f"{n}.{sub} Roles", level=2)
+            self._table(
+                doc, ["Role", "Description", "System", "Permissions"],
+                [[r.name, r.description or "—", "Yes" if r.is_system else "No",
+                  str(r.permission_count or "")] for r in env.roles],
+                f"Table {n}-{sub}. Roles.",
+            )
+        if env.playbooks:
+            sub += 1
+            self._heading(doc, f"{n}.{sub} Playbooks (X-Play)", level=2)
+            self._table(
+                doc, ["Playbook", "Trigger", "Actions", "Enabled", "Executions"],
+                [[p.name, p.trigger_type, str(p.action_count or ""),
+                  "Yes" if p.is_enabled else "No", str(p.execution_count or "")]
+                 for p in env.playbooks],
+                f"Table {n}-{sub}. X-Play playbooks.",
+            )
+        if env.ncm_reports:
+            sub += 1
+            self._heading(doc, f"{n}.{sub} NCM Reports", level=2)
+            self._table(
+                doc, ["Report", "Type", "Schedule", "Last Run"],
+                [[r.name, r.report_type or "—", r.schedule or "—", r.last_run or "—"]
+                 for r in env.ncm_reports],
+                f"Table {n}-{sub}. NCM reports.",
+            )
 
     # ─── helpers ───────────────────────────────────────────────────
 
@@ -513,12 +590,17 @@ class WordExporter:
         for run in h.runs:
             run.font.color.rgb = _NAVY if level == 1 else _ACCENT
 
+    def _h1(self, doc: DocumentObject, title: str) -> int:
+        """Top-level heading with an auto-incrementing number, so a section
+        skipped for lack of data leaves no gap in the sequence.
+        """
+        self._h1n += 1
+        self._heading(doc, f"{self._h1n}. {title}", level=1)
+        return self._h1n
+
     def _table(self, doc: DocumentObject, headers: list[str], rows: list[list[Any]],
-               caption: str, empty: str | None = None) -> None:
+               caption: str) -> None:
         if not rows:
-            if empty:
-                p = doc.add_paragraph(empty)
-                p.runs[0].italic = True
             return
         table = doc.add_table(rows=1, cols=len(headers))
         table.style = "Table Grid"
