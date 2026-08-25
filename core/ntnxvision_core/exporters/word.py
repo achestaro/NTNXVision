@@ -52,7 +52,7 @@ class WordExporter:
         self._data_protection(doc, env)
         self._security(doc, env)
         self._databases(doc, env)
-        self._appendix(doc, env)
+        self._iam_automation(doc, env)
 
         out = Path(path)
         out.parent.mkdir(parents=True, exist_ok=True)
@@ -299,14 +299,30 @@ class WordExporter:
             "Table 9-1. Nutanix Files servers.",
             empty="Nutanix Files is not deployed in this environment.",
         )
+        self._table(
+            doc, ["Share", "File Server", "Type", "Protocol", "Max Size (GiB)", "Used (GiB)"],
+            [[s.name, s.file_server_name, s.share_type, s.protocol,
+              str(_gib(s.max_size_bytes) or ""), str(_gib(s.used_bytes) or "")]
+             for s in env.file_shares],
+            "Table 9-2. File shares.",
+            empty="No file shares are configured.",
+        )
         self._heading(doc, "9.2 Objects", level=2)
         self._table(
             doc, ["Object Store", "Cluster", "Workers", "Capacity (GiB)", "Buckets"],
             [[o.name, o.cluster_name, str(o.num_worker_nodes or ""),
               str(_gib(o.total_capacity_bytes) or ""), str(o.bucket_count or "")]
              for o in env.object_stores],
-            "Table 9-2. Nutanix Objects stores.",
+            "Table 9-3. Nutanix Objects stores.",
             empty="Nutanix Objects is not deployed in this environment.",
+        )
+        self._table(
+            doc, ["Bucket", "Object Store", "Versioning", "WORM", "Objects", "Used (GiB)"],
+            [[b.name, b.object_store_name, "Yes" if b.versioning else "No",
+              "Yes" if b.worm_enabled else "No", str(b.object_count or ""),
+              str(_gib(b.used_bytes) or "")] for b in env.buckets],
+            "Table 9-4. Buckets.",
+            empty="No buckets are configured.",
         )
         self._heading(doc, "9.3 Volumes", level=2)
         self._table(
@@ -314,7 +330,7 @@ class WordExporter:
             [[v.name, v.cluster_name, str(v.disk_count or ""),
               str(_gib(v.total_capacity_bytes) or ""), "Yes" if v.is_shared else "No"]
              for v in env.volume_groups],
-            "Table 9-3. Volume groups.",
+            "Table 9-5. Volume groups.",
             empty="No volume groups are configured.",
         )
 
@@ -385,6 +401,7 @@ class WordExporter:
 
     def _security(self, doc: DocumentObject, env: Environment) -> None:
         self._heading(doc, "12. Security Posture (Flow)", level=1)
+        self._heading(doc, "12.1 Security Policies", level=2)
         self._table(
             doc, ["Policy", "Type", "State", "Inbound", "Outbound", "Secured Group"],
             [[p.name, p.policy_type, p.state, str(p.inbound_rule_count or ""),
@@ -393,15 +410,75 @@ class WordExporter:
             "Table 12-1. Flow network security policies.",
             empty="Flow Network Security is not configured.",
         )
+        self._heading(doc, "12.2 Categories", level=2)
+        self._table(
+            doc, ["Category", "Value", "Description"],
+            [[c.name, c.value or "—", c.description or "—"] for c in env.categories],
+            "Table 12-2. Categories.",
+            empty="No categories are defined.",
+        )
 
     def _databases(self, doc: DocumentObject, env: Environment) -> None:
         self._heading(doc, "13. Database Services (NDB)", level=1)
+        self._heading(doc, "13.1 Databases", level=2)
         self._table(
             doc, ["Database", "Engine", "Type", "Status", "SLA"],
             [[d.name, d.db_engine, d.db_type, d.status, d.sla_name or "—"]
              for d in env.databases],
             "Table 13-1. NDB-managed databases.",
             empty="Nutanix Database Service is not in use / not collected.",
+        )
+        self._heading(doc, "13.2 Database Servers", level=2)
+        self._table(
+            doc, ["Server", "Engine", "Status", "Cluster", "Cores", "Memory (GB)"],
+            [[s.name, s.db_engine, s.status, s.cluster_name or "—",
+              str(s.vm_cores or ""), str(s.memory_gb or "")] for s in env.database_servers],
+            "Table 13-2. Database servers.",
+            empty="No NDB database servers are provisioned.",
+        )
+        self._heading(doc, "13.3 Time Machines", level=2)
+        self._table(
+            doc, ["Time Machine", "Database", "SLA", "Status", "Schedule", "Clones"],
+            [[t.name, t.database_name, t.sla_name or "—", t.status, t.schedule or "—",
+              str(t.clone_count or "")] for t in env.time_machines],
+            "Table 13-3. Time machines.",
+            empty="No NDB time machines are configured.",
+        )
+
+    def _iam_automation(self, doc: DocumentObject, env: Environment) -> None:
+        self._heading(doc, "14. Identity, Automation & Reporting", level=1)
+        self._heading(doc, "14.1 Users", level=2)
+        self._table(
+            doc, ["User", "Display Name", "Type", "Directory", "State"],
+            [[u.username, u.display_name or "—", u.user_type, u.directory or "—", u.state]
+             for u in env.users],
+            "Table 14-1. Users.",
+            empty="No users are enumerated.",
+        )
+        self._heading(doc, "14.2 Roles", level=2)
+        self._table(
+            doc, ["Role", "Description", "System", "Permissions"],
+            [[r.name, r.description or "—", "Yes" if r.is_system else "No",
+              str(r.permission_count or "")] for r in env.roles],
+            "Table 14-2. Roles.",
+            empty="No roles are enumerated.",
+        )
+        self._heading(doc, "14.3 Playbooks (X-Play)", level=2)
+        self._table(
+            doc, ["Playbook", "Trigger", "Actions", "Enabled", "Executions"],
+            [[p.name, p.trigger_type, str(p.action_count or ""),
+              "Yes" if p.is_enabled else "No", str(p.execution_count or "")]
+             for p in env.playbooks],
+            "Table 14-3. X-Play playbooks.",
+            empty="No X-Play playbooks are configured.",
+        )
+        self._heading(doc, "14.4 NCM Reports", level=2)
+        self._table(
+            doc, ["Report", "Type", "Schedule", "Last Run"],
+            [[r.name, r.report_type or "—", r.schedule or "—", r.last_run or "—"]
+             for r in env.ncm_reports],
+            "Table 14-4. NCM reports.",
+            empty="No NCM reports are configured.",
         )
 
     def _licensing(self, doc: DocumentObject, env: Environment) -> None:
@@ -413,16 +490,6 @@ class WordExporter:
             [[fu.product, fu.feature, "Yes" if fu.in_use else "No", fu.detail]
              for fu in analyze_feature_usage(env)],
             "Table 2-1. Feature usage mapped to licensing product.",
-        )
-
-    def _appendix(self, doc: DocumentObject, env: Environment) -> None:
-        self._heading(doc, "Appendix A. Full Virtual Machine Inventory", level=1)
-        self._table(
-            doc, ["VM", "Power", "Cluster", "vCPU", "Mem (GiB)", "Disk (GiB)"],
-            [[v.name, v.power_state, v.cluster_name, str(v.vcpu_total or ""),
-              str(_gib(v.memory_bytes) or ""), str(_gib(v.total_disk_bytes) or "")]
-             for v in env.vms],
-            "Table A-1. Full VM inventory.",
         )
 
     # ─── helpers ───────────────────────────────────────────────────
