@@ -5,6 +5,9 @@ on:
   push:
     tags: ["v*"]
 
+permissions:
+  contents: write
+
 jobs:
   build:
     strategy:
@@ -68,9 +71,16 @@ jobs:
           npm ci
           npm run package
 
-      - uses: actions/upload-artifact@v4
+      # actions/upload-artifact draws from GitHub's Actions storage quota, which has been
+      # stuck reporting "quota hit" even at 0 bytes of actual usage — publish to a draft
+      # release instead, a separate storage pool unaffected by that bug.
+      - name: Publish installer to draft release
+        uses: softprops/action-gh-release@v2
         with:
-          name: ${{ matrix.artifact }}
-          path: ${{ matrix.glob }}
-          if-no-files-found: error
-          retention-days: 3
+          tag_name: build-${{ github.run_number }}
+          name: "CI build ${{ github.run_number }} (${{ github.ref_name }})"
+          draft: true
+          fail_on_unmatched_files: true
+          files: ${{ matrix.glob }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
