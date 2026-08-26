@@ -25,6 +25,38 @@ export interface InventoryRequest {
   ndb?: NdbRequest;
 }
 
+// A single Prism Central within a multi-target collection. Prism-Central-only (no
+// direct-cluster/PE mode, no NDB) — kept simple since combining a PE-mode cluster's
+// infra-only data with a full PC's platform data isn't a meaningful "combine".
+export interface MultiInventoryTarget {
+  host: string;
+  username: string;
+  password: string;
+  port: number;
+  insecure: boolean;
+  name: string;
+}
+
+export interface MultiInventoryRequest {
+  targets: MultiInventoryTarget[];
+  formats: ExportFormat[];
+  saveCredentials: boolean;
+  exportDir?: string;
+  combine: boolean;
+  combinedName?: string;
+}
+
+// One target's outcome — either it succeeded (same shape as a solo InventoryResult)
+// or it failed outright (bad creds, unreachable host, ...), isolated from the rest.
+export type MultiTargetResult =
+  | ({ host: string; success: true } & InventoryResult)
+  | { host: string; success: false; error: string };
+
+export interface MultiInventoryResult {
+  targets: MultiTargetResult[];
+  combined: InventoryResult | null;
+}
+
 // A saved connection target. Passwords are NEVER stored here — they live in the OS
 // keychain (opt-in) or are typed per run.
 export interface ConnectionProfile {
@@ -94,6 +126,11 @@ export interface ProgressEvent {
   total: number;
   label: string;
   status: string;
+  // Present only during a multi-target collection, tagging which target this step
+  // belongs to so the UI can bucket progress per Prism Central.
+  target_index?: number;
+  target_total?: number;
+  target_host?: string;
 }
 
 export interface SnapshotInfo {
@@ -107,6 +144,7 @@ export interface SnapshotInfo {
 export const IPC = {
   ping: 'core:ping',
   inventory: 'core:inventory',
+  inventoryMulti: 'core:inventoryMulti',
   listSnapshots: 'core:listSnapshots',
   exportSnapshot: 'core:exportSnapshot',
   renameSnapshot: 'core:renameSnapshot',
@@ -126,6 +164,7 @@ export const IPC = {
 export interface NtnxApi {
   ping(): Promise<{ pong: boolean; version: string }>;
   inventory(req: InventoryRequest): Promise<InventoryResult>;
+  inventoryMulti(req: MultiInventoryRequest): Promise<MultiInventoryResult>;
   listSnapshots(): Promise<SnapshotInfo[]>;
   exportSnapshot(
     snapshotPath: string,

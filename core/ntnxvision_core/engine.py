@@ -104,6 +104,52 @@ def collect_element_environment(
     return env
 
 
+def combine_environments(envs: list[Environment]) -> Environment:
+    """Merge independently-collected Environments (one per Prism Central) into one.
+
+    Every source's objects are concatenated as-is — Nutanix UUIDs are globally unique,
+    so no cross-source collisions are expected; nothing is re-resolved or deduplicated.
+    Only the roll-up summary counters are actually merged (summed), and each source's
+    `collection_notes` are namespaced by its PC host so two PCs reporting the same
+    collector differently don't overwrite each other.
+    """
+    if not envs:
+        raise ValueError("combine_environments requires at least one Environment")
+    if len(envs) == 1:
+        return envs[0]
+
+    combined = Environment(
+        collected_at=datetime.now(timezone.utc).isoformat(),
+        prism_central=PrismCentral(host=f"{len(envs)} Prism Centrals (combined)"),
+    )
+
+    list_fields = [
+        name for name, field in Environment.model_fields.items()
+        if str(field.annotation).startswith("list[") and name != "source_environments"
+    ]
+    for field_name in list_fields:
+        merged: list[Any] = []
+        for env in envs:
+            merged.extend(getattr(env, field_name))
+        setattr(combined, field_name, merged)
+
+    for summary_name in ("data_protection", "flow", "alerts_summary"):
+        target = getattr(combined, summary_name)
+        for env in envs:
+            source = getattr(env, summary_name)
+            for key in type(target).model_fields:
+                setattr(target, key, getattr(target, key) + getattr(source, key))
+
+    for env in envs:
+        label = env.prism_central.host or "unknown"
+        for key, status in env.collection_notes.items():
+            combined.collection_notes[f"{label}: {key}"] = status
+
+    combined.source_environments = [env.prism_central for env in envs]
+    combined.pc_config = envs[0].pc_config  # informational only; not meaningful combined
+    return combined
+
+
 def _collect_ndb_step(
     ndb_creds: NdbCredentials,
     env: Environment,

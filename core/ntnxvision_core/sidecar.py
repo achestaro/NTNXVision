@@ -12,6 +12,7 @@ Error    : {"jsonrpc":"2.0","id":1,"error":{"code":-32000,"message":"..."}}
 Methods:
   ping                      -> {"pong": true, "version": "..."}
   inventory(host, username, password, port, insecure, name, export)  -> summary + paths
+  inventory_multi(targets, combine, formats, export_dir)  -> per-target results + combined
   list_snapshots            -> [{name, path, collected_at}]
   export(snapshot, format)  -> {path}
 """
@@ -28,7 +29,11 @@ from ntnxvision_core.api import PrismCredentials
 from ntnxvision_core.api.element_client import ElementCredentials
 from ntnxvision_core.api.errors import NutanixApiError
 from ntnxvision_core.api.ndb_client import NdbCredentials
-from ntnxvision_core.engine import collect_element_environment, collect_environment
+from ntnxvision_core.engine import (
+    collect_element_environment,
+    collect_environment,
+    combine_environments,
+)
 from ntnxvision_core.exporters import export_environment
 from ntnxvision_core.paths import exports_dir, snapshots_dir
 from ntnxvision_core.store import SnapshotStore
@@ -73,10 +78,16 @@ def _m_ping(_req_id: Any, _params: dict[str, Any]) -> dict[str, Any]:
     return {"pong": True, "version": __version__}
 
 
-def _progress_fn(req_id: Any):
+def _progress_fn(req_id: Any, target: dict[str, Any] | None = None):
+    """Build a progress callback; `target` (index/total/host) tags each event for a
+    multi-Prism-Central run so the UI can bucket progress per target — omitted (None)
+    for a plain single-target collection, which is the common case.
+    """
     def progress(idx: int, total: int, label: str, status: str) -> None:
-        _notify("progress", {"id": req_id, "index": idx, "total": total,
-                             "label": label, "status": status})
+        payload = {"id": req_id, "index": idx, "total": total, "label": label, "status": status}
+        if target is not None:
+            payload.update(target)
+        _notify("progress", payload)
     return progress
 
 
@@ -169,6 +180,62 @@ def _m_inventory_cluster(req_id: Any, params: dict[str, Any]) -> dict[str, Any]:
     return _finalize(env, name, params)
 
 
+def _m_inventory_multi(req_id: Any, params: dict[str, Any]) -> dict[str, Any]:
+    """Collect from several Prism Centrals in one request.
+
+    Each target is isolated — one unreachable/misconfigured PC is recorded as a
+    per-target failure and never aborts the others (same isolation principle as a
+    single collector failure within one run). Each successful target still gets its
+    own snapshot + exports, exactly as a solo `inventory` call would; when `combine`
+    is set and at least two targets succeeded, an additional merged snapshot/report
+    is produced via `combine_environments`.
+    """
+    targets = params.get("targets") or []
+    if not targets:
+        raise NutanixApiError("At least one target is required.")
+
+    finalize_params = {"formats": params.get("formats"), "export_dir": params.get("export_dir")}
+
+    target_results: list[dict[str, Any]] = []
+    successful_envs = []
+    for i, t in enumerate(targets):
+        host = t.get("host", "")
+        ctx = {"target_index": i, "target_total": len(targets), "target_host": host}
+        try:
+            creds = PrismCredentials(
+                host=host,
+                username=t["username"],
+                password=t["password"],
+                port=int(t.get("port", 9440)),
+                verify_ssl=not t.get("insecure", False),
+            )
+            ndb_creds = None
+            ndb = t.get("ndb") or {}
+            if ndb.get("host") and ndb.get("username"):
+                ndb_creds = NdbCredentials(
+                    host=ndb["host"], username=ndb["username"],
+                    password=ndb.get("password", ""),
+                    verify_ssl=not t.get("insecure", False),
+                )
+            env = collect_environment(
+                creds, progress=_progress_fn(req_id, ctx), ndb_creds=ndb_creds,
+            )
+            name = t.get("name") or host or f"target-{i + 1}"
+            result = _finalize(env, name, finalize_params)
+            target_results.append({"host": host, "success": True, **result})
+            successful_envs.append(env)
+        except Exception as exc:  # noqa: BLE001 — one target's failure never aborts the rest
+            target_results.append({"host": host, "success": False, "error": str(exc)})
+
+    combined_result = None
+    if params.get("combine") and len(successful_envs) >= 2:
+        combined_env = combine_environments(successful_envs)
+        combined_name = params.get("combined_name") or "combined-environment"
+        combined_result = _finalize(combined_env, combined_name, finalize_params)
+
+    return {"targets": target_results, "combined": combined_result}
+
+
 def _m_list_snapshots(_req_id: Any, _params: dict[str, Any]) -> list[dict[str, Any]]:
     store = SnapshotStore(snapshots_dir())
     out = []
@@ -246,6 +313,7 @@ _METHODS = {
     "ping": _m_ping,
     "inventory": _m_inventory,
     "inventory_cluster": _m_inventory_cluster,
+    "inventory_multi": _m_inventory_multi,
     "list_snapshots": _m_list_snapshots,
     "export": _m_export,
     "rename_snapshot": _m_rename_snapshot,
