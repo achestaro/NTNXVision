@@ -653,6 +653,9 @@ class Environment(_Base):
     #: "prism_central" (collected via PC) or "prism_element" (direct cluster, v2.0).
     source_type: str = "prism_central"
     prism_central: PrismCentral = Field(default_factory=PrismCentral)
+    #: Populated only on a combined Environment (see engine.combine_environments) — one
+    #: entry per Prism Central that contributed to it. Empty for a normal single-PC run.
+    source_environments: list[PrismCentral] = Field(default_factory=list)
 
     #: Non-fatal compatibility / collection warnings surfaced to the user.
     warnings: list[str] = Field(default_factory=list)
@@ -718,6 +721,7 @@ class Environment(_Base):
 
     def summary(self) -> dict[str, int]:
         return {
+            "source_environments": len(self.source_environments),
             "clusters": len(self.clusters),
             "hosts": len(self.hosts),
             "vms": len(self.vms),

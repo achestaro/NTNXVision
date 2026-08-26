@@ -1,9 +1,10 @@
 import React, { useState } from 'react';
 import { ConnectView } from './views/ConnectView';
+import { MultiConnectView } from './views/MultiConnectView';
 import { SnapshotsView } from './views/SnapshotsView';
 import logoUrl from './assets/logo.svg';
 
-type Tab = 'connect' | 'snapshots' | 'about';
+type Tab = 'connect' | 'multi' | 'snapshots' | 'about';
 
 export function App(): JSX.Element {
   const [tab, setTab] = useState<Tab>('connect');
@@ -22,6 +23,9 @@ export function App(): JSX.Element {
           <button className={tab === 'connect' ? 'active' : ''} onClick={() => setTab('connect')}>
             Collect Inventory
           </button>
+          <button className={tab === 'multi' ? 'active' : ''} onClick={() => setTab('multi')}>
+            Multiple Prism Centrals
+          </button>
           <button className={tab === 'snapshots' ? 'active' : ''} onClick={() => setTab('snapshots')}>
             Snapshots &amp; Exports
           </button>
@@ -33,6 +37,7 @@ export function App(): JSX.Element {
 
       <main className="main">
         {tab === 'connect' && <ConnectView />}
+        {tab === 'multi' && <MultiConnectView />}
         {tab === 'snapshots' && <SnapshotsView />}
         {tab === 'about' && <AboutView />}
       </main>
