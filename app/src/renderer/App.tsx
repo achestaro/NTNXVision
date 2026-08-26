@@ -57,7 +57,7 @@ function AboutView(): JSX.Element {
           Credentials are stored in your OS keychain and never written to disk in plaintext.
           Exports and snapshots are saved under your user profile.
         </p>
-        <p className="muted">Version 0.1.0</p>
+        <p className="muted">Version 0.2.0</p>
       </div>
     </>
   );

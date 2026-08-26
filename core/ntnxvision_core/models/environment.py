@@ -649,7 +649,7 @@ class Environment(_Base):
     """A full collection run — the unit persisted and exported."""
 
     collected_at: str | None = None
-    tool_version: str = "0.1.0"
+    tool_version: str = "0.2.0"
     #: "prism_central" (collected via PC) or "prism_element" (direct cluster, v2.0).
     source_type: str = "prism_central"
     prism_central: PrismCentral = Field(default_factory=PrismCentral)
