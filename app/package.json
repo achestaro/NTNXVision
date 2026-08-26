@@ -1,7 +1,7 @@
 {
   "name": "ntnxvision",
-  "version": "0.1.0",
-  "description": "NTNXVision — Nutanix Prism Central inventory & documentation tool",
+  "version": "0.2.0",
+  "description": "NTNXVision \u2014 Nutanix Prism Central inventory & documentation tool",
   "author": "Alberto Chestaro",
   "license": "UNLICENSED",
   "private": true,
