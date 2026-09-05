@@ -209,6 +209,11 @@ def test_ncm_uses_report_configs_endpoint() -> None:
     calls: list[str] = []
 
     class FakeConn:
+        def v4_ready(self, area: str) -> bool:
+            """This regression pins the v3 endpoint shape; the v4 path is covered
+            separately in test_v4_ncm."""
+            return False
+
         def v3_list(self, kind: str) -> list[dict[str, Any]]:
             calls.append(kind)
             if kind == "report_configs":
