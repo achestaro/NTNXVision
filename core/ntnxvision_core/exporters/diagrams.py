@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import io
 from collections import Counter
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from functools import lru_cache
 from typing import Any
@@ -359,6 +360,55 @@ def _az(name: str | None) -> str | None:
     return name.removeprefix("https://").removeprefix("http://").rstrip("/")
 
 
+# ─── cluster membership ────────────────────────────────────────────────
+# Hosts/VMs/subnets are matched to their cluster by UUID first. A name is only trusted
+# as a fallback (some payloads carry the name but no cluster UUID) and then only within
+# the same source Prism Central: a combined multi-PC run routinely holds two unrelated
+# clusters both called "Cluster01", and matching on name alone silently merged them.
+
+
+def _cluster_resolver(env: Environment) -> Callable[[Any], Cluster | None]:
+    """Build a function mapping an object to the Cluster it belongs to, or None."""
+    by_uuid = {c.uuid: c for c in env.clusters if c.uuid}
+    by_name: dict[tuple[str | None, str | None], Cluster] = {}
+    for c in env.clusters:
+        by_name.setdefault((c.name, c.source_pc), c)
+
+    def resolve(obj: Any) -> Cluster | None:
+        uuid = getattr(obj, "cluster_uuid", None)
+        if uuid and uuid in by_uuid:
+            return by_uuid[uuid]
+        name = getattr(obj, "cluster_name", None)
+        if not name:
+            return None
+        return by_name.get((name, getattr(obj, "source_pc", None)))
+
+    return resolve
+
+
+def _counts_per_cluster(env: Environment, objs: list[Any]) -> dict[int, int]:
+    """Count `objs` per cluster, keyed by `id(cluster)` (clusters are not hashable)."""
+    resolve = _cluster_resolver(env)
+    counts: dict[int, int] = {}
+    for obj in objs:
+        cluster = resolve(obj)
+        if cluster is not None:
+            counts[id(cluster)] = counts.get(id(cluster), 0) + 1
+    return counts
+
+
+def _cluster_labels(env: Environment) -> dict[int, str]:
+    """Display label per cluster, disambiguated by source PC only where names repeat."""
+    names = Counter(c.name or c.uuid for c in env.clusters)
+    labels: dict[int, str] = {}
+    for c in env.clusters:
+        label = c.name or c.uuid or "cluster"
+        if env.is_combined and names[c.name or c.uuid] > 1 and c.source_pc:
+            label = f"{label} · {c.source_pc}"
+        labels[id(c)] = label
+    return labels
+
+
 # ─── public builders ───────────────────────────────────────────────────
 
 
@@ -386,15 +436,17 @@ def management_topology(env: Environment) -> Diagram | None:
             lines.append(f"{deploy} · {env.pc_config.node_count} PC node(s)")
         root = Node("Prism Element" if is_pe else "Prism Central", lines, style="root")
 
-    vm_counts = Counter(v.cluster_name for v in env.vms)
-    host_counts = Counter(h.cluster_name for h in env.hosts)
+    vm_counts = _counts_per_cluster(env, env.vms)
+    host_counts = _counts_per_cluster(env, env.hosts)
     for c in env.clusters:
         hyp = "/".join(c.hypervisor_types) if c.hypervisor_types else "unknown"
-        nodes = c.num_nodes or host_counts.get(c.name) or "?"
+        nodes = c.num_nodes or host_counts.get(id(c)) or "?"
+        lines = [f"AOS {c.aos_version or 'unknown'} · {hyp}",
+                 f"{nodes} node(s) · {vm_counts.get(id(c), 0)} VM(s)"]
+        if env.is_combined and c.source_pc:
+            lines.append(c.source_pc)
         root.children.append(Node(
-            c.name or c.uuid,
-            [f"AOS {c.aos_version or 'unknown'} · {hyp}",
-             f"{nodes} node(s) · {vm_counts.get(c.name, 0)} VM(s)"],
+            c.name or c.uuid, lines,
             tag=f"RF {c.redundancy_factor}" if c.redundancy_factor else None,
         ))
     root.children = _cap(root.children, 10, "cluster(s)")
@@ -403,9 +455,8 @@ def management_topology(env: Environment) -> Diagram | None:
 
 def cluster_compute(env: Environment, cluster: Cluster) -> Diagram | None:
     """One cluster and its physical nodes with CPU / memory / VM density."""
-    hosts = [h for h in env.hosts
-             if h.cluster_uuid == cluster.uuid or
-             (h.cluster_name and h.cluster_name == cluster.name)]
+    resolve = _cluster_resolver(env)
+    hosts = [h for h in env.hosts if resolve(h) is cluster]
     if not hosts:
         return None
     root = Node(
@@ -436,10 +487,9 @@ def cluster_compute(env: Environment, cluster: Cluster) -> Diagram | None:
 
 def network_topology(env: Environment, cluster: Cluster) -> Diagram | None:
     """Cluster → virtual switches → VLAN subnets (the cabling-diagram view)."""
+    resolve = _cluster_resolver(env)
     subs = [s for s in env.subnets
-            if (s.cluster_uuid == cluster.uuid or
-                (s.cluster_name and s.cluster_name == cluster.name))
-            and (s.subnet_type or "VLAN").upper() != "OVERLAY"]
+            if resolve(s) is cluster and (s.subnet_type or "VLAN").upper() != "OVERLAY"]
     if not subs:
         return None
     groups: dict[str, list] = {}
@@ -754,8 +804,9 @@ def vms_per_cluster_chart(env: Environment) -> Diagram | None:
     """Bar chart of VM count per cluster; bar colors are a fixed per-cluster identity."""
     if not env.clusters or not env.vms:
         return None
-    counts = Counter(v.cluster_name for v in env.vms if v.cluster_name)
-    bars = [(c.name or c.uuid, counts.get(c.name or c.uuid, 0)) for c in env.clusters]
+    counts = _counts_per_cluster(env, env.vms)
+    labels = _cluster_labels(env)
+    bars = [(labels[id(c)], counts.get(id(c), 0)) for c in env.clusters]
     bars = sorted((b for b in bars if b[1] > 0), key=lambda b: -b[1])[:8]
     if not bars:
         return None

@@ -26,8 +26,9 @@ export interface InventoryRequest {
 }
 
 // A single Prism Central within a multi-target collection. Prism-Central-only (no
-// direct-cluster/PE mode, no NDB) — kept simple since combining a PE-mode cluster's
-// infra-only data with a full PC's platform data isn't a meaningful "combine".
+// direct-cluster/PE mode) — combining a PE-mode cluster's infra-only data with a full
+// PC's platform data isn't a meaningful "combine". NDB is per target: each estate runs
+// its own Era instance, so the credentials belong to the PC they were entered against.
 export interface MultiInventoryTarget {
   host: string;
   username: string;
@@ -35,6 +36,7 @@ export interface MultiInventoryTarget {
   port: number;
   insecure: boolean;
   name: string;
+  ndb?: NdbRequest;
 }
 
 export interface MultiInventoryRequest {
