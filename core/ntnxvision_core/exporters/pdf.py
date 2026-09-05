@@ -90,6 +90,7 @@ class PdfExporter:
         self._infra_sections(pdf, env)
         self._system_vms(pdf, env)
         self._health(pdf, env)
+        self._lcm_section(pdf, env)
         self._catalog(pdf, env)
         self._dr_section(pdf, env)
         self._flow_section(pdf, env)
@@ -282,6 +283,36 @@ class PdfExporter:
         )
         self._inline_figure(pdf, diagrams.alert_severity_chart(env),
                             "Alert severity breakdown.")
+
+    def _lcm_section(self, pdf: _Report, env: Environment) -> None:
+        """Life Cycle Manager inventory — what is running, and what LCM offers instead.
+
+        The lead-in carries the number the reader is actually after (how many components
+        are behind); the table itself is deliberately narrower than the Excel sheet, so
+        the version list is trimmed rather than truncated mid-string by the cell width.
+        """
+        entities = env.lcm_entities
+        if not entities:
+            return  # skipped like every other optional section, not an empty table
+        pending = sum(1 for e in entities if e.update_available)
+        unknown = sum(1 for e in entities if e.update_available is None)
+        lead = (
+            f"Life Cycle Manager inventories {len(entities)} component(s) across this "
+            f"environment; {pending} have a newer version available"
+            + (f" and {unknown} could not be determined" if unknown else "")
+            + ". Available versions below are trimmed to the two newest LCM offers - the "
+            "Excel export lists them in full."
+        )
+        self._section_table(
+            pdf, "Life Cycle Manager (LCM)",
+            ["Component", "Class", "Cluster", "Current", "Update", "Available Versions"],
+            [[e.name, e.entity_class, e.cluster_name, e.current_version,
+              _update_flag(e.update_available), _versions(e.available_versions, 2)]
+             for e in entities],
+            [58, 40, 45, 32, 25, 60],
+            sources=_sources(env, entities),
+            lead=lead,
+        )
 
     def _catalog(self, pdf: _Report, env: Environment) -> None:
         self._section_table(
@@ -539,11 +570,14 @@ class PdfExporter:
     def _section_table(
         self, pdf: _Report, title: str, headers: list[str],
         rows: list[list[Any]], widths: list[float], force: bool = False,
-        sources: list[str] | None = None,
+        sources: list[str] | None = None, lead: str | None = None,
     ) -> None:
         """`sources` (combined multi-PC runs only) prepends a "Prism Central" column;
         the remaining columns are scaled down to keep the table's overall width, which
         is tuned to the landscape page.
+
+        `lead` is a sentence rendered between the heading and the table, for sections
+        whose point is a figure the table itself only implies.
         """
         if not rows and not force:
             return
@@ -555,6 +589,11 @@ class PdfExporter:
             widths = [pc_width, *(w * (total - pc_width) / total for w in widths)]
         pdf.add_page()
         self._h1(pdf, title)
+        if lead:
+            pdf.set_font("Helvetica", "", 10)
+            pdf.set_text_color(*_INK)
+            pdf.multi_cell(0, 6, _latin1(lead))
+            pdf.ln(3)
         if not rows:
             pdf.set_font("Helvetica", "I", 10)
             pdf.set_text_color(*_GREY)
@@ -613,6 +652,29 @@ def _truncate(value: Any, width: float) -> str:
     text = _latin1("" if value is None else str(value))
     max_chars = max(4, int(width / 1.8))
     return text if len(text) <= max_chars else text[: max_chars - 1] + "."
+
+
+def _update_flag(value: bool | None) -> str:
+    """Yes / No / Unknown for an LCM update flag — None means LCM did not say, and
+    rendering that as "No" would assert the component is current.
+    """
+    if value is None:
+        return "Unknown"
+    return "Yes" if value else "No"
+
+
+def _versions(values: list[str], limit: int) -> str:
+    """The `limit` newest versions LCM offers, plus a count of the rest.
+
+    LCM returns up to a dozen upgrade targets for some components; joined in full they
+    overrun the column and `_truncate` would cut the tail mid-version, which reads as a
+    version number that does not exist.
+    """
+    if not values:
+        return "-"
+    extra = len(values) - limit
+    head = ", ".join(values[:limit])
+    return head if extra <= 0 else f"{head} (+{extra})"
 
 
 def _latin1(text: str) -> str:
