@@ -7,7 +7,7 @@ licensing, and appendices — styled with headings, a table of contents field, a
 tables.
 
 Every non-core section (anything gated behind a licensed/optional feature — DR, Flow,
-NUS, NDB, IAM, X-Play, NCM, Alerts, Catalog) is skipped entirely when the environment has
+NUS, NDB, IAM, X-Play, NCM, Alerts, LCM, Catalog) is skipped entirely when the environment has
 no data for it, rather than rendering a heading over an empty table. Top-level section
 numbers are assigned at render time (see `_h1`) so skipped sections leave no gap in the
 sequence. Feature Usage & Licensing and Assumptions & Constraints are the places a reader
@@ -58,6 +58,7 @@ class WordExporter:
         self._logical_design(doc, env)
         self._physical_design(doc, env)
         self._health(doc, env)
+        self._lifecycle(doc, env)
         self._catalog(doc, env)
         self._storage_services(doc, env)
         self._networking(doc, env)
@@ -343,6 +344,47 @@ class WordExporter:
         self._figure(
             doc, diagrams.alert_severity_chart(env),
             f"Figure {n}-1. Alert severity breakdown.",
+        )
+
+    def _lifecycle(self, doc: DocumentObject, env: Environment) -> None:
+        """Platform currency — the versions running and the upgrades LCM offers.
+
+        Sits with Health & Alerts rather than in the design chapters: it describes the
+        operational state of the as-built platform, not a design decision, and it is the
+        section an upgrade plan is written from.
+        """
+        if not env.lcm_entities:
+            return
+        n = self._h1(doc, "Platform Lifecycle (LCM)")
+        pending = sum(1 for e in env.lcm_entities if e.update_available)
+        unknown = sum(1 for e in env.lcm_entities if e.update_available is None)
+        doc.add_paragraph(
+            "Life Cycle Manager (LCM) inventories the firmware and software running on "
+            "this platform — AOS, the hypervisor, Prism Central services and the "
+            "component firmware beneath them — and is the mechanism by which they are "
+            "upgraded. The table below records each managed component, the version "
+            "currently running, and whether LCM offers a newer one."
+        )
+        currency = (
+            f"Of the {len(env.lcm_entities)} component(s) inventoried, {pending} "
+            f"{'has' if pending == 1 else 'have'} a newer version available"
+        )
+        if unknown:
+            currency += (
+                f"; for {unknown} component(s) LCM did not report an upgrade target, so "
+                "their currency is recorded as unknown rather than up to date"
+            )
+        doc.add_paragraph(f"{currency}.")
+        self._table(
+            doc, ["Component", "Class", "Cluster", "Current Version", "Update Available",
+                  "Available Versions"],
+            [[e.name or "—", e.entity_class or "—", e.cluster_name or "—",
+              e.current_version or "—", _update_flag(e.update_available),
+              _versions(e.available_versions, 3)] for e in env.lcm_entities],
+            f"Table {n}-1. LCM component inventory and available updates (upgrade targets "
+            "beyond the three newest are summarised as a count; the Excel export lists "
+            "them in full).",
+            _sources(env, env.lcm_entities),
         )
 
     def _catalog(self, doc: DocumentObject, env: Environment) -> None:
@@ -696,6 +738,26 @@ def _shade_cell(cell: Any, hex_color: str) -> None:
     shd.set(qn("w:color"), "auto")
     shd.set(qn("w:fill"), hex_color)
     tc_pr.append(shd)
+
+
+def _update_flag(value: bool | None) -> str:
+    """Yes / No / Unknown for an LCM update flag — None means LCM did not say, and
+    rendering that as "No" would state in a deliverable that a component is current.
+    """
+    if value is None:
+        return "Unknown"
+    return "Yes" if value else "No"
+
+
+def _versions(values: list[str], limit: int) -> str:
+    """The `limit` newest versions LCM offers, plus a count of the rest — a dozen
+    version strings in one cell would push the table past the page width.
+    """
+    if not values:
+        return "—"
+    extra = len(values) - limit
+    head = ", ".join(values[:limit])
+    return head if extra <= 0 else f"{head} (+{extra} more)"
 
 
 def _gib(value: int | None) -> float | None:

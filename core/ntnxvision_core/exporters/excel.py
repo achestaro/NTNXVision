@@ -46,6 +46,8 @@ class ExcelExporter:
         self._dr_sheets(wb, env)
         # Phase 2 — Health / Alerts
         self._alerts_sheet(wb, env)
+        # LCM — firmware / software currency
+        self._lcm_sheet(wb, env)
         # Phase 2 — Flow
         self._flow_sheets(wb, env)
         # Phase 2 — NUS
@@ -299,6 +301,30 @@ class ExcelExporter:
               a.created_at, a.api_source] for a in env.alerts],
         )
 
+    # ─── LCM — Life Cycle Manager ──────────────────────────────────
+
+    def _lcm_sheet(self, wb: Workbook, env: Environment) -> None:
+        """Firmware and software inventory as Life Cycle Manager sees it.
+
+        This is the widest of the three formats, so it carries the full `available_versions`
+        list — the PDF and the ADD trim it, and this sheet is where a reader goes to see
+        every upgrade target LCM actually offers for a component.
+        """
+        headers = [
+            "Component", "Class", "Cluster", "Current Version", "Target Version",
+            "Update Available", "Available Versions", "Last Updated", "API",
+        ]
+        rows = [
+            [
+                e.name, e.entity_class, e.cluster_name, e.current_version, e.target_version,
+                _update_flag(e.update_available), ", ".join(e.available_versions),
+                e.last_updated, e.api_source,
+            ]
+            for e in env.lcm_entities
+        ]
+        self._table(wb, "LCM (Life Cycle Manager)", headers, rows,
+                    _sources(env, env.lcm_entities))
+
     # ─── Phase 2: Flow ─────────────────────────────────────────────
 
     def _flow_sheets(self, wb: Workbook, env: Environment) -> None:
@@ -512,6 +538,18 @@ def _safe_title(title: str) -> str:
     for ch in "[]:*?/\\":
         title = title.replace(ch, "-")
     return title[:31]
+
+
+def _update_flag(value: bool | None) -> str:
+    """Yes / No / Unknown for an LCM update flag.
+
+    None means LCM did not tell us whether a newer version exists; rendering that as
+    "No" would assert the component is current, which is exactly the wrong answer to
+    the one question this sheet is here to answer.
+    """
+    if value is None:
+        return "Unknown"
+    return "Yes" if value else "No"
 
 
 def _gib(value: int | None) -> float | None:
