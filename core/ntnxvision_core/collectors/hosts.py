@@ -1,4 +1,18 @@
-"""Host / node collector (v3 `hosts/list`)."""
+"""Host / node collector (v4 `clustermgmt` when served, else v3 `hosts/list`).
+
+Two things differ between the APIs beyond field names.
+
+v3 returns a pseudo-host for Prism Central itself — no CPU model, no core count, a
+serial that is really the PC's IP ("10-13-37-4") and a `block` whose values are the
+*string* "null". It has to be filtered on actual compute evidence; anything looser
+(a truthy serial, a non-empty block dict) lets it through as a blank row in the Hosts
+sheet. v4 does not return it at all.
+
+v4's `cpuCapacityHz` is **not** v3's `cpu_capacity_hz`. v3 reports the per-core
+frequency (2.5 GHz); v4's same-sounding field is the aggregate across cores
+(2.5 GHz x 24) and its `cpuFrequencyHz` is the per-core figure. Mapping by name would
+silently inflate the value by the core count.
+"""
 
 from __future__ import annotations
 
@@ -9,25 +23,75 @@ from ntnxvision_core.collectors.normalize import hypervisor_name
 from ntnxvision_core.models import Host
 
 
+def _is_physical_host(resources: dict[str, Any]) -> bool:
+    """Does this v3 entity describe a real node?
+
+    Keyed on compute evidence only. A real node always reports a CPU model, a core
+    count or its memory; the Prism Central pseudo-host reports none of the three.
+    """
+    return bool(
+        resources.get("cpu_model")
+        or resources.get("num_cpu_cores")
+        or resources.get("memory_capacity_mib")
+    )
+
+
 class HostCollector(Collector):
     name = "hosts"
     label = "Hosts / Nodes"
 
     def collect(self, env: Any) -> None:
+        if self.conn.v4_ready("hosts"):
+            self._collect_v4(env)
+        else:
+            self._collect_v3(env)
+        env.collection_notes[self.name] = "ok"
+
+    # ─── v4 ────────────────────────────────────────────────────────
+
+    def _collect_v4(self, env: Any) -> None:
+        for entity in self.conn.v4_list("clustermgmt/v4.0/config/hosts"):
+            hypervisor = entity.get("hypervisor") or {}
+            cluster = entity.get("cluster") or {}
+            memory = entity.get("memorySizeBytes")
+            env.hosts.append(
+                Host(
+                    uuid=entity.get("extId", ""),
+                    name=entity.get("hostName"),
+                    cluster_uuid=cluster.get("uuid"),
+                    cluster_name=cluster.get("name"),
+                    hypervisor_type=hypervisor_name(hypervisor.get("type")),
+                    hypervisor_version=hypervisor.get("fullName"),
+                    cpu_model=entity.get("cpuModel"),
+                    num_cpu_sockets=entity.get("numberOfCpuSockets"),
+                    num_cpu_cores=entity.get("numberOfCpuCores"),
+                    num_cpu_threads=entity.get("numberOfCpuThreads"),
+                    # Per-core frequency, to match v3. See the module docstring.
+                    cpu_capacity_hz=entity.get("cpuFrequencyHz"),
+                    memory_bytes=memory,
+                    block_serial=entity.get("blockSerial"),
+                    block_model=entity.get("blockModel"),
+                    serial_number=entity.get("nodeSerial"),
+                    ipmi_ip=_v4_ipv4((entity.get("ipmi") or {}).get("ip")),
+                    cvm_ip=_v4_ipv4(
+                        (entity.get("controllerVm") or {}).get("externalAddress")
+                    ),
+                    hypervisor_ip=_v4_ipv4(hypervisor.get("externalAddress")),
+                    maintenance_state=_v4_maintenance_state(entity),
+                    num_vms=hypervisor.get("numberOfVms"),
+                    # v4 pads this with an empty string when a host has no GPU.
+                    gpu_list=[g for g in (entity.get("gpuList") or []) if g],
+                    api_source="v4",
+                )
+            )
+
+    # ─── v3 ────────────────────────────────────────────────────────
+
+    def _collect_v3(self, env: Any) -> None:
         for entity in self.conn.v3_list("hosts"):
             status = entity.get("status", {})
             resources = status.get("resources", {})
-            # Skip non-physical host entries: Prism Central hosts have no resources, and
-            # some clusters return a placeholder entry with resources but no real node
-            # data (no CPU model, serial, or block info) — those produce empty rows.
-            if not resources:
-                continue
-            if not (
-                resources.get("cpu_model")
-                or resources.get("serial_number")
-                or resources.get("block")
-                or resources.get("num_cpu_cores")
-            ):
+            if not resources or not _is_physical_host(resources):
                 continue
 
             cluster_ref = status.get("cluster_reference", {})
@@ -66,7 +130,33 @@ class HostCollector(Collector):
                     api_source="v3",
                 )
             )
-        env.collection_notes[self.name] = "ok"
+
+
+def _v4_ipv4(address: Any) -> str | None:
+    """Plain address from v4's nested common.v1.config.IPAddress shape."""
+    if not isinstance(address, dict):
+        return None
+    ipv4 = address.get("ipv4")
+    if not isinstance(ipv4, dict):
+        return None
+    value = ipv4.get("value")
+    return value if isinstance(value, str) else None
+
+
+def _v4_maintenance_state(entity: dict[str, Any]) -> str | None:
+    """Maintenance state in v3's vocabulary.
+
+    v4 reports a lowercase `maintenanceState` ("normal"); v3 reports NORMAL /
+    ENTERED_MAINTENANCE_MODE. Upper-case so a report does not depend on which API
+    served the host. Falls back to the CVM's own flag when the field is absent.
+    """
+    state = entity.get("maintenanceState")
+    if isinstance(state, str) and state:
+        return state.upper()
+    flag = (entity.get("controllerVm") or {}).get("isInMaintenanceMode")
+    if flag is None:
+        return None
+    return "ENTERED_MAINTENANCE_MODE" if flag else "NORMAL"
 
 
 def _hypervisor_type(resources: dict[str, Any]) -> str | None:
