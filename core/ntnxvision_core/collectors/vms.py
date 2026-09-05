@@ -159,17 +159,20 @@ def _classify_vm(name: str, resources: dict[str, Any], metadata: dict[str, Any])
     belong in a separate inventory section from user VMs.
     """
     n = (name or "").upper()
+    # Prism Central VMs are matched *before* the CVM rules below. A deployed PCVM is
+    # named NTNX-<pc-ip>-PCVM-<epoch>, and "PCVM" contains the substring "CVM", so the
+    # generic NTNX-/CVM test would otherwise claim it and leave the PC's own sizing blank.
+    cats = metadata.get("categories_mapping") or metadata.get("categories") or {}
+    cat_values = {str(v).upper() for vals in cats.values() for v in
+                  (vals if isinstance(vals, list) else [vals])}
+    if ("PCVM" in n or n.startswith("PC-") or n.startswith("NUTANIX-PC")
+            or "PRISM_CENTRAL" in cat_values):
+        return "PRISM_CENTRAL"
     # CVMs are named NTNX-<serial>-A / NTNX-*-CVM and may carry an is_cvm flag.
     if resources.get("is_cvm") or (n.startswith("NTNX-") and n.endswith(("-CVM", "-A", "-B"))):
         return "CVM"
     if "NTNX-" in n and "CVM" in n:
         return "CVM"
-    # Prism Central VMs are named PC-* or carry a PC category.
-    cats = metadata.get("categories_mapping") or metadata.get("categories") or {}
-    cat_values = {str(v).upper() for vals in cats.values() for v in
-                  (vals if isinstance(vals, list) else [vals])}
-    if n.startswith("PC-") or "PRISM_CENTRAL" in cat_values or n.startswith("NUTANIX-PC"):
-        return "PRISM_CENTRAL"
     return "USER"
 
 
