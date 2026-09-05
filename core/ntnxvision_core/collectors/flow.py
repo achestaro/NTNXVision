@@ -1,14 +1,33 @@
 """Flow collectors — Network Security (microsegmentation) and Virtual Networking.
 
-Flow security policies, categories, and service/address groups come from the v3 API.
-VPCs and floating IPs come from v3 as well (v4 `networking` covers these on newer PC,
+Network Security reads the v4 `microseg` namespace when the PC serves it, and the v3 API
+otherwise. VPCs and floating IPs stay on v3 (v4 `networking` covers these on newer PC,
 but v3 is universally present where Flow VN is enabled).
+
+**v3 is not merely older here, it is empty.** On the lab pc.7.5.1.1
+``network_security_rules/list`` answers with zero entities while
+``microseg/v4.0/config/policies`` returns the three policies the UI shows: once the
+microseg service owns policies, the legacy endpoint stops reporting them. So for policies
+the v4 path is not a like-for-like swap, it is the difference between a populated Flow
+section and an empty one.
+
+**Categories are not under `microseg`.** ``microseg/v4.0/config/categories`` 404s; the v4
+source is ``prism/v4.0/config/categories``, which lists one row per key *value* where v3
+lists one row per key with no values at all. That fills the Value column the report has
+always had and v3 could never populate — but a key that has no values is invisible to v4
+(seven Calm/OSType keys on the lab PC), so the v4 path merges those back in from v3 and
+no key is lost.
+
+**Rule counts cost one request per policy.** They live only on the per-policy detail
+endpoint: the list payload carries no `rules`, and `$select=rules` is rejected. Policies
+number in the tens, so the extra round-trips are cheap next to blanking two columns.
 """
 
 from __future__ import annotations
 
 from typing import Any
 
+from ntnxvision_core.api.errors import NutanixApiError
 from ntnxvision_core.collectors.base import Collector
 from ntnxvision_core.models import (
     AddressGroup,
@@ -19,22 +38,212 @@ from ntnxvision_core.models import (
     Vpc,
 )
 
+#: Rule-spec keys that place a v4 policy rule on one side of the traffic flow. v4 flattens
+#: v3's inbound/outbound allow lists into individual rules and identifies the direction by
+#: which half of the spec is populated rather than by a field of its own.
+_INBOUND_KEYS = (
+    "srcAllowSpec",
+    "srcCategoryReferences",
+    "srcAddressGroupReferences",
+    "srcSubnet",
+)
+_OUTBOUND_KEYS = (
+    "destAllowSpec",
+    "destCategoryReferences",
+    "destAddressGroupReferences",
+    "destSubnet",
+)
+
 
 class FlowSecurityCollector(Collector):
     name = "flow_security"
     label = "Flow Network Security"
 
     def collect(self, env: Any) -> None:
-        self._policies(env)
-        self._categories(env)
-        self._service_groups(env)
-        self._address_groups(env)
+        if self.conn.v4_ready("microseg"):
+            self._collect_v4(env)
+        else:
+            self._collect_v3(env)
 
         env.flow.security_policy_count = len(env.security_policies)
         env.flow.category_count = len(env.categories)
         env.flow.service_group_count = len(env.service_groups)
         env.flow.address_group_count = len(env.address_groups)
         env.collection_notes[self.name] = "ok"
+
+    # ─── v4 ────────────────────────────────────────────────────────
+
+    def _collect_v4(self, env: Any) -> None:
+        # Categories are fetched once and used twice: as rows of their own, and to turn
+        # the category UUIDs a policy names into the readable "key:value" the v3 path
+        # produced from its filter params.
+        category_rows = self._v4_categories()
+        self._policies_v4(env, _category_labels(category_rows))
+        self._categories_v4(env, category_rows)
+        self._service_groups_v4(env)
+        self._address_groups_v4(env)
+
+    def _v4_categories(self) -> list[dict[str, Any]]:
+        """All v4 category key/value pairs, or empty if this PC does not serve them.
+
+        `prism` is outside the negotiated `microseg` namespace, so it is tried rather
+        than assumed: an absent endpoint drops the caller back onto v3 categories instead
+        of failing the run.
+        """
+        try:
+            return self.conn.v4_list("prism/v4.0/config/categories")
+        except NutanixApiError:
+            return []
+
+    def _policies_v4(self, env: Any, labels: dict[str, str]) -> None:
+        for entity in self.conn.v4_list("microseg/v4.0/config/policies"):
+            ext_id = entity.get("extId") or ""
+            inbound, outbound = self._v4_rule_counts(ext_id)
+            policy_type = entity.get("type")
+            env.security_policies.append(
+                SecurityPolicy(
+                    uuid=ext_id,
+                    name=entity.get("name"),
+                    policy_type=policy_type,
+                    # v4 states are MONITOR / ENFORCE / SAVE, which is the vocabulary the
+                    # model documents. Passed through rather than re-spelled: the lab PC
+                    # has no v3 policies left to confirm a mapping against, and inventing
+                    # one would be guessing at v3's enum.
+                    state=entity.get("state"),
+                    # v3 only ever filled this for application policies, where it equalled
+                    # the policy state; v4 has no separate per-rule action to read.
+                    app_rule_action=(
+                        entity.get("state") if policy_type == "APPLICATION" else None
+                    ),
+                    inbound_rule_count=inbound,
+                    outbound_rule_count=outbound,
+                    # For an isolation policy this names *both* isolated groups where v3
+                    # showed only the first — v4's securedGroups spans the whole policy.
+                    secured_group=_label_for(entity.get("securedGroups"), labels),
+                    api_source="v4",
+                )
+            )
+
+    def _v4_rule_counts(self, ext_id: str) -> tuple[int | None, int | None]:
+        """(inbound, outbound) rule counts for one policy, from its detail endpoint.
+
+        None rather than 0 when the policy cannot be read, so a failed request reads as
+        "unknown" instead of "no rules".
+        """
+        if not ext_id:
+            return (None, None)
+        try:
+            payload = self.conn.v4_get(f"microseg/v4.0/config/policies/{ext_id}")
+        except NutanixApiError:
+            return (None, None)
+        data = payload.get("data") or {}
+        inbound = outbound = 0
+        for rule in data.get("rules") or []:
+            direction = _rule_direction(rule.get("spec") or {})
+            if direction == "IN":
+                inbound += 1
+            elif direction == "OUT":
+                outbound += 1
+        return (inbound, outbound)
+
+    def _categories_v4(self, env: Any, rows: list[dict[str, Any]]) -> None:
+        """One row per category key/value, with valueless keys merged in from v3.
+
+        v4 has no notion of a key on its own, so a key nobody has assigned a value to
+        simply does not appear. Those are exactly the keys v3 does list, which is why
+        this stays a hybrid until the legacy sunset makes valueless keys unreportable.
+        """
+        if not rows:
+            self._categories(env)
+            return
+        for row in rows:
+            env.categories.append(
+                Category(
+                    name=row.get("key", ""),
+                    value=row.get("value"),
+                    description=row.get("description"),
+                    api_source="v4",
+                )
+            )
+        keys_with_values = {row.get("key") for row in rows}
+        for name, description in self._v3_valueless_keys(keys_with_values):
+            env.categories.append(
+                Category(name=name, value=None, description=description, api_source="v3")
+            )
+        # Payload order is not meaningful and the two sources are concatenated, so the
+        # table is ordered explicitly on what it displays.
+        env.categories.sort(key=lambda c: (c.name.lower(), (c.value or "").lower()))
+
+    def _v3_valueless_keys(self, known: set[str | None]) -> list[tuple[str, str | None]]:
+        """Category keys v3 lists that v4 cannot show because they have no values.
+
+        Best-effort: after the legacy sunset these keys drop off the report rather than
+        the run failing.
+        """
+        try:
+            entities = self.conn.v3_list("categories")
+        except NutanixApiError:
+            return []
+        return [
+            (e["name"], e.get("description"))
+            for e in entities
+            if e.get("name") and e["name"] not in known
+        ]
+
+    def _service_groups_v4(self, env: Any) -> None:
+        for entity in self.conn.v4_list("microseg/v4.0/config/service-groups"):
+            env.service_groups.append(
+                ServiceGroup(
+                    uuid=entity.get("extId") or "",
+                    name=entity.get("name"),
+                    is_system=entity.get("isSystemDefined"),
+                    tcp_ports=_v4_port_ranges(entity.get("tcpServices")),
+                    udp_ports=_v4_port_ranges(entity.get("udpServices")),
+                    # v3 records only that ICMP is in the group, not its types/codes.
+                    icmp=bool(entity.get("icmpServices")),
+                    api_source="v4",
+                )
+            )
+
+    def _address_groups_v4(self, env: Any) -> None:
+        entities = self.conn.v4_list("microseg/v4.0/config/address-groups")
+        # Only worth a legacy round-trip when there is something to backfill onto.
+        system = self._v3_address_group_system_by_uuid() if entities else {}
+        for entity in entities:
+            ext_id = entity.get("extId") or ""
+            env.address_groups.append(
+                AddressGroup(
+                    uuid=ext_id,
+                    name=entity.get("name"),
+                    # Absent from the v4 schema entirely (unlike service groups, which do
+                    # carry isSystemDefined), so the System column is filled from v3 while
+                    # v3 exists and left blank once it does not.
+                    is_system=system.get(ext_id),
+                    ip_ranges=_v4_addresses(entity),
+                    api_source="v4",
+                )
+            )
+
+    def _v3_address_group_system_by_uuid(self) -> dict[str, bool | None]:
+        try:
+            entities = self.conn.v3_list("address_groups")
+        except NutanixApiError:
+            return {}
+        out: dict[str, bool | None] = {}
+        for entity in entities:
+            uuid = entity.get("uuid") or entity.get("metadata", {}).get("uuid")
+            ag = entity.get("address_group", entity.get("status", {}).get("resources", {})) or {}
+            if uuid:
+                out[uuid] = ag.get("is_system_defined")
+        return out
+
+    # ─── v3 ────────────────────────────────────────────────────────
+
+    def _collect_v3(self, env: Any) -> None:
+        self._policies(env)
+        self._categories(env)
+        self._service_groups(env)
+        self._address_groups(env)
 
     def _policies(self, env: Any) -> None:
         for entity in self.conn.v3_list("network_security_rules"):
@@ -219,6 +428,130 @@ class FlowNetworkingCollector(Collector):
                     api_source="v3",
                 )
             )
+
+
+# ─── v4 helpers ────────────────────────────────────────────────────────
+
+
+def _category_labels(rows: list[dict[str, Any]]) -> dict[str, str]:
+    """Category extId → "key:value", the form v4 references categories by.
+
+    v4 policies name their secured groups by UUID; the report has always shown the
+    readable pair, so the pairs are resolved once for the whole run.
+    """
+    return {
+        row["extId"]: f"{row.get('key', '')}:{row.get('value', '')}"
+        for row in rows
+        if row.get("extId")
+    }
+
+
+def _label_for(ext_ids: Any, labels: dict[str, str]) -> str | None:
+    """Render category references as v3's "Key:v1,v2; Key2:v3" secured-group string.
+
+    An id with no matching category is kept as its raw UUID rather than dropped — a
+    reference the report cannot name is still a reference the reader should see.
+    """
+    if not isinstance(ext_ids, list) or not ext_ids:
+        return None
+    grouped: dict[str, list[str]] = {}
+    unresolved: list[str] = []
+    for ext_id in ext_ids:
+        label = labels.get(ext_id)
+        if label is None:
+            unresolved.append(str(ext_id))
+            continue
+        key, _, value = label.partition(":")
+        grouped.setdefault(key, []).append(value)
+    # Sorted because payload order carries no meaning and the column must be stable.
+    parts = [f"{k}:{','.join(sorted(v))}" for k, v in sorted(grouped.items())]
+    parts += sorted(unresolved)
+    return "; ".join(parts) or None
+
+
+def _rule_direction(spec: dict[str, Any]) -> str | None:
+    """"IN"/"OUT" for an application-style rule spec, else None.
+
+    Isolation and intra-group rules belong to no direction, which is what keeps an
+    isolation policy's counts at 0 the way the v3 path reported them.
+    """
+    if any(key in spec for key in _INBOUND_KEYS):
+        return "IN"
+    if any(key in spec for key in _OUTBOUND_KEYS):
+        return "OUT"
+    return None
+
+
+def _v4_port_ranges(services: Any) -> str | None:
+    """v4 TCP/UDP port specs as v3's "80, 8000-8080" string."""
+    if not isinstance(services, list):
+        return None
+    out = []
+    for entry in services:
+        if not isinstance(entry, dict):
+            continue
+        start, end = entry.get("startPort"), entry.get("endPort")
+        if start is None:
+            continue
+        out.append(str(start) if start == end else f"{start}-{end}")
+    return ", ".join(out) or None
+
+
+def _v4_addresses(entity: dict[str, Any]) -> list[str]:
+    """Every address an address group holds, as v3-style "ip/prefix" plus "start-end".
+
+    v4 splits what v3 called `ip_address_block_list` across three fields: prefixed IPv4
+    and IPv6 addresses, and explicit start/end ranges that the v3 path had no equivalent
+    for at all.
+    """
+    out: list[str] = []
+    for key in ("ipv4Addresses", "ipv6Addresses"):
+        for entry in entity.get(key) or []:
+            if (rendered := _v4_prefix(entry)) is not None:
+                out.append(rendered)
+    for entry in entity.get("ipRanges") or []:
+        if not isinstance(entry, dict):
+            continue
+        start, end = _v4_ip_value(entry.get("startIp")), _v4_ip_value(entry.get("endIp"))
+        if start and end:
+            out.append(f"{start}-{end}")
+        elif start:
+            out.append(start)
+    return out
+
+
+def _v4_prefix(entry: Any) -> str | None:
+    """One prefixed address, tolerating the bare-string form v4 sometimes returns."""
+    ip = _v4_ip_value(entry)
+    if not ip:
+        return None
+    prefix_len = _v4_prefix_length(entry)
+    return f"{ip}/{prefix_len}" if prefix_len is not None else ip
+
+
+def _v4_prefix_length(entry: Any) -> int | None:
+    """Prefix length, which sits beside the address or inside the same nested wrapper."""
+    if not isinstance(entry, dict):
+        return None
+    if entry.get("prefixLength") is not None:
+        length: int = entry["prefixLength"]
+        return length
+    for key in ("ipv4", "ipv6"):
+        if isinstance(entry.get(key), dict):
+            return _v4_prefix_length(entry[key])
+    return None
+
+
+def _v4_ip_value(entry: Any) -> str | None:
+    """An address that may be a bare string, {'value': ...}, or {'ipv4': {'value': ...}}."""
+    if isinstance(entry, str):
+        return entry or None
+    if not isinstance(entry, dict):
+        return None
+    for key in ("value", "ipv4", "ipv6"):
+        if (nested := entry.get(key)) is not None:
+            return _v4_ip_value(nested)
+    return None
 
 
 # ─── helpers ───────────────────────────────────────────────────────────
