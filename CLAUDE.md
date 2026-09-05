@@ -43,6 +43,11 @@ npm run build        # renderer + main → dist/
 npm run package      # electron-builder → release/ (bundles the PyInstaller sidecar)
 ```
 
+### New machine / full dev setup
+`docs/DEVELOPMENT.md` — prerequisites, `scripts/setup-macos.sh` / `scripts/setup-windows.ps1`,
+pinned toolchain versions (`.python-version`, `.nvmrc`), and the per-user state that is
+deliberately *not* in the repo (keychain credentials, snapshots, exports).
+
 ### Packaging
 Freeze the Python core first (`pyinstaller build/ntnxvision-sidecar.spec` from `core/`,
 requires `pip install -e ".[dev]"`), then `npm run package` from `app/`. See `build/README.md`.

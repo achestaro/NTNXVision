@@ -9,18 +9,26 @@ credentials.json
 *.pfx
 *.crt
 
-# Collected environment data / snapshots (may contain sensitive topology)
-snapshots/
+# Collected environment data / snapshots (may contain sensitive topology).
+# Root-anchored on purpose: an unanchored `data/` or `resources/` would silently
+# swallow a real source directory added later under app/ or core/ — and a file that
+# vanishes on a fresh clone is the worst kind of portability bug.
+/snapshots/
 *.snapshot
 *.ntnxsnap
-data/
-exports/
-resources/             # local lab run artifacts & downloads (real IPs / usernames / VM names)
+/data/
+/exports/
+# local lab run artifacts & downloads (real IPs / usernames / VM names)
+/resources/
+# generated sample reports (lab-derived content)
+/ignore/report-preview/
 *.xlsx
 *.pdf
 *.docx
 *.zip
-!core/templates/**/*.docx   # keep template docx files
+# keep template docx files and binary test fixtures of any type
+!core/templates/**/*.docx
+!core/tests/fixtures/**
 
 # ─── Python ────────────────────────────────────────────────────────
 __pycache__/
@@ -53,12 +61,15 @@ npm-debug.log*
 yarn-error.log*
 
 # ─── PyInstaller / packaged sidecar output ─────────────────────────
-# Keep the committed spec/entry under core/build/, ignore only frozen output.
+# core/build/ holds the committed spec + entry point; PyInstaller writes its
+# intermediate workpath into core/build/<spec name>/ and the frozen result into
+# core/dist/. Ignore both, keep the sources.
 core/dist/
-core/build/build/
+core/build/ntnxvision-sidecar/
 core/build/*.log
 
 # ─── Local tooling / editor / OS ───────────────────────────────────
+# agent config: machine-specific settings + reinstallable skill packs
 .claude/
 .vscode/
 .idea/
@@ -66,4 +77,7 @@ core/build/*.log
 .DS_Store
 Thumbs.db
 desktop.ini
-installers/
+/installers/
+
+# Mission Control Recall (code graph MCP) — machine-specific, do not commit
+.mcp.json
