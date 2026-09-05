@@ -309,14 +309,20 @@ class ExcelExporter:
         This is the widest of the three formats, so it carries the full `available_versions`
         list — the PDF and the ADD trim it, and this sheet is where a reader goes to see
         every upgrade target LCM actually offers for a component.
+
+        `target_version` is deliberately not a column. Despite the name it is not an
+        upgrade target: it is the version LCM currently aims at, which is the running one
+        unless an upgrade is staged — identical to Current Version on all 34 components of
+        the lab PC. A column duplicating its neighbour reads as a bug in the report. The
+        field is still collected and lives in the snapshot for anyone who wants it.
         """
         headers = [
-            "Component", "Class", "Cluster", "Current Version", "Target Version",
+            "Component", "Class", "Cluster", "Current Version",
             "Update Available", "Available Versions", "Last Updated", "API",
         ]
         rows = [
             [
-                e.name, e.entity_class, e.cluster_name, e.current_version, e.target_version,
+                e.name, e.entity_class, e.cluster_name, e.current_version,
                 _update_flag(e.update_available), ", ".join(e.available_versions),
                 e.last_updated, e.api_source,
             ]

@@ -24,6 +24,7 @@ from ntnxvision_core.collectors.flow import (
 )
 from ntnxvision_core.collectors.hosts import HostCollector
 from ntnxvision_core.collectors.iam import IamCollector
+from ntnxvision_core.collectors.lcm import LcmCollector
 from ntnxvision_core.collectors.licenses import LicenseCollector
 from ntnxvision_core.collectors.ncm import NcmCollector
 from ntnxvision_core.collectors.nus import (
@@ -59,6 +60,7 @@ PHASE2_COLLECTORS: list[type[Collector]] = [
     IamCollector,
     XPlayCollector,
     NcmCollector,
+    LcmCollector,
     # PC inventory objects + management config (pc_config runs last: needs system_vms).
     ImageCollector,
     TemplateCollector,
@@ -87,6 +89,7 @@ __all__ = [
     "IamCollector",
     "XPlayCollector",
     "NcmCollector",
+    "LcmCollector",
     "PHASE1_COLLECTORS",
     "PHASE2_COLLECTORS",
     "ALL_COLLECTORS",
