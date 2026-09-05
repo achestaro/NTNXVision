@@ -42,6 +42,20 @@ See the roadmap in [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md#10-roadmap-phas
 
 ## Getting started (dev)
 
+New machine? [`docs/DEVELOPMENT.md`](docs/DEVELOPMENT.md) is the full setup guide for both
+Windows and macOS (prerequisites, one-shot setup scripts, packaging, and what state is
+*not* in the repo). Short version:
+
+```bash
+git clone https://github.com/achestaro/NTNXVision.git && cd NTNXVision
+./scripts/setup-macos.sh --dev                                          # macOS
+powershell -ExecutionPolicy Bypass -File .\scripts\setup-windows.ps1 -Dev  # Windows
+cd app && npm run dev
+```
+
+Toolchain versions are pinned in `.python-version` (3.13) and `.nvmrc` (22) — the same
+versions CI builds with.
+
 ### Python core
 ```bash
 cd core
