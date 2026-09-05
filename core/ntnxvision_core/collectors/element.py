@@ -14,6 +14,7 @@ from __future__ import annotations
 from typing import Any
 
 from ntnxvision_core.api.element_client import ElementConnection
+from ntnxvision_core.collectors.normalize import hypervisor_name
 from ntnxvision_core.models import (
     Cluster,
     Host,
@@ -229,16 +230,7 @@ def _nics(vm: dict[str, Any]) -> list[Nic]:
 
 
 def _short_hyp(value: str | None) -> str:
-    if not value:
-        return ""
-    v = value.lower()
-    if "ahv" in v or "kvm" in v:
-        return "AHV"
-    if "esx" in v or "vmware" in v:
-        return "ESXi"
-    if "hyperv" in v:
-        return "Hyper-V"
-    return value
+    return hypervisor_name(value) or ""
 
 
 def _dedup(sc: dict[str, Any]) -> str | None:

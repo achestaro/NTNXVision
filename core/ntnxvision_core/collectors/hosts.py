@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from ntnxvision_core.collectors.base import Collector
+from ntnxvision_core.collectors.normalize import hypervisor_name
 from ntnxvision_core.models import Host
 
 
@@ -82,16 +83,7 @@ def _hypervisor_type(resources: dict[str, Any]) -> str | None:
 
 
 def _short(value: str) -> str | None:
-    v = value.lower()
-    if not v:
-        return None
-    if "ahv" in v or "nutanix" in v or "kvm" in v or "el" in v.split():
-        return "AHV"
-    if "esx" in v or "vmware" in v:
-        return "ESXi"
-    if "hyper-v" in v or "hyperv" in v:
-        return "Hyper-V"
-    return value or None
+    return hypervisor_name(value)
 
 
 def _maintenance_state(resources: dict[str, Any]) -> str | None:
