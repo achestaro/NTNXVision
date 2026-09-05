@@ -206,6 +206,12 @@ def _resolve_cross_references(env: Environment) -> None:
     vlan_by_subnet_uuid = {
         s.uuid: s.vlan_id for s in env.subnets if s.uuid and s.vlan_id is not None
     }
+    # v4 references subnets and storage containers by uuid only, where v3 embedded the
+    # name alongside it. Resolve both here so a VM reads the same either way.
+    subnet_name_by_uuid = {s.uuid: s.name for s in env.subnets if s.uuid and s.name}
+    container_name_by_uuid = {
+        c.uuid: c.name for c in env.storage_containers if c.uuid and c.name
+    }
 
     # For a single-cluster (PE) run, every host/VM belongs to that one cluster.
     sole_cluster = env.clusters[0] if len(env.clusters) == 1 else None
@@ -247,10 +253,17 @@ def _resolve_cross_references(env: Environment) -> None:
             vm.cluster_name = cluster_name_by_uuid.get(vm.cluster_uuid or "") or (
                 sole_cluster.name if sole_cluster else None
             )
-        # Backfill each NIC's VLAN from its referenced subnet.
+        # Backfill each NIC's VLAN and subnet name from its referenced subnet.
         for nic in vm.nics:
             if nic.vlan_id is None and nic.subnet_uuid:
                 nic.vlan_id = vlan_by_subnet_uuid.get(nic.subnet_uuid)
+            if not nic.subnet_name and nic.subnet_uuid:
+                nic.subnet_name = subnet_name_by_uuid.get(nic.subnet_uuid)
+        for disk in vm.disks:
+            if not disk.storage_container_name and disk.storage_container_uuid:
+                disk.storage_container_name = container_name_by_uuid.get(
+                    disk.storage_container_uuid
+                )
 
     # Per-host VM counts: v3 hosts/list often omits num_vms — count what we collected.
     vms_per_host: dict[str, int] = {}
