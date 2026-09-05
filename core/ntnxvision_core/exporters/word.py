@@ -29,6 +29,8 @@ from docx.shared import Inches, Pt, RGBColor
 
 from ntnxvision_core.exporters import diagrams
 from ntnxvision_core.exporters.diagrams import Diagram
+from ntnxvision_core.exporters.sourcing import source_hosts as _source_hosts
+from ntnxvision_core.exporters.sourcing import sources as _sources
 from ntnxvision_core.models import Environment
 from ntnxvision_core.notes import clean_error as _clean_error
 from ntnxvision_core.notes import pretty_label as _pretty
@@ -120,10 +122,19 @@ class WordExporter:
     def _executive_summary(self, doc: DocumentObject, env: Environment) -> None:
         n = self._h1(doc, "Executive Summary")
         c = env.summary()
+        if env.is_combined:
+            managed_by = (
+                f"environment spanning {len(env.source_environments)} Prism Centrals "
+                f"({', '.join(_source_hosts(env))})"
+            )
+        else:
+            managed_by = (
+                f"environment managed by Prism Central {env.prism_central.host or ''} "
+                f"(version {env.prism_central.version or 'unknown'})"
+            )
         doc.add_paragraph(
             f"This document presents the architecture of the Nutanix Cloud Platform "
-            f"environment managed by Prism Central {env.prism_central.host or ''} "
-            f"(version {env.prism_central.version or 'unknown'}). The environment consists of "
+            f"{managed_by}. The environment consists of "
             f"{c['clusters']} cluster(s) totalling {c['hosts']} node(s) and hosting "
             f"{c['vms']} virtual machine(s)."
         )
@@ -191,6 +202,9 @@ class WordExporter:
         doc.add_page_break()
 
     def _pc_management(self, doc: DocumentObject, env: Environment) -> None:
+        if env.is_combined:
+            self._source_pcs(doc, env)
+            return
         cfg = env.pc_config
         n = self._h1(doc, "Prism Central — Management & Sizing")
         doc.add_paragraph(
@@ -216,6 +230,44 @@ class WordExporter:
             f"Table {n}-1. Prism Central management-plane configuration.",
         )
 
+    def _source_pcs(self, doc: DocumentObject, env: Environment) -> None:
+        """Combined-run replacement for the single-PC management section.
+
+        A combined environment has several independent management planes, so each is
+        documented on its own row; collapsing them into one sizing table would state one
+        PC's node count as the whole estate's.
+        """
+        n = self._h1(doc, "Prism Centrals — Management & Sizing")
+        doc.add_paragraph(
+            f"This document covers {len(env.source_environments)} independently managed "
+            "Prism Central instances, inventoried in a single run and combined into one "
+            "report. Each management plane is recorded below; the remaining sections "
+            "present the combined estate, with every table attributing its rows to the "
+            "Prism Central they came from."
+        )
+        rows = []
+        for s in env.source_environments:
+            cfg, counts = s.pc_config, s.summary
+            deployment = (
+                "Scale-out (multi-node)" if cfg.is_scale_out
+                else "Single-node" if cfg.is_scale_out is not None else "Unknown"
+            )
+            rows.append([
+                s.prism_central.host or "unknown",
+                s.prism_central.version or cfg.version or "—",
+                deployment,
+                str(cfg.node_count or "—"),
+                str(counts.get("clusters", "—")),
+                str(counts.get("hosts", "—")),
+                str(counts.get("vms", "—")),
+            ])
+        self._table(
+            doc,
+            ["Prism Central", "Version", "Deployment", "PC nodes", "Clusters", "Hosts", "VMs"],
+            rows,
+            f"Table {n}-1. Source Prism Centrals combined into this report.",
+        )
+
     def _logical_design(self, doc: DocumentObject, env: Environment) -> None:
         n = self._h1(doc, "Logical Design")
         doc.add_paragraph(
@@ -234,6 +286,7 @@ class WordExporter:
               str(c.redundancy_factor or ""), "Yes" if c.encryption_enabled else "No"]
              for c in env.clusters],
             f"Table {n}-1. Registered clusters.",
+            _sources(env, env.clusters),
         )
 
     def _physical_design(self, doc: DocumentObject, env: Environment) -> None:
@@ -245,6 +298,7 @@ class WordExporter:
               str(_gib(h.memory_bytes) or ""), ", ".join(h.gpu_list) or "—"]
              for h in env.hosts],
             f"Table {n}-1. Physical hosts.",
+            _sources(env, env.hosts),
         )
         fig = 0
         for cluster in env.clusters[:8]:
@@ -599,9 +653,16 @@ class WordExporter:
         return self._h1n
 
     def _table(self, doc: DocumentObject, headers: list[str], rows: list[list[Any]],
-               caption: str) -> None:
+               caption: str, sources: list[str] | None = None) -> None:
+        """`sources` (combined multi-PC runs only) prepends a "Prism Central" column
+        naming the PC each row came from — names repeat across estates, so without it
+        two merged rows can read as duplicates.
+        """
         if not rows:
             return
+        if sources is not None:
+            headers = ["Prism Central", *headers]
+            rows = [[src, *row] for src, row in zip(sources, rows, strict=True)]
         table = doc.add_table(rows=1, cols=len(headers))
         table.style = "Table Grid"
         # Branded header row: navy fill, white bold text.
