@@ -118,6 +118,90 @@ class VolumesCollector(Collector):
     label = "Volume Groups"
 
     def collect(self, env: Any) -> None:
+        if self.conn.v4_ready("volumes"):
+            self._collect_v4(env)
+            env.collection_notes[self.name] = "ok"
+            return
+        self._collect_v3(env)
+
+    # ─── v4 ────────────────────────────────────────────────────────
+
+    def _collect_v4(self, env: Any) -> None:
+        """Volume groups from `volumes/v4.0/config/volume-groups`.
+
+        Disk and attachment counts are the awkward part. v4 exposes them only as
+        per-group sub-resources (`/disks`, `/vm-attachments`) — two extra requests per
+        volume group, 70 of them on the lab PC, where v3 returns the same aggregates
+        for every group in a single call. So v3 is preferred while it exists and the
+        sub-resource walk is the fallback for after the sunset; the numbers are
+        identical either way, only the cost differs.
+
+        v4 also reports the cluster by uuid where v3 embedded its name. Clusters are
+        collected in phase 1, so `env.clusters` is already populated here.
+        """
+        cluster_names = {c.uuid: c.name for c in env.clusters if c.uuid and c.name}
+        aggregates = self._v3_aggregates()
+
+        for entity in self.conn.v4_list("volumes/v4.0/config/volume-groups"):
+            uuid = entity.get("extId") or ""
+            flash = (entity.get("storageFeatures") or {}).get("flashMode") or {}
+            if uuid in aggregates:
+                disk_count, total, attachments = aggregates[uuid]
+            else:
+                disk_count, total, attachments = self._v4_aggregates(uuid)
+            env.volume_groups.append(
+                VolumeGroup(
+                    uuid=uuid,
+                    name=entity.get("name"),
+                    cluster_name=cluster_names.get(entity.get("clusterReference") or ""),
+                    disk_count=disk_count,
+                    total_capacity_bytes=total,
+                    is_shared=entity.get("sharingStatus") == "SHARED",
+                    iscsi_target=entity.get("targetName"),
+                    attachment_count=attachments,
+                    flash_mode=flash.get("isEnabled"),
+                    api_source="v4",
+                )
+            )
+
+    def _v3_aggregates(self) -> dict[str, tuple[int, int | None, int]]:
+        """uuid → (disk_count, total_bytes, attachment_count) from one v3 call."""
+        try:
+            entities = self.conn.v3_list("volume_groups")
+        except Exception:  # noqa: BLE001 — absent after the legacy sunset
+            return {}
+        out: dict[str, tuple[int, int | None, int]] = {}
+        for entity in entities:
+            uuid = entity.get("metadata", {}).get("uuid")
+            if not uuid:
+                continue
+            resources = entity.get("spec", {}).get("resources", {})
+            disks = resources.get("disk_list", []) or []
+            total = sum(d.get("disk_size_mib", 0) for d in disks) * 1024 * 1024
+            out[uuid] = (
+                len(disks),
+                total or None,
+                len(resources.get("attachment_list", []) or []),
+            )
+        return out
+
+    def _v4_aggregates(self, uuid: str) -> tuple[int, int | None, int]:
+        """The same three numbers via v4 sub-resources: two requests per group."""
+        base = f"volumes/v4.0/config/volume-groups/{uuid}"
+        try:
+            disks = self.conn.v4_list(f"{base}/disks")
+        except Exception:  # noqa: BLE001
+            disks = []
+        try:
+            attachments = self.conn.v4_list(f"{base}/vm-attachments")
+        except Exception:  # noqa: BLE001
+            attachments = []
+        total = sum(d.get("diskSizeBytes") or 0 for d in disks)
+        return len(disks), total or None, len(attachments)
+
+    # ─── v3 ────────────────────────────────────────────────────────
+
+    def _collect_v3(self, env: Any) -> None:
         try:
             entities = self.conn.v3_list("volume_groups")
         except Exception:  # noqa: BLE001
