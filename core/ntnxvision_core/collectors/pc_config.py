@@ -29,6 +29,7 @@ class PrismCentralConfigCollector(Collector):
             cfg.is_scale_out = (details.get("node_count") or 1) > 1
             cfg.ip_addresses = details.get("ips", [])
             cfg.build = details.get("build")
+            cfg.ncc_version = details.get("ncc_version")
 
         # PC VM sizing: sum resources of the classified Prism Central VMs.
         pc_vms = [v for v in env.system_vms if v.vm_type == "PRISM_CENTRAL"]
@@ -39,6 +40,19 @@ class PrismCentralConfigCollector(Collector):
             if cfg.node_count is None:
                 cfg.node_count = len(pc_vms)
                 cfg.is_scale_out = len(pc_vms) > 1
+            # A single-node PC has no cluster VIP, so the v1 gateway reports a null
+            # clusterExternalIPAddress and no svmips. Fall back to the PCVMs' own NIC
+            # addresses rather than reporting the management plane as having no IP.
+            if not cfg.ip_addresses:
+                cfg.ip_addresses = list(
+                    dict.fromkeys(
+                        ip
+                        for v in pc_vms
+                        for nic in v.nics
+                        for ip in nic.ip_addresses
+                        if ip
+                    )
+                )
 
         env.collection_notes[self.name] = "ok"
 
@@ -68,4 +82,5 @@ class PrismCentralConfigCollector(Collector):
             "node_count": data.get("numNodes"),
             "ips": list(dict.fromkeys(ips)),
             "build": data.get("fullVersion"),
+            "ncc_version": data.get("nccVersion"),
         }
