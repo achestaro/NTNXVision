@@ -11,6 +11,7 @@ The two share the same engine, so anything the UI can do is scriptable from the 
 from __future__ import annotations
 
 import getpass
+from typing import Annotated
 
 import typer
 from rich.console import Console
@@ -21,7 +22,11 @@ from ntnxvision_core.api import PrismCredentials
 from ntnxvision_core.api.element_client import ElementCredentials
 from ntnxvision_core.api.errors import NutanixApiError
 from ntnxvision_core.api.ndb_client import NdbCredentials
-from ntnxvision_core.engine import collect_element_environment, collect_environment
+from ntnxvision_core.engine import (
+    collect_element_environment,
+    collect_environment,
+    combine_environments,
+)
 from ntnxvision_core.exporters import export_environment
 from ntnxvision_core.paths import exports_dir, snapshots_dir
 from ntnxvision_core.store import SnapshotStore
@@ -99,6 +104,106 @@ def cluster(
         raise typer.Exit(1) from exc
 
     _finish(env, name, formats)
+
+
+@app.command()
+def inventory_multi(
+    # Repeatable options use the Annotated form: a call in a *mutable*-annotated default
+    # is a bugbear warning (and a real footgun outside Typer), scalars are exempt — hence
+    # the mixed style with the single-target commands above.
+    host: Annotated[list[str], typer.Option(
+        "--host", help="Prism Central FQDN or IP; repeat per PC")],
+    username: Annotated[list[str], typer.Option(
+        "--username",
+        help="PC username — give once to use for every --host, or once per --host")],
+    password: Annotated[list[str] | None, typer.Option(
+        "--password",
+        help="PC password — same pairing as --username; prompted per host if omitted")] = None,
+    port: int = typer.Option(9440, help="PC port (applies to every target)"),
+    insecure: bool = typer.Option(False, "--insecure", help="Skip TLS verification (lab only)"),
+    formats: str = typer.Option("excel", help="Comma-separated: excel,pdf,word"),
+    combine: bool = typer.Option(
+        True, "--combine/--no-combine",
+        help="Also produce one merged snapshot/report across all targets",
+    ),
+    combined_name: str = typer.Option("combined-environment", help="Name for the merged run"),
+    ndb_host: Annotated[list[str] | None, typer.Option(
+        "--ndb-host",
+        help="Optional NDB/Era host; pair per --host to also inventory NDB")] = None,
+    ndb_username: Annotated[list[str] | None, typer.Option(
+        "--ndb-username", help="NDB username")] = None,
+    ndb_password: Annotated[list[str] | None, typer.Option(
+        "--ndb-password", help="NDB password (prompted per NDB host if omitted)")] = None,
+) -> None:
+    """Inventory several Prism Centrals in one run, optionally combining them.
+
+    Each target is isolated: one unreachable or misconfigured PC is reported and skipped
+    without aborting the others — the same isolation the UI's multi-target mode gives.
+    """
+    usernames = _pair("--username", username, len(host))
+    passwords = _pair("--password", password, len(host), allow_empty=True)
+    ndb_hosts = _pair("--ndb-host", ndb_host, len(host), allow_empty=True)
+    ndb_usernames = _pair("--ndb-username", ndb_username, len(host), allow_empty=True)
+    ndb_passwords = _pair("--ndb-password", ndb_password, len(host), allow_empty=True)
+
+    collected = []
+    failures: list[tuple[str, str]] = []
+    for i, target in enumerate(host):
+        pwd = passwords[i] or getpass.getpass(f"Prism Central password for {target}: ")
+        creds = PrismCredentials(host=target, username=usernames[i], password=pwd,
+                                 port=port, verify_ssl=not insecure)
+        ndb_creds = None
+        if ndb_hosts[i] and ndb_usernames[i]:
+            ndb_pwd = ndb_passwords[i] or getpass.getpass(f"NDB password for {ndb_hosts[i]}: ")
+            ndb_creds = NdbCredentials(host=ndb_hosts[i], username=ndb_usernames[i],
+                                       password=ndb_pwd, verify_ssl=not insecure)
+
+        def progress(idx: int, total: int, label: str, status: str, _t: str = target) -> None:
+            console.print(f"  [{_t}] [{idx + 1}/{total}] {label}: [dim]{status}[/dim]")
+
+        console.print(f"[bold]Connecting[/bold] to {target} … "
+                      f"({i + 1}/{len(host)})")
+        try:
+            env = collect_environment(creds, progress=progress, ndb_creds=ndb_creds)
+        except Exception as exc:  # noqa: BLE001 — one target never aborts the rest
+            console.print(f"[red]{target} failed:[/red] {exc}")
+            failures.append((target, str(exc)))
+            continue
+        _finish(env, target, formats)
+        collected.append(env)
+
+    if combine and len(collected) >= 2:
+        console.print(f"[bold]Combining[/bold] {len(collected)} environments …")
+        _finish(combine_environments(collected), combined_name, formats)
+    elif combine:
+        console.print("[yellow]⚠ Combine skipped — it needs at least two successful "
+                      "targets.[/yellow]")
+
+    if failures:
+        console.print(f"[red]{len(failures)} of {len(host)} target(s) failed.[/red]")
+        raise typer.Exit(1)
+
+
+def _pair(option: str, values: list[str] | None, count: int,
+          allow_empty: bool = False) -> list[str]:
+    """Line a repeatable option up with --host: one value for all, or one each.
+
+    Anything else is a typo the user wants to hear about before a long collection run
+    starts, not silently after it.
+    """
+    values = [v for v in (values or [])]
+    if not values:
+        if allow_empty:
+            return [""] * count
+        raise typer.BadParameter(f"{option} is required")
+    if len(values) == 1:
+        return values * count
+    if len(values) != count:
+        raise typer.BadParameter(
+            f"{option} given {len(values)} time(s) for {count} --host value(s) — "
+            f"pass it once for all hosts or once per host"
+        )
+    return values
 
 
 def _finish(env: object, name: str, formats: str) -> None:

@@ -94,6 +94,7 @@ ipcMain.handle(IPC.inventoryMulti, async (_e, req: MultiInventoryRequest) => {
       port: t.port,
       insecure: t.insecure,
       name: t.name,
+      ndb: t.ndb,
     })),
     formats: req.formats,
     export_dir: req.exportDir || store.getSettings().exportDir,

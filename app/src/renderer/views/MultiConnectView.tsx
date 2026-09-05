@@ -20,10 +20,18 @@ interface TargetForm {
   port: number;
   insecure: boolean;
   name: string;
+  // NDB is per target: each estate runs its own Era instance behind its own credentials.
+  ndbEnabled: boolean;
+  ndbHost: string;
+  ndbUser: string;
+  ndbPass: string;
 }
 
 function emptyTarget(): TargetForm {
-  return { host: '', username: 'admin', password: '', port: 9440, insecure: true, name: '' };
+  return {
+    host: '', username: 'admin', password: '', port: 9440, insecure: true, name: '',
+    ndbEnabled: false, ndbHost: '', ndbUser: 'admin', ndbPass: '',
+  };
 }
 
 export function MultiConnectView(): JSX.Element {
@@ -74,8 +82,12 @@ export function MultiConnectView(): JSX.Element {
     const p = profiles.find((x) => x.id === id);
     if (!p || p.mode === 'prism_element') return; // multi-collect is Prism-Central-only
     setTargets((prev) => [...prev, {
+      ...emptyTarget(),
       host: p.host, username: p.username, password: '', port: p.port,
       insecure: p.insecure, name: p.name,
+      ndbEnabled: Boolean(p.ndbHost),
+      ndbHost: p.ndbHost ?? '',
+      ndbUser: p.ndbUser ?? 'admin',
     }]);
   }
 
@@ -105,7 +117,17 @@ export function MultiConnectView(): JSX.Element {
       const res = await window.ntnx.inventoryMulti({
         targets: targets
           .filter((t) => t.host && t.username)
-          .map((t) => ({ ...t, name: t.name || t.host })),
+          .map((t) => ({
+            host: t.host,
+            username: t.username,
+            password: t.password,
+            port: t.port,
+            insecure: t.insecure,
+            name: t.name || t.host,
+            ndb: t.ndbEnabled && t.ndbHost
+              ? { host: t.ndbHost, username: t.ndbUser, password: t.ndbPass }
+              : undefined,
+          })),
         formats: formats.length ? formats : ['excel'],
         saveCredentials: saveCreds,
         exportDir: exportDir || undefined,
@@ -168,6 +190,30 @@ export function MultiConnectView(): JSX.Element {
                     onChange={(e) => updateTarget(i, { name: e.target.value })} />
                 </div>
               </div>
+              <label className="check" style={{ marginBottom: t.ndbEnabled ? 12 : 8 }}>
+                <input type="checkbox" checked={t.ndbEnabled}
+                  onChange={(e) => updateTarget(i, { ndbEnabled: e.target.checked })} />
+                Also inventory Nutanix Database Service (NDB / Era) on this Prism Central
+              </label>
+              {t.ndbEnabled && (
+                <div className="row">
+                  <div className="field">
+                    <label>NDB Host</label>
+                    <input type="text" value={t.ndbHost} placeholder="ndb.example.com"
+                      onChange={(e) => updateTarget(i, { ndbHost: e.target.value })} />
+                  </div>
+                  <div className="field">
+                    <label>NDB Username</label>
+                    <input type="text" value={t.ndbUser}
+                      onChange={(e) => updateTarget(i, { ndbUser: e.target.value })} />
+                  </div>
+                  <div className="field">
+                    <label>NDB Password</label>
+                    <input type="password" value={t.ndbPass}
+                      onChange={(e) => updateTarget(i, { ndbPass: e.target.value })} />
+                  </div>
+                </div>
+              )}
               <div className="row" style={{ alignItems: 'center' }}>
                 <label className="check">
                   <input type="checkbox" checked={t.insecure}

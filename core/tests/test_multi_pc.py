@@ -318,3 +318,192 @@ def test_legacy_combined_snapshot_still_names_its_sources(tmp_path) -> None:
     assert env.is_combined
     assert [s.prism_central.host for s in env.source_environments] == ["pc1.local", "pc2.local"]
     assert [s.prism_central.version for s in env.source_environments] == ["pc.2024.3"] * 2
+
+
+# ─── figures ───────────────────────────────────────────────────────────
+
+
+def _pc_env(host: str, hosts: int, vms: int, subnets: int = 0) -> Environment:
+    """A PC whose cluster is called "Cluster01", like everyone else's."""
+    from ntnxvision_core.models import Host as HostModel
+    from ntnxvision_core.models import Subnet
+
+    env = Environment(prism_central=PrismCentral(host=host))
+    env.clusters = [Cluster(uuid=f"c-{host}", name="Cluster01", num_nodes=hosts,
+                            hypervisor_types=["AHV"])]
+    # Hosts carry the cluster UUID; VMs and subnets only the name — both resolution
+    # paths have to stay inside their own Prism Central.
+    env.hosts = [HostModel(uuid=f"h-{host}-{i}", name=f"node-{host}-{i}",
+                           cluster_uuid=f"c-{host}", cluster_name="Cluster01")
+                 for i in range(hosts)]
+    env.vms = [VirtualMachine(uuid=f"v-{host}-{i}", name=f"vm-{host}-{i}",
+                              cluster_name="Cluster01") for i in range(vms)]
+    env.subnets = [Subnet(uuid=f"s-{host}-{i}", name=f"vlan-{host}-{i}",
+                          cluster_name="Cluster01", vlan_id=100 + i)
+                   for i in range(subnets)]
+    return env
+
+
+def test_identically_named_clusters_do_not_pool_their_objects() -> None:
+    """Two PCs each running a "Cluster01" used to be matched by name alone, pooling one
+    estate's hosts, VMs and subnets into the other's figures.
+    """
+    from ntnxvision_core.exporters.diagrams import _counts_per_cluster
+
+    combined = combine_environments([_pc_env("pc1.local", hosts=2, vms=3, subnets=1),
+                                     _pc_env("pc2.local", hosts=1, vms=1)])
+    c1, c2 = combined.clusters
+
+    assert _counts_per_cluster(combined, combined.vms) == {id(c1): 3, id(c2): 1}
+    assert _counts_per_cluster(combined, combined.hosts) == {id(c1): 2, id(c2): 1}
+    assert _counts_per_cluster(combined, combined.subnets) == {id(c1): 1}
+
+
+def test_per_cluster_figures_only_see_their_own_clusters_objects() -> None:
+    from ntnxvision_core.exporters.diagrams import cluster_compute, network_topology
+
+    combined = combine_environments([_pc_env("pc1.local", hosts=2, vms=3, subnets=1),
+                                     _pc_env("pc2.local", hosts=0, vms=1)])
+    c1, c2 = combined.clusters
+
+    assert cluster_compute(combined, c1) is not None
+    # pc2's cluster has no nodes of its own — it must not borrow pc1's.
+    assert cluster_compute(combined, c2) is None
+    assert network_topology(combined, c1) is not None
+    assert network_topology(combined, c2) is None
+
+
+def test_cluster_labels_disambiguate_only_when_names_collide() -> None:
+    from ntnxvision_core.exporters.diagrams import _cluster_labels
+
+    combined = combine_environments([_pc_env("pc1.local", hosts=1, vms=1),
+                                     _pc_env("pc2.local", hosts=1, vms=1)])
+    assert [_cluster_labels(combined)[id(c)] for c in combined.clusters] == [
+        "Cluster01 · pc1.local", "Cluster01 · pc2.local",
+    ]
+
+    solo = _pc_env("pc1.local", hosts=1, vms=1)
+    assert [_cluster_labels(solo)[id(c)] for c in solo.clusters] == ["Cluster01"]
+
+
+# ─── CLI ───────────────────────────────────────────────────────────────
+
+
+def _run_cli(args: list[str], collect: Any, tmp_path: Any) -> Any:
+    """Invoke the CLI with collection and the snapshot/export dirs stubbed out."""
+    from typer.testing import CliRunner
+
+    from ntnxvision_core import __main__ as cli
+
+    with patch.object(cli, "collect_environment", collect), \
+            patch.object(cli, "snapshots_dir", lambda: tmp_path), \
+            patch.object(cli, "exports_dir", lambda: tmp_path):
+        return CliRunner().invoke(cli.app, args)
+
+
+def test_cli_inventory_multi_collects_every_target_and_combines(tmp_path) -> None:
+    seen = []
+
+    def collect(creds: Any, progress: Any = None, ndb_creds: Any = None) -> Environment:
+        seen.append((creds.host, creds.username, creds.port))
+        return _env(creds.host, f"c-{creds.host}")
+
+    result = _run_cli(
+        ["inventory-multi", "--host", "pc1.local", "--host", "pc2.local",
+         "--username", "admin", "--password", "pw", "--combined-name", "estate"],
+        collect, tmp_path,
+    )
+
+    assert result.exit_code == 0, result.output
+    # One --username / --password applies to every --host.
+    assert seen == [("pc1.local", "admin", 9440), ("pc2.local", "admin", 9440)]
+    # Per-target snapshots plus the combined one.
+    names = sorted(p.name for p in tmp_path.glob("*.ntnxsnap.json"))
+    assert names == ["estate.ntnxsnap.json", "pc1.local.ntnxsnap.json", "pc2.local.ntnxsnap.json"]
+
+
+def test_cli_inventory_multi_isolates_a_failing_target(tmp_path) -> None:
+    def collect(creds: Any, progress: Any = None, ndb_creds: Any = None) -> Environment:
+        if creds.host == "bad.local":
+            raise RuntimeError("connection refused")
+        return _env(creds.host, f"c-{creds.host}")
+
+    result = _run_cli(
+        ["inventory-multi", "--host", "bad.local", "--host", "good.local",
+         "--username", "admin", "--password", "pw"],
+        collect, tmp_path,
+    )
+
+    # The good target is still collected and exported; the run reports the failure.
+    assert "connection refused" in result.output
+    assert (tmp_path / "good.local.ntnxsnap.json").exists()
+    assert result.exit_code == 1
+    # One success is not enough to combine.
+    assert not (tmp_path / "combined-environment.ntnxsnap.json").exists()
+
+
+def test_cli_inventory_multi_rejects_a_mismatched_option_count(tmp_path) -> None:
+    """A miscounted --username is a typo worth catching before a long run, not after."""
+    def collect(creds: Any, progress: Any = None, ndb_creds: Any = None) -> Environment:
+        raise AssertionError("must not start collecting")
+
+    result = _run_cli(
+        ["inventory-multi", "--host", "a.local", "--host", "b.local", "--host", "c.local",
+         "--username", "admin", "--username", "root", "--password", "pw"],
+        collect, tmp_path,
+    )
+    assert result.exit_code != 0
+    assert "once per host" in result.output.replace("\n", " ")
+
+
+def test_cli_inventory_multi_passes_per_target_ndb_credentials(tmp_path) -> None:
+    ndb_seen = []
+
+    def collect(creds: Any, progress: Any = None, ndb_creds: Any = None) -> Environment:
+        ndb_seen.append(None if ndb_creds is None else (ndb_creds.host, ndb_creds.username))
+        return _env(creds.host, f"c-{creds.host}")
+
+    result = _run_cli(
+        ["inventory-multi", "--host", "pc1.local", "--host", "pc2.local",
+         "--username", "admin", "--password", "pw",
+         "--ndb-host", "ndb1.local", "--ndb-host", "", "--ndb-username", "era",
+         "--ndb-password", "era-pw"],
+        collect, tmp_path,
+    )
+    assert result.exit_code == 0, result.output
+    assert ndb_seen == [("ndb1.local", "era"), None]
+
+
+def test_inventory_multi_uses_each_targets_own_ndb_credentials() -> None:
+    """The sidecar has always read a per-target `ndb` block, but the IPC contract had no
+    field for it, so the UI could never send one and the path was dead.
+    """
+    from ntnxvision_core import sidecar
+
+    seen: list[tuple[str, Any]] = []
+
+    def fake_collect(creds: Any, progress: Any = None, ndb_creds: Any = None) -> Environment:
+        seen.append((creds.host, None if ndb_creds is None
+                     else (ndb_creds.host, ndb_creds.username, ndb_creds.verify_ssl)))
+        return _env(creds.host, f"c-{creds.host}")
+
+    with patch.object(sidecar, "collect_environment", side_effect=fake_collect), \
+         patch.object(sidecar, "_finalize", side_effect=lambda env, name, params: {
+             "summary": env.summary(), "source_type": env.source_type,
+             "prism_central": env.prism_central.model_dump(), "warnings": [],
+             "collection_notes": {}, "snapshot_path": None, "exports": {}, "export_errors": {},
+         }):
+        sidecar._m_inventory_multi(1, {
+            "targets": [
+                {"host": "pc1.local", "username": "admin", "password": "x", "insecure": True,
+                 "ndb": {"host": "era1.local", "username": "era-admin", "password": "y"}},
+                {"host": "pc2.local", "username": "admin", "password": "x"},
+            ],
+            "combine": False,
+        })
+
+    assert seen == [
+        # Each estate's own Era instance, and the target's TLS choice carried across.
+        ("pc1.local", ("era1.local", "era-admin", False)),
+        ("pc2.local", None),
+    ]
