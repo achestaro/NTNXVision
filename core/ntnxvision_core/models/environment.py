@@ -618,6 +618,33 @@ class NcmReport(SourcedObject):
     api_source: str = "v3"
 
 
+# ─── LCM — Life Cycle Manager ──────────────────────────────────────────
+
+
+class LcmEntity(SourcedObject):
+    """One upgradable component in the LCM inventory.
+
+    LCM is the answer to "what firmware and software is actually running, and what is
+    out of date" — AOS, AHV, NCC, foundation, disk and NIC firmware, and the Prism
+    Central services, each with the versions LCM would let you move to.
+    """
+
+    uuid: str
+    name: str | None = None  # LCM's entityModel, e.g. "AHV" or a disk model
+    entity_class: str | None = None  # "Core Cluster" / "Hypervisor" / "PC Service" …
+    entity_type: str | None = None
+    current_version: str | None = None
+    target_version: str | None = None
+    #: Versions LCM offers as upgrade targets, newest-first as LCM orders them.
+    available_versions: list[str] = Field(default_factory=list)
+    #: True when LCM offers a version other than the one running.
+    update_available: bool | None = None
+    cluster_uuid: str | None = None
+    cluster_name: str | None = None
+    last_updated: str | None = None
+    api_source: str = "v4"
+
+
 # ─── Feature-area summaries ────────────────────────────────────────────
 
 
@@ -749,6 +776,7 @@ class Environment(_Base):
     projects: list[Project] = Field(default_factory=list)
     playbooks: list[Playbook] = Field(default_factory=list)
     ncm_reports: list[NcmReport] = Field(default_factory=list)
+    lcm_entities: list[LcmEntity] = Field(default_factory=list)
 
     # Roll-up summaries
     data_protection: DataProtectionSummary = Field(default_factory=DataProtectionSummary)
@@ -802,4 +830,5 @@ class Environment(_Base):
             "projects": len(self.projects),
             "playbooks": len(self.playbooks),
             "ncm_reports": len(self.ncm_reports),
+            "lcm_entities": len(self.lcm_entities),
         }

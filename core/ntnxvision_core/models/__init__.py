@@ -23,6 +23,7 @@ from ntnxvision_core.models.environment import (
     FlowSummary,
     Host,
     Image,
+    LcmEntity,
     LicenseInfo,
     NcmReport,
     Nic,
@@ -100,6 +101,7 @@ __all__ = [
     "Role",
     "Project",
     "Playbook",
+    "LcmEntity",
     "NcmReport",
     # Summaries
     "DataProtectionSummary",
