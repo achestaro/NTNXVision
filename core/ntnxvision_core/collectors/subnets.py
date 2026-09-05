@@ -48,9 +48,11 @@ class SubnetCollector(Collector):
         v3 subnets usually carry only virtual_switch_uuid (or vswitch_name on the
         spec side); this map lets us render a proper name either way.
         """
+        if not self.conn.v4_ready("subnets"):
+            return {}
         try:
             switches = self.conn.v4_list("networking/v4.0/config/virtual-switches")
-        except Exception:  # noqa: BLE001 — endpoint absent on older PC
+        except Exception:  # noqa: BLE001 — never fail the subnet list over a nicety
             return {}
         out: dict[str, str] = {}
         for sw in switches:

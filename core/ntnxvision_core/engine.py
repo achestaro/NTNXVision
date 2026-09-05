@@ -54,7 +54,6 @@ def collect_environment(
 
     with PrismConnection(creds) as conn:
         env.prism_central.version = conn.pc_version
-        env.prism_central.negotiated_api_versions = dict(conn.negotiated)
 
         # Compatibility check (warn but proceed).
         pc_compat = check_prism_central(conn.pc_version)
@@ -72,6 +71,10 @@ def collect_environment(
             except Exception as exc:  # noqa: BLE001 — isolate collector failures
                 env.collection_notes[collector.name] = f"error: {exc}"
                 _emit(progress, idx, total, collector.label, f"error: {exc}")
+
+        # Read *after* the collectors run: v4 availability is negotiated lazily, on the
+        # first call that asks for a feature area, so nothing is known at connect time.
+        env.prism_central.negotiated_api_versions = dict(conn.negotiated)
 
     if ndb_creds:
         _collect_ndb_step(ndb_creds, env, progress, len(collector_types), total)

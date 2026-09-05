@@ -204,6 +204,21 @@ class PrismConnection:
                 break
         return results
 
+    # ─── v4 capability negotiation ─────────────────────────────────
+
+    def v4_ready(self, area: str) -> bool:
+        """May `area` be collected over the v4 API on this Prism Central?
+
+        Collectors gate their v4 path on this and keep their v3/v2 path for when it is
+        False — v4 is GA only from pc.2024.3 while the supported floor is pc.2024.1, so
+        both paths have to stay live until the legacy APIs are retired. The verdict is
+        probed once and cached; see `v4_client` for why a version check alone is not
+        enough.
+        """
+        from ntnxvision_core.api import v4_client
+
+        return v4_client.negotiate(self, area) == v4_client.AVAILABLE
+
     # ─── internals ─────────────────────────────────────────────────
 
     def _detect_pc_version(self) -> str | None:
@@ -220,10 +235,11 @@ class PrismConnection:
         if resp.status_code in (401, 403):
             raise AuthenticationError("Not authorized for this resource.")
         if resp.status_code == 404:
-            raise NutanixApiError(f"Not found: {resp.url}")
+            raise NutanixApiError(f"Not found: {resp.url}", status_code=404)
         if resp.status_code >= 400:
             raise NutanixApiError(
-                f"HTTP {resp.status_code} from {resp.url}: {resp.text[:300]}"
+                f"HTTP {resp.status_code} from {resp.url}: {resp.text[:300]}",
+                status_code=resp.status_code,
             )
         try:
             return resp.json()

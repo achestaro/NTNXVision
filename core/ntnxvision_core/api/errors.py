@@ -4,7 +4,17 @@ from __future__ import annotations
 
 
 class NutanixApiError(Exception):
-    """Base class for all API-layer errors."""
+    """Base class for all API-layer errors.
+
+    Carries the HTTP status when one is known. v4 capability negotiation needs to tell
+    "this namespace does not exist on this PC" (404) apart from "the service exists but
+    is not running" (503) — the first is a permanent routing fact, the second is a
+    transient condition that should not be cached as an absent namespace.
+    """
+
+    def __init__(self, *args: object, status_code: int | None = None) -> None:
+        super().__init__(*args)
+        self.status_code = status_code
 
 
 class ConnectionFailed(NutanixApiError):
