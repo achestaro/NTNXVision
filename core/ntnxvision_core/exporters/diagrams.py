@@ -367,14 +367,24 @@ def management_topology(env: Environment) -> Diagram | None:
     if not env.clusters:
         return None
     is_pe = env.source_type == "prism_element"
-    lines = [line for line in (
-        env.prism_central.host,
-        f"version {env.prism_central.version}" if env.prism_central.version else None,
-    ) if line]
-    if not is_pe and env.pc_config.node_count:
-        deploy = "Scale-out" if env.pc_config.is_scale_out else "Single-node"
-        lines.append(f"{deploy} · {env.pc_config.node_count} PC node(s)")
-    root = Node("Prism Element" if is_pe else "Prism Central", lines, style="root")
+    if env.is_combined:
+        # No single management plane: name the contributing PCs instead of the synthetic
+        # combined host, which would otherwise be the figure's only label.
+        hosts = [s.prism_central.host or "unknown" for s in env.source_environments]
+        shown = hosts[:4]
+        lines = [*shown]
+        if len(hosts) > len(shown):
+            lines.append(f"+{len(hosts) - len(shown)} more")
+        root = Node(f"{len(hosts)} Prism Centrals", lines, style="root")
+    else:
+        lines = [line for line in (
+            env.prism_central.host,
+            f"version {env.prism_central.version}" if env.prism_central.version else None,
+        ) if line]
+        if not is_pe and env.pc_config.node_count:
+            deploy = "Scale-out" if env.pc_config.is_scale_out else "Single-node"
+            lines.append(f"{deploy} · {env.pc_config.node_count} PC node(s)")
+        root = Node("Prism Element" if is_pe else "Prism Central", lines, style="root")
 
     vm_counts = Counter(v.cluster_name for v in env.vms)
     host_counts = Counter(h.cluster_name for h in env.hosts)

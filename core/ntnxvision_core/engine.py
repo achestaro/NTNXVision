@@ -21,7 +21,12 @@ from ntnxvision_core.collectors.base import Collector
 from ntnxvision_core.collectors.element import collect_element
 from ntnxvision_core.collectors.ndb import collect_ndb
 from ntnxvision_core.compat import check_aos, check_prism_central
-from ntnxvision_core.models import Environment, PrismCentral
+from ntnxvision_core.models import (
+    Environment,
+    PrismCentral,
+    SourcedObject,
+    SourceEnvironment,
+)
 
 # progress(step_index, total_steps, collector_label, status)
 ProgressFn = Callable[[int, int, str, str], None]
@@ -109,9 +114,19 @@ def combine_environments(envs: list[Environment]) -> Environment:
 
     Every source's objects are concatenated as-is — Nutanix UUIDs are globally unique,
     so no cross-source collisions are expected; nothing is re-resolved or deduplicated.
+    Object *names* are not unique across PCs though (two estates both running a
+    "Cluster01" is routine), so each merged object is stamped with its source PC in
+    `source_pc` and the exporters render that as a column — without it two identical-
+    looking rows would be indistinguishable in a report.
+
     Only the roll-up summary counters are actually merged (summed), and each source's
     `collection_notes` are namespaced by its PC host so two PCs reporting the same
     collector differently don't overwrite each other.
+
+    The combined `pc_config` is deliberately left empty: a combined run has no single
+    management plane, and copying the first PC's sizing into it would make the reports
+    state one PC's node count as the whole estate's. Per-PC version, sizing and counts
+    are preserved in `source_environments` instead.
     """
     if not envs:
         raise ValueError("combine_environments requires at least one Environment")
@@ -130,7 +145,13 @@ def combine_environments(envs: list[Environment]) -> Environment:
     for field_name in list_fields:
         merged: list[Any] = []
         for env in envs:
-            merged.extend(getattr(env, field_name))
+            label = env.prism_central.host or "unknown"
+            for item in getattr(env, field_name):
+                # Tag top-level objects with the PC they came from. Plain values
+                # (e.g. warnings, a list[str]) merge without attribution.
+                if isinstance(item, SourcedObject) and item.source_pc is None:
+                    item.source_pc = label
+                merged.append(item)
         setattr(combined, field_name, merged)
 
     for summary_name in ("data_protection", "flow", "alerts_summary"):
@@ -145,8 +166,14 @@ def combine_environments(envs: list[Environment]) -> Environment:
         for key, status in env.collection_notes.items():
             combined.collection_notes[f"{label}: {key}"] = status
 
-    combined.source_environments = [env.prism_central for env in envs]
-    combined.pc_config = envs[0].pc_config  # informational only; not meaningful combined
+    combined.source_environments = [
+        SourceEnvironment(
+            prism_central=env.prism_central,
+            pc_config=env.pc_config,
+            summary=env.summary(),
+        )
+        for env in envs
+    ]
     return combined
 
 

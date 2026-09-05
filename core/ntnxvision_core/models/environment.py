@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 def coerce_bool(value: Any) -> bool | None:
@@ -67,6 +67,18 @@ def _is_bool_annotation(anno: Any) -> bool:
     return bool(args) and bool in args and all(a in (bool, type(None)) for a in args)
 
 
+class SourcedObject(_Base):
+    """A top-level inventory object that can be attributed to the PC it came from.
+
+    Only populated in a combined multi-Prism-Central Environment: `combine_environments`
+    stamps every merged object with its source PC host so exports can attribute each row.
+    Stays None for an ordinary single-PC (or Prism Element) run, where the source is the
+    environment itself.
+    """
+
+    source_pc: str | None = None
+
+
 # ─── Compute: NICs & disks ─────────────────────────────────────────────
 
 
@@ -95,7 +107,7 @@ class VirtualDisk(_Base):
 # ─── VMs ───────────────────────────────────────────────────────────────
 
 
-class VirtualMachine(_Base):
+class VirtualMachine(SourcedObject):
     uuid: str
     name: str
     cluster_name: str | None = None
@@ -159,7 +171,7 @@ class VirtualMachine(_Base):
 # ─── Hosts / nodes ─────────────────────────────────────────────────────
 
 
-class Host(_Base):
+class Host(SourcedObject):
     uuid: str
     name: str | None = None
     cluster_uuid: str | None = None
@@ -189,7 +201,7 @@ class Host(_Base):
 # ─── Storage ───────────────────────────────────────────────────────────
 
 
-class StorageContainer(_Base):
+class StorageContainer(SourcedObject):
     uuid: str
     name: str | None = None
     cluster_uuid: str | None = None
@@ -209,7 +221,7 @@ class StorageContainer(_Base):
 # ─── Networking (Phase 1: subnets) ─────────────────────────────────────
 
 
-class Subnet(_Base):
+class Subnet(SourcedObject):
     uuid: str
     name: str | None = None
     cluster_uuid: str | None = None
@@ -227,7 +239,7 @@ class Subnet(_Base):
 # ─── Clusters ──────────────────────────────────────────────────────────
 
 
-class Cluster(_Base):
+class Cluster(SourcedObject):
     uuid: str
     name: str | None = None
     aos_version: str | None = None
@@ -247,7 +259,7 @@ class Cluster(_Base):
 # ─── Licensing summary ─────────────────────────────────────────────────
 
 
-class LicenseInfo(_Base):
+class LicenseInfo(SourcedObject):
     cluster_uuid: str | None = None
     cluster_name: str | None = None
     product: str | None = None  # NCI / NCM / NUS / NDB …
@@ -261,7 +273,7 @@ class LicenseInfo(_Base):
 # ─── Prism Central inventory objects: Templates / Images / OVAs ────────
 
 
-class Template(_Base):
+class Template(SourcedObject):
     uuid: str
     name: str | None = None
     description: str | None = None
@@ -274,7 +286,7 @@ class Template(_Base):
     api_source: str = "v4"
 
 
-class Image(_Base):
+class Image(SourcedObject):
     uuid: str
     name: str | None = None
     image_type: str | None = None  # DISK_IMAGE / ISO_IMAGE
@@ -288,7 +300,7 @@ class Image(_Base):
     api_source: str = "v3"
 
 
-class Ova(_Base):
+class Ova(SourcedObject):
     uuid: str
     name: str | None = None
     size_bytes: int | None = None
@@ -316,7 +328,7 @@ class PrismCentralConfig(_Base):
 # ─── Data Protection / DR ──────────────────────────────────────────────
 
 
-class ProtectionPolicy(_Base):
+class ProtectionPolicy(SourcedObject):
     uuid: str
     name: str | None = None
     rpo_seconds: int | None = None
@@ -329,7 +341,7 @@ class ProtectionPolicy(_Base):
     api_source: str = "v3"
 
 
-class RecoveryPlan(_Base):
+class RecoveryPlan(SourcedObject):
     uuid: str
     name: str | None = None
     stage_count: int | None = None
@@ -341,7 +353,7 @@ class RecoveryPlan(_Base):
     api_source: str = "v3"
 
 
-class AvailabilityZone(_Base):
+class AvailabilityZone(SourcedObject):
     uuid: str | None = None
     name: str | None = None
     az_type: str | None = None  # PHYSICAL / XI
@@ -354,7 +366,7 @@ class AvailabilityZone(_Base):
 # ─── Health / Alerts ────────────────────────────────────────────────────
 
 
-class Alert(_Base):
+class Alert(SourcedObject):
     uuid: str | None = None
     title: str | None = None
     message: str | None = None
@@ -371,7 +383,7 @@ class Alert(_Base):
     api_source: str = "v3"
 
 
-class RemoteSite(_Base):
+class RemoteSite(SourcedObject):
     uuid: str | None = None
     name: str | None = None
     cluster_name: str | None = None
@@ -383,7 +395,7 @@ class RemoteSite(_Base):
 # ─── Flow Network Security ─────────────────────────────────────────────
 
 
-class SecurityPolicy(_Base):
+class SecurityPolicy(SourcedObject):
     uuid: str
     name: str | None = None
     policy_type: str | None = None  # APPLICATION / ISOLATION / QUARANTINE
@@ -395,14 +407,14 @@ class SecurityPolicy(_Base):
     api_source: str = "v3"
 
 
-class Category(_Base):
+class Category(SourcedObject):
     name: str
     value: str | None = None
     description: str | None = None
     api_source: str = "v3"
 
 
-class ServiceGroup(_Base):
+class ServiceGroup(SourcedObject):
     uuid: str
     name: str | None = None
     is_system: bool | None = None
@@ -412,7 +424,7 @@ class ServiceGroup(_Base):
     api_source: str = "v3"
 
 
-class AddressGroup(_Base):
+class AddressGroup(SourcedObject):
     uuid: str
     name: str | None = None
     is_system: bool | None = None
@@ -423,7 +435,7 @@ class AddressGroup(_Base):
 # ─── Flow Virtual Networking ───────────────────────────────────────────
 
 
-class Vpc(_Base):
+class Vpc(SourcedObject):
     uuid: str
     name: str | None = None
     external_subnets: list[str] = Field(default_factory=list)
@@ -436,7 +448,7 @@ class Vpc(_Base):
     api_source: str = "v4"
 
 
-class FloatingIp(_Base):
+class FloatingIp(SourcedObject):
     uuid: str | None = None
     floating_ip: str | None = None
     vpc_name: str | None = None
@@ -448,7 +460,7 @@ class FloatingIp(_Base):
 # ─── Nutanix Unified Storage: Files / Objects / Volumes ────────────────
 
 
-class FileServer(_Base):
+class FileServer(SourcedObject):
     uuid: str
     name: str | None = None
     cluster_name: str | None = None
@@ -462,7 +474,7 @@ class FileServer(_Base):
     api_source: str = "v3"
 
 
-class FileShare(_Base):
+class FileShare(SourcedObject):
     uuid: str
     name: str | None = None
     file_server_name: str | None = None
@@ -473,7 +485,7 @@ class FileShare(_Base):
     api_source: str = "v3"
 
 
-class ObjectStore(_Base):
+class ObjectStore(SourcedObject):
     uuid: str
     name: str | None = None
     cluster_name: str | None = None
@@ -486,7 +498,7 @@ class ObjectStore(_Base):
     api_source: str = "v3"
 
 
-class Bucket(_Base):
+class Bucket(SourcedObject):
     name: str
     object_store_name: str | None = None
     versioning: bool | None = None
@@ -496,7 +508,7 @@ class Bucket(_Base):
     api_source: str = "v3"
 
 
-class VolumeGroup(_Base):
+class VolumeGroup(SourcedObject):
     uuid: str
     name: str | None = None
     cluster_name: str | None = None
@@ -512,7 +524,7 @@ class VolumeGroup(_Base):
 # ─── NDB — Nutanix Database Service ────────────────────────────────────
 
 
-class DatabaseServer(_Base):
+class DatabaseServer(SourcedObject):
     id: str
     name: str | None = None
     db_engine: str | None = None
@@ -524,7 +536,7 @@ class DatabaseServer(_Base):
     api_source: str = "ndb"
 
 
-class Database(_Base):
+class Database(SourcedObject):
     id: str
     name: str | None = None
     db_engine: str | None = None  # oracle / postgres / sqlserver / mysql / mongodb
@@ -538,7 +550,7 @@ class Database(_Base):
     api_source: str = "ndb"
 
 
-class TimeMachine(_Base):
+class TimeMachine(SourcedObject):
     id: str
     name: str | None = None
     database_name: str | None = None
@@ -552,7 +564,7 @@ class TimeMachine(_Base):
 # ─── IAM ───────────────────────────────────────────────────────────────
 
 
-class User(_Base):
+class User(SourcedObject):
     uuid: str | None = None
     username: str | None = None
     display_name: str | None = None
@@ -562,7 +574,7 @@ class User(_Base):
     api_source: str = "v3"
 
 
-class Role(_Base):
+class Role(SourcedObject):
     uuid: str | None = None
     name: str | None = None
     description: str | None = None
@@ -571,7 +583,7 @@ class Role(_Base):
     api_source: str = "v3"
 
 
-class Project(_Base):
+class Project(SourcedObject):
     uuid: str | None = None
     name: str | None = None
     description: str | None = None
@@ -583,7 +595,7 @@ class Project(_Base):
 # ─── X-Play (Playbooks) ────────────────────────────────────────────────
 
 
-class Playbook(_Base):
+class Playbook(SourcedObject):
     uuid: str
     name: str | None = None
     description: str | None = None
@@ -597,7 +609,7 @@ class Playbook(_Base):
 # ─── NCM Reports ───────────────────────────────────────────────────────
 
 
-class NcmReport(_Base):
+class NcmReport(SourcedObject):
     uuid: str | None = None
     name: str | None = None
     report_type: str | None = None
@@ -645,6 +657,32 @@ class PrismCentral(_Base):
     version_supported: bool = True  # within the tested compatibility window
 
 
+class SourceEnvironment(_Base):
+    """One Prism Central that contributed to a combined Environment.
+
+    A combined run has no single management plane, so the per-PC version, sizing and
+    object counts are kept here rather than being flattened into the combined
+    `Environment.pc_config` — presenting one PC's sizing as the whole estate's would be
+    wrong. Exporters render these as the "Source Prism Centrals" table.
+    """
+
+    prism_central: PrismCentral = Field(default_factory=PrismCentral)
+    pc_config: PrismCentralConfig = Field(default_factory=lambda: PrismCentralConfig())
+    #: This source's own Environment.summary() counts, taken before the merge.
+    summary: dict[str, int] = Field(default_factory=dict)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _accept_legacy_shape(cls, data: Any) -> Any:
+        """Load snapshots written when `source_environments` was a bare list of
+        PrismCentral. Without this the flat keys are simply ignored and every source
+        reads back as "unknown" — a silent downgrade rather than a visible error.
+        """
+        if isinstance(data, dict) and "prism_central" not in data and "host" in data:
+            return {"prism_central": data}
+        return data
+
+
 class Environment(_Base):
     """A full collection run — the unit persisted and exported."""
 
@@ -654,8 +692,9 @@ class Environment(_Base):
     source_type: str = "prism_central"
     prism_central: PrismCentral = Field(default_factory=PrismCentral)
     #: Populated only on a combined Environment (see engine.combine_environments) — one
-    #: entry per Prism Central that contributed to it. Empty for a normal single-PC run.
-    source_environments: list[PrismCentral] = Field(default_factory=list)
+    #: entry per Prism Central that contributed to it. Empty for a normal single-PC run;
+    #: a non-empty list is what marks an Environment as combined (`is_combined`).
+    source_environments: list[SourceEnvironment] = Field(default_factory=list)
 
     #: Non-fatal compatibility / collection warnings surfaced to the user.
     warnings: list[str] = Field(default_factory=list)
@@ -718,6 +757,15 @@ class Environment(_Base):
 
     # Collection diagnostics: {collector_name: "ok" | "skipped: reason" | "error: ..."}
     collection_notes: dict[str, str] = Field(default_factory=dict)
+
+    @property
+    def is_combined(self) -> bool:
+        """True for an Environment merged from several Prism Centrals.
+
+        Exporters branch on this: a combined run has no single management plane, so the
+        per-PC sizing lives in `source_environments` and each object carries `source_pc`.
+        """
+        return bool(self.source_environments)
 
     def summary(self) -> dict[str, int]:
         return {
