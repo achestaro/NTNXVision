@@ -1,16 +1,64 @@
-"""Virtual machine collector (v3 `vms/list`).
+"""Virtual machine collector (v4 `vmm` when served, else v3 `vms/list`).
 
-VMs are the richest object type — the core of any RVTools-style inventory. We request
-the full spec+status per VM (v3 list returns both) and map disks, NICs, categories,
-GPU, and protection state.
+VMs are the richest object type — the core of any RVTools-style inventory.
+
+**The v4 path is a hybrid, and deliberately so.** Neither API is sufficient alone:
+
+* *Coverage* is v4's. There is no hypervisor-agnostic v4 VM endpoint, only
+  `vmm/v4.0/ahv/config/vms` and `.../esxi/config/vms`, so both are read and unioned.
+  That matters: on the lab PC v3's `vms/list` returns **one** VM for the ESXi cluster
+  while the v4 ESXi endpoint returns around sixty. v3 only sees ESXi VMs that exist as
+  Prism Central VM intents.
+* *Detail* is v3's. The v4 VM payload — list **and** detail, they carry identical keys —
+  has no `categories`, `guestOs`, `description` or `gpus`. Those are read from v3 and
+  merged by UUID where v3 knows the VM. A VM only v4 can see is still reported, just
+  without those fields: present and thinner beats absent.
+
+The hypervisor is recovered from which endpoint answered, since v4 does not carry it.
+
+The ESXi endpoint also 500s on individual unserializable records (two of ~60 on the lab
+PC), which fails any page containing them — hence `v4_list_tolerant`, which salvages the
+rest of the page and reports what it had to skip.
 """
 
 from __future__ import annotations
 
 from typing import Any
 
+from ntnxvision_core.api.errors import NutanixApiError
 from ntnxvision_core.collectors.base import Collector
+from ntnxvision_core.collectors.normalize import AHV, ESXI
 from ntnxvision_core.models import Nic, VirtualDisk, VirtualMachine
+
+#: v4 VM endpoints, and the hypervisor each one implies.
+V4_VM_ENDPOINTS = (
+    ("vmm/v4.0/ahv/config/vms", AHV),
+    ("vmm/v4.0/esxi/config/vms", ESXI),
+)
+
+
+class _V3Detail:
+    """v3-only VM fields, looked up from a v4 VM.
+
+    Matching is by uuid, which works for AHV: both APIs report the same one. **ESXi VMs
+    do not share a uuid** — v3 reports the Prism Central VM intent's uuid while the v4
+    ESXi endpoint reports the VM's own identifier — so those fall back to matching on
+    name, and only when that name is unique across the whole v3 result. An ambiguous
+    name yields nothing rather than a guess: a wrong guest OS or protection status
+    attributed to the wrong VM is worse than an empty cell.
+    """
+
+    def __init__(
+        self, by_uuid: dict[str, dict[str, Any]], by_name: dict[str, list[dict[str, Any]]]
+    ) -> None:
+        self.by_uuid = by_uuid
+        self.unique_by_name = {n: rows[0] for n, rows in by_name.items() if len(rows) == 1}
+
+    def for_vm(self, uuid: str, name: str) -> dict[str, Any]:
+        found = self.by_uuid.get(uuid)
+        if found is not None:
+            return found
+        return self.unique_by_name.get(name, {})
 
 
 class VmCollector(Collector):
@@ -18,6 +66,122 @@ class VmCollector(Collector):
     label = "Virtual Machines"
 
     def collect(self, env: Any) -> None:
+        if self.conn.v4_ready("vms"):
+            note = self._collect_v4(env)
+        else:
+            self._collect_v3(env)
+            note = "ok"
+        self._collect_cvms(env)
+        env.collection_notes[self.name] = note
+
+    # ─── v4 ────────────────────────────────────────────────────────
+
+    def _collect_v4(self, env: Any) -> str:
+        detail = self._v3_detail()
+        skipped_total = 0
+        for path, hypervisor in V4_VM_ENDPOINTS:
+            try:
+                entities, skipped = self.conn.v4_list_tolerant(path)
+            except NutanixApiError:
+                # One hypervisor's endpoint being absent is normal — a cluster of the
+                # other type simply has none.
+                continue
+            skipped_total += skipped
+            for entity in entities:
+                self._add_v4_vm(env, entity, hypervisor, detail)
+        if skipped_total:
+            return (
+                f"ok: {skipped_total} VM(s) skipped — the v4 endpoint returned an "
+                "internal error for those individual records"
+            )
+        return "ok"
+
+    def _add_v4_vm(
+        self,
+        env: Any,
+        entity: dict[str, Any],
+        hypervisor: str,
+        detail: _V3Detail,
+    ) -> None:
+        uuid = entity.get("extId") or ""
+        name = entity.get("name") or ""
+        extra = detail.for_vm(uuid, name)
+        categories = extra.get("categories") or {}
+
+        vm = VirtualMachine(
+            uuid=uuid,
+            name=name,
+            cluster_uuid=(entity.get("cluster") or {}).get("extId"),
+            host_uuid=(entity.get("host") or {}).get("extId"),
+            power_state=entity.get("powerState"),
+            # The two schemas disagree: AHV reports numSockets, ESXi numCpus.
+            num_vcpus=entity.get("numSockets") or entity.get("numCpus"),
+            num_cores_per_vcpu=entity.get("numCoresPerSocket"),
+            memory_bytes=entity.get("memorySizeBytes"),
+            hypervisor=hypervisor,
+            is_agent_vm=entity.get("isAgentVm", False),
+            protection_type=entity.get("protectionType") or extra.get("protection_type"),
+            boot_type=_v4_boot_type(entity.get("bootConfig")) or extra.get("boot_type"),
+            creation_time=entity.get("createTime"),
+            # Only v3 carries these; blank for a VM v3 cannot see.
+            description=extra.get("description"),
+            # ESXi VMs carry their own guest OS in v4; AHV ones only in v3.
+            guest_os=entity.get("guestOsName") or extra.get("guest_os"),
+            gpus=extra.get("gpus") or [],
+            categories=categories,
+            vm_type=_classify_vm(name, {}, {"categories": categories}),
+            api_source="v4",
+        )
+        vm.disks = _v4_disks(entity)
+        vm.nics = _v4_nics(entity)
+        if vm.vm_type == "USER":
+            env.vms.append(vm)
+        else:
+            env.system_vms.append(vm)
+
+    def _v3_detail(self) -> _V3Detail:
+        """The fields v4 does not carry, indexed for lookup from a v4 VM.
+
+        Best-effort: after the legacy sunset this returns empty and those columns go
+        blank, but the v4 inventory itself is unaffected.
+        """
+        try:
+            entities = self.conn.v3_list("vms")
+        except NutanixApiError:
+            return _V3Detail({}, {})
+        out: dict[str, dict[str, Any]] = {}
+        names: dict[str, list[dict[str, Any]]] = {}
+        for entity in entities:
+            metadata = entity.get("metadata", {})
+            uuid = metadata.get("uuid")
+            if not uuid:
+                continue
+            status = entity.get("status", {})
+            resources = status.get("resources", {})
+            out[uuid] = {
+                "description": status.get("description"),
+                "guest_os": _guest_os(resources),
+                # ESXi VMs carry no bootConfig and no protectionType in v4, but v3 has
+                # both for the ones it can see.
+                "boot_type": _nested(resources, "boot_config", "boot_type"),
+                "protection_type": _protection_type(resources),
+                "categories": metadata.get("categories_mapping")
+                or metadata.get("categories")
+                or {},
+                "gpus": [
+                    g.get("vendor", "") + " " + g.get("mode", "")
+                    for g in resources.get("gpu_list", []) or []
+                    if isinstance(g, dict)
+                ],
+            }
+            vm_name = status.get("name")
+            if vm_name:
+                names.setdefault(vm_name, []).append(out[uuid])
+        return _V3Detail(out, names)
+
+    # ─── v3 ────────────────────────────────────────────────────────
+
+    def _collect_v3(self, env: Any) -> None:
         for entity in self.conn.v3_list("vms"):
             metadata = entity.get("metadata", {})
             status = entity.get("status", {})
@@ -61,8 +225,6 @@ class VmCollector(Collector):
                 env.vms.append(vm)
             else:
                 env.system_vms.append(vm)
-        self._collect_cvms(env)
-        env.collection_notes[self.name] = "ok"
 
     def _collect_cvms(self, env: Any) -> None:
         """Collect Controller VMs via the groups API.
@@ -105,7 +267,105 @@ class VmCollector(Collector):
             )
 
 
-# ─── mappers ───────────────────────────────────────────────────────────
+# ─── v4 mappers ────────────────────────────────────────────────────────
+
+
+def _v4_disks(entity: dict[str, Any]) -> list[VirtualDisk]:
+    """Disks from a v4 VM.
+
+    v4 references the storage container by extId only; the name is filled in by the
+    engine's cross-reference pass from the collected containers.
+    """
+    out: list[VirtualDisk] = []
+    for disk in entity.get("disks") or []:
+        backing = disk.get("backingInfo") or {}
+        address = disk.get("diskAddress") or {}
+        bus = address.get("busType")
+        index = address.get("index")
+        source = ((backing.get("dataSource") or {}).get("reference") or {})
+        out.append(
+            VirtualDisk(
+                uuid=disk.get("extId"),
+                label=f"{bus or ''}.{index if index is not None else ''}".strip("."),
+                disk_size_bytes=backing.get("diskSizeBytes"),
+                storage_container_uuid=(backing.get("storageContainer") or {}).get("extId"),
+                bus_type=bus,
+                is_cdrom=False,
+                source_image=source.get("imageExtId"),
+            )
+        )
+    for cdrom in entity.get("cdRoms") or []:
+        address = cdrom.get("diskAddress") or {}
+        out.append(
+            VirtualDisk(
+                uuid=cdrom.get("extId"),
+                label=f"{address.get('busType') or ''}."
+                f"{address.get('index') if address.get('index') is not None else ''}".strip("."),
+                bus_type=address.get("busType"),
+                is_cdrom=True,
+            )
+        )
+    return out
+
+
+def _v4_boot_type(boot_config: Any) -> str | None:
+    """Boot type in v3's vocabulary (LEGACY / UEFI / SECURE_BOOT).
+
+    v4 has no `bootType` field: the kind is the payload's own discriminator —
+    `vmm.v4.ahv.config.LegacyBoot` vs `UefiBoot` — and secure boot is a flag on the
+    UEFI variant. ESXi VMs carry no bootConfig at all.
+    """
+    if not isinstance(boot_config, dict):
+        return None
+    kind = str(boot_config.get("$objectType") or "")
+    if kind.endswith("LegacyBoot"):
+        return "LEGACY"
+    if kind.endswith("UefiBoot"):
+        return "SECURE_BOOT" if boot_config.get("isSecureBootEnabled") else "UEFI"
+    return None
+
+
+def _v4_nics(entity: dict[str, Any]) -> list[Nic]:
+    """NICs from a v4 VM, across two genuinely different schemas.
+
+    AHV NICs reference a subnet by extId and carry `ipv4Config`; ESXi NICs name a
+    vSwitch port group instead and expose an `ipAddressInfo` that is empty while the VM
+    is powered off. Both spell the backing/network sections with and without the `nic`
+    prefix, so both are consulted. Subnet name and VLAN for AHV come from the engine's
+    cross-reference pass, as on the v3 path.
+    """
+    out: list[Nic] = []
+    for nic in entity.get("nics") or []:
+        backing = nic.get("nicBackingInfo") or nic.get("backingInfo") or {}
+        network = nic.get("nicNetworkInfo") or nic.get("networkInfo") or {}
+        ipv4 = (network.get("ipv4Config") or {}).get("ipAddress") or {}
+        ips = [ipv4["value"]] if isinstance(ipv4.get("value"), str) else []
+        for extra in (network.get("ipv4Info") or {}).get("learnedIpAddresses") or []:
+            value = extra.get("value") if isinstance(extra, dict) else None
+            if isinstance(value, str) and value not in ips:
+                ips.append(value)
+        for extra in (network.get("ipAddressInfo") or {}).get("ipAddress") or []:
+            value = extra.get("value") if isinstance(extra, dict) else None
+            if isinstance(value, str) and value not in ips:
+                ips.append(value)
+        port_group = (network.get("portGroupInfo") or {}).get("name")
+        out.append(
+            Nic(
+                uuid=nic.get("extId"),
+                mac_address=backing.get("macAddress"),
+                # ESXi has no subnet entity — the port group is the network's name.
+                subnet_name=port_group,
+                subnet_uuid=(network.get("subnet") or {}).get("extId"),
+                ip_addresses=ips,
+                is_connected=backing.get("isConnected"),
+                vlan_id=None,
+                nic_type=network.get("nicType") or backing.get("adapterType"),
+            )
+        )
+    return out
+
+
+# ─── v3 mappers ────────────────────────────────────────────────────────
 
 
 def _disks(resources: dict[str, Any]) -> list[VirtualDisk]:

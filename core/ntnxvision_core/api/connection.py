@@ -204,6 +204,73 @@ class PrismConnection:
                 break
         return results
 
+    def v4_list_tolerant(
+        self, path: str, page_size: int = 100
+    ) -> tuple[list[dict[str, Any]], int]:
+        """Fetch all pages, isolating and skipping records the server cannot serialize.
+
+        Returns `(items, skipped_count)`.
+
+        Some v4 collections contain individual entities that make the endpoint answer
+        HTTP 500 — on the lab PC exactly two of ~60 ESXi VMs do, which fails any page
+        that includes them and so aborts the whole list. Losing sixty VMs to two bad
+        rows is the wrong trade, so a failed page is retried one record at a time: the
+        readable entities are kept and only the genuinely broken ones are skipped. The
+        caller is expected to report the count rather than hide it.
+
+        The slow per-record path runs only for pages that actually fail, so a healthy
+        collection costs exactly the same as `v4_list`.
+        """
+        results: list[dict[str, Any]] = []
+        skipped = 0
+        page = 0
+        while True:
+            try:
+                payload = self.v4_get(path, params={"$page": page, "$limit": page_size})
+            except NutanixApiError:
+                good, bad, reached_end = self._salvage_page(path, page, page_size)
+                results.extend(good)
+                skipped += bad
+                if reached_end:
+                    break
+                page += 1
+                continue
+            data = payload.get("data") or []
+            results.extend(data)
+            meta = payload.get("metadata") or {}
+            total = meta.get("totalAvailableResults")
+            page += 1
+            if not data or (total is not None and len(results) + skipped >= total):
+                break
+        return results, skipped
+
+    def _salvage_page(
+        self, path: str, page: int, page_size: int
+    ) -> tuple[list[dict[str, Any]], int, bool]:
+        """Re-read one failed page record by record.
+
+        Returns `(readable, skipped, reached_end)`. An empty answer means the offset is
+        past the end of the collection rather than broken, which is how the walk stops
+        when the final page is also the failing one.
+        """
+        good: list[dict[str, Any]] = []
+        skipped = 0
+        empties = 0
+        base = page * page_size
+        for offset in range(base, base + page_size):
+            try:
+                payload = self.v4_get(path, params={"$page": offset, "$limit": 1})
+            except NutanixApiError:
+                skipped += 1
+                continue
+            data = payload.get("data") or []
+            if not data:
+                empties += 1
+                continue
+            good.extend(data)
+        # Every remaining slot was empty: the collection ended inside this page.
+        return good, skipped, empties > 0
+
     # ─── v4 capability negotiation ─────────────────────────────────
 
     def v4_ready(self, area: str) -> bool:
