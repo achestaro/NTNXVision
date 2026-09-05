@@ -18,6 +18,8 @@ from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.utils import get_column_letter
 from openpyxl.worksheet.worksheet import Worksheet
 
+from ntnxvision_core.exporters.sourcing import source_hosts as _source_hosts
+from ntnxvision_core.exporters.sourcing import sources as _sources
 from ntnxvision_core.models import Environment
 
 _HEADER_FILL = PatternFill("solid", fgColor="1F4E78")
@@ -69,9 +71,20 @@ class ExcelExporter:
         ws.title = "Overview"
         ws["A1"] = "NTNXVision — Environment Inventory"
         ws["A1"].font = _TITLE_FONT
+        # A combined run has no single management plane: name every contributing PC
+        # rather than reporting a synthetic host with an "unknown" version.
+        if env.is_combined:
+            pc_rows: list[tuple[str, Any]] = [
+                ("Prism Centrals", f"{len(env.source_environments)} (combined)"),
+                ("Sources", ", ".join(_source_hosts(env))),
+            ]
+        else:
+            pc_rows = [
+                ("Prism Central", env.prism_central.host or ""),
+                ("PC Version", env.prism_central.version or "unknown"),
+            ]
         rows: list[tuple[str, Any]] = [
-            ("Prism Central", env.prism_central.host or ""),
-            ("PC Version", env.prism_central.version or "unknown"),
+            *pc_rows,
             ("Collected At (UTC)", env.collected_at or ""),
             ("Tool Version", env.tool_version),
             ("", ""),
@@ -97,7 +110,7 @@ class ExcelExporter:
             ]
             for c in env.clusters
         ]
-        self._table(wb, "Clusters", headers, rows)
+        self._table(wb, "Clusters", headers, rows, _sources(env, env.clusters))
 
     def _hosts_sheet(self, wb: Workbook, env: Environment) -> None:
         headers = [
@@ -114,15 +127,17 @@ class ExcelExporter:
             ]
             for h in env.hosts
         ]
-        self._table(wb, "Hosts", headers, rows)
+        self._table(wb, "Hosts", headers, rows, _sources(env, env.hosts))
 
     def _vms_sheet(self, wb: Workbook, env: Environment) -> None:
-        self._vm_table(wb, "VMs", env.vms)
+        self._vm_table(wb, "VMs", env.vms, sources=_sources(env, env.vms))
 
     def _system_vms_sheet(self, wb: Workbook, env: Environment) -> None:
-        self._vm_table(wb, "System VMs", env.system_vms, include_type=True)
+        self._vm_table(wb, "System VMs", env.system_vms, include_type=True,
+                       sources=_sources(env, env.system_vms))
 
-    def _vm_table(self, wb: Workbook, title: str, vms: list, include_type: bool = False) -> None:
+    def _vm_table(self, wb: Workbook, title: str, vms: list, include_type: bool = False,
+                  sources: list[str] | None = None) -> None:
         headers = ["Name", "Power", "Cluster", "Host"]
         if include_type:
             headers.insert(1, "Type")
@@ -143,9 +158,12 @@ class ExcelExporter:
                     v.guest_os, ", ".join(v.gpus), v.categories_display, v.uuid, v.api_source,
                 ]
             )
-        self._table(wb, title, headers, rows)
+        self._table(wb, title, headers, rows, sources)
 
     def _pc_config_sheet(self, wb: Workbook, env: Environment) -> None:
+        if env.is_combined:
+            self._source_pcs_sheet(wb, env)
+            return
         cfg = env.pc_config
         headers = ["Property", "Value"]
         rows: list[list[Any]] = [
@@ -161,6 +179,30 @@ class ExcelExporter:
             ["IP Address(es)", ", ".join(cfg.ip_addresses)],
         ]
         self._table(wb, "Prism Central", headers, rows)
+
+    def _source_pcs_sheet(self, wb: Workbook, env: Environment) -> None:
+        """One row per contributing Prism Central — the combined-run replacement for the
+        single-PC property sheet, which would otherwise have to pick one PC's sizing and
+        present it as the whole estate's.
+        """
+        headers = [
+            "Prism Central", "Version", "Deployment", "PC Nodes", "Registered Clusters",
+            "Total vCPU", "Total Memory (GiB)", "NCC Version", "IP Address(es)",
+            "Clusters", "Hosts", "VMs",
+        ]
+        rows: list[list[Any]] = []
+        for s in env.source_environments:
+            cfg, counts = s.pc_config, s.summary
+            rows.append([
+                s.prism_central.host or "unknown",
+                s.prism_central.version or cfg.version,
+                "Scale-out" if cfg.is_scale_out else "Single-node"
+                if cfg.is_scale_out is not None else None,
+                cfg.node_count, cfg.registered_cluster_count, cfg.num_vcpus,
+                _gib(cfg.memory_bytes), cfg.ncc_version, ", ".join(cfg.ip_addresses),
+                counts.get("clusters"), counts.get("hosts"), counts.get("vms"),
+            ])
+        self._table(wb, "Prism Centrals", headers, rows)
 
     def _catalog_sheets(self, wb: Workbook, env: Environment) -> None:
         self._table(
@@ -197,7 +239,7 @@ class ExcelExporter:
             ]
             for s in env.storage_containers
         ]
-        self._table(wb, "Storage", headers, rows)
+        self._table(wb, "Storage", headers, rows, _sources(env, env.storage_containers))
 
     def _subnets_sheet(self, wb: Workbook, env: Environment) -> None:
         headers = [
@@ -212,7 +254,7 @@ class ExcelExporter:
             ]
             for s in env.subnets
         ]
-        self._table(wb, "Subnets", headers, rows)
+        self._table(wb, "Subnets", headers, rows, _sources(env, env.subnets))
 
     # ─── Phase 2: Data Protection / DR ─────────────────────────────
 
@@ -427,9 +469,19 @@ class ExcelExporter:
 
     # ─── table helper ──────────────────────────────────────────────
 
-    def _table(self, wb: Workbook, title: str, headers: list[str], rows: list[list[Any]]) -> None:
+    def _table(
+        self, wb: Workbook, title: str, headers: list[str], rows: list[list[Any]],
+        sources: list[str] | None = None,
+    ) -> None:
+        """Write one sheet. `sources` (combined runs only) prepends a "Prism Central"
+        column naming the PC each row came from — object names are not unique across
+        PCs, so without it two merged rows can be indistinguishable.
+        """
         if not rows:
             return
+        if sources is not None:
+            headers = ["Prism Central", *headers]
+            rows = [[src, *row] for src, row in zip(sources, rows, strict=True)]
         ws: Worksheet = wb.create_sheet(_safe_title(title))
         ws.append(headers)
         for col_idx, _ in enumerate(headers, start=1):

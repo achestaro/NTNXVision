@@ -58,6 +58,10 @@ h1 { font-size: 22px; margin: 0 0 4px; }
 .row { display: flex; gap: 12px; }
 .row .field { flex: 1; }
 .check { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--muted); }
+.target-row {
+  border: 1px solid var(--border); border-radius: 10px; padding: 14px 14px 4px;
+  margin-bottom: 12px; background: #0b1220;
+}
 
 .btn {
   padding: 11px 20px; border: none; border-radius: 8px; font-size: 14px; font-weight: 600;

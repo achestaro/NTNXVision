@@ -7,12 +7,14 @@ import {
   ConnectionProfile,
   IPC,
   InventoryRequest,
+  MultiInventoryRequest,
   ProgressEvent,
 } from '../shared/ipc';
 
 contextBridge.exposeInMainWorld('ntnx', {
   ping: () => ipcRenderer.invoke(IPC.ping),
   inventory: (req: InventoryRequest) => ipcRenderer.invoke(IPC.inventory, req),
+  inventoryMulti: (req: MultiInventoryRequest) => ipcRenderer.invoke(IPC.inventoryMulti, req),
   listSnapshots: () => ipcRenderer.invoke(IPC.listSnapshots),
   exportSnapshot: (path: string, formats: string[], exportDir?: string) =>
     ipcRenderer.invoke(IPC.exportSnapshot, path, formats, exportDir),

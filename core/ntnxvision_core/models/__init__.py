@@ -38,6 +38,8 @@ from ntnxvision_core.models.environment import (
     Role,
     SecurityPolicy,
     ServiceGroup,
+    SourcedObject,
+    SourceEnvironment,
     StorageContainer,
     Subnet,
     Template,
@@ -52,6 +54,9 @@ from ntnxvision_core.models.environment import (
 __all__ = [
     "Environment",
     "PrismCentral",
+    # Multi-Prism-Central (combined) runs
+    "SourceEnvironment",
+    "SourcedObject",
     # Phase 1
     "Cluster",
     "Host",

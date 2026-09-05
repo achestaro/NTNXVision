@@ -79,7 +79,12 @@ the typed channels in `app/src/shared/ipc.ts`, which the main process relays to 
   cross-references → return `Environment`. Two entry points: `collect_environment` (Prism
   Central mode, all collectors + optional NDB step) and `collect_element_environment` (direct
   Prism Element mode, infrastructure-only — DR/Flow/Files/NDB/IAM are PC-scoped and unavailable
-  in this mode).
+  in this mode). `combine_environments` merges several PCs' runs into one combined
+  `Environment` (multi-PC mode, driven by the sidecar's `inventory_multi`): list fields are
+  concatenated, each object stamped with its source PC in `source_pc`, and per-PC identity /
+  sizing / counts kept in `source_environments`. A combined env has **no** `pc_config` — there
+  is no single management plane — so exporters must branch on `env.is_combined` rather than
+  render one PC's sizing as the estate's, and should attribute rows via `exporters/sourcing.py`.
 - `store/snapshot.py` — persists a collected `Environment` to disk so exports/re-exports work
   fully offline without re-collecting.
 - `exporters/` — `excel.py`, `pdf.py`, `word.py` share a pipeline: `Environment` (snapshot) →

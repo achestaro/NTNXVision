@@ -16,6 +16,8 @@ from fpdf.outline import OutlineSection
 
 from ntnxvision_core.exporters import diagrams
 from ntnxvision_core.exporters.diagrams import Diagram
+from ntnxvision_core.exporters.sourcing import source_hosts as _source_hosts
+from ntnxvision_core.exporters.sourcing import sources as _sources
 from ntnxvision_core.models import Environment
 
 GIB = 1024**3
@@ -118,9 +120,15 @@ class PdfExporter:
         pdf.set_font("Helvetica", "", 11)
         pdf.set_text_color(*_INK)
         c = env.summary()
-        line = (
+        managed_by = (
+            f"This environment spans {len(env.source_environments)} Prism Centrals "
+            f"({', '.join(_source_hosts(env))}) and comprises "
+            if env.is_combined else
             f"This environment is managed by Prism Central {env.prism_central.host or ''} "
             f"(version {env.prism_central.version or 'unknown'}) and comprises "
+        )
+        line = (
+            f"{managed_by}"
             f"{c['clusters']} cluster(s), {c['hosts']} host(s), and {c['vms']} user virtual "
             f"machine(s) ({c['system_vms']} Nutanix system VM(s)). It includes "
             f"{c['protection_policies']} protection policy(ies) and {c['recovery_plans']} "
@@ -140,6 +148,9 @@ class PdfExporter:
         ])
 
     def _pc_config(self, pdf: _Report, env: Environment) -> None:
+        if env.is_combined:
+            self._source_pcs(pdf, env)
+            return
         cfg = env.pc_config
         rows = [
             ["Version", cfg.version or "-"],
@@ -156,6 +167,30 @@ class PdfExporter:
         self._h1(pdf, "Prism Central - Management & Sizing")
         self._kv_table(pdf, [(k, v) for k, v in rows])
 
+    def _source_pcs(self, pdf: _Report, env: Environment) -> None:
+        """One row per contributing Prism Central. A combined run has several management
+        planes, so there is no single sizing to report — presenting one PC's would be
+        wrong rather than merely incomplete.
+        """
+        rows = []
+        for s in env.source_environments:
+            cfg, counts = s.pc_config, s.summary
+            rows.append([
+                s.prism_central.host or "unknown",
+                s.prism_central.version or cfg.version or "-",
+                "Scale-out" if cfg.is_scale_out else "Single-node"
+                if cfg.is_scale_out is not None else "-",
+                cfg.node_count or "-",
+                counts.get("clusters", "-"),
+                counts.get("hosts", "-"),
+                counts.get("vms", "-"),
+            ])
+        self._section_table(
+            pdf, "Prism Centrals - Management & Sizing",
+            ["Prism Central", "Version", "Deployment", "PC nodes", "Clusters", "Hosts", "VMs"],
+            rows, [55, 35, 30, 25, 25, 20, 20],
+        )
+
     def _infra_sections(self, pdf: _Report, env: Environment) -> None:
         self._section_table(
             pdf, "Clusters", ["Name", "AOS", "Hyp.", "Nodes", "RF", "Encryption"],
@@ -163,12 +198,14 @@ class PdfExporter:
               c.redundancy_factor, "Yes" if c.encryption_enabled else "No"]
              for c in env.clusters],
             [55, 30, 35, 25, 20, 35],
+            sources=_sources(env, env.clusters),
         )
         self._section_table(
             pdf, "Hosts", ["Name", "Cluster", "Hypervisor", "Cores", "Mem GiB", "VMs"],
             [[h.name, h.cluster_name, h.hypervisor_type, h.num_cpu_cores,
               _gib(h.memory_bytes), h.num_vms] for h in env.hosts],
             [55, 45, 45, 25, 30, 20],
+            sources=_sources(env, env.hosts),
         )
         self._diagram_page(pdf, "Cluster Compute Topology", [
             (f"Cluster {c.name} - node composition and capacity.",
@@ -502,9 +539,20 @@ class PdfExporter:
     def _section_table(
         self, pdf: _Report, title: str, headers: list[str],
         rows: list[list[Any]], widths: list[float], force: bool = False,
+        sources: list[str] | None = None,
     ) -> None:
+        """`sources` (combined multi-PC runs only) prepends a "Prism Central" column;
+        the remaining columns are scaled down to keep the table's overall width, which
+        is tuned to the landscape page.
+        """
         if not rows and not force:
             return
+        if sources is not None:
+            headers = ["Prism Central", *headers]
+            rows = [[src, *row] for src, row in zip(sources, rows, strict=True)]
+            total = sum(widths)
+            pc_width = min(45.0, total * 0.22)
+            widths = [pc_width, *(w * (total - pc_width) / total for w in widths)]
         pdf.add_page()
         self._h1(pdf, title)
         if not rows:
