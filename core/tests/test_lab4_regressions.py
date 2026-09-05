@@ -49,6 +49,10 @@ class _FakeConn:
         self.payload = payload
         self.creds = type("C", (), {"base": "https://pc.example:9440"})()
 
+    def v4_ready(self, area: str) -> bool:
+        """These regressions pin the v1 gateway path; the v4 one is in test_v4_pc_config."""
+        return False
+
     def get_json(self, url: str) -> dict[str, Any]:
         return self.payload
 
