@@ -102,6 +102,12 @@ NAMESPACES: dict[str, V4Namespace] = {
         "monitoring/v4.0/serviceability/alerts",
         "ntnx-monitoring-py-client",
     ),
+    # `opsmgmt` is exclusively Prism Reports, despite the general-sounding name — and it
+    # is a separate microservice behind its own router, so no other area can stand in
+    # for it. (`aiops`, the name the product map suggested, is capacity planning.)
+    "ncm_reports": V4Namespace(
+        "ncm_reports", "opsmgmt/v4.0/config/report-configs", "ntnx-opsmgmt-py-client"
+    ),
 }
 
 
