@@ -13,6 +13,10 @@ class _FakeConn:
     def __init__(self, entities: list[dict[str, Any]]) -> None:
         self._entities = entities
 
+    def v4_ready(self, area: str) -> bool:
+        """These exercise the legacy path; the v4 one lives in test_v4_monitoring."""
+        return False
+
     def v3_list(self, kind: str) -> list[dict[str, Any]]:
         assert kind == "alerts"
         return self._entities
