@@ -308,7 +308,7 @@ export function ConnectView(): JSX.Element {
   );
 }
 
-function ResultCard({ result }: { result: InventoryResult }): JSX.Element {
+export function ResultCard({ result }: { result: InventoryResult }): JSX.Element {
   const s = result.summary;
   const infraStats: [string, number][] = [
     ['Clusters', s.clusters],
@@ -368,14 +368,14 @@ function ResultCard({ result }: { result: InventoryResult }): JSX.Element {
   );
 }
 
-function statusClass(status: string): string {
+export function statusClass(status: string): string {
   if (status.startsWith('error')) return 'status err';
   if (status.startsWith('skipped')) return 'status skip';
   if (status === 'running') return 'status';
   return 'status ok';
 }
 
-function prettyStatus(status: string): string {
+export function prettyStatus(status: string): string {
   if (status === 'ok') return 'OK';
   if (status === 'running') return 'Running…';
   if (status.startsWith('skipped:')) return `Skipped: ${status.slice(8).trim()}`;

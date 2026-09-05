@@ -5,7 +5,13 @@
 
 import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron';
 import { join } from 'node:path';
-import { AppSettings, ConnectionProfile, IPC, InventoryRequest } from '../shared/ipc';
+import {
+  AppSettings,
+  ConnectionProfile,
+  IPC,
+  InventoryRequest,
+  MultiInventoryRequest,
+} from '../shared/ipc';
 import { SidecarClient } from './sidecar';
 import * as secrets from './secrets';
 import * as store from './store';
@@ -69,6 +75,36 @@ ipcMain.handle(IPC.inventory, async (_e, req: InventoryRequest) => {
   });
   if (req.saveCredentials && password) {
     await secrets.setPassword(req.host, req.username, password);
+  }
+  return result;
+});
+
+ipcMain.handle(IPC.inventoryMulti, async (_e, req: MultiInventoryRequest) => {
+  // Resolve each target's password (typed, or fall back to the keychain) before
+  // handing the batch to the sidecar — same rule as the single-target flow.
+  const resolved = await Promise.all(req.targets.map(async (t) => {
+    const password = t.password || (await secrets.getPassword(t.host, t.username)) || '';
+    return { ...t, password };
+  }));
+  const result = await sidecar.call('inventory_multi', {
+    targets: resolved.map((t) => ({
+      host: t.host,
+      username: t.username,
+      password: t.password,
+      port: t.port,
+      insecure: t.insecure,
+      name: t.name,
+      ndb: t.ndb,
+    })),
+    formats: req.formats,
+    export_dir: req.exportDir || store.getSettings().exportDir,
+    combine: req.combine,
+    combined_name: req.combinedName,
+  });
+  if (req.saveCredentials) {
+    await Promise.all(
+      resolved.filter((t) => t.password).map((t) => secrets.setPassword(t.host, t.username, t.password)),
+    );
   }
   return result;
 });
