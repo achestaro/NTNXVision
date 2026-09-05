@@ -81,23 +81,28 @@ def test_excel_lcm_sheet_headers_and_rows(tmp_path) -> None:
     out = ExcelExporter().export(_lcm_env(), tmp_path / "lcm.xlsx")
     ws = load_workbook(out)[_SHEET]
 
-    assert [c.value for c in ws[1]] == [
-        "Component", "Class", "Cluster", "Current Version", "Target Version",
+    headers = [c.value for c in ws[1]]
+    assert headers == [
+        "Component", "Class", "Cluster", "Current Version",
         "Update Available", "Available Versions", "Last Updated", "API",
     ]
+    # `target_version` is intentionally absent: LCM reports it equal to the running
+    # version unless an upgrade is staged (34/34 on the lab PC), so a column for it
+    # duplicates Current Version.
+    assert "Target Version" not in headers
     assert ws.freeze_panes == "A2"
-    assert ws.auto_filter.ref == "A1:I6"
+    assert ws.auto_filter.ref == "A1:H6"
 
+    col = {name: i for i, name in enumerate(headers)}
     rows = {r[0]: r for r in ws.iter_rows(min_row=2, values_only=True)}
     assert rows["AHV"][:4] == ("AHV", "Hypervisor", "cluster-01", "10.0")
-    assert rows["AHV"][5] == "Yes"
-    assert rows["AHV"][6] == "10.1, 10.0.1"
-    assert rows["AHV"][7] == "2026-09-01T10:00:00Z"
-    assert rows["AHV"][8] == "v4"
-    assert rows["Foundation"][5] == "No"
+    assert rows["AHV"][col["Update Available"]] == "Yes"
+    assert rows["AHV"][col["Available Versions"]] == "10.1, 10.0.1"
+    assert rows["AHV"][col["Last Updated"]] == "2026-09-01T10:00:00Z"
+    assert rows["AHV"][col["API"]] == "v4"
+    assert rows["Foundation"][col["Update Available"]] == "No"
     # Excel is the full-fidelity format: no trimming of the version list here.
-    assert rows["AOS"][6] == ", ".join(_MANY_VERSIONS)
-    assert rows["AOS"][4] == "7.0.10"
+    assert rows["AOS"][col["Available Versions"]] == ", ".join(_MANY_VERSIONS)
 
 
 def test_excel_unknown_update_flag_is_not_no(tmp_path) -> None:
@@ -106,9 +111,11 @@ def test_excel_unknown_update_flag_is_not_no(tmp_path) -> None:
     """
     out = ExcelExporter().export(_lcm_env(), tmp_path / "lcm.xlsx")
     ws = load_workbook(out)[_SHEET]
+    col = {name: i for i, name in enumerate(c.value for c in ws[1])}
     row = next(r for r in ws.iter_rows(min_row=2, values_only=True) if r[0] == "SATADOM SL 3ME4")
-    assert row[5] == "Unknown"
-    assert row[6] is None  # empty available_versions renders as a blank cell
+    assert row[col["Update Available"]] == "Unknown"
+    # empty available_versions renders as a blank cell
+    assert row[col["Available Versions"]] is None
 
 
 def test_excel_omits_lcm_sheet_when_not_collected(tmp_path) -> None:
