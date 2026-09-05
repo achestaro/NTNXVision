@@ -241,6 +241,9 @@ def test_ova_v3_fallback() -> None:
     from ntnxvision_core.collectors.catalog import OvaCollector
 
     class FakeConn:
+        def v4_ready(self, area: str) -> bool:
+            return True  # the namespace answers; the content endpoint below does not
+
         def v4_list(self, path: str) -> list[dict[str, Any]]:
             raise NutanixApiError(f"Not found: {path}")
 
