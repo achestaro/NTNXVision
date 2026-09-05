@@ -20,16 +20,24 @@ class LicenseCollector(Collector):
     label = "Licensing"
 
     def collect(self, env: Any) -> None:
+        if not self.conn.v4_ready("licensing"):
+            env.collection_notes[self.name] = (
+                "skipped: the v4 licensing namespace is not served by this Prism Central "
+                f"({self.conn.negotiated.get('licensing', 'unavailable')})"
+            )
+            return
+
         try:
             data = self.conn.v4_list("licensing/v4.0/config/licenses")
-        except NutanixApiError:
-            data = []
+        except NutanixApiError as exc:
+            env.collection_notes[self.name] = f"failed: {exc}"
+            return
 
         if not data:
-            env.collection_notes[self.name] = (
-                "skipped: licensing API not available on this PC version "
-                "(will be covered by the v4 licensing SDK in a later phase)"
-            )
+            # An empty list is a real answer, not a missing API: a PC with no licences
+            # applied returns 200 + []. Reporting that as "API not available" sent the
+            # lab run chasing a version problem that did not exist.
+            env.collection_notes[self.name] = "ok: no licenses reported by this PC"
             return
 
         for lic in data:
