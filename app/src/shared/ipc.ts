@@ -51,8 +51,12 @@ export interface NdbRequest {
   password: string;
 }
 
-/** A saved connection target. Passwords are NEVER stored here — they live in the OS keychain. */
+/**
+ * A saved target (Targets page). Passwords are NEVER stored here: they live in the OS
+ * keychain under the target's stable id (see app/src/main/targets.ts).
+ */
 export interface ConnectionProfile {
+  /** Stable id (a UUID). Unchanged by edits to the name, address, port or username. */
   id: string;
   mode: ConnectionMode;
   host: string;
@@ -65,10 +69,54 @@ export interface ConnectionProfile {
   ndbUser?: string;
 }
 
+/** The last connection test of a saved target, recorded by the main process. */
+export interface TargetTestInfo {
+  status: TestConnectionStatus;
+  ok: boolean;
+  message: string;
+  version?: string | null;
+  /** ISO 8601. */
+  at: string;
+}
+
 /** A saved target as listed to the renderer, with its keychain status. */
 export interface SavedConnection extends ConnectionProfile {
-  /** True when the OS keychain holds a password for host + username. */
+  /** True when the OS keychain holds a password for this target. */
   hasPassword: boolean;
+  /** True when the OS keychain holds this target's NDB password. */
+  ndbHasPassword?: boolean;
+  lastTest?: TargetTestInfo | null;
+}
+
+/**
+ * Create (id '') or update a saved target from the Targets page. Passwords go straight to
+ * the keychain; an empty password on an update keeps the stored one.
+ */
+export interface TargetSaveRequest {
+  id: string;
+  mode: ConnectionMode;
+  name: string;
+  host: string;
+  port: number;
+  username: string;
+  insecure: boolean;
+  /** Empty = keep the saved password (update) or save none (create). */
+  password: string;
+  /** Prism Central only; empty removes the NDB endpoint and its saved password. */
+  ndbHost?: string;
+  ndbUser?: string;
+  /** Empty = keep the saved NDB password. */
+  ndbPassword?: string;
+}
+
+export type TargetField = 'name' | 'host' | 'port' | 'username' | 'ndbHost' | 'form';
+
+export interface TargetSaveResult {
+  ok: boolean;
+  /** Per-field messages when ok is false (`form` = not tied to one field). */
+  errors?: Partial<Record<TargetField, string>>;
+  target?: SavedConnection;
+  targets: SavedConnection[];
 }
 
 export interface TestConnectionRequest {
@@ -77,9 +125,14 @@ export interface TestConnectionRequest {
   host: string;
   port: number;
   username: string;
-  /** Empty = use the keychain password for host + username (resolved by the main process). */
+  /**
+   * Empty = use the saved target's keychain password (targetId set and the address and
+   * username unchanged; resolved by the main process).
+   */
   password: string;
   insecure: boolean;
+  /** The saved target being tested; its last test is recorded when the fields match it. */
+  targetId?: string;
 }
 
 /**
@@ -153,10 +206,15 @@ export interface CollectionAreasResult {
 // ─── running a collection ───────────────────────────────────────────────
 
 export interface CollectionRequest {
+  /**
+   * The saved target to collect (required). The main process takes the connection
+   * details and keychain password from it; the fields below are informational.
+   */
+  targetId?: string;
   mode: ConnectionMode;
   host: string;
   username: string;
-  /** Empty = use the keychain password. */
+  /** A one-run password override; empty = the target's keychain password. Never saved. */
   password: string;
   port: number;
   insecure: boolean;
@@ -167,8 +225,8 @@ export interface CollectionRequest {
   /** Area ids from getCollectionAreas; empty or omitted = all available. */
   areas?: string[];
   formats: ExportFormat[];
-  /** Save the target profile and (if typed) the password to the keychain. */
-  saveCredentials: boolean;
+  /** Ignored: targets are only created and changed on the Targets page. */
+  saveCredentials?: boolean;
   exportDir?: string;
   /** Report file name prefix (see ExportRequest.filePrefix). */
   filePrefix?: string;
@@ -176,6 +234,8 @@ export interface CollectionRequest {
 }
 
 export interface MultiCollectionTarget {
+  /** The saved target (required); see CollectionRequest.targetId. */
+  targetId?: string;
   host: string;
   username: string;
   password: string;
@@ -188,7 +248,8 @@ export interface MultiCollectionTarget {
 export interface MultiCollectionRequest {
   targets: MultiCollectionTarget[];
   formats: ExportFormat[];
-  saveCredentials: boolean;
+  /** Ignored: targets are only created and changed on the Targets page. */
+  saveCredentials?: boolean;
   exportDir?: string;
   /** Report file name prefix (see ExportRequest.filePrefix). */
   filePrefix?: string;
@@ -803,8 +864,8 @@ export const IPC = {
   chooseSnapshotFiles: 'shell:chooseSnapshotFiles',
   takePendingSnapshotFiles: 'app:takePendingSnapshotFiles',
   listConnections: 'store:listConnections',
-  saveConnection: 'store:saveConnection',
-  deleteConnection: 'store:deleteConnection',
+  saveTarget: 'store:saveTarget',
+  deleteTarget: 'store:deleteTarget',
   getSettings: 'store:getSettings',
   setSettings: 'store:setSettings',
   // main → renderer (events)
@@ -869,9 +930,12 @@ export interface NtnxApi {
   takePendingSnapshotFiles(): Promise<string[]>;
   onOpenSnapshotFiles(cb: (paths: string[]) => void): () => void;
 
+  /** The saved targets (Targets page), in saved order. */
   listConnections(): Promise<SavedConnection[]>;
-  saveConnection(profile: ConnectionProfile): Promise<SavedConnection[]>;
-  deleteConnection(id: string): Promise<SavedConnection[]>;
+  /** Create or update a target; passwords go to the keychain and never come back. */
+  saveTarget(req: TargetSaveRequest): Promise<TargetSaveResult>;
+  /** Delete a target and its keychain entries. Its snapshots are kept. */
+  deleteTarget(id: string): Promise<SavedConnection[]>;
   getSettings(): Promise<AppSettings>;
   setSettings(settings: AppSettings): Promise<AppSettings>;
 }
