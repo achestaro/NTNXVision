@@ -29,8 +29,9 @@ from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill
 
 from ntnxvision_core.exporters.tables import COMPARE_TYPES, SPECS, Ctx, TableSpec
-from ntnxvision_core.inventory import display, fmt_bytes, fmt_count
+from ntnxvision_core.inventory import display, fmt_bytes
 from ntnxvision_core.models import Environment
+from ntnxvision_core.numfmt import excel_number_format, fmt_count
 
 _TRAILING_NUM = re.compile(r"^(.*?)(\d+)$")
 _KIND_ORDER = {"changed": 0, "added": 1, "removed": 2}
@@ -127,10 +128,10 @@ def _describe(spec: TableSpec, obj: Any, ctx: Ctx, kind: str, cur: Environment |
               ) -> str | None:
     t = spec.type
     if t == "vms":
-        return " · ".join(x for x in (f"{obj.vcpu_total or '—'} vCPU",
+        return " · ".join(x for x in (f"{fmt_count(obj.vcpu_total or '—')} vCPU",
                                       fmt_bytes(obj.memory_bytes), obj.guest_os) if x)
     if t == "hosts":
-        return " · ".join(x for x in (obj.block_model, f"{obj.num_cpu_cores} cores"
+        return " · ".join(x for x in (obj.block_model, f"{fmt_count(obj.num_cpu_cores)} cores"
                                       if obj.num_cpu_cores else None) if x)
     if t == "storage_containers":
         return " · ".join(x for x in (fmt_bytes(obj.max_capacity_bytes),
@@ -173,7 +174,7 @@ def range_label(names: list[str]) -> str:
     common prefix (backed off to the last separator so 'n5 … n8' keeps its letter)."""
     first, last = names[0], names[-1]
     if first == last:
-        return f"{first} ×{len(names)}" if len(names) > 1 else first
+        return f"{first} ×{fmt_count(len(names))}" if len(names) > 1 else first
     i = 0
     while i < min(len(first), len(last)) and first[i] == last[i]:
         i += 1
@@ -190,7 +191,7 @@ def _names_label(names: list[str]) -> str:
         return range_label(names)
     if len(names) <= 3:
         return ", ".join(names)
-    return f"{names[0]}, {names[1]} + {len(names) - 2} more"
+    return f"{names[0]}, {names[1]} + {fmt_count(len(names) - 2)} more"
 
 
 def group_changes(raw: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -250,9 +251,9 @@ def _group_row(kind: str, type_id: str, where: str, items: list[dict[str, Any]]
         sizes = {(o.vcpu_total, o.memory_bytes) for o in objs}
         if len(sizes) == 1:
             vcpu, mem = sizes.pop()
-            detail += f" · {vcpu} vCPU · {fmt_bytes(mem)}"
+            detail += f" · {fmt_count(vcpu or '—')} vCPU · {fmt_bytes(mem)}"
         else:
-            detail += f" · {sum(o.vcpu_total or 0 for o in objs)} vCPU · " \
+            detail += f" · {fmt_count(sum(o.vcpu_total or 0 for o in objs))} vCPU · " \
                       f"{fmt_bytes(sum(o.memory_bytes or 0 for o in objs))} total"
         if kind == "removed":
             freed = sum(o.total_disk_bytes for o in objs)
@@ -261,10 +262,11 @@ def _group_row(kind: str, type_id: str, where: str, items: list[dict[str, Any]]
     elif type_id == "hosts":
         objs = [c["_obj"] for c in items]
         models = {o.block_model for o in objs if o.block_model}
-        detail = f"{len(items)} nodes" + (f" · {models.pop()}" if len(models) == 1 else "")
+        detail = f"{fmt_count(len(items))} nodes" + (f" · {models.pop()}"
+                                                     if len(models) == 1 else "")
         cores = {o.num_cpu_cores for o in objs}
         if len(cores) == 1 and None not in cores:
-            detail += f" · {cores.pop()} cores each"
+            detail += f" · {fmt_count(cores.pop())} cores each"
     return {"kind": kind, "object_type": spec.singular, "object": range_label(names),
             "where": where, "field": None, "before": None, "after": None, "detail": detail,
             "count": len(items), "_type": type_id}
@@ -294,17 +296,17 @@ def _capacity(env: Environment) -> int:
 
 
 def _tb(value: int) -> str:
-    return f"{value / 1024**4:.0f}" if value >= 10 * 1024**4 else f"{value / 1024**4:.1f}"
+    return f"{value / 1024**4:,.0f}" if value >= 10 * 1024**4 else f"{value / 1024**4:,.1f}"
 
 
 def _delta(added: int, removed: int, was: int) -> str:
     parts = []
     if added and removed:
-        parts.append(f"+{added} / −{removed}")
+        parts.append(f"+{fmt_count(added)} / −{fmt_count(removed)}")
     elif added:
-        parts.append(f"+{added}")
+        parts.append(f"+{fmt_count(added)}")
     elif removed:
-        parts.append(f"−{removed}")
+        parts.append(f"−{fmt_count(removed)}")
     else:
         parts.append("no change")
     parts.append(f"was {fmt_count(was)}")
@@ -332,8 +334,9 @@ def compare(base: Environment, cur: Environment) -> dict[str, Any]:
     cap_delta = cap_c - cap_b
     figures = [
         {"label": "Changes", "value": summary["total"],
-         "qualifier": f"{summary['added']} added · {summary['removed']} removed · "
-                      f"{summary['changed']} changed"},
+         "qualifier": f"{fmt_count(summary['added'])} added · "
+                      f"{fmt_count(summary['removed'])} removed · "
+                      f"{fmt_count(summary['changed'])} changed"},
         {"label": "VMs", "value": len(cur.vms), "qualifier": _delta(va, vr, len(base.vms))},
         {"label": "Hosts", "value": len(cur.hosts), "qualifier": _delta(ha, hr, len(base.hosts))},
         {"label": "Storage", "value": _tb(cap_c), "unit": "TB",
@@ -394,8 +397,12 @@ def export_comparison(base: Environment, cur: Environment, base_name: str, cur_n
     ]
     for label, value in meta:
         ws.append([label, value])
+        number_format = excel_number_format(value)
+        if number_format:
+            ws.cell(row=ws.max_row, column=2).number_format = number_format
     for fig in result["figures"][1:]:
-        ws.append([fig["label"], f"{fig['value']}{' ' + fig['unit'] if fig.get('unit') else ''}",
+        ws.append([fig["label"],
+                   f"{fmt_count(fig['value'])}{' ' + fig['unit'] if fig.get('unit') else ''}",
                    fig.get("qualifier")])
     ws.column_dimensions["A"].width = 24
     ws.column_dimensions["B"].width = 36

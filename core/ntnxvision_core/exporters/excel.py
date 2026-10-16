@@ -2,10 +2,12 @@
 
 Produces an RVTools-style workbook: an Overview sheet plus one sheet per object type,
 each with a frozen, styled header row and an auto-filter. Byte-valued fields are rendered
-in GiB for readability. A sheet is omitted entirely when its object type has zero rows
-(feature not deployed / not licensed) — Feature Usage and Collection Notes still record
-that status, so the workbook stays a place to check "is X in use" without a noise sheet
-per absent feature.
+in GiB for readability. Numeric quantity cells stay numbers but carry a `#,##0` /
+`#,##0.00` number format so they display with comma thousands grouping; identifier
+columns (VLAN — see `numfmt.PLAIN_HEADERS`) are left unformatted. A sheet is omitted
+entirely when its object type has zero rows (feature not deployed / not licensed) —
+Feature Usage and Collection Notes still record that status, so the workbook stays a
+place to check "is X in use" without a noise sheet per absent feature.
 """
 
 from __future__ import annotations
@@ -23,6 +25,7 @@ from ntnxvision_core.exporters.sourcing import source_hosts as _source_hosts
 from ntnxvision_core.exporters.sourcing import sources as _sources
 from ntnxvision_core.exporters.tables import Ctx
 from ntnxvision_core.models import Environment
+from ntnxvision_core.numfmt import PLAIN_HEADERS, excel_number_format, fmt_count
 
 _HEADER_FILL = PatternFill("solid", fgColor="1F4E78")
 _HEADER_FONT = Font(color="FFFFFF", bold=True)
@@ -95,7 +98,7 @@ class ExcelExporter:
         # rather than reporting a synthetic host with an "unknown" version.
         if env.is_combined:
             pc_rows: list[tuple[str, Any]] = [
-                ("Prism Centrals", f"{len(env.source_environments)} (combined)"),
+                ("Prism Centrals", f"{fmt_count(len(env.source_environments))} (combined)"),
                 ("Sources", ", ".join(_source_hosts(env))),
             ]
         else:
@@ -113,7 +116,10 @@ class ExcelExporter:
             rows.append((label.replace("_", " ").title(), value))
         for i, (label, value) in enumerate(rows, start=3):
             ws.cell(row=i, column=1, value=label).font = Font(bold=True)
-            ws.cell(row=i, column=2, value=value)
+            cell = ws.cell(row=i, column=2, value=value)
+            number_format = excel_number_format(value)
+            if number_format:
+                cell.number_format = number_format
         ws.column_dimensions["A"].width = 26
         ws.column_dimensions["B"].width = 44
 
@@ -207,8 +213,14 @@ class ExcelExporter:
             cell.fill = _HEADER_FILL
             cell.font = _HEADER_FONT
             cell.alignment = Alignment(vertical="center")
-        for row in rows:
+        quantity_cols = [h not in PLAIN_HEADERS for h in headers]
+        for r_idx, row in enumerate(rows, start=2):
             ws.append(row)
+            for c_idx, value in enumerate(row, start=1):
+                if c_idx <= len(quantity_cols) and quantity_cols[c_idx - 1]:
+                    number_format = excel_number_format(value)
+                    if number_format:
+                        ws.cell(row=r_idx, column=c_idx).number_format = number_format
 
         ws.freeze_panes = "A2"
         last_col = get_column_letter(len(headers))

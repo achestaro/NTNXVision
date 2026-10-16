@@ -24,6 +24,7 @@ from typing import Any
 from PIL import Image, ImageDraw, ImageFilter, ImageFont
 
 from ntnxvision_core.models import Cluster, Environment
+from ntnxvision_core.numfmt import fmt_count
 
 GIB = 1024**3
 #: Supersampling factor for crisp print output.
@@ -324,7 +325,7 @@ def _cap(nodes: list[Node], limit: int, noun: str) -> list[Node]:
     if len(nodes) <= limit:
         return nodes
     extra = len(nodes) - (limit - 1)
-    return nodes[: limit - 1] + [Node(f"+ {extra} more {noun}", style="dim")]
+    return nodes[: limit - 1] + [Node(f"+ {fmt_count(extra)} more {noun}", style="dim")]
 
 
 def _gib(value: int | None) -> int | None:
@@ -337,8 +338,8 @@ def _size_label(value_bytes: int | None) -> str:
         return "0 GiB"
     tib = value_bytes / (GIB * 1024)
     if tib >= 1:
-        return f"{tib:.1f} TiB"
-    return f"{round(value_bytes / GIB)} GiB"
+        return f"{tib:,.1f} TiB"
+    return f"{round(value_bytes / GIB):,} GiB"
 
 
 def _rpo(seconds: int | None) -> str:
@@ -424,8 +425,8 @@ def management_topology(env: Environment) -> Diagram | None:
         shown = hosts[:4]
         lines = [*shown]
         if len(hosts) > len(shown):
-            lines.append(f"+{len(hosts) - len(shown)} more")
-        root = Node(f"{len(hosts)} Prism Centrals", lines, style="root")
+            lines.append(f"+{fmt_count(len(hosts) - len(shown))} more")
+        root = Node(f"{fmt_count(len(hosts))} Prism Centrals", lines, style="root")
     else:
         lines = [line for line in (
             env.prism_central.host,
@@ -433,7 +434,7 @@ def management_topology(env: Environment) -> Diagram | None:
         ) if line]
         if not is_pe and env.pc_config.node_count:
             deploy = "Scale-out" if env.pc_config.is_scale_out else "Single-node"
-            lines.append(f"{deploy} · {env.pc_config.node_count} PC node(s)")
+            lines.append(f"{deploy} · {fmt_count(env.pc_config.node_count)} PC node(s)")
         root = Node("Prism Element" if is_pe else "Prism Central", lines, style="root")
 
     vm_counts = _counts_per_cluster(env, env.vms)
@@ -442,7 +443,7 @@ def management_topology(env: Environment) -> Diagram | None:
         hyp = "/".join(c.hypervisor_types) if c.hypervisor_types else "unknown"
         nodes = c.num_nodes or host_counts.get(id(c)) or "?"
         lines = [f"AOS {c.aos_version or 'unknown'} · {hyp}",
-                 f"{nodes} node(s) · {vm_counts.get(id(c), 0)} VM(s)"]
+                 f"{fmt_count(nodes)} node(s) · {fmt_count(vm_counts.get(id(c), 0))} VM(s)"]
         if env.is_combined and c.source_pc:
             lines.append(c.source_pc)
         root.children.append(Node(
@@ -462,15 +463,15 @@ def cluster_compute(env: Environment, cluster: Cluster) -> Diagram | None:
     root = Node(
         cluster.name or cluster.uuid,
         [f"AOS {cluster.aos_version or 'unknown'}",
-         f"{cluster.num_nodes or len(hosts)} node(s)"
+         f"{fmt_count(cluster.num_nodes or len(hosts))} node(s)"
          + (f" · RF {cluster.redundancy_factor}" if cluster.redundancy_factor else "")],
         style="root",
     )
     for h in hosts:
         specs = " · ".join(p for p in (
-            f"{h.num_cpu_cores} cores" if h.num_cpu_cores else None,
-            f"{_gib(h.memory_bytes)} GiB" if h.memory_bytes else None,
-            f"{h.num_vms} VM(s)" if h.num_vms is not None else None,
+            f"{fmt_count(h.num_cpu_cores)} cores" if h.num_cpu_cores else None,
+            f"{fmt_count(_gib(h.memory_bytes))} GiB" if h.memory_bytes else None,
+            f"{fmt_count(h.num_vms)} VM(s)" if h.num_vms is not None else None,
         ) if p)
         lines = [line for line in (h.cpu_model, specs, h.block_model) if line]
         in_maint = (h.maintenance_state is not None
@@ -497,7 +498,7 @@ def network_topology(env: Environment, cluster: Cluster) -> Diagram | None:
         groups.setdefault(s.virtual_switch or "default", []).append(s)
 
     root = Node(cluster.name or cluster.uuid,
-                [f"{len(subs)} VLAN subnet(s)"], style="root")
+                [f"{fmt_count(len(subs))} VLAN subnet(s)"], style="root")
     for vs_name in sorted(groups):
         vs = Node(vs_name, ["virtual switch"])
         for s in sorted(groups[vs_name], key=lambda s: (s.vlan_id or 0, s.name or "")):
@@ -527,8 +528,8 @@ def vpc_topology(env: Environment) -> Diagram | None:
     for v in env.vpcs[:6]:
         lines = []
         if v.route_count is not None or v.routing_policy_count is not None:
-            lines.append(f"{v.route_count or 0} route(s) · "
-                         f"{v.routing_policy_count or 0} routing policy(ies)")
+            lines.append(f"{fmt_count(v.route_count or 0)} route(s) · "
+                         f"{fmt_count(v.routing_policy_count or 0)} routing policy(ies)")
         root = Node(v.name or v.uuid, lines, style="root")
         overlay = by_vpc.get(v.name or "", [])
         names_seen = {s.name for s in overlay}
@@ -653,12 +654,12 @@ def executive_dashboard(env: Environment) -> Diagram | None:
         return None
     storage_total = sum(c.max_capacity_bytes or 0 for c in env.storage_containers)
     tiles = [
-        ("Clusters", str(len(env.clusters))),
-        ("Hosts", str(len(env.hosts))),
-        ("Virtual Machines", str(len(env.vms))),
+        ("Clusters", fmt_count(len(env.clusters))),
+        ("Hosts", fmt_count(len(env.hosts))),
+        ("Virtual Machines", fmt_count(len(env.vms))),
         ("Storage Capacity", _size_label(storage_total) if storage_total else "—"),
-        ("Active Alerts", str(len(env.alerts))),
-        ("Projects", str(len(env.projects))),
+        ("Active Alerts", fmt_count(len(env.alerts))),
+        ("Projects", fmt_count(len(env.projects))),
     ]
     w = 2 * _FRAME_PAD + len(tiles) * _TILE_W + (len(tiles) - 1) * _TILE_GAP
     h = 2 * _FRAME_PAD + _TILE_H
@@ -689,12 +690,12 @@ def vm_power_state_chart(env: Environment) -> Diagram | None:
     img, draw = _new_canvas(w, h)
     cx, cy = pad + _DONUT_R, h / 2
     _draw_donut(draw, cx, cy, _DONUT_R, _DONUT_THICK, segments,
-                center_value=str(total), center_label="total VMs")
+                center_value=fmt_count(total), center_label="total VMs")
 
     labelled = [
-        (f"Powered On — {on} ({on / total:.0%})", _VM_ON, on),
-        (f"Powered Off — {off} ({off / total:.0%})", _VM_OFF, off),
-        (f"Other / Suspended — {other} ({other / total:.0%})", _VM_OTHER, other),
+        (f"Powered On — {fmt_count(on)} ({on / total:.0%})", _VM_ON, on),
+        (f"Powered Off — {fmt_count(off)} ({off / total:.0%})", _VM_OFF, off),
+        (f"Other / Suspended — {fmt_count(other)} ({other / total:.0%})", _VM_OTHER, other),
     ]
     labelled = [item for item in labelled if item[2] > 0]
     f_leg = _font(9.5)
@@ -731,9 +732,10 @@ def alert_severity_chart(env: Environment) -> Diagram | None:
     img, draw = _new_canvas(w, h)
     cx, cy = pad + _DONUT_R, h / 2
     _draw_donut(draw, cx, cy, _DONUT_R, _DONUT_THICK, segments,
-                center_value=str(total), center_label="open alerts")
+                center_value=fmt_count(total), center_label="open alerts")
 
-    labelled = [(f"{label} — {v} ({v / total:.0%})", c) for label, c, v in counts if v > 0]
+    labelled = [(f"{label} — {fmt_count(v)} ({v / total:.0%})", c)
+                for label, c, v in counts if v > 0]
     f_leg = _font(9.5)
     lx = pad + _DONUT_R * 2 + 30
     ly = cy - (len(labelled) - 1) * 11
@@ -832,7 +834,7 @@ def vms_per_cluster_chart(env: Environment) -> Diagram | None:
             radius=max(1, r), fill=color,
         )
         draw.text((round((x + bar_w / 2) * S), round((baseline - bh - 12) * S)),
-                  str(count), font=f_val, fill=_INK, anchor="mm")
+                  fmt_count(count), font=f_val, fill=_INK, anchor="mm")
         draw.text((round((x + bar_w / 2) * S), round((baseline + 16) * S)),
                   _fit(draw, name, f_name, bar_w * S), font=f_name, fill=_SUB, anchor="mm")
         x += bar_w + bar_gap
@@ -980,8 +982,8 @@ def cover_page(env: Environment, tool_name: str = "NTNXVision",
         *([("Prepared for", prepared_for)] if prepared_for else []),
         ("Prepared by", f"{author} · {tool_name}" if author else tool_name),
         ("Report date", (env.collected_at or "n/a")[:10]),
-        ("Environment", f"{len(env.clusters)} clusters · {len(env.hosts)} hosts · "
-                        f"{len(env.vms)} VMs"),
+        ("Environment", f"{fmt_count(len(env.clusters))} clusters · "
+                        f"{fmt_count(len(env.hosts))} hosts · {fmt_count(len(env.vms))} VMs"),
     ]
     for label, value in rows:
         draw.text((round(pad_x * S), round(fy * S)), label, font=f_dt,

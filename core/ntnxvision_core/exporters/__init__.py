@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, overload
 
 from ntnxvision_core.exporters.excel import ExcelExporter
+from ntnxvision_core.numfmt import fmt_count
 
 if TYPE_CHECKING:
     from ntnxvision_core.models import Environment
@@ -82,19 +83,20 @@ def export_environment(
     if fmt in ("excel", "xlsx"):
         excel = ExcelExporter()
         path = excel.export(env, out)
-        detail = f"{excel.sheet_count} sheets"
+        detail = f"{fmt_count(excel.sheet_count)} sheets"
     elif fmt == "pdf":
         from ntnxvision_core.exporters.pdf import PdfExporter
 
         pdf = PdfExporter()
         path = pdf.export(env, out, opts)
-        detail = f"{pdf.page_count} pages" if pdf.page_count else None
+        detail = f"{fmt_count(pdf.page_count)} pages" if pdf.page_count else None
     elif fmt in ("word", "docx"):
         from ntnxvision_core.exporters.word import WordExporter
 
         word = WordExporter()
         path = word.export(env, out, opts)
-        detail = f"{word.section_count} sections · {word.table_count} tables"
+        detail = (f"{fmt_count(word.section_count)} sections · "
+                  f"{fmt_count(word.table_count)} tables")
     else:  # pragma: no cover
         raise ValueError(f"Unhandled format: {fmt!r}")
     return (path, detail) if with_detail else path
