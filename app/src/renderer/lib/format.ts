@@ -153,6 +153,68 @@ export function dirname(path: string): string {
   return i > 0 ? path.slice(0, i) : path;
 }
 
+/** A saved target's display name: its name, else its host. */
+export function targetLabel(t: { name?: string | null; host: string }): string {
+  return t.name?.trim() || t.host;
+}
+
+/** The longest report file name prefix kept. Matches PREFIX_MAX in exporters/naming.py. */
+export const PREFIX_MAX = 40;
+
+const DEVICE_NAMES = new Set([
+  'CON', 'PRN', 'AUX', 'NUL', 'CONIN$', 'CONOUT$',
+  ...['COM', 'LPT'].flatMap((d) => ['1', '2', '3', '4', '5', '6', '7', '8', '9', '¹', '²', '³'].map((n) => `${d}${n}`)),
+]);
+
+const isDevice = (t: string) => DEVICE_NAMES.has(t.split('.')[0].trim().toUpperCase());
+
+/** Mirrors `safe_name` in core/ntnxvision_core/store/names.py. */
+function safeStem(text: string, max: number): string {
+  // eslint-disable-next-line no-control-regex
+  let t = text.normalize('NFC').replace(/[<>:"/\\|?*\u0000-\u001f\u007f]/g, '_');
+  t = Array.from(t)
+    .map((c) => (/[\p{L}\p{N}]/u.test(c) || '-_.() '.includes(c) ? c : '_'))
+    .join('');
+  t = t.replace(/\s+/g, ' ').replace(/^[ .]+|[ .]+$/g, '');
+  if (t.length > max) t = t.slice(0, max).replace(/[ .]+$/, '');
+  if (t && isDevice(t)) {
+    const i = t.indexOf('.');
+    t = i < 0 ? `${t.trimEnd()}_` : `${t.slice(0, i).trimEnd()}_${t.slice(i)}`;
+  }
+  return t;
+}
+
+/**
+ * The report file name prefix as the sidecar writes it (mirrors `sanitize_prefix` in
+ * core/ntnxvision_core/exporters/naming.py): reserved characters become "_", surrounding
+ * spaces, dots, dashes and underscores go, Windows device names are marked, 40 characters max.
+ */
+export function sanitizePrefix(prefix: string | null | undefined): string {
+  const trim = (s: string) => s.replace(/^[ .\-_]+|[ .\-_]+$/g, '');
+  const t = trim(safeStem(trim(prefix ?? ''), PREFIX_MAX));
+  return t && isDevice(t) ? safeStem(t, PREFIX_MAX) : t;
+}
+
+/** A date as YYYY-MM-DD (local): the export date in report file names. */
+export function isoDay(date = new Date()): string {
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+}
+
+/** "<prefix>-<snapshot>-<YYYY-MM-DD>.<ext>": the name a report is written under. The
+ * sidecar adds -2, -3 instead of overwriting a file that already exists. */
+export function reportFileName(prefix: string, snapshot: string, ext: string, date = new Date()): string {
+  const stem = safeStem(snapshot, 120) || 'report';
+  return `${[sanitizePrefix(prefix), stem, isoDay(date)].filter(Boolean).join('-')}.${ext}`;
+}
+
+/** File extension per report format. */
+export const REPORT_EXT: Record<'excel' | 'pdf' | 'word' | 'csv', string> = {
+  excel: 'xlsx',
+  pdf: 'pdf',
+  word: 'docx',
+  csv: 'csv',
+};
+
 /** Default snapshot name: "<host-prefix>-YYYY-MM-DD". */
 export function defaultSnapshotName(host: string, date = new Date()): string {
   const prefix = (host.split('.')[0] || 'environment').replace(/[^A-Za-z0-9_-]/g, '-');
