@@ -1,4 +1,8 @@
 # ─── Secrets / local-only (NEVER commit) ───────────────────────────
+# Private documentation, design notes and lab screenshots: kept on the developer's machine,
+# never published (the repository is public).
+/docs/
+/ignore/
 .env
 .env.*
 *.local
