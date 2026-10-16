@@ -372,8 +372,12 @@ def groups_response(
     for row in rows:
         data = []
         for attr in attrs:
-            getter = getters.get(attr)
-            value = getter(row) if getter else None
+            # mh_vm rows arrive pre-flattened (mockapi._mh_vm_rows), keyed by attribute.
+            if entity_type == "mh_vm":
+                value = row.get(attr)
+            else:
+                getter = getters.get(attr)
+                value = getter(row) if getter else None
             data.append({"name": attr, "values": [{"values": [value] if value is not None
                                                    else [], "time": 1759309200000000}]})
         results.append({"entity_id": row["uuid"], "data": data})

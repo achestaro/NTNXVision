@@ -18,7 +18,11 @@ The hypervisor is recovered from which endpoint answered, since v4 does not carr
 
 The ESXi endpoint also 500s on individual unserializable records (two of ~60 on the lab
 PC), which fails any page containing them — hence `v4_list_tolerant`, which salvages the
-rest of the page and reports what it had to skip.
+rest of the page and counts what it had to skip. Those records fail on every v4 path
+(single GET included, PLAT-10006), so the skipped VMs are then read from the groups API
+(``mh_vm``), which still lists them with their core sizing: they are reported marked
+``v3-groups (partial)`` rather than dropped. Only when that query fails too are they
+skipped with a note.
 """
 
 from __future__ import annotations
@@ -27,15 +31,26 @@ from typing import Any
 
 from ntnxvision_core.api.errors import NutanixApiError
 from ntnxvision_core.collectors.base import Collector
-from ntnxvision_core.collectors.normalize import AHV, ESXI
+from ntnxvision_core.collectors.normalize import AHV, ESXI, hypervisor_name
 from ntnxvision_core.models import Nic, VirtualDisk, VirtualMachine
-from ntnxvision_core.scope import v4_list_scoped
+from ntnxvision_core.numfmt import fmt_count
+from ntnxvision_core.scope import names_label, v4_list_scoped
 
 #: v4 VM endpoints, and the hypervisor each one implies.
 V4_VM_ENDPOINTS = (
     ("vmm/v4.0/ahv/config/vms", AHV),
     ("vmm/v4.0/esxi/config/vms", ESXI),
 )
+
+#: groups (``mh_vm``) attributes read for a VM v4 could not serve. Values arrive as strings.
+GROUPS_VM_ATTRIBUTES = [
+    "vm_name", "cluster_name", "cluster", "hypervisor_type", "num_vcpus",
+    "memory_size_bytes", "power_state", "is_cvm", "vm_type", "host_name", "node",
+    "capacity_bytes", "guest_os_name",
+]
+
+#: Provenance of a VM recovered from the groups API: core sizing only.
+GROUPS_PARTIAL_SOURCE = "v3-groups (partial)"
 
 
 class _V3Detail:
@@ -80,25 +95,27 @@ class VmCollector(Collector):
     def _collect_v4(self, env: Any) -> str:
         detail = self._v3_detail()
         skipped_total = 0
+        failed_lists: list[str] = []
         for path, hypervisor in V4_VM_ENDPOINTS:
             try:
                 # Scoped run: only the selected clusters' VMs, server-side when the PC
                 # filters on the cluster reference (pruned afterwards either way).
                 entities, skipped = v4_list_scoped(self.conn, path, "cluster/extId",
                                                    tolerant=True)
-            except NutanixApiError:
-                # One hypervisor's endpoint being absent is normal — a cluster of the
-                # other type simply has none.
+            except NutanixApiError as exc:
+                # One hypervisor's endpoint being absent (404) is normal: a cluster of
+                # the other type simply has none. A server error means that hypervisor's
+                # VMs could not be listed at all, which the groups fallback can repair.
+                if exc.status_code is not None and exc.status_code >= 500:
+                    failed_lists.append(hypervisor)
                 continue
             skipped_total += skipped
             for entity in entities:
                 self._add_v4_vm(env, entity, hypervisor, detail)
-        if skipped_total:
-            return (
-                f"ok: {skipped_total:,} VM(s) skipped: the v4 endpoint returned an "
-                "internal error for those individual records"
-            )
-        return "ok"
+        recovered: list[VirtualMachine] | None = None
+        if skipped_total or failed_lists:
+            recovered = self._recover_from_groups(env, detail)
+        return _v4_note(skipped_total, failed_lists, recovered)
 
     def _add_v4_vm(
         self,
@@ -142,6 +159,58 @@ class VmCollector(Collector):
             env.vms.append(vm)
         else:
             env.system_vms.append(vm)
+
+    def _recover_from_groups(self, env: Any, detail: _V3Detail) -> list[VirtualMachine] | None:
+        """Read the VMs v4 could not serve from the groups API (``mh_vm``), partially.
+
+        The v4 ESXi endpoint answers HTTP 500 (PLAT-10006) for some individual VMs on
+        every path, list page and single GET alike, and v3 ``vms/list`` does not return
+        ESXi VMs at all. The groups API, the one the Prism UI itself uses, still lists
+        them, with the core sizing attributes but no NICs and no per-disk detail. Every
+        VM it reports that v4 did not is added and marked ``v3-groups (partial)``. The
+        groups ``entity_id`` is the same identifier v4 reports as ``extId``, for ESXi
+        VMs too (checked on the lab PC), so matching is by uuid.
+
+        One read-only query (paged), scoped to the selected clusters. Returns the VMs
+        added, or None when the groups query failed too (the caller keeps the skip note).
+        """
+        scope = getattr(self.conn, "scope", None)
+        flt = "is_cvm==0"
+        if scope is not None and scope.filtering and scope.selected:
+            flt += ";cluster=in=" + "|".join(sorted(scope.selected))
+        try:
+            try:
+                rows = self.conn.v3_groups("mh_vm", GROUPS_VM_ATTRIBUTES,
+                                           filter_criteria=flt)
+            except NutanixApiError as exc:
+                if exc.status_code != 400:
+                    raise
+                # A PC that rejects the filter syntax: read unfiltered, filter below.
+                rows = self.conn.v3_groups("mh_vm", GROUPS_VM_ATTRIBUTES)
+        except Exception:  # noqa: BLE001 — groups unavailable: keep the skip note
+            return None
+        seen = {v.uuid for v in env.vms} | {v.uuid for v in env.system_vms}
+        pc_names = {v.name.casefold() for v in env.system_vms
+                    if v.vm_type == "PRISM_CENTRAL" and v.name}
+        added: list[VirtualMachine] = []
+        for row in rows:
+            vm = _groups_vm(row, detail)
+            if vm is None or vm.uuid in seen:
+                continue
+            if scope is not None and scope.excludes(vm.cluster_uuid, vm.cluster_name):
+                continue
+            # CVMs come from `_collect_cvms`; never list them as workloads.
+            if vm.vm_type == "CVM":
+                continue
+            if vm.vm_type == "PRISM_CENTRAL" and vm.name.casefold() in pc_names:
+                continue
+            seen.add(vm.uuid)
+            added.append(vm)
+            if vm.vm_type == "USER":
+                env.vms.append(vm)
+            else:
+                env.system_vms.append(vm)
+        return added
 
     def _v3_detail(self) -> _V3Detail:
         """The fields v4 does not carry, indexed for lookup from a v4 VM.
@@ -269,6 +338,71 @@ class VmCollector(Collector):
                     api_source="v3-groups",
                 )
             )
+
+
+# ─── groups fallback ───────────────────────────────────────────────────
+
+
+def _groups_vm(row: dict[str, Any], detail: _V3Detail) -> VirtualMachine | None:
+    """A partial VM from one ``mh_vm`` groups row, or None when it is unusable."""
+    uuid = row.get("entity_id") or ""
+    name = row.get("vm_name") or ""
+    if not uuid or not name:
+        return None
+    is_cvm = (str(row.get("is_cvm") or "").lower() in ("1", "true")
+              or str(row.get("vm_type") or "") == "kCVM")
+    extra = detail.for_vm(uuid, name)
+    categories = extra.get("categories") or {}
+    power = row.get("power_state")
+    return VirtualMachine(
+        uuid=uuid,
+        name=name,
+        cluster_name=row.get("cluster_name") or None,
+        cluster_uuid=row.get("cluster") or None,
+        host_uuid=row.get("node") or None,
+        host_name=row.get("host_name") or None,
+        power_state=str(power).upper() if power else None,
+        # groups reports the VM's total vCPUs, with no socket / core split.
+        num_vcpus=_int_or_none(row.get("num_vcpus")),
+        memory_bytes=_int_or_none(row.get("memory_size_bytes")),
+        hypervisor=hypervisor_name(_groups_hypervisor(row.get("hypervisor_type"))),
+        guest_os=row.get("guest_os_name") or extra.get("guest_os"),
+        description=extra.get("description"),
+        protection_type=extra.get("protection_type"),
+        boot_type=extra.get("boot_type"),
+        gpus=extra.get("gpus") or [],
+        categories=categories,
+        disk_capacity_bytes=_int_or_none(row.get("capacity_bytes")) or None,
+        vm_type=_classify_vm(name, {"is_cvm": is_cvm}, {"categories": categories}),
+        api_source=GROUPS_PARTIAL_SOURCE,
+    )
+
+
+def _groups_hypervisor(value: Any) -> str | None:
+    """groups spells hypervisors as enum names: kKvm, kVMware, kHyperv."""
+    if not value:
+        return None
+    v = str(value)
+    return {"kkvm": "AHV", "kvmware": "VMware", "khyperv": "Hyper-V"}.get(v.lower(), v)
+
+
+def _v4_note(skipped: int, failed_lists: list[str],
+             recovered: list[VirtualMachine] | None) -> str:
+    """The collection note for a v4 VM run (no em dashes: it reaches the reports)."""
+    parts: list[str] = []
+    if recovered:
+        names = names_label(sorted((v.name for v in recovered), key=str.casefold), limit=10)
+        parts.append(
+            f"{fmt_count(len(recovered))} VM(s) read from the groups API because the v4 "
+            f"API failed for them: {names}; NICs and per-disk details unavailable")
+    remaining = max(0, skipped - len(recovered or []))
+    if remaining:
+        parts.append(
+            f"{fmt_count(remaining)} VM(s) skipped: the v4 endpoint returned an internal "
+            "error for those individual records")
+    if failed_lists and recovered is None:
+        parts.append(f"the v4 {' and '.join(failed_lists)} VM list could not be read")
+    return "ok: " + "; ".join(parts) if parts else "ok"
 
 
 # ─── v4 mappers ────────────────────────────────────────────────────────

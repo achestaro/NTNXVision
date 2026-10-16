@@ -182,7 +182,8 @@ class PrismConnection:
                     flat: dict[str, Any] = {"entity_id": entity.get("entity_id")}
                     for data in entity.get("data", []) or []:
                         values = data.get("values", []) or []
-                        val = values[0].get("values", [None])[0] if values else None
+                        # A null attribute can arrive as an empty inner list.
+                        val = (values[0].get("values") or [None])[0] if values else None
                         flat[data.get("name")] = val
                     results.append(flat)
                     batch += 1
