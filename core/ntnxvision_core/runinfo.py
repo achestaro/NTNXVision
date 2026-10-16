@@ -270,71 +270,96 @@ _SUNSET_UPGRADE = {"tone": "ok", "label": "Moves to v4 after a PC upgrade"}
 _SUNSET_STOPS = {"tone": "warn", "label": "Stops collecting"}
 
 
-def api_routing(env: Any, areas: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def api_routing(env: Any, areas: list[dict[str, Any]],
+                limit: int | None = 8) -> list[dict[str, Any]]:
     """Group the run's areas by API and reason, plus the always-v3 sub-features.
 
     "After sunset" says what happens to each group when Nutanix retires the legacy APIs
     in Q4 2026: v4 groups are unaffected; areas on v3 only because *this* PC is old move
     to v4 after an upgrade; areas with no v4 equivalent stop collecting.
-    """
-    groups: dict[tuple[str, str], list[str]] = {}
-    sunset: dict[tuple[str, str], dict[str, str]] = {}
-    negotiated = env.prism_central.negotiated_api_versions or {}
 
-    def add(label: str, api: str, reason: str, after: dict[str, str]) -> None:
-        key = (api, reason)
+    A combined run's area ids are ``"<host>: <area id>"``. Each is judged against its own
+    Prism Central (version and negotiated v4 namespaces) and grouped per source, so a row
+    carries ``source`` and an ``"<host>: "`` prefix on ``areas``. Judged against the
+    combined Environment instead, an old PC's areas (v3 because v4 is not GA there) read
+    as "No v4 equivalent yet / Stops collecting", which is wrong.
+
+    `limit` caps how many labels a row lists before "+ N more"; None lists them all (the
+    reports do, since they have no tooltip to show the rest).
+    """
+    groups: dict[tuple[str, str, str], list[str]] = {}
+    sunset: dict[tuple[str, str, str], dict[str, str]] = {}
+    sources = {s.prism_central.host: s.prism_central for s in env.source_environments}
+
+    def add(source: str, label: str, api: str, reason: str, after: dict[str, str]) -> None:
+        key = (source, api, reason)
         groups.setdefault(key, []).append(label)
         sunset[key] = after
 
     for entry in areas:
         if entry.get("status") not in ("collected", "notes") or not entry.get("api"):
             continue
-        area = AREAS_BY_ID.get(entry["id"])
-        label = entry.get("label") or entry["id"]
+        source, area_id = "", str(entry["id"])
+        label = str(entry.get("label") or entry["id"])
+        pc = env.prism_central
+        if env.is_combined and ": " in area_id:
+            source, area_id = area_id.split(": ", 1)
+            pc = sources.get(source, pc)
+            label = label.split(" · ", 1)[1] if label.startswith(f"{source} · ") else label
+        area = AREAS_BY_ID.get(area_id)
+        negotiated = pc.negotiated_api_versions or {}
         api = entry["api"]
         if api == "v4":
-            add(label, "v4", "v4 SDK served by this Prism Central", _SUNSET_OK)
+            add(source, label, "v4", "v4 SDK served by this Prism Central", _SUNSET_OK)
         elif api == "v2":
-            add(label, "v2", "Direct Prism Element mode uses the v2.0 API", _SUNSET_STOPS)
+            add(source, label, "v2", "Direct Prism Element mode uses the v2.0 API",
+                _SUNSET_STOPS)
         elif api == "era":
-            add(label, "era", "NDB has its own Era API", _SUNSET_OK)
+            add(source, label, "era", "NDB has its own Era API", _SUNSET_OK)
         elif area is not None and area.v4_area:
             verdict = negotiated.get(area.v4_area, "")
             if "not GA" in verdict:
-                reason = f"v4 not GA on {env.prism_central.version or 'this PC'}"
+                reason = f"v4 not GA on {pc.version or 'this PC'}"
             elif "absent" in verdict:
                 reason = "v4 namespace not served by this Prism Central"
             elif "unavailable" in verdict:
                 reason = "v4 service unavailable during the run"
             else:
                 reason = "v4 endpoint not usable on this Prism Central"
-            add(label, "v3", reason, _SUNSET_UPGRADE)
+            add(source, label, "v3", reason, _SUNSET_UPGRADE)
         elif area is not None and area.legacy_only:
             for sub_label, reason in area.legacy_only:
-                add(sub_label, "v3", reason, _SUNSET_STOPS)
+                add(source, sub_label, "v3", reason, _SUNSET_STOPS)
             continue
         else:
-            add(label, "v3", "No v4 equivalent yet", _SUNSET_STOPS)
+            add(source, label, "v3", "No v4 equivalent yet", _SUNSET_STOPS)
         # Sub-features of a v4-served area that are still v3-only.
         if area is not None and area.legacy_only and api != "v3":
             for sub_label, reason in area.legacy_only:
-                add(sub_label, "v3", reason, _SUNSET_STOPS)
+                add(source, sub_label, "v3", reason, _SUNSET_STOPS)
 
     order = {"v4": 0, "era": 1, "v3": 2, "v2": 3}
+    host_order = {h: i for i, h in enumerate(sources)}
     rows = []
-    for (api, reason), labels in sorted(groups.items(), key=lambda kv: order.get(kv[0][0], 9)):
-        rows.append({
-            "areas": _join_labels(labels),
+    for (source, api, reason), labels in sorted(
+            groups.items(),
+            key=lambda kv: (host_order.get(kv[0][0], -1), order.get(kv[0][1], 9))):
+        joined = _join_labels(labels, limit)
+        row: dict[str, Any] = {
+            "areas": f"{source}: {joined}" if source else joined,
             "api": api,
             "reason": reason,
-            "after_sunset": sunset[(api, reason)],
-        })
+            "after_sunset": sunset[(source, api, reason)],
+        }
+        if source:
+            row["source"] = source
+        rows.append(row)
     return rows
 
 
-def _join_labels(labels: list[str], limit: int = 8) -> str:
+def _join_labels(labels: list[str], limit: int | None = 8) -> str:
     seen = list(dict.fromkeys(labels))
-    if len(seen) <= limit:
+    if limit is None or len(seen) <= limit:
         return ", ".join(seen) if len(seen) > 2 else " · ".join(seen)
     return ", ".join(seen[:limit]) + f" + {fmt_count(len(seen) - limit)} more"
 
@@ -345,7 +370,10 @@ def sunset_areas(routing: list[dict[str, Any]]) -> list[str]:
     for row in routing:
         if row.get("after_sunset", {}).get("tone") != "warn":
             continue
-        for part in str(row["areas"]).replace(" · ", ", ").split(", "):
+        areas = str(row["areas"])
+        if row.get("source") and areas.startswith(f"{row['source']}: "):
+            areas = areas[len(str(row["source"])) + 2:]
+        for part in areas.replace(" · ", ", ").split(", "):
             part = part.strip()
             if not part or part.startswith("+"):
                 continue

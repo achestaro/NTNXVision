@@ -229,6 +229,16 @@ for this software.
 | @fontsource/jetbrains-mono | 5.3.0 | OFL-1.1 | Copyright 2020 The JetBrains Mono Project Authors (https://github.com/JetBrains/JetBrainsMono) |
 | @fontsource/montserrat | 5.3.0 | OFL-1.1 | Copyright 2011 The Montserrat Project Authors (https://github.com/JulietaUla/Montserrat) |
 
+The PDF reports produced by the sidecar embed subsets of the following typefaces,
+shipped as unmodified TTF files in `core/ntnxvision_core/exporters/fonts/` together
+with their license texts, under the same SIL Open Font License 1.1:
+
+| Font family | Files | License | Copyright |
+|---|---|---|---|
+| Figtree | Figtree-Italic.ttf, Figtree-Regular.ttf, Figtree-SemiBold.ttf | OFL-1.1 | Copyright 2022 The Figtree Project Authors (https://github.com/erikdkennedy/figtree) |
+| JetBrainsMono | JetBrainsMono-Regular.ttf | OFL-1.1 | Copyright 2020 The JetBrains Mono Project Authors (https://github.com/JetBrains/JetBrainsMono) |
+| Montserrat | Montserrat-Light.ttf | OFL-1.1 | Copyright 2024 The Montserrat.Git Project Authors (https://github.com/JulietaUla/Montserrat.git) |
+
 ```text
 -----------------------------------------------------------
 SIL OPEN FONT LICENSE Version 1.1 - 26 February 2007
