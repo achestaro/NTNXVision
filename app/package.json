@@ -1,7 +1,7 @@
 {
   "name": "ntnxvision",
   "version": "0.3.0",
-  "description": "NTNXVision \u2014 Nutanix Prism Central inventory & documentation tool",
+  "description": "NTNXVision — Nutanix Prism Central inventory & documentation tool",
   "author": "Alberto Chestaro",
   "license": "UNLICENSED",
   "private": true,
@@ -16,12 +16,18 @@
     "build:main": "npx tsc -p tsconfig.main.json",
     "start": "npx electron .",
     "lint": "npx eslint . --ext .ts,.tsx",
-    "package": "npm run build && npx electron-builder"
+    "package": "npm run build && npx electron-builder --publish never",
+    "package:mac": "npm run build && npx electron-builder --mac --publish never",
+    "package:win": "npm run build && npx electron-builder --win --publish never",
+    "package:win:nsis": "npm run build && npx electron-builder --win nsis --publish never",
+    "rebuild:native": "npx electron-builder install-app-deps",
+    "smoke": "npx electron . --smoke"
   },
   "dependencies": {
     "keytar": "^7.9.0"
   },
   "devDependencies": {
+    "@electron/notarize": "^2.5.0",
     "@eslint/js": "^9.39.4",
     "@types/node": "^20.11.0",
     "@types/react": "^18.2.0",
@@ -42,31 +48,89 @@
   "build": {
     "appId": "com.achestaro.ntnxvision",
     "productName": "NTNXVision",
+    "copyright": "Copyright © 2026 Alberto Chestaro",
+    "artifactName": "${productName}-${version}-${os}-${arch}.${ext}",
     "directories": {
-      "output": "release"
+      "output": "release",
+      "buildResources": "build"
     },
     "files": [
       "dist/**/*",
-      "node_modules/**/*"
+      "!dist/**/*.map",
+      "package.json"
     ],
+    "asar": true,
+    "asarUnpack": [
+      "**/node_modules/keytar/**",
+      "**/*.node"
+    ],
+    "npmRebuild": true,
+    "nodeGypRebuild": false,
+    "buildDependenciesFromSource": false,
     "extraResources": [
       {
         "from": "../core/dist/ntnxvision-sidecar",
-        "to": "sidecar"
+        "to": "sidecar",
+        "filter": [
+          "**/*"
+        ]
       }
     ],
+    "afterSign": "build/notarize.js",
     "win": {
-      "target": "nsis",
-      "icon": "build/icon.ico"
+      "target": [
+        {
+          "target": "msi",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        }
+      ],
+      "icon": "build/icon.ico",
+      "legalTrademarks": "NTNXVision",
+      "publisherName": "Alberto Chestaro",
+      "signingHashAlgorithms": [
+        "sha256"
+      ]
+    },
+    "msi": {
+      "upgradeCode": "9EE643E8-FE25-48DF-B14C-CEA7056CF80F",
+      "oneClick": false,
+      "perMachine": true,
+      "runAfterFinish": false,
+      "createDesktopShortcut": "always",
+      "createStartMenuShortcut": true,
+      "shortcutName": "NTNXVision",
+      "menuCategory": false,
+      "warningsAsErrors": false
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "NTNXVision"
     },
     "mac": {
-      "target": "dmg",
+      "target": [
+        "dmg",
+        "zip"
+      ],
       "category": "public.app-category.developer-tools",
       "icon": "build/icon.icns",
       "hardenedRuntime": true,
       "gatekeeperAssess": false,
       "entitlements": "build/entitlements.mac.plist",
-      "entitlementsInherit": "build/entitlements.mac.plist"
+      "entitlementsInherit": "build/entitlements.mac.plist",
+      "notarize": false,
+      "minimumSystemVersion": "11.0",
+      "darkModeSupport": true
+    },
+    "dmg": {
+      "title": "${productName} ${version}",
+      "writeUpdateInfo": false
     }
   }
 }
