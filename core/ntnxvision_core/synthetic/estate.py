@@ -106,6 +106,10 @@ class Features:
     alerts_rate_limited: bool = False
     #: ESXi VMs whose individual v4 record makes its page answer HTTP 500.
     esxi_bad_vms: int = 0
+    #: The groups API serves ``mh_vm`` rows (every VM, CVMs included), so a collector can
+    #: recover the VMs v4 fails on. Off by default: the demo PCs keep today's skip note
+    #: (their groups API rejects ``mh_vm``, which exercises the fallback's own fallback).
+    groups_mh_vm: bool = False
     #: LCM reports its own framework as out of date (an LCM "with notes" outcome).
     lcm_framework_stale: bool = False
 
