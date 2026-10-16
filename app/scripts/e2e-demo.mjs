@@ -278,15 +278,42 @@ try {
   await run('test-auth-failed', async () => {
     // A one-run password override (never saved) that the PC rejects.
     await fillTarget('Lab PC01', 'wrong');
-    await testConnection('Connection failed');
+    await testConnection('Connection failed · credentials rejected');
   });
   await run('test-self-signed', async () => {
     await fillTarget('Self-signed');
     await testConnection('It is self-signed');
+    await page.getByText('Connection failed · certificate not trusted').first().waitFor();
+    await page.getByRole('button', { name: 'Turn off verification for this target' }).waitFor();
   });
   await run('test-unreachable', async () => {
     await fillTarget('Down');
-    await testConnection('Connection failed');
+    await testConnection('Connection failed · unreachable');
+  });
+  await run('targets-row-test-failed', async () => {
+    // The Targets row test says why it failed and offers the editor.
+    await rail('Targets');
+    await heading('Targets');
+    await page.getByRole('button', { name: 'Test Down' }).click();
+    const toast = page.locator('.toast').filter({ hasText: 'Down: unreachable' });
+    await toast.waitFor({ timeout: 30_000 });
+    await targetRow('Down').getByText('Unreachable').waitFor({ timeout: 15_000 });
+    if (await toast.locator('.toast-detail').count()) throw new Error('row-test toast shows the raw sidecar message');
+    // The table fits its panel: no horizontal scroll, before or after the test.
+    const overflow = () =>
+      page.getByRole('table', { name: 'Targets' }).evaluate((t) => {
+        const box = t.parentElement;
+        return { width: window.innerWidth, scroll: box.scrollWidth - box.clientWidth, left: box.scrollLeft };
+      });
+    for (const width of [1440, 1100]) {
+      await page.setViewportSize({ width, height: 960 }).catch(() => {});
+      await page.waitForTimeout(100);
+      const o = await overflow();
+      if (o.scroll > 1 || o.left !== 0) throw new Error(`Targets table overflows its panel: ${JSON.stringify(o)}`);
+    }
+    await page.setViewportSize({ width: 1440, height: 960 }).catch(() => {});
+    await targetsShot('e2e-targets-row-test-failed');
+    await toast.getByRole('button', { name: 'Dismiss' }).click();
   });
   await run('test-ok', async () => {
     await fillTarget('Lab PC01');
@@ -412,7 +439,8 @@ try {
     await dialog.getByRole('button', { name: 'Save changes' }).click();
     await dialog.waitFor({ state: 'detached', timeout: 15_000 });
     const row = targetRow('Lab PC01 renamed');
-    await row.getByText('svc-inventory').waitFor({ timeout: 15_000 });
+    // Username folds away below a ~1,500 px window (it stays in the DOM and the editor).
+    await row.locator('td.col-user', { hasText: 'svc-inventory' }).waitFor({ state: 'attached', timeout: 15_000 });
     await row.getByText('Keychain').waitFor();
     // A new username makes the last test stale; the row's Test records a new one.
     await row.getByText('Not tested').waitFor();
@@ -677,8 +705,23 @@ try {
     }
     // Keychain passwords: no password prompts; Down fails its test and is left out.
     if (await page.getByLabel(/^Password for /).count()) throw new Error('asked for a saved password');
-    await page.getByRole('row').filter({ hasText: 'down.demo.local' }).getByText(/^Failed/).waitFor({ timeout: 30_000 });
+    await page.getByRole('row').filter({ hasText: 'down.demo.local' }).getByText('Unreachable', { exact: true }).waitFor({ timeout: 30_000 });
     await targetsShot('e2e-multi-picker');
+    // Row actions live in a keyboard-accessible kebab menu (no inline Edit / Remove).
+    const kebab = page.getByRole('button', { name: 'Actions for Down' });
+    if (await page.getByRole('row').filter({ hasText: 'down.demo.local' }).getByRole('button', { name: /^(Edit|Remove)$/ }).count()) {
+      throw new Error('inline Edit / Remove buttons are still shown');
+    }
+    await kebab.click();
+    if ((await kebab.getAttribute('aria-expanded')) !== 'true') throw new Error('kebab not expanded');
+    for (const item of ['Edit target…', 'Test connection', 'Remove from this run']) await page.getByRole('menuitem', { name: item }).waitFor();
+    await page.keyboard.press('ArrowDown');
+    await page.keyboard.press('Escape');
+    await page.getByRole('menu').waitFor({ state: 'detached' });
+    if (!(await kebab.evaluate((el) => el === document.activeElement))) throw new Error('Escape did not return focus to the kebab');
+    await kebab.click();
+    await kebab.click(); // a second click on the button closes it
+    await page.getByRole('menu').waitFor({ state: 'detached' });
     // The run's snapshot name is required here too.
     await expectDisabled('[data-testid="multi-start"]', true, 'Multiple PCs Start without a name');
     await page.getByTestId('multi-snapshot-name').fill('Q4 multi');

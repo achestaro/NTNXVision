@@ -54,12 +54,37 @@ const rail = async (page, name) => {
   if (name === 'New collection') await page.waitForFunction(() => document.querySelector('[data-testid="target-details"]'));
 };
 const settle = (page) => page.waitForTimeout(350);
+/** The Targets table fits its panel (no horizontal scroll); names the column widths if not. */
+const targetsFit = async (page) => {
+  const m = await page.getByRole('table', { name: 'Targets' }).evaluate((t) => ({
+    over: t.parentElement.scrollWidth - t.parentElement.clientWidth,
+    left: t.parentElement.scrollLeft,
+    box: t.parentElement.clientWidth,
+    cols: [...t.querySelectorAll('thead th')].map((th) => `${th.textContent || 'actions'}=${th.offsetWidth}`).join(' '),
+  }));
+  if (m.over > 1 || m.left) throw new Error(`Targets table overflows by ${m.over}px (scrollLeft ${m.left}, panel ${m.box}): ${m.cols}`);
+};
 
 // name, stub options, steps, viewport height
 const SHOTS = [
   // Targets page (CRUD) and how New collection / Multiple PCs pick targets.
-  ['targets', {}, async (p) => rail(p, 'Targets')],
+  ['targets', {}, async (p) => {
+    await rail(p, 'Targets');
+    await targetsFit(p);
+  }],
   ['targets-empty', { empty: true }, async (p) => rail(p, 'Targets')],
+  // The table fits its panel down to a ~1,100 px window: no horizontal scroll, Test and
+  // the kebab in view, and a row test leaves it where it was.
+  ['targets-1100', {}, async (p) => {
+    await rail(p, 'Targets');
+    await targetsFit(p);
+  }, 800, 1100],
+  ['targets-row-test-1100', { test: 'auth_failed' }, async (p) => {
+    await rail(p, 'Targets');
+    await p.getByRole('button', { name: 'Test PC01 Production' }).click();
+    await p.getByText('PC01 Production: credentials rejected').waitFor();
+    await targetsFit(p);
+  }, 800, 1100],
   ['targets-create', {}, async (p) => {
     await rail(p, 'Targets');
     await p.getByRole('button', { name: 'Add a target' }).first().click();
@@ -79,6 +104,30 @@ const SHOTS = [
     await p.getByRole('dialog').getByRole('button', { name: 'Test connection' }).click();
     await p.getByRole('dialog').getByText('Connected to Prism Central').waitFor();
   }, 1100],
+  // Test connection outcomes in the Targets editor and as a row-test toast: rejected
+  // credentials, untrusted certificate, unreachable (failed) and an unsupported version (warning).
+  ...['auth_failed', 'untrusted_cert', 'unreachable', 'version_unsupported'].map((t) => [
+    `targets-test-${t.replace('_', '-')}`,
+    { test: t },
+    async (p) => {
+      await rail(p, 'Targets');
+      await p.getByRole('button', { name: 'PC01 Production', exact: true }).click();
+      await p.getByRole('dialog').getByRole('button', { name: 'Test connection' }).click();
+      await p.getByRole('dialog').locator('.callout.error, .callout.warn').first().waitFor();
+    },
+    1100,
+  ]),
+  ['targets-row-test-cert', { test: 'untrusted_cert' }, async (p) => {
+    await rail(p, 'Targets');
+    await p.getByRole('button', { name: 'Test PC01 Production' }).click();
+    await p.getByText('PC01 Production: certificate not trusted').waitFor();
+    await targetsFit(p);
+  }],
+  ['targets-row-test-version', { test: 'version_unsupported' }, async (p) => {
+    await rail(p, 'Targets');
+    await p.getByRole('button', { name: 'Test PC01 Production' }).click();
+    await p.getByText(/is outside the supported range/).first().waitFor();
+  }],
   ['targets-delete', {}, async (p) => {
     await rail(p, 'Targets');
     await p.getByRole('button', { name: 'Actions for PC01 Production' }).click();
@@ -209,6 +258,16 @@ const SHOTS = [
     await dlg.getByText('Prism Central pc.2024.3').waitFor();
     for (const f of [/Excel/, /PDF/, /Word/]) await dlg.getByRole('checkbox', { name: f }).check();
   }, 1180],
+  // "Show in Explorer" on Windows, "Show in folder" on Linux (macOS: "Show in Finder").
+  ...['win32', 'linux'].map((platform) => [
+    `export-${platform}`,
+    { platform },
+    async (p) => {
+      await rail(p, 'Snapshots');
+      await p.getByRole('button', { name: 'Export pc01 Q4 review' }).click();
+      await p.getByRole('dialog').getByText(platform === 'win32' ? 'Show in Explorer when done' : 'Show in folder when done').waitFor();
+    },
+  ]),
   ['inventory-columns', {}, async (p) => {
     await rail(p, 'Inventory');
     await p.getByRole('heading', { level: 1, name: 'Clusters' }).waitFor();
@@ -236,6 +295,11 @@ const SHOTS = [
   ['multi-menu', {}, async (p) => {
     await rail(p, 'Multiple PCs');
     await p.getByRole('button', { name: 'Actions for PC01 Production' }).click();
+  }],
+  ['multi-cert', { test: 'untrusted_cert' }, async (p) => {
+    await rail(p, 'Multiple PCs');
+    await p.getByRole('button', { name: 'Test all' }).click();
+    await p.getByText('isn’t trusted').first().waitFor();
   }],
   ['compare', {}, async (p) => {
     await rail(p, 'Compare');
@@ -303,9 +367,9 @@ await mkdir(outDir, { recursive: true });
 
 let failures = 0;
 for (const theme of themes) {
-  for (const [name, opts, steps, height = 1000] of SHOTS) {
+  for (const [name, opts, steps, height = 1000, width = 1440] of SHOTS) {
     if (only && !only.includes(name)) continue;
-    const ctx = await browser.newContext({ viewport: { width: 1440, height }, deviceScaleFactor: 1, bypassCSP: true, colorScheme: theme === 'dark' ? 'dark' : 'light' });
+    const ctx = await browser.newContext({ viewport: { width, height }, deviceScaleFactor: 1, bypassCSP: true, colorScheme: theme === 'dark' ? 'dark' : 'light' });
     const page = await ctx.newPage();
     const errors = [];
     page.on('pageerror', (e) => errors.push(e.message));
