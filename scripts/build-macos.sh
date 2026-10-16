@@ -74,6 +74,10 @@ if [[ $SKIP_TESTS -eq 0 ]]; then
   npm run lint
 fi
 
+step "Third-party notices (this build's exact dependency set)"
+npm run notices
+cp "$ROOT/THIRD_PARTY_NOTICES.md" "$ROOT/core/dist/ntnxvision-sidecar/_internal/legal/"
+
 step "Build renderer + main"
 npm run build
 

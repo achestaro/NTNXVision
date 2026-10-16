@@ -7,12 +7,14 @@ import { Button, Callout, ConfirmDialog, Field, PageHeader, Panel, PanelHeader, 
 import { useSettings } from '../lib/settings';
 import { useRun } from '../lib/run';
 import { useAsync } from '../lib/useAsync';
+import { useRouter } from '../lib/router';
 import { errorMessage, fmtBytes, plural, tildify } from '../lib/format';
 
 export function SettingsView(): JSX.Element {
   const { settings, theme, accent, density, appInfo, update, error } = useSettings();
   const { dataVersion, invalidate, isRunning } = useRun();
   const toast = useToast();
+  const { navigate } = useRouter();
   const snaps = useAsync<SnapshotList>(() => window.ntnx.listSnapshots(), [dataVersion]);
   const [author, setAuthor] = useState(settings.author ?? '');
   const [confirm, setConfirm] = useState(false);
@@ -151,7 +153,11 @@ export function SettingsView(): JSX.Element {
         </Panel>
 
         <Panel aria-labelledby="about">
-          <PanelHeader id="about" title="About" />
+          <PanelHeader id="about" title="About">
+            <Button variant="ghost" size="sm" onClick={() => navigate({ screen: 'legal' })}>
+              About &amp; legal
+            </Button>
+          </PanelHeader>
           <div style={{ padding: '4px 16px 12px' }}>
             <dl>
               <div className="kv">
