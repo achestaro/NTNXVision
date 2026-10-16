@@ -3,11 +3,16 @@ name: Release
 # Builds the Windows MSI and the macOS DMG/ZIP (arm64 + x64) with the one-command build
 # scripts, smoke-tests the frozen sidecar and the packaged app on each OS, and uploads the
 # installers. Tags (v*) additionally get a draft GitHub Release with every installer.
+#
+# Runs only on pull requests into main (to catch issues before the merge), on release
+# tags, and on demand (Actions > Release > Run workflow). Pushes to feature branches
+# do not run it.
 
 on:
+  pull_request:
+    branches: ["main"]
   push:
     tags: ["v*"]
-    branches: ["feature/packaging-msi", "feature/runway-features", "feature/snapshot-transfer"]
   workflow_dispatch:
 
 permissions:
