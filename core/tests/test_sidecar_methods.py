@@ -6,6 +6,7 @@ import csv
 import io
 import shutil
 import zipfile
+from datetime import date
 from pathlib import Path
 from typing import Any
 
@@ -171,7 +172,12 @@ def test_compare_and_export_comparison(two_snapshots: Any, data_dir: Path) -> No
     assert sum(r["count"] for r in result["changes"] if r["kind"] == "added") == 36
     xlsx = sc._m_export_comparison(None, {"baseline": a, "current": b, "format": "excel",
                                           "export_dir": str(data_dir / "exp")})
-    assert Path(xlsx["path"]).name == "changes-pc01-week1-to-pc01-week2.xlsx"
+    day = date.today().isoformat()
+    assert Path(xlsx["path"]).name == f"changes-pc01-week1-to-pc01-week2-{day}.xlsx"
+    again = sc._m_export_comparison(None, {"baseline": a, "current": b, "format": "excel",
+                                           "export_dir": str(data_dir / "exp"),
+                                           "file_prefix": "ACME: Q4/"})
+    assert Path(again["path"]).name == f"ACME_ Q4-changes-pc01-week1-to-pc01-week2-{day}.xlsx"
     out = sc._m_export_comparison(None, {"baseline": a, "current": b, "format": "csv",
                                          "export_dir": str(data_dir / "exp")})
     rows = list(csv.reader(io.StringIO(Path(out["path"]).read_text(encoding="utf-8"))))
