@@ -3,12 +3,17 @@
 
 import React, { useState } from 'react';
 import type { Accent, Density, SnapshotList, ThemeMode } from '@shared/ipc';
+import { DEFAULT_VCPU_RATIO } from '@shared/ipc';
 import { Button, Callout, ConfirmDialog, Field, PageHeader, Panel, PanelHeader, Segmented, useToast } from '../components';
 import { useSettings } from '../lib/settings';
 import { useRun } from '../lib/run';
 import { useAsync } from '../lib/useAsync';
 import { useRouter } from '../lib/router';
-import { NA, errorMessage, fmtBytes, plural, tildify } from '../lib/format';
+import { NA, errorMessage, fmtBytes, fmtRatio, plural, tildify } from '../lib/format';
+
+// Bounds for the vCPU:pCPU target (the core accepts 0.1 to 64 and falls back to 4).
+const MIN_RATIO = 1;
+const MAX_RATIO = 32;
 
 export function SettingsView(): JSX.Element {
   const { settings, theme, accent, density, appInfo, update, error } = useSettings();
@@ -17,6 +22,9 @@ export function SettingsView(): JSX.Element {
   const { navigate } = useRouter();
   const snaps = useAsync<SnapshotList>(() => window.ntnx.listSnapshots(), [dataVersion]);
   const [author, setAuthor] = useState(settings.author ?? '');
+  const savedRatio = settings.vcpuRatio ?? DEFAULT_VCPU_RATIO;
+  const [ratio, setRatio] = useState(String(savedRatio));
+  const [ratioError, setRatioError] = useState<string | null>(null);
   const [confirm, setConfirm] = useState(false);
   const [typed, setTyped] = useState('');
   const [busy, setBusy] = useState(false);
@@ -29,6 +37,20 @@ export function SettingsView(): JSX.Element {
     if (d) {
       await update({ exportDir: d });
       toast.show({ tone: 'ok', title: 'Save location updated', detail: tildify(d) });
+    }
+  };
+
+  const saveRatio = async () => {
+    const value = Number(ratio);
+    if (!ratio.trim() || !Number.isFinite(value) || value < MIN_RATIO || value > MAX_RATIO) {
+      setRatioError(`Enter a number from ${MIN_RATIO} to ${MAX_RATIO}.`);
+      return;
+    }
+    setRatioError(null);
+    const rounded = Math.round(value * 100) / 100;
+    if (rounded !== savedRatio) {
+      await update({ vcpuRatio: rounded });
+      toast.show({ tone: 'ok', title: 'Capacity target updated', detail: `${fmtRatio(rounded)} vCPU:pCPU` });
     }
   };
 
@@ -147,6 +169,25 @@ export function SettingsView(): JSX.Element {
                 placeholder="Your name"
                 onChange={(e) => setAuthor(e.target.value)}
                 onBlur={() => author !== (settings.author ?? '') && void update({ author })}
+              />
+            </Field>
+            <Field
+              id="set-vcpu-ratio"
+              label="vCPU:pCPU target (vCPUs per physical core)"
+              hint={`Each cluster's vCPU Total is its usable cores x ${fmtRatio(savedRatio)}, in the Inventory and in reports (which record the value). Oversubscription ratios do not depend on it.`}
+              error={ratioError}
+            >
+              <input
+                className="input mono"
+                style={{ maxWidth: 120 }}
+                type="number"
+                inputMode="decimal"
+                min={MIN_RATIO}
+                max={MAX_RATIO}
+                step={0.5}
+                value={ratio}
+                onChange={(e) => setRatio(e.target.value)}
+                onBlur={() => void saveRatio()}
               />
             </Field>
           </div>

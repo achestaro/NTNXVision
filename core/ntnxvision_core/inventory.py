@@ -12,6 +12,7 @@ import threading
 from collections import OrderedDict
 from typing import Any
 
+from ntnxvision_core.capacity import coerce_ratio
 from ntnxvision_core.exporters.tables import (
     INVENTORY_TYPES,
     SPECS,
@@ -21,7 +22,7 @@ from ntnxvision_core.exporters.tables import (
     joined,
 )
 from ntnxvision_core.models import Environment
-from ntnxvision_core.numfmt import NA, PLAIN_HEADERS, fmt_count
+from ntnxvision_core.numfmt import NA, PLAIN_HEADERS, fmt_count, fmt_ratio
 
 GIB = 1024**3
 TIB = 1024**4
@@ -48,6 +49,8 @@ def display(col: Col, raw: Any) -> str | None:
         return None
     if col.kind == "bytes":
         return fmt_bytes(raw)
+    if col.kind == "ratio":
+        return fmt_ratio(raw)
     if col.cell is not None:
         cell = col.cell(raw)
         if isinstance(cell, dict):
@@ -98,7 +101,7 @@ class _Index:
                 value = raw[c.key]
                 if c.cell is not None:
                     cells[c.key] = c.cell(value)
-                elif c.kind in ("number", "bytes"):
+                elif c.kind in ("number", "bytes", "ratio"):
                     cells[c.key] = value if isinstance(value, (int, float)) else None
                 elif isinstance(value, bool):
                     cells[c.key] = "Yes" if value else "No"
@@ -158,33 +161,36 @@ class InventoryService:
     """Holds the per-snapshot indexes. Thread-safe; bounded."""
 
     def __init__(self, capacity: int = 24) -> None:
-        self._indexes: OrderedDict[tuple[int, str], _Index] = OrderedDict()
-        self._ctx: OrderedDict[int, Ctx] = OrderedDict()
+        self._indexes: OrderedDict[tuple[int, str, float], _Index] = OrderedDict()
+        self._ctx: OrderedDict[tuple[int, float], Ctx] = OrderedDict()
         self._lock = threading.Lock()
         self.capacity = capacity
 
-    def ctx(self, env: Environment) -> Ctx:
+    def ctx(self, env: Environment, vcpu_ratio: Any = None) -> Ctx:
+        ratio = coerce_ratio(vcpu_ratio)
+        key = (id(env), ratio)
         with self._lock:
-            ctx = self._ctx.get(id(env))
+            ctx = self._ctx.get(key)
             if ctx is not None and ctx.env is env:
                 return ctx
-        ctx = Ctx(env)
+        ctx = Ctx(env, ratio)
         with self._lock:
-            self._ctx[id(env)] = ctx
+            self._ctx[key] = ctx
             while len(self._ctx) > 8:
                 self._ctx.popitem(last=False)
         return ctx
 
-    def index(self, env: Environment, object_type: str) -> _Index:
+    def index(self, env: Environment, object_type: str, vcpu_ratio: Any = None) -> _Index:
         spec = SPECS.get(object_type)
         if spec is None:
             raise KeyError(f"Unknown object type: {object_type}")
-        key = (id(env), object_type)
+        ratio = coerce_ratio(vcpu_ratio)
+        key = (id(env), object_type, ratio)
         with self._lock:
             idx = self._indexes.get(key)
         if idx is not None and idx.env is env:
             return idx
-        idx = _Index(spec, env, self.ctx(env))
+        idx = _Index(spec, env, self.ctx(env, ratio))
         with self._lock:
             self._indexes[key] = idx
             self._indexes.move_to_end(key)
@@ -206,10 +212,11 @@ class InventoryService:
         filter_: dict[str, Any] | None = None,
         sort: dict[str, Any] | None = None,
         page: dict[str, Any] | None = None,
+        vcpu_ratio: Any = None,
     ) -> dict[str, Any]:
         if object_type not in SPECS:
             object_type = "vms"
-        idx = self.index(env, object_type)
+        idx = self.index(env, object_type, vcpu_ratio)
         spec = idx.spec
         filter_ = filter_ or {}
         text = str(filter_.get("text") or "").strip().lower()
@@ -249,12 +256,13 @@ class InventoryService:
             "facets": idx.facets,
         }
 
-    def detail(self, env: Environment, object_type: str, object_id: str) -> dict[str, Any]:
-        idx = self.index(env, object_type)
+    def detail(self, env: Environment, object_type: str, object_id: str,
+               vcpu_ratio: Any = None) -> dict[str, Any]:
+        idx = self.index(env, object_type, vcpu_ratio)
         row = idx.by_id.get(object_id)
         if row is None:
             raise KeyError(f"No {idx.spec.singular.lower()} with id {object_id}")
-        return object_detail(env, idx.spec, row.obj, row.id, self.ctx(env))
+        return object_detail(env, idx.spec, row.obj, row.id, self.ctx(env, vcpu_ratio))
 
 
 def _column(c: Col) -> dict[str, Any]:
@@ -341,6 +349,18 @@ def _generic_fields(spec: TableSpec, obj: Any, ctx: Ctx) -> list[dict[str, Any]]
         fields.append({"label": _clean_label(label), "value": value,
                        "mono": c.kind in ("mono", "number", "bytes") or c.key in ("uuid",)})
     return fields
+
+
+def _field_cols(spec: TableSpec) -> list[Col]:
+    """The columns `_generic_fields` turns into fields, in the same order."""
+    out, seen = [], set()
+    for c in spec.cols:
+        label = c.label or c.header or c.key
+        if label in seen or c.kind == "name" or c.key in ("name", "ip_ui"):
+            continue
+        seen.add(label)
+        out.append(c)
+    return out
 
 
 def _clean_label(label: str) -> str:
@@ -433,19 +453,75 @@ def _host_detail(env: Environment, h: Any, ctx: Ctx) -> dict[str, Any]:
     return out
 
 
+#: Cluster columns the detail pane replaces with its own "Capacity" fields.
+_CAPACITY_KEYS = frozenset({"cpu_ratio", "cpu_ratio_n1", "vcpu_total", "vcpu_total_n1",
+                            "storage_ratio", "storage_ratio_n1", "storage_total",
+                            "storage_total_n1"})
+
+
+def _with_n1(full: str, n1: str | None) -> str:
+    return f"{full} · N-1 {n1 or NA}"
+
+
+def capacity_fields(cap: Any) -> list[dict[str, Any]]:
+    """The cluster detail pane's capacity block: short values, N-1 after a "·"."""
+    if cap is None:
+        return []
+
+    def count(v: Any) -> str:
+        return NA if v is None else fmt_count(int(round(v)))
+
+    def n1(full: str, value: Any, text: str) -> str:
+        return _with_n1(full, text if value is not None else None)
+
+    return [
+        {"label": "Usable cores", "value": (
+            f"{count(cap.usable_cores)} of {count(cap.physical_cores)}"
+            if cap.usable_cores is not None else NA), "mono": True},
+        {"label": "CVM vCPUs", "value": count(cap.cvm_vcpus), "mono": True},
+        {"label": "Target ratio", "value": fmt_ratio(cap.target_ratio), "mono": True},
+        {"label": "vCPU Total",
+         "value": n1(count(cap.vcpu_total), cap.vcpu_total_n1, count(cap.vcpu_total_n1)),
+         "mono": True},
+        {"label": "vCPU allocated", "value": f"{fmt_count(cap.provisioned_vcpus)} · "
+                                             f"{fmt_count(cap.provisioned_vcpus_on)} on",
+         "mono": True},
+        {"label": "vCPU:pCore", "value": n1(fmt_ratio(cap.cpu_ratio), cap.cpu_ratio_n1,
+                                            fmt_ratio(cap.cpu_ratio_n1)), "mono": True},
+        {"label": "vCPU:pCore (on)", "value": fmt_ratio(cap.cpu_ratio_on), "mono": True},
+        {"label": "Raw storage", "value": fmt_bytes(cap.raw_bytes) or NA, "mono": True},
+        {"label": f"Storage Total (RF {cap.rf or NA})", "value": n1(
+            fmt_bytes(cap.storage_total_bytes) or NA, cap.storage_total_n1_bytes,
+            fmt_bytes(cap.storage_total_n1_bytes) or NA), "mono": True},
+        {"label": "Provisioned disk", "value": fmt_bytes(cap.provisioned_disk_bytes) or "0 GB",
+         "mono": True},
+        {"label": "Storage ratio", "value": n1(fmt_ratio(cap.storage_ratio),
+                                               cap.storage_ratio_n1,
+                                               fmt_ratio(cap.storage_ratio_n1)), "mono": True},
+    ]
+
+
 def _cluster_detail(env: Environment, c: Any, ctx: Ctx) -> dict[str, Any]:
-    fields = _generic_fields(SPECS["clusters"], c, ctx)
+    fields = [f for f, col in zip(
+        _generic_fields(SPECS["clusters"], c, ctx), _field_cols(SPECS["clusters"]),
+        strict=True) if col.key not in _CAPACITY_KEYS]
     ctrs = [s for s in env.storage_containers if s.cluster_uuid == c.uuid
             or (not s.cluster_uuid and s.cluster_name == c.name)]
-    cap = sum(s.max_capacity_bytes or 0 for s in ctrs)
+    # Containers share the cluster's storage pool and each reports it as its ceiling.
+    cap = max((s.max_capacity_bytes or 0 for s in ctrs), default=0)
     used = sum(s.used_bytes or 0 for s in ctrs)
     fields.insert(3, {"label": "Storage", "value": f"{fmt_bytes(cap) or NA} · "
                                                    f"{round(100 * used / cap) if cap else 0}% used",
                       "mono": True})
     fields.insert(4, {"label": "Containers", "value": fmt_count(len(ctrs)), "mono": True})
+    capacity = ctx.capacity(c)
+    fields += capacity_fields(capacity)
     notes = []
     if c.encryption_enabled is False:
         notes.append({"tone": "warn", "text": "Data-at-rest encryption is off."})
+    for text in (capacity.notes if capacity is not None else []):
+        tone = "warn" if ("exceed" in text or "thin provisioning" in text) else "idle"
+        notes.append({"tone": tone, "text": text})
     return {"fields": fields, "status": {"tone": "ok", "label": "Collected"},
             "context": c.aos_version and f"AOS {c.aos_version}", "notes": notes,
             "prism_url": _prism_url(env, c, "clusters")}

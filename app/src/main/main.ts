@@ -155,6 +155,11 @@ ipcMain.handle(IPC.getAppInfo, (): AppInfo => ({
 
 registerLegalHandlers();
 
+/** The configured vCPU:pCPU target for the capacity figures (the sidecar defaults it). */
+function vcpuRatio(): number | undefined {
+  return store.getSettings().vcpuRatio;
+}
+
 ipcMain.handle(IPC.testConnection, async (_e, req: TestConnectionRequest) => {
   const password = await resolvePassword(req.host, req.username, req.password);
   return sidecar.call('test_connection', {
@@ -198,6 +203,7 @@ ipcMain.handle(IPC.startCollection, async (_e, req: CollectionRequest) => {
     formats: req.formats,
     export_dir: req.exportDir || store.getSettings().exportDir,
     ndb: req.mode === 'prism_central' ? req.ndb : undefined,
+    vcpu_ratio: vcpuRatio(),
   });
   legacyRuns.set(id, runId);
   promise
@@ -233,6 +239,7 @@ ipcMain.handle(IPC.startMultiCollection, async (_e, req: MultiCollectionRequest)
     export_dir: req.exportDir || store.getSettings().exportDir,
     combine: req.combine,
     combined_name: req.combinedName,
+    vcpu_ratio: vcpuRatio(),
   });
   legacyRuns.set(id, runId);
   promise
@@ -275,11 +282,17 @@ ipcMain.handle(
       filter: { text: filter?.text ?? '', facets: filter?.facets ?? {} },
       sort,
       page,
+      vcpu_ratio: vcpuRatio(),
     }),
 );
 
 ipcMain.handle(IPC.getObjectDetail, (_e, snapshotPath: string, objectType: string, id: string) =>
-  sidecar.call('get_object_detail', { snapshot: snapshotPath, object_type: objectType, id }),
+  sidecar.call('get_object_detail', {
+    snapshot: snapshotPath,
+    object_type: objectType,
+    id,
+    vcpu_ratio: vcpuRatio(),
+  }),
 );
 
 ipcMain.handle(IPC.compareSnapshots, (_e, baseline: string, current: string) =>
@@ -308,6 +321,7 @@ ipcMain.handle(IPC.exportSnapshot, (_e, req: ExportRequest) =>
           author: req.word.author ?? '',
         }
       : undefined,
+    vcpu_ratio: req.vcpuRatio ?? vcpuRatio(),
   }),
 );
 

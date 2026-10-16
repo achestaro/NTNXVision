@@ -56,6 +56,37 @@ class ClusterSpec:
     vms: int
     aos: str
     model: str = "NX-8155-G9"
+    #: A second node model for the upper half of the nodes: a heterogeneous cluster
+    #: (an expansion with a newer generation), which the capacity math must sum per node.
+    mixed_model: str | None = None
+
+
+@dataclass(frozen=True)
+class NodeModel:
+    """Hardware of one node model: what the capacity figures are computed from."""
+
+    cpu_model: str
+    sockets: int
+    cores_per_socket: int
+    #: The Controller VM's vCPU allocation on this model.
+    cvm_vcpus: int
+    #: Physical data disks: (count, size in bytes, tier). Decimal TB, as disks are sold.
+    disks: tuple[tuple[int, int, str], ...]
+
+
+_TB = 10**12
+
+#: Node hardware per block model (realistic, not vendor-exact).
+NODE_MODELS: dict[str, NodeModel] = {
+    "NX-8155-G9": NodeModel("Intel(R) Xeon(R) Gold 6438Y+", 2, 32, 12,
+                            ((10, int(3.84 * _TB), "SSD"),)),
+    "NX-8170-G9": NodeModel("Intel(R) Xeon(R) Platinum 8468", 2, 48, 16,
+                            ((12, int(7.68 * _TB), "NVMe"),)),
+    "NX-3170-G8": NodeModel("Intel(R) Xeon(R) Gold 6342", 2, 24, 12,
+                            ((6, int(3.84 * _TB), "SSD"),)),
+    "NX-1175S-G8": NodeModel("Intel(R) Xeon(R) Gold 6338N", 1, 32, 8,
+                             ((4, int(1.92 * _TB), "SSD"),)),
+}
 
 
 @dataclass
@@ -83,24 +114,26 @@ PROFILES: dict[str, list[ClusterSpec]] = {
     "tiny": [ClusterSpec("LAB-01", "AHV", 3, 40, "7.0", "NX-1175S-G8")],
     "medium": [
         ClusterSpec("PHX-PROD-01", "AHV", 8, 342, "6.10.1"),
-        ClusterSpec("PHX-PROD-02", "AHV", 12, 612, "7.0"),
+        ClusterSpec("PHX-PROD-02", "AHV", 12, 612, "7.0", mixed_model="NX-8170-G9"),
         ClusterSpec("PHX-DR-01", "AHV", 6, 212, "7.0", "NX-3170-G8"),
         ClusterSpec("AMS-EDGE-02", "ESXi", 2, 48, "6.10", "NX-1175S-G8"),
     ],
     "small": [
-        ClusterSpec("SEA-PROD-01", "AHV", 10, 820, "7.3"),
+        ClusterSpec("SEA-PROD-01", "AHV", 10, 820, "7.3", "NX-8170-G9"),
         ClusterSpec("SEA-PROD-02", "AHV", 10, 610, "7.3"),
         ClusterSpec("SEA-VDI-01", "AHV", 7, 160, "7.3", "NX-3170-G8"),
+        # A single-node remote office cluster: no N-1 capacity.
+        ClusterSpec("SEA-ROBO-01", "AHV", 1, 18, "7.3", "NX-1175S-G8"),
     ],
     "legacy": [
-        ClusterSpec("DAL-PROD-01", "AHV", 6, 420, "6.8"),
+        ClusterSpec("DAL-PROD-01", "AHV", 6, 420, "6.8", "NX-8170-G9"),
         ClusterSpec("DAL-EDGE-01", "AHV", 3, 90, "6.5", "NX-1175S-G8"),
     ],
     # One Prism Central's share of the 20 000-VM estate (three of these, see profiles.py).
     "large": [
         ClusterSpec("PROD-A", "AHV", 16, 1800, "7.0"),
         ClusterSpec("PROD-B", "AHV", 16, 1800, "7.0"),
-        ClusterSpec("PROD-C", "AHV", 14, 1500, "6.10.1"),
+        ClusterSpec("PROD-C", "AHV", 14, 1500, "6.10.1", mixed_model="NX-8170-G9"),
         ClusterSpec("VDI-A", "AHV", 12, 1000, "7.0", "NX-3170-G8"),
         ClusterSpec("EDGE-A", "ESXi", 6, 567, "6.10", "NX-1175S-G8"),
     ],
@@ -141,8 +174,6 @@ _GUEST_ID = {
     "Debian 12": "linux:64:Debian-12", "CentOS 7": "linux:64:CentOS-7",
 }
 
-_CPU_MODELS = ["Intel(R) Xeon(R) Gold 6438Y+", "Intel(R) Xeon(R) Gold 6342",
-               "AMD EPYC 9354 32-Core Processor"]
 
 
 # ─── estate containers ─────────────────────────────────────────────────
@@ -215,6 +246,7 @@ class PeEstate:
     containers: list[dict[str, Any]] = field(default_factory=list)
     subnets: list[dict[str, Any]] = field(default_factory=list)
     vms: list[dict[str, Any]] = field(default_factory=list)
+    cvms: list[dict[str, Any]] = field(default_factory=list)
 
 
 @dataclass
@@ -309,8 +341,15 @@ def _clusters_and_hosts(est: PcEstate, specs: list[ClusterSpec]) -> None:
             hname = f"{spec.name.lower()}-n{n}"
             hr = rng(seed, "host", hname)
             serial = f"{spec.name[:3].upper()}{ci:01d}{n:02d}{hr.randint(1000, 9999)}"
-            sockets = 2
-            cores = hr.choice([16, 24, 32]) * sockets
+            # Nodes past the original half of a mixed cluster are the newer model; the
+            # expansion nodes a later epoch adds are, too.
+            block_model = (spec.mixed_model if spec.mixed_model and n > spec.nodes // 2
+                           else spec.model)
+            hw = NODE_MODELS[block_model]
+            sockets = hw.sockets
+            cores = hw.sockets * hw.cores_per_socket
+            disks = [{"size": size, "tier": tier}
+                     for count, size, tier in hw.disks for _ in range(count)]
             hv_version = (
                 "Nutanix 20230302.101026" if spec.hypervisor == "AHV"
                 else "VMware ESXi 8.0.2 build-22380479"
@@ -322,14 +361,16 @@ def _clusters_and_hosts(est: PcEstate, specs: list[ClusterSpec]) -> None:
                 "cluster_name": spec.name,
                 "hypervisor": spec.hypervisor,
                 "hv_version": hv_version,
-                "cpu_model": hr.choice(_CPU_MODELS),
+                "cpu_model": hw.cpu_model,
                 "sockets": sockets,
                 "cores": cores,
                 "threads": cores * 2,
                 "freq_hz": 2_600_000_000,
                 "memory": hr.choice([512, 768, 1024]) * GIB,
+                "disks": disks,
+                "storage_raw": sum(d["size"] for d in disks),
                 "block_serial": f"{serial[:-2]}XX",
-                "block_model": spec.model,
+                "block_model": block_model,
                 "serial": serial,
                 "ipmi_ip": f"10.{20 + ci}.9.{n}",
                 "cvm_ip": f"10.{20 + ci}.0.{30 + n}",
@@ -344,7 +385,7 @@ def _clusters_and_hosts(est: PcEstate, specs: list[ClusterSpec]) -> None:
                 "cluster_name": spec.name,
                 "host_name": hname,
                 "memory": 48 * GIB,
-                "vcpus": 12,
+                "vcpus": hw.cvm_vcpus,
                 "ip": f"10.{20 + ci}.0.{30 + n}",
                 "hypervisor": spec.hypervisor,
             })
@@ -426,11 +467,13 @@ def _storage(est: PcEstate) -> None:
         for name in names:
             full = f"{c['name'].lower()}-{name}" if name != "NutanixManagementShare" else name
             r = rng(seed, "container", c["name"], name)
-            raw = c["nodes"] * r.choice([8, 12, 16]) * TIB
-            usable = raw // (c["rf"])
+            # Every container's ceiling is the cluster's shared storage pool.
+            raw = sum(h["storage_raw"] for h in est.hosts if h["cluster_uuid"] == c["uuid"])
+            usable = int(raw * 0.95) // (c["rf"])
             if name == "NutanixManagementShare":
-                usable = 4 * TIB
-            used = int(usable * r.uniform(0.15, 0.62))
+                usable = min(4 * TIB, usable)
+            # The containers share the pool, so each uses a slice of it.
+            used = int(usable * r.uniform(0.08, 0.2))
             est.containers.append({
                 "uuid": uid(seed, "container", c["name"], name),
                 "name": full,
@@ -978,7 +1021,7 @@ def build_pe_estate(
     cluster["name"] = cluster_name
     return PeEstate(host=host, version=version, seed=seed, epoch=epoch, cluster=cluster,
                     hosts=est.hosts, containers=est.containers, subnets=est.subnets,
-                    vms=est.vms)
+                    vms=est.vms, cvms=est.cvms)
 
 
 # ─── NDB estate ────────────────────────────────────────────────────────
