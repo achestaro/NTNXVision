@@ -28,11 +28,13 @@ import { useRouter } from '../lib/router';
 import { useRun } from '../lib/run';
 import { NA, defaultSnapshotName, errorMessage, fmtAbs, fmtCount, fmtRel } from '../lib/format';
 import { useExportDialog } from './ExportDialog';
+import { ImportedBadge, useSnapshotTransfer } from './SnapshotTransfer';
 
 export function OverviewView(): JSX.Element {
   const { navigate } = useRouter();
   const { dataVersion } = useRun();
   const exportDialog = useExportDialog();
+  const transfer = useSnapshotTransfer();
   const overview = useAsync<OverviewResult>(() => window.ntnx.getOverview(), [dataVersion]);
   const connections = useAsync<SavedConnection[]>(() => window.ntnx.listConnections(), [dataVersion]);
 
@@ -90,6 +92,7 @@ export function OverviewView(): JSX.Element {
             illustration="no-recovery-point-created"
             title="No snapshots yet"
             description="Collect a Prism Central or a single cluster once. The inventory, reports and comparisons then work offline."
+            secondary={<Button onClick={() => transfer.importFiles()}>Import a snapshot file</Button>}
             action={startButton}
           />
         </Panel>
@@ -196,9 +199,12 @@ function RecentTable({ rows, latest, baseline }: { rows: SnapshotInfo[]; latest:
           header: 'Name',
           className: 'nm',
           render: (s) => (
-            <button type="button" className="lnk" onClick={() => open(s)}>
-              {s.name}
-            </button>
+            <>
+              <button type="button" className="lnk" onClick={() => open(s)}>
+                {s.name}
+              </button>
+              <ImportedBadge provenance={s.imported} />
+            </>
           ),
         },
         { key: 'source', header: 'Source', render: (s) => sourceLabel(s) },

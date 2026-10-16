@@ -101,6 +101,15 @@
       }
     ],
     "afterSign": "build/notarize.js",
+    "fileAssociations": [
+      {
+        "ext": "ntnxsnap",
+        "name": "NTNXVision snapshot",
+        "description": "NTNXVision snapshot file",
+        "role": "Editor",
+        "rank": "Owner"
+      }
+    ],
     "win": {
       "target": [
         {

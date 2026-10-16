@@ -7,7 +7,7 @@ name: Release
 on:
   push:
     tags: ["v*"]
-    branches: ["feature/packaging-msi", "feature/runway-features"]
+    branches: ["feature/packaging-msi", "feature/runway-features", "feature/snapshot-transfer"]
   workflow_dispatch:
 
 permissions:
@@ -55,6 +55,55 @@ jobs:
         env:
           NTNXVISION_PYTHON: python
         run: npm run notices:check
+
+  # Portable snapshot files must open on the other OS: export a demo snapshot (plain and
+  # encrypted) on macOS and on Windows, then import each on the other one.
+  snapshot-export:
+    name: Snapshot file export (${{ matrix.os }})
+    needs: checks
+    strategy:
+      matrix:
+        os: [macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: core/pyproject.toml
+      - run: python -m pip install -e core
+      - run: python scripts/snapshot-roundtrip.py export snapshot-out
+      - uses: actions/upload-artifact@v4
+        with:
+          name: snapshot-${{ runner.os }}
+          path: snapshot-out/
+          if-no-files-found: error
+          retention-days: 3
+
+  snapshot-import:
+    name: Snapshot file import (${{ matrix.from }} file on ${{ matrix.os }})
+    needs: snapshot-export
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: windows-latest, from: macOS, platform: macos }
+          - { os: macos-latest, from: Windows, platform: windows }
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: core/pyproject.toml
+      - run: python -m pip install -e core
+      - uses: actions/download-artifact@v4
+        with:
+          name: snapshot-${{ matrix.from }}
+          path: snapshot-in
+      - run: python scripts/snapshot-roundtrip.py import snapshot-in --expect-platform ${{ matrix.platform }}
 
   build:
     name: Package (${{ matrix.name }})

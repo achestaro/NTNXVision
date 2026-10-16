@@ -2,7 +2,7 @@
 // contextBridge. The renderer has no direct Node/Electron access. The object literal is
 // checked against NtnxApi so a channel added to the contract can't be forgotten here.
 
-import { contextBridge, ipcRenderer } from 'electron';
+import { contextBridge, ipcRenderer, webUtils } from 'electron';
 import {
   AppSettings,
   CollectionRequest,
@@ -11,6 +11,7 @@ import {
   ExportRequest,
   FileFilter,
   IPC,
+  ImportConflictChoice,
   InventoryFilter,
   InventoryPage,
   InventorySort,
@@ -19,6 +20,8 @@ import {
   Platform,
   RunFinishedEvent,
   RunProgressEvent,
+  SnapshotFileExportRequest,
+  SnapshotFilesExportRequest,
   TestConnectionRequest,
 } from '../shared/ipc';
 
@@ -64,12 +67,23 @@ const api: NtnxApi = {
     ipcRenderer.invoke(IPC.renameSnapshot, path, newName),
   deleteSnapshot: (path: string) => ipcRenderer.invoke(IPC.deleteSnapshot, path),
   clearSnapshots: () => ipcRenderer.invoke(IPC.clearSnapshots),
+  exportSnapshotFile: (req: SnapshotFileExportRequest) => ipcRenderer.invoke(IPC.exportSnapshotFile, req),
+  exportSnapshotFiles: (req: SnapshotFilesExportRequest) => ipcRenderer.invoke(IPC.exportSnapshotFiles, req),
+  inspectSnapshotFile: (path: string, password?: string) =>
+    ipcRenderer.invoke(IPC.inspectSnapshotFile, path, password),
+  importSnapshotFile: (path: string, onConflict: ImportConflictChoice, password?: string) =>
+    ipcRenderer.invoke(IPC.importSnapshotFile, path, onConflict, password),
 
   revealPath: (path: string) => ipcRenderer.invoke(IPC.revealPath, path),
   openPath: (path: string) => ipcRenderer.invoke(IPC.openPath, path),
   openExternal: (url: string) => ipcRenderer.invoke(IPC.openExternal, url),
-  chooseDirectory: () => ipcRenderer.invoke(IPC.chooseDirectory),
+  chooseDirectory: (title?: string) => ipcRenderer.invoke(IPC.chooseDirectory, title),
   chooseFile: (filters: FileFilter[]) => ipcRenderer.invoke(IPC.chooseFile, filters),
+  chooseSnapshotSavePath: (defaultName: string) => ipcRenderer.invoke(IPC.chooseSnapshotSavePath, defaultName),
+  chooseSnapshotFiles: () => ipcRenderer.invoke(IPC.chooseSnapshotFiles),
+  pathForFile: (file: File) => webUtils.getPathForFile(file),
+  takePendingSnapshotFiles: () => ipcRenderer.invoke(IPC.takePendingSnapshotFiles),
+  onOpenSnapshotFiles: (cb: (paths: string[]) => void) => subscribe(IPC.openSnapshotFiles, cb),
 
   listConnections: () => ipcRenderer.invoke(IPC.listConnections),
   saveConnection: (profile: ConnectionProfile) => ipcRenderer.invoke(IPC.saveConnection, profile),

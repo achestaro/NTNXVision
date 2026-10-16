@@ -10,6 +10,7 @@ import { CommandPalette } from './shell/CommandPalette';
 import { ShortcutsPopover } from './shell/ShortcutsPopover';
 import { ALL_NAV } from './shell/nav';
 import { ExportDialogProvider } from './views/ExportDialog';
+import { SnapshotTransferProvider } from './views/SnapshotTransfer';
 import { OverviewView } from './views/OverviewView';
 import { NewCollectionView } from './views/NewCollectionView';
 import { CollectingView } from './views/CollectingView';
@@ -28,7 +29,9 @@ export function App(): JSX.Element {
         <ToastProvider>
           <RunProvider>
             <ExportDialogProvider>
-              <Shell />
+              <SnapshotTransferProvider>
+                <Shell />
+              </SnapshotTransferProvider>
             </ExportDialogProvider>
           </RunProvider>
         </ToastProvider>
