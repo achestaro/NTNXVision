@@ -40,6 +40,7 @@ import { useAsync } from '../lib/useAsync';
 import { useRouter } from '../lib/router';
 import { useRun } from '../lib/run';
 import { NA, errorMessage, fmtAbs, fmtBytes, fmtCount } from '../lib/format';
+import { useSnapshotTransfer } from './SnapshotTransfer';
 
 const PAGE = 25;
 
@@ -69,6 +70,7 @@ export function InventoryView({
   const { navigate } = useRouter();
   const { dataVersion } = useRun();
   const toast = useToast();
+  const transfer = useSnapshotTransfer();
   const list = useAsync<SnapshotList>(() => window.ntnx.listSnapshots(), [dataVersion]);
   const [path, setPath] = useState<string | undefined>(snapshotProp);
   const [type, setType] = useState(typeProp ?? 'vms');
@@ -148,6 +150,7 @@ export function InventoryView({
             illustration="no-files"
             title="No snapshots to browse"
             description="Inventory reads saved snapshots, so it works offline. Collect once to fill it."
+            secondary={<Button onClick={() => transfer.importFiles()}>Import a snapshot file</Button>}
             action={
               <Button variant="primary" onClick={() => navigate({ screen: 'new' })}>
                 Start collection

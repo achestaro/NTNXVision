@@ -102,6 +102,19 @@ def main() -> int:
                         print(f"FAIL: {fmt} export is empty: {p}")
                         return 1
                     print(f"ok   export {fmt:<5} -> {Path(p).name} ({size} bytes)")
+                # Encrypted .ntnxsnap round trip: proves `cryptography` (AES-GCM, scrypt)
+                # was frozen with its native library.
+                snap_file = home / "smoke.ntnxsnap"
+                rpc(proc, 4, "export_snapshot_file", {"snapshot": "smoke.ntnxsnap.json",
+                                                      "dest_path": str(snap_file),
+                                                      "password": "smoke"})
+                preview = rpc(proc, 5, "inspect_snapshot_file", {"path": str(snap_file),
+                                                                 "password": "smoke"})
+                if preview.get("locked") or preview["snapshots"][0]["name"] != "smoke":
+                    print(f"FAIL: encrypted snapshot file did not open: {preview}")
+                    return 1
+                print(f"ok   encrypted snapshot file -> {snap_file.name} "
+                      f"({snap_file.stat().st_size} bytes)")
         except Exception as exc:  # noqa: BLE001
             print(f"FAIL: {exc}")
             return 1
