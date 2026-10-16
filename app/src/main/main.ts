@@ -15,7 +15,6 @@ import {
   AreaStatus,
   CollectionRequest,
   CompareExportRequest,
-  ConnectionProfile,
   ExportRequest,
   FileFilter,
   IPC,
@@ -27,19 +26,22 @@ import {
   ListClustersRequest,
   MultiCollectionRequest,
   MultiInventoryResult,
+  NdbRequest,
   Platform,
   RunFinishedEvent,
   RunProgressEvent,
-  SavedConnection,
   SnapshotFileExportRequest,
   SnapshotFilesExportRequest,
+  TargetSaveRequest,
   TestConnectionRequest,
+  TestConnectionResult,
 } from '../shared/ipc';
 import { SidecarClient, SidecarError, CANCELLED_CODE, isDemoMode } from './sidecar';
 import { isSmokeRun, runSmoke } from './smoke';
 import * as secrets from './secrets';
 import * as store from './store';
 import { registerLegalHandlers } from './legal';
+import { matchesTarget, ndbAccount, passwordAccount, remapIds } from './targets';
 
 const isDev = !app.isPackaged;
 const demo = isDemoMode();
@@ -138,9 +140,37 @@ function runOutcomeFromError(err: unknown): Pick<RunFinishedEvent, 'outcome' | '
   };
 }
 
-async function resolvePassword(host: string, username: string, typed: string): Promise<string> {
-  if (typed) return typed;
-  return (await secrets.getPassword(host, username)) ?? '';
+/**
+ * The password for a test or a cluster listing: the typed one, else the saved target's
+ * keychain password, but only while the request is for that target's own address and
+ * username (a stored password is never sent to a host the user is still typing).
+ */
+async function endpointPassword(req: { targetId?: string; host: string; username: string; password: string }): Promise<string> {
+  if (req.password) return req.password;
+  const t = store.targets.get(req.targetId);
+  if (!t || t.host !== req.host.trim() || t.username !== req.username.trim()) return '';
+  return (await store.targets.password(t.id)) ?? '';
+}
+
+/**
+ * A run's connection: always the saved target's details, with its keychain password unless
+ * the run overrides it (never saved). Collections only run against saved targets.
+ */
+async function targetConnection(targetId: string | undefined, typed: string, ndb: NdbRequest | undefined) {
+  const t = store.targets.get(targetId);
+  if (!t) {
+    throw new Error(
+      targetId
+        ? 'That target no longer exists. Choose one on the Targets page.'
+        : 'Choose a saved target. Targets are added on the Targets page.',
+    );
+  }
+  const password = typed || (await store.targets.password(t.id)) || '';
+  const withNdb =
+    t.mode === 'prism_central' && t.ndbHost && ndb
+      ? { host: t.ndbHost, username: t.ndbUser || 'admin', password: ndb.password || (await store.targets.ndbPassword(t.id)) || '' }
+      : undefined;
+  return { mode: t.mode, host: t.host, username: t.username, port: t.port, insecure: t.insecure, password, ndb: withNdb };
 }
 
 // ─── IPC handlers: sidecar relays ──────────────────────────────────────
@@ -167,8 +197,8 @@ function vcpuRatio(): number | undefined {
 }
 
 ipcMain.handle(IPC.testConnection, async (_e, req: TestConnectionRequest) => {
-  const password = await resolvePassword(req.host, req.username, req.password);
-  return sidecar.call('test_connection', {
+  const password = await endpointPassword(req);
+  const result = await sidecar.call<TestConnectionResult>('test_connection', {
     mode: req.mode,
     host: req.host,
     port: req.port,
@@ -176,10 +206,14 @@ ipcMain.handle(IPC.testConnection, async (_e, req: TestConnectionRequest) => {
     password,
     insecure: req.insecure,
   });
+  // The Targets page shows each target's last test: record it when this was the target as saved.
+  const t = store.targets.get(req.targetId);
+  if (t && req.mode !== 'ndb' && matchesTarget(t, req)) store.targets.recordTest(t.id, result);
+  return result;
 });
 
 ipcMain.handle(IPC.listClusters, async (_e, req: ListClustersRequest) => {
-  const password = await resolvePassword(req.host, req.username, req.password);
+  const password = await endpointPassword(req);
   return sidecar.call('list_clusters', {
     mode: req.mode,
     host: req.host,
@@ -194,27 +228,11 @@ ipcMain.handle(IPC.getCollectionAreas, () => sidecar.call('list_areas'));
 
 ipcMain.handle(IPC.startCollection, async (_e, req: CollectionRequest) => {
   const runId = randomUUID();
-  const password = await resolvePassword(req.host, req.username, req.password);
+  const { password, ...conn } = await targetConnection(req.targetId, req.password, req.ndb);
+  req = { ...req, ...conn };
   // The cluster selection is remembered per saved target (uuids only, never credentials).
-  const clusterSelection =
-    req.mode === 'prism_central' && req.clusters && req.knownClusters
-      ? { selected: req.clusters, known: req.knownClusters }
-      : undefined;
-  if (req.saveCredentials) {
-    store.saveConnection({
-      id: '',
-      mode: req.mode,
-      host: req.host,
-      username: req.username,
-      port: req.port,
-      insecure: req.insecure,
-      name: req.targetName ?? '',
-      ndbHost: req.ndb?.host,
-      ndbUser: req.ndb?.username,
-      clusterSelection,
-    });
-  } else if (clusterSelection) {
-    store.rememberClusterSelection(req.host, req.port, req.username, clusterSelection);
+  if (req.mode === 'prism_central' && req.clusters && req.knownClusters) {
+    store.targets.rememberClusters(req.targetId!, { selected: req.clusters, known: req.knownClusters });
   }
   const method = req.mode === 'prism_element' ? 'inventory_cluster' : 'inventory';
   const { id, promise } = sidecar.callWithId<InventoryResult>(method, {
@@ -235,10 +253,7 @@ ipcMain.handle(IPC.startCollection, async (_e, req: CollectionRequest) => {
   });
   legacyRuns.set(id, runId);
   promise
-    .then(async (result) => {
-      if (req.saveCredentials && password && req.password) {
-        await secrets.setPassword(req.host, req.username, password);
-      }
+    .then((result) => {
       finishRun({ runId, outcome: 'completed', multi: false, result });
     })
     .catch((err) => finishRun({ runId, multi: false, ...runOutcomeFromError(err) }))
@@ -248,9 +263,9 @@ ipcMain.handle(IPC.startCollection, async (_e, req: CollectionRequest) => {
 
 ipcMain.handle(IPC.startMultiCollection, async (_e, req: MultiCollectionRequest) => {
   const runId = randomUUID();
-  // Resolve each target's password (typed, or fall back to the keychain).
+  // Each target's saved details and password (a typed one-run password wins).
   const resolved = await Promise.all(
-    req.targets.map(async (t) => ({ ...t, password: await resolvePassword(t.host, t.username, t.password) })),
+    req.targets.map(async (t) => ({ ...t, ...(await targetConnection(t.targetId, t.password, t.ndb)) })),
   );
   const { id, promise } = sidecar.callWithId<MultiInventoryResult>('inventory_multi', {
     run_id: runId,
@@ -272,14 +287,7 @@ ipcMain.handle(IPC.startMultiCollection, async (_e, req: MultiCollectionRequest)
   });
   legacyRuns.set(id, runId);
   promise
-    .then(async (multiResult) => {
-      if (req.saveCredentials) {
-        await Promise.all(
-          req.targets
-            .filter((t) => t.password)
-            .map((t) => secrets.setPassword(t.host, t.username, t.password)),
-        );
-      }
+    .then((multiResult) => {
       finishRun({ runId, outcome: 'completed', multi: true, multiResult });
     })
     .catch((err) => finishRun({ runId, multi: true, ...runOutcomeFromError(err) }))
@@ -511,46 +519,40 @@ ipcMain.handle(IPC.chooseFile, async (_e, filters: FileFilter[]) => {
 
 // ─── IPC handlers: connection profiles & settings ──────────────────────
 
-async function withKeychainStatus(profiles: ConnectionProfile[]): Promise<SavedConnection[]> {
-  return Promise.all(
-    profiles.map(async (p) => {
-      let hasPassword = false;
-      try {
-        hasPassword = !!(await secrets.getPassword(p.host, p.username));
-      } catch {
-        hasPassword = false;
-      }
-      return { ...p, hasPassword };
-    }),
-  );
-}
-
-ipcMain.handle(IPC.listConnections, () => withKeychainStatus(store.listConnections()));
-ipcMain.handle(IPC.saveConnection, (_e, profile: ConnectionProfile) =>
-  withKeychainStatus(store.saveConnection(profile)),
-);
-ipcMain.handle(IPC.deleteConnection, async (_e, id: string) => {
-  const removed = store.listConnections().find((p) => p.id === id);
-  const remaining = store.deleteConnection(id);
-  // Forget the keychain password too — unless another saved target still uses it.
-  if (removed && !remaining.some((p) => p.host === removed.host && p.username === removed.username)) {
-    try {
-      await secrets.deletePassword(removed.host, removed.username);
-    } catch {
-      /* keychain unavailable: nothing stored to remove */
-    }
-  }
-  return withKeychainStatus(remaining);
+ipcMain.handle(IPC.listConnections, () => store.targets.listWithStatus());
+ipcMain.handle(IPC.saveTarget, (_e, req: TargetSaveRequest) => store.targets.save(req));
+ipcMain.handle(IPC.deleteTarget, async (_e, id: string) => {
+  const remaining = await store.targets.delete(id);
+  const ids = store.getSettings().multiTargetIds;
+  if (ids?.includes(id)) store.setSettings({ multiTargetIds: ids.filter((x) => x !== id) });
+  return remaining;
 });
 ipcMain.handle(IPC.getSettings, () => store.getSettings());
 ipcMain.handle(IPC.setSettings, (_e, settings: AppSettings) => store.setSettings(settings));
+
+/**
+ * Startup: migrate saved connections to targets (once), point settings at the new ids, and
+ * move migrated passwords to their targets' own keychain entries.
+ */
+async function prepareTargets(): Promise<void> {
+  try {
+    const idMap = store.targets.migratedIds();
+    if (Object.keys(idMap).length) {
+      const known = new Set(store.targets.list().map((t) => t.id));
+      store.setSettings({ multiTargetIds: remapIds(store.getSettings().multiTargetIds, idMap, known) });
+    }
+    await store.targets.migrateSecrets();
+  } catch (err) {
+    console.error('Target migration failed:', err);
+  }
+}
 
 // ─── demo mode: prefilled data ─────────────────────────────────────────
 
 // Saved targets a fresh demo profile starts with (passwords live in the in-memory
 // demo keychain, so they are re-seeded on every launch).
 const DEMO_PASSWORD = 'demo';
-const DEMO_TARGETS: ConnectionProfile[] = [
+const DEMO_TARGETS: Omit<TargetSaveRequest, 'password'>[] = [
   { id: '', mode: 'prism_central', host: 'pc01.demo.local', username: 'admin', port: 9440, insecure: false, name: 'pc01', ndbHost: 'ndb.demo.local', ndbUser: 'admin' },
   { id: '', mode: 'prism_central', host: 'pc02.demo.local', username: 'admin', port: 9440, insecure: false, name: 'pc02' },
   { id: '', mode: 'prism_central', host: 'pc03.demo.local', username: 'admin', port: 9440, insecure: false, name: 'pc03' },
@@ -564,11 +566,13 @@ const DEMO_TARGETS: ConnectionProfile[] = [
 async function seedDemo(): Promise<void> {
   if (!demo || e2e) return;
   const isDemoHost = (h: string) => h.toLowerCase().endsWith('.demo.local');
-  if (!store.listConnections().some((p) => isDemoHost(p.host))) {
-    for (const t of [...DEMO_TARGETS].reverse()) store.saveConnection(t);
+  if (!store.targets.list().some((p) => isDemoHost(p.host))) {
+    for (const t of [...DEMO_TARGETS].reverse()) await store.targets.save({ ...t, password: DEMO_PASSWORD, ndbPassword: t.ndbHost ? DEMO_PASSWORD : undefined });
   }
-  for (const p of store.listConnections().filter((c) => isDemoHost(c.host))) {
-    await secrets.setPassword(p.host, p.username, DEMO_PASSWORD);
+  // The demo keychain lives in memory: give the demo targets their passwords again.
+  for (const p of store.targets.list().filter((c) => isDemoHost(c.host))) {
+    await secrets.setSecret(passwordAccount(p.id), DEMO_PASSWORD);
+    if (p.ndbHost && isDemoHost(p.ndbHost)) await secrets.setSecret(ndbAccount(p.id), DEMO_PASSWORD);
   }
   try {
     await sidecar.call('demo_seed', { export_dir: store.getSettings().exportDir });
@@ -600,6 +604,7 @@ app.whenReady().then(async () => {
   if (!primary) return;
   if (isSmokeRun()) return void runSmoke(sidecar); // packaging smoke test, no window
   sidecar.start();
+  await prepareTargets();
   // A first demo launch fills the profile (~5 s) before the UI loads, so it opens on data.
   await seedDemo();
   createWindow();

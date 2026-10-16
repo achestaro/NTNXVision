@@ -160,8 +160,10 @@ rule rather than assuming v4 is always available.
   the environment. `main/smoke.ts` — the packaging `--smoke` check.
 - `main/secrets.ts` — credential storage via `keytar` (Windows Credential Manager / macOS
   Keychain) — never write credentials to disk in plaintext. Demo mode and tests use an
-  in-memory store instead (`NTNXVISION_KEYCHAIN=memory`). `main/store.ts` — saved
-  connections (no passwords) and settings in `userData`.
+  in-memory store instead (`NTNXVISION_KEYCHAIN=memory`). `main/store.ts` — settings
+  in `userData`; `main/targets.ts` — saved targets (no passwords; stable ids, keychain
+  accounts `target:<id>`, one-time migration from `connections.json`; `npm test`).
+  Collections only run against saved targets, managed on the Targets page.
 - `main/preload.ts` — exposes the `window.ntnx` bridge (typed by `NtnxApi` in `shared/ipc.ts`).
 - `shared/ipc.ts` — the single source of truth for the IPC contract (channels, request/result
   types, progress events) shared between main and renderer. Update this first when adding a
@@ -170,7 +172,7 @@ rule rather than assuming v4 is always available.
 - `renderer/` — React UI on the Runway design system (mocks in `docs/design/runway-mocks/`).
   `App.tsx` + `shell/` (command bar, rail, ⌘K palette, shortcuts), `lib/` (router, run
   state from progress events, settings, formatting), `components/` (Runway primitives),
-  and `views/`: Overview, New collection, Multiple PCs, Collecting, Results, Inventory
+  and `views/`: Overview, Targets, New collection, Multiple PCs, Collecting, Results, Inventory
   (grid + detail pane), Snapshots, Compare, Settings, plus the Export dialog.
 - `scripts/` — `e2e-demo.mjs` (real app + sidecar in demo mode, Playwright `_electron`),
   `screenshot.mjs` + `stub-ntnx.js` (renderer against a stub bridge).

@@ -14,6 +14,7 @@
 // hasPassword / ndbHasPassword.
 
 import type {
+  ClusterSelection,
   ConnectionMode,
   ConnectionProfile,
   SavedConnection,
@@ -79,15 +80,19 @@ const nameKey = (name: string) => name.trim().toLocaleLowerCase();
 
 /** `base`, or `base (username)`, `base (2)`, … : the first one not in `taken`. */
 function uniqueName(base: string, username: string, taken: Set<string>): string {
-  const candidates = [base, `${base} (${username})`];
-  for (let i = 2; ; i++) {
-    const c = candidates.shift() ?? `${base} (${i})`;
-    if (!taken.has(nameKey(c))) return c;
-  }
+  for (const c of [base, `${base} (${username})`]) if (!taken.has(nameKey(c))) return c;
+  for (let i = 2; ; i++) if (!taken.has(nameKey(`${base} (${i})`))) return `${base} (${i})`;
 }
 
 function str(v: unknown): string {
   return typeof v === 'string' ? v : '';
+}
+
+/** Only uuid strings: a cluster selection never carries anything else. */
+export function cleanSelection(sel: ClusterSelection | undefined | null): ClusterSelection | undefined {
+  if (!sel || !Array.isArray(sel.selected) || !Array.isArray(sel.known)) return undefined;
+  const ids = (xs: unknown[]) => xs.filter((x): x is string => typeof x === 'string' && x.length > 0 && x.length <= 128);
+  return { selected: ids(sel.selected), known: ids(sel.known) };
 }
 
 function port(v: unknown): number {
@@ -142,6 +147,7 @@ export function migrate(current: unknown, legacy: unknown, newId: () => string, 
       username,
       insecure: !!p.insecure,
       ...(ndbHost ? { ndbHost, ndbUser: str(p.ndbUser).trim() || 'admin' } : {}),
+      ...(mode === 'prism_central' && cleanSelection(p.clusterSelection) ? { clusterSelection: cleanSelection(p.clusterSelection) } : {}),
       createdAt: now,
       updatedAt: now,
       legacySecret: true,
@@ -275,6 +281,7 @@ export class TargetStore {
       username: t.username,
       insecure: t.insecure,
       ...(t.ndbHost ? { ndbHost: t.ndbHost, ndbUser: t.ndbUser } : {}),
+      ...(t.clusterSelection ? { clusterSelection: t.clusterSelection } : {}),
       hasPassword: await has(() => this.password(t.id)),
       ndbHasPassword: t.ndbHost ? await has(() => this.ndbPassword(t.id)) : false,
       lastTest: t.lastTest ?? null,
@@ -298,27 +305,34 @@ export class TargetStore {
     const isPc = req.mode === 'prism_central';
     const ndbHost = isPc ? str(req.ndbHost).trim() : '';
     const now = this.now();
+    const host = req.host.trim();
+    // The remembered cluster selection belongs to that Prism Central: kept while it stays.
+    const clusterSelection = isPc && prev?.mode === 'prism_central' && prev.host === host ? prev.clusterSelection : undefined;
     const next: StoredTarget = {
       id,
       mode: req.mode,
       name: req.name.trim(),
-      host: req.host.trim(),
+      host,
       port: req.port,
       username: req.username.trim(),
       insecure: !!req.insecure,
       ...(ndbHost ? { ndbHost, ndbUser: str(req.ndbUser).trim() || 'admin' } : {}),
+      ...(clusterSelection ? { clusterSelection } : {}),
       createdAt: prev?.createdAt ?? now,
       updatedAt: now,
-      // A changed endpoint makes the last test stale.
-      lastTest: prev && matchesTarget(prev, next0(req)) ? prev.lastTest ?? null : null,
     };
+    // A changed endpoint makes the last test stale.
+    const lastTest = prev && matchesTarget(prev, next) ? prev.lastTest ?? null : null;
+    if (lastTest) next.lastTest = lastTest;
+    // A target still on the shared pre-targets keychain entry (its move failed at startup).
+    const oldLegacy = prev?.legacySecret ? legacyAccount(prev.host, prev.username) : null;
 
     try {
       if (req.password) {
         await this.secrets.set(passwordAccount(id), req.password);
-      } else if (prev?.legacySecret) {
-        // Not moved at startup (keychain locked?): move it now, under the old address.
-        const old = await this.secrets.get(legacyAccount(prev.host, prev.username));
+      } else if (oldLegacy) {
+        // Not moved at startup (keychain locked?): move it now, from the old address.
+        const old = await this.secrets.get(oldLegacy);
         if (old) await this.secrets.set(passwordAccount(id), old);
       }
       if (ndbHost && req.ndbPassword) await this.secrets.set(ndbAccount(id), req.ndbPassword);
@@ -331,15 +345,11 @@ export class TargetStore {
       };
     }
 
-    const wasLegacy = !!prev?.legacySecret;
-    if (prev) Object.assign(prev, next, { legacySecret: undefined });
+    if (prev) targets[targets.indexOf(prev)] = next;
     else targets.unshift(next);
-    const stored = targets.find((t) => t.id === id)!;
-    delete stored.legacySecret;
-    if (!stored.lastTest) delete stored.lastTest;
     this.persist();
-    if (wasLegacy && prev) await this.dropLegacyIfUnused(prevLegacy(prev, req, wasLegacy));
-    return { ok: true, target: await this.toSaved(stored), targets: await this.listWithStatus() };
+    await this.dropLegacyIfUnused(oldLegacy);
+    return { ok: true, target: await this.toSaved(next), targets: await this.listWithStatus() };
   }
 
   /** Delete a target and every keychain entry it owns. */
@@ -359,6 +369,15 @@ export class TargetStore {
       if (gone.legacySecret) await this.dropLegacyIfUnused(legacyAccount(gone.host, gone.username));
     }
     return this.listWithStatus();
+  }
+
+  /** Remember the cluster selection of a Prism Central target's last collection. */
+  rememberClusters(id: string, sel: ClusterSelection): void {
+    const t = this.data().targets.find((x) => x.id === id);
+    const clean = cleanSelection(sel);
+    if (!t || t.mode !== 'prism_central' || !clean) return;
+    t.clusterSelection = clean;
+    this.persist();
   }
 
   /** Remember a target's last connection test (only for the target as saved). */
@@ -407,11 +426,3 @@ export class TargetStore {
   }
 }
 
-function next0(req: TargetSaveRequest) {
-  return { mode: req.mode, host: req.host, port: req.port, username: req.username.trim(), insecure: !!req.insecure };
-}
-
-/** The legacy account an edited, still-flagged target used (it was copied on save). */
-function prevLegacy(prev: StoredTarget, _req: TargetSaveRequest, wasLegacy: boolean): string | null {
-  return wasLegacy ? null : legacyAccount(prev.host, prev.username);
-}
