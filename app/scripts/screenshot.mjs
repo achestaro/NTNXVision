@@ -54,12 +54,37 @@ const rail = async (page, name) => {
   if (name === 'New collection') await page.waitForFunction(() => document.querySelector('[data-testid="target-details"]'));
 };
 const settle = (page) => page.waitForTimeout(350);
+/** The Targets table fits its panel (no horizontal scroll); names the column widths if not. */
+const targetsFit = async (page) => {
+  const m = await page.getByRole('table', { name: 'Targets' }).evaluate((t) => ({
+    over: t.parentElement.scrollWidth - t.parentElement.clientWidth,
+    left: t.parentElement.scrollLeft,
+    box: t.parentElement.clientWidth,
+    cols: [...t.querySelectorAll('thead th')].map((th) => `${th.textContent || 'actions'}=${th.offsetWidth}`).join(' '),
+  }));
+  if (m.over > 1 || m.left) throw new Error(`Targets table overflows by ${m.over}px (scrollLeft ${m.left}, panel ${m.box}): ${m.cols}`);
+};
 
 // name, stub options, steps, viewport height
 const SHOTS = [
   // Targets page (CRUD) and how New collection / Multiple PCs pick targets.
-  ['targets', {}, async (p) => rail(p, 'Targets')],
+  ['targets', {}, async (p) => {
+    await rail(p, 'Targets');
+    await targetsFit(p);
+  }],
   ['targets-empty', { empty: true }, async (p) => rail(p, 'Targets')],
+  // The table fits its panel down to a ~1,100 px window: no horizontal scroll, Test and
+  // the kebab in view, and a row test leaves it where it was.
+  ['targets-1100', {}, async (p) => {
+    await rail(p, 'Targets');
+    await targetsFit(p);
+  }, 800, 1100],
+  ['targets-row-test-1100', { test: 'auth_failed' }, async (p) => {
+    await rail(p, 'Targets');
+    await p.getByRole('button', { name: 'Test PC01 Production' }).click();
+    await p.getByText('PC01 Production: credentials rejected').waitFor();
+    await targetsFit(p);
+  }, 800, 1100],
   ['targets-create', {}, async (p) => {
     await rail(p, 'Targets');
     await p.getByRole('button', { name: 'Add a target' }).first().click();
@@ -95,12 +120,13 @@ const SHOTS = [
   ['targets-row-test-cert', { test: 'untrusted_cert' }, async (p) => {
     await rail(p, 'Targets');
     await p.getByRole('button', { name: 'Test PC01 Production' }).click();
-    await p.getByText(/certificate not trusted/).first().waitFor();
+    await p.getByText('PC01 Production: certificate not trusted').waitFor();
+    await targetsFit(p);
   }],
   ['targets-row-test-version', { test: 'version_unsupported' }, async (p) => {
     await rail(p, 'Targets');
     await p.getByRole('button', { name: 'Test PC01 Production' }).click();
-    await p.getByText(/version outside the supported range/).first().waitFor();
+    await p.getByText(/is outside the supported range/).first().waitFor();
   }],
   ['targets-delete', {}, async (p) => {
     await rail(p, 'Targets');
@@ -341,9 +367,9 @@ await mkdir(outDir, { recursive: true });
 
 let failures = 0;
 for (const theme of themes) {
-  for (const [name, opts, steps, height = 1000] of SHOTS) {
+  for (const [name, opts, steps, height = 1000, width = 1440] of SHOTS) {
     if (only && !only.includes(name)) continue;
-    const ctx = await browser.newContext({ viewport: { width: 1440, height }, deviceScaleFactor: 1, bypassCSP: true, colorScheme: theme === 'dark' ? 'dark' : 'light' });
+    const ctx = await browser.newContext({ viewport: { width, height }, deviceScaleFactor: 1, bypassCSP: true, colorScheme: theme === 'dark' ? 'dark' : 'light' });
     const page = await ctx.newPage();
     const errors = [];
     page.on('pageerror', (e) => errors.push(e.message));
