@@ -232,7 +232,7 @@ export function CompareView({ baseline: baseProp, current: curProp }: { baseline
                   { key: 'kind', header: 'Change', render: (c) => <Badge strong>{KIND[c.kind]}</Badge> },
                   { key: 'type', header: 'Type', render: (c) => c.object_type },
                   { key: 'obj', header: 'Object', className: 'nm', render: (c) => c.object },
-                  { key: 'where', header: 'Where', render: (c) => c.where },
+                  { key: 'where', header: 'Location', render: (c) => c.where },
                   {
                     key: 'detail',
                     header: 'Detail',
