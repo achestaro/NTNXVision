@@ -2,7 +2,7 @@ export { Badge } from './Badge';
 export { Button, buttonClass } from './Button';
 export type { ButtonProps, ButtonVariant } from './Button';
 export { Callout } from './Callout';
-export { Checkbox, FormatCard } from './Checkbox';
+export { Checkbox, CheckboxBox, FormatCard } from './Checkbox';
 export { DataTable } from './DataTable';
 export type { Column, SortState } from './DataTable';
 export { ConfirmDialog, Dialog, DialogFooter } from './Dialog';
@@ -10,7 +10,7 @@ export { EmptyState, ErrorState, InlineEmpty, Loading, LoadingPage } from './Emp
 export { Field } from './Field';
 export { FigureCell, FigureStrip } from './FigureStrip';
 export { Icon } from './Icon';
-export { KebabMenu, MenuPopup } from './Menu';
+export { KebabMenu, MenuPopup, useAnchoredPopup } from './Menu';
 export type { MenuItem } from './Menu';
 export { PageHeader } from './PageHeader';
 export { Panel, PanelHeader } from './Panel';
@@ -20,3 +20,5 @@ export { AREA_STATUS, AreaStatusLabel, Status, StatusFromValue, StatusGlyph } fr
 export { Switch } from './Switch';
 export { Tabs } from './Tabs';
 export { ToastProvider, useToast } from './Toast';
+export { ChecklistHeader, ChecklistMenu, SelectAllLink } from './Checklist';
+export type { ChecklistItem } from './Checklist';

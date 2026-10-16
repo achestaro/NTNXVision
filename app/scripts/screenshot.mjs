@@ -111,6 +111,22 @@ const SHOTS = [
     await p.getByRole('button', { name: 'Export pc01-2026-10-15' }).click();
     await p.getByRole('dialog').getByText('Prism Central pc.2024.3').waitFor();
   }],
+  ['export-all', {}, async (p) => {
+    await rail(p, 'Snapshots');
+    await p.getByRole('button', { name: 'Export pc01-2026-10-15' }).click();
+    const dlg = p.getByRole('dialog');
+    await dlg.getByText('Prism Central pc.2024.3').waitFor();
+    for (const f of [/Excel/, /PDF/, /Word/]) await dlg.getByRole('checkbox', { name: f }).check();
+  }, 1180],
+  ['inventory-columns', {}, async (p) => {
+    await rail(p, 'Inventory');
+    await p.getByRole('button', { name: 'Columns' }).click();
+  }],
+  ['compare-export', {}, async (p) => {
+    await rail(p, 'Compare');
+    await p.getByText('What changed in').waitFor();
+    await p.getByRole('button', { name: 'Export changes…' }).click();
+  }],
   ['multi', {}, async (p) => {
     await rail(p, 'Multiple PCs');
     await p.getByRole('button', { name: 'Test all' }).click();
