@@ -302,7 +302,7 @@ function ExportDialog({
             <Button onClick={() => void browse()}>Browse…</Button>
           </div>
           <Checkbox checked={reveal} onChange={setReveal} style={{ marginTop: 8 }}>
-            Show the files when done
+            {`${revealLabel()} when done`}
           </Checkbox>
         </div>
 
