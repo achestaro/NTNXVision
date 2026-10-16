@@ -23,11 +23,13 @@ import contextlib
 import json
 import os
 import threading
+import uuid
 from collections import OrderedDict
 from pathlib import Path
 from typing import Any
 
 from ntnxvision_core.models import Environment
+from ntnxvision_core.store.names import max_stem_for, safe_name
 
 SNAP_SUFFIX = ".ntnxsnap.json"
 META_SUFFIX = ".ntnxmeta.json"
@@ -39,11 +41,18 @@ class SnapshotStore:
         self.directory.mkdir(parents=True, exist_ok=True)
 
     def path_for(self, name: str) -> Path:
-        return self.directory / f"{_safe(name)}{SNAP_SUFFIX}"
+        return self.directory / f"{_safe(name, self.directory)}{SNAP_SUFFIX}"
 
-    def save(self, env: Environment, name: str) -> Path:
-        """Write the snapshot atomically (temp file + rename) and refresh its index."""
-        path = self.path_for(name)
+    def save(self, env: Environment, name: str, *, path: Path | None = None) -> Path:
+        """Write the snapshot atomically (temp file + rename) and refresh its index.
+
+        A snapshot without a `snapshot_id` gets one here, so every saved snapshot has a
+        stable identity that survives export and import. `path` rewrites an existing
+        snapshot in place (same name) instead of deriving the file from `name`.
+        """
+        if not env.snapshot_id:
+            env.snapshot_id = str(uuid.uuid4())
+        path = path or self.path_for(name)
         tmp = path.with_name(path.name + ".tmp")
         tmp.write_text(env.model_dump_json(exclude_none=False), encoding="utf-8")
         os.replace(tmp, path)
@@ -92,6 +101,7 @@ def describe(env: Environment, path: Path) -> dict[str, Any]:
             version = f"AOS {version}"
     return {
         "name": snapshot_name(path),
+        "snapshot_id": env.snapshot_id,
         "collected_at": env.collected_at,
         "summary": env.summary(),
         "kind": kind,
@@ -128,12 +138,15 @@ def stats(env: Environment) -> dict[str, Any]:
     }
 
 
-def write_meta(path: Path, env: Environment, exports: list[dict[str, Any]] | None = None
-               ) -> dict[str, Any]:
-    previous = read_meta_raw(path)
+def write_meta(path: Path, env: Environment, exports: list[dict[str, Any]] | None = None,
+               provenance: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Write the index for `path`. The export history and the import provenance live
+    nowhere else, so unless given they are carried over from the previous index."""
+    previous = read_meta_raw(path) or {}
     meta = describe(env, path)
     meta["snapshot_mtime"] = path.stat().st_mtime
-    meta["exports"] = exports if exports is not None else (previous or {}).get("exports", [])
+    meta["exports"] = exports if exports is not None else previous.get("exports", [])
+    meta["provenance"] = provenance if provenance is not None else previous.get("provenance")
     meta_path(path).write_text(json.dumps(meta), encoding="utf-8")
     return meta
 
@@ -159,6 +172,7 @@ def read_meta(path: Path, cache: EnvironmentCache | None = None) -> dict[str, An
         except OSError:
             meta = describe(env, path)
             meta["exports"] = []
+            meta["provenance"] = (read_meta_raw(path) or {}).get("provenance")
     meta["name"] = snapshot_name(path)
     meta["path"] = str(path)
     meta["size_bytes"] = path.stat().st_size
@@ -179,8 +193,11 @@ def record_exports(path: Path, files: list[dict[str, Any]]) -> None:
 
 def info_from_meta(meta: dict[str, Any]) -> dict[str, Any]:
     """The `SnapshotInfo` fields of an index entry (what list/overview return)."""
-    return {k: meta.get(k) for k in ("name", "path", "collected_at", "summary", "kind",
-                                     "source", "version", "size_bytes")}
+    info = {k: meta.get(k) for k in ("name", "path", "snapshot_id", "collected_at", "summary",
+                                     "kind", "source", "version", "size_bytes")}
+    provenance = meta.get("provenance")
+    info["imported"] = provenance if isinstance(provenance, dict) else None
+    return info
 
 
 def rename(path: Path, new_name: str) -> Path:
@@ -253,6 +270,5 @@ class EnvironmentCache:
                 self._items.pop(str(Path(path).resolve()), None)
 
 
-def _safe(name: str) -> str:
-    keep = "-_.() "
-    return "".join(c if c.isalnum() or c in keep else "_" for c in name).strip()
+def _safe(name: str, directory: Path | None = None) -> str:
+    return safe_name(name, max_len=max_stem_for(directory))
