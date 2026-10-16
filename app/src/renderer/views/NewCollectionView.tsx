@@ -84,7 +84,7 @@ export function NewCollectionView({
   const [name, setName] = useState('');
   const [nameTouched, setNameTouched] = useState(false);
   const [dir, setDir] = useState('');
-  const [errors, setErrors] = useState<{ host?: string; name?: string; port?: string }>({});
+  const [errors, setErrors] = useState<{ host?: string; name?: string; port?: string; areas?: string }>({});
   const [startError, setStartError] = useState<string | null>(null);
   const hostRef = useRef<HTMLInputElement>(null);
 
@@ -151,6 +151,7 @@ export function NewCollectionView({
     if (!host.trim()) e.host = 'Enter an address.';
     if (!Number.isInteger(portNum) || portNum < 1 || portNum > 65535) e.port = 'Port must be 1–65535.';
     if (!name.trim()) e.name = 'Enter a snapshot name.';
+    if (catalogue.data && !chosenAreas.length) e.areas = 'Choose at least one area to collect.';
     setErrors(e);
     return Object.keys(e).length === 0;
   };
@@ -402,9 +403,23 @@ export function NewCollectionView({
           {/* 2 · What to collect */}
           <Panel aria-labelledby="s2">
             <PanelHeader id="s2" step={2} title="What to collect" meta={catalogue.data ? `${fmtCount(chosenAreas.length)} / ${fmtCount(available.length)}` : undefined}>
-              <Button variant="ghost" size="sm" onClick={() => setOff(Object.fromEntries(areas.map((a) => [a.id, false])))} disabled={!areas.length}>
-                Select all
-              </Button>
+              {available.length > 0 && chosenAreas.length === available.length ? (
+                <Button variant="ghost" size="sm" onClick={() => setOff(Object.fromEntries(areas.map((a) => [a.id, true])))}>
+                  Clear all
+                </Button>
+              ) : (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => {
+                    setOff(Object.fromEntries(areas.map((a) => [a.id, false])));
+                    setErrors((x) => ({ ...x, areas: undefined }));
+                  }}
+                  disabled={!areas.length}
+                >
+                  Select all
+                </Button>
+              )}
             </PanelHeader>
             {catalogue.loading && !catalogue.data ? (
               <InlineEmpty>
@@ -428,7 +443,10 @@ export function NewCollectionView({
                           key={a.id}
                           checked={!disabled && isOn(a)}
                           disabled={disabled}
-                          onChange={(v) => setOff((p) => ({ ...p, [a.id]: !v }))}
+                          onChange={(v) => {
+                            setOff((p) => ({ ...p, [a.id]: !v }));
+                            if (v) setErrors((x) => ({ ...x, areas: undefined }));
+                          }}
                         >
                           {a.label}
                         </Checkbox>
@@ -436,6 +454,11 @@ export function NewCollectionView({
                     })}
                   </fieldset>
                 ))}
+              </div>
+            )}
+            {errors.areas && (
+              <div className="field-err" role="alert" style={{ padding: '0 16px 12px', marginTop: 0 }}>
+                {errors.areas}
               </div>
             )}
             {isPe && (
