@@ -7,7 +7,9 @@ import {
   Badge,
   Button,
   Callout,
+  Checkbox,
   DataTable,
+  Dialog,
   EmptyState,
   ErrorState,
   FigureStrip,
@@ -16,14 +18,15 @@ import {
   LoadingPage,
   PageHeader,
   Panel,
+  Segmented,
   Tabs,
   useToast,
 } from '../components';
 import { useAsync } from '../lib/useAsync';
 import { useRouter } from '../lib/router';
 import { useRun } from '../lib/run';
-import { revealLabel } from '../lib/settings';
-import { NA, errorMessage, fmtAbs, plural } from '../lib/format';
+import { revealLabel, useSettings } from '../lib/settings';
+import { NA, errorMessage, fmtAbs, fmtCount, plural, tildify } from '../lib/format';
 import { useSnapshotTransfer } from './SnapshotTransfer';
 
 type Tab = 'all' | ChangeKind;
@@ -38,14 +41,13 @@ function pickBaseline(snaps: SnapshotInfo[], current: SnapshotInfo | undefined):
 export function CompareView({ baseline: baseProp, current: curProp }: { baseline?: string; current?: string }): JSX.Element {
   const { navigate } = useRouter();
   const { dataVersion } = useRun();
-  const toast = useToast();
   const transfer = useSnapshotTransfer();
   const list = useAsync<SnapshotList>(() => window.ntnx.listSnapshots(), [dataVersion]);
   const snaps = list.data?.snapshots ?? [];
   const [current, setCurrent] = useState<string | undefined>(curProp);
   const [baseline, setBaseline] = useState<string | undefined>(baseProp);
   const [tab, setTab] = useState<Tab>('all');
-  const [exporting, setExporting] = useState(false);
+  const [exportOpen, setExportOpen] = useState(false);
 
   useEffect(() => {
     if (!snaps.length) return;
@@ -114,24 +116,6 @@ export function CompareView({ baseline: baseProp, current: curProp }: { baseline
       ? `${curSnap.source === baseSnap.source ? curSnap.source ?? '' : `${baseSnap.source ?? NA} → ${curSnap.source ?? NA}`} · ${fmtAbs(baseSnap.collected_at)} → ${fmtAbs(curSnap.collected_at)}`
       : undefined;
 
-  const exportChanges = async () => {
-    if (!baseline || !current) return;
-    setExporting(true);
-    try {
-      const res = await window.ntnx.exportComparison({ baseline, current, format: 'excel' });
-      toast.show({
-        tone: 'ok',
-        title: 'Changes exported',
-        detail: res.path,
-        action: { label: revealLabel(), onClick: () => void window.ntnx.revealPath(res.path) },
-      });
-    } catch (e) {
-      toast.show({ tone: 'error', title: 'Couldn’t export the changes', detail: errorMessage(e) });
-    } finally {
-      setExporting(false);
-    }
-  };
-
   const option = (s: SnapshotInfo) => (
     <option key={s.path} value={s.path}>
       {s.name} · {fmtAbs(s.collected_at)}
@@ -145,8 +129,12 @@ export function CompareView({ baseline: baseProp, current: curProp }: { baseline
         title={title}
         facts={facts}
         actions={
-          <Button onClick={() => void exportChanges()} disabled={!r || exporting || !r.summary.total}>
-            {exporting ? 'Exporting…' : 'Export changes…'}
+          <Button
+            onClick={() => setExportOpen(true)}
+            disabled={!r || !r.summary.total}
+            title={r && !r.summary.total ? 'Nothing to export: the two snapshots match.' : undefined}
+          >
+            Export changes…
           </Button>
         }
       />
@@ -179,6 +167,17 @@ export function CompareView({ baseline: baseProp, current: curProp }: { baseline
           </select>
         </div>
       </div>
+
+      {exportOpen && r && baseline && current && (
+        <CompareExportDialog
+          baseline={baseline}
+          current={current}
+          baseName={baseSnap?.name ?? NA}
+          curName={curSnap?.name ?? NA}
+          summary={r.summary}
+          onClose={() => setExportOpen(false)}
+        />
+      )}
 
       {same && <Callout tone="warn" title="Baseline and current are the same snapshot.">Pick two different snapshots.</Callout>}
       {cmp.error && <ErrorState title="Couldn’t compare these snapshots." error={cmp.error} onRetry={cmp.reload} />}
@@ -258,5 +257,121 @@ export function CompareView({ baseline: baseProp, current: curProp }: { baseline
         </>
       )}
     </>
+  );
+}
+
+type CompareFormat = 'excel' | 'csv';
+
+/** "Export changes…": every change between the two snapshots, one row per object and field. */
+function CompareExportDialog({
+  baseline,
+  current,
+  baseName,
+  curName,
+  summary,
+  onClose,
+}: {
+  baseline: string;
+  current: string;
+  baseName: string;
+  curName: string;
+  summary: CompareResult['summary'];
+  onClose(): void;
+}): JSX.Element {
+  const { settings, appInfo } = useSettings();
+  const toast = useToast();
+  const [format, setFormat] = useState<CompareFormat>('excel');
+  const [dir, setDir] = useState(settings.exportDir || appInfo?.defaultExportDir || '');
+  const [reveal, setReveal] = useState(true);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const browse = async () => {
+    const d = await window.ntnx.chooseDirectory();
+    if (d) setDir(d);
+  };
+
+  const doExport = async () => {
+    if (busy) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await window.ntnx.exportComparison({ baseline, current, format, exportDir: dir || undefined });
+      if (reveal) void window.ntnx.revealPath(res.path);
+      toast.show({
+        tone: 'ok',
+        title: `Exported ${plural(summary.total, 'change')}`,
+        detail: tildify(res.path),
+        action: reveal ? undefined : { label: revealLabel(), onClick: () => void window.ntnx.revealPath(res.path) },
+      });
+      onClose();
+    } catch (e) {
+      setError(errorMessage(e));
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Dialog
+      open
+      onClose={onClose}
+      width={560}
+      title="Export changes"
+      subtitle={`${baseName} → ${curName}`}
+      onConfirm={doExport}
+      footer={
+        <div className="dialog-foot">
+          <Button onClick={onClose}>Cancel</Button>
+          <span className="dialog-foot-right">
+            <span className="hint">{busy ? 'Exporting…' : plural(summary.total, 'change')}</span>
+            <Button variant="primary" onClick={doExport} disabled={busy} kbd="⌘↵">
+              {busy ? 'Exporting…' : format === 'excel' ? 'Export workbook' : 'Export CSV'}
+            </Button>
+          </span>
+        </div>
+      }
+    >
+      <div style={{ marginTop: 20, display: 'flex', flexDirection: 'column', gap: 20 }}>
+        <p className="dialog-body" style={{ margin: 0 }}>
+          {`${fmtCount(summary.added)} added, ${fmtCount(summary.removed)} removed and ${fmtCount(summary.changed)} changed. The file lists every change, not only the tab you are on, with one row per object and field.`}
+        </p>
+        <div>
+          <span className="lbl" id="cmp-fmt">
+            Format
+          </span>
+          <Segmented<CompareFormat>
+            aria-labelledby="cmp-fmt"
+            value={format}
+            onChange={setFormat}
+            options={[
+              { value: 'excel', label: 'Excel workbook' },
+              { value: 'csv', label: 'CSV' },
+            ]}
+          />
+          <div className="hint below">
+            {format === 'excel'
+              ? 'A summary sheet plus the full list of changes, ready to filter.'
+              : 'The list of changes only, as plain comma-separated text for scripts and other tools.'}
+          </div>
+        </div>
+        <div>
+          <label className="lbl" htmlFor="cmp-dest">
+            Save to folder
+          </label>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <input id="cmp-dest" className="input mono" value={tildify(dir)} readOnly />
+            <Button onClick={() => void browse()}>Browse…</Button>
+          </div>
+          <Checkbox checked={reveal} onChange={setReveal} style={{ marginTop: 8 }}>
+            {`${revealLabel()} when done`}
+          </Checkbox>
+        </div>
+        {error && (
+          <Callout tone="error" title="Export failed.">
+            <span className="mono t12">{error}</span>
+          </Callout>
+        )}
+      </div>
+    </Dialog>
   );
 }
