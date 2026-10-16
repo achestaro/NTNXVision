@@ -31,6 +31,7 @@ import {
   TestConnectionRequest,
 } from '../shared/ipc';
 import { SidecarClient, SidecarError, CANCELLED_CODE } from './sidecar';
+import { isSmokeRun, runSmoke } from './smoke';
 import * as secrets from './secrets';
 import * as store from './store';
 
@@ -361,6 +362,7 @@ ipcMain.handle(IPC.setSettings, (_e, settings: AppSettings) => store.setSettings
 // ─── lifecycle ─────────────────────────────────────────────────────────
 
 app.whenReady().then(() => {
+  if (isSmokeRun()) return void runSmoke(sidecar); // packaging smoke test, no window
   sidecar.start();
   createWindow();
   app.on('activate', () => {
