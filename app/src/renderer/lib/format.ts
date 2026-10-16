@@ -215,8 +215,24 @@ export const REPORT_EXT: Record<'excel' | 'pdf' | 'word' | 'csv', string> = {
   csv: 'csv',
 };
 
-/** Default snapshot name: "<host-prefix>-YYYY-MM-DD". */
-export function defaultSnapshotName(host: string, date = new Date()): string {
-  const prefix = (host.split('.')[0] || 'environment').replace(/[^A-Za-z0-9_-]/g, '-');
-  return `${prefix}-${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+/** The longest snapshot name kept. Matches MAX_STEM in core/ntnxvision_core/store/names.py. */
+export const SNAPSHOT_NAME_MAX = 120;
+
+/** A snapshot name as the sidecar saves it (mirrors `safe_name`): "" when nothing usable. */
+export function sanitizeSnapshotName(name: string | null | undefined): string {
+  return safeStem((name ?? '').trim(), SNAPSHOT_NAME_MAX);
+}
+
+/**
+ * Why a typed snapshot name can't be used, or null when it can. The user types the name
+ * (no date is added: report files carry the export date); a name another snapshot already
+ * uses is refused, ignoring case, as the sidecar does (`snapshot_name_for`).
+ * `existing` holds the current snapshot names, lower-cased.
+ */
+export function snapshotNameIssue(name: string, existing: ReadonlySet<string>): string | null {
+  if (!name.trim()) return 'Enter a snapshot name.';
+  const safe = sanitizeSnapshotName(name);
+  if (!safe) return 'The name has no usable characters.';
+  if (existing.has(safe.toLowerCase())) return `A snapshot named “${safe}” already exists. Choose another name.`;
+  return null;
 }

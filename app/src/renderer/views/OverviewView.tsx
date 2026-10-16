@@ -26,7 +26,7 @@ import type { NutanixMarkName } from '../components/icons';
 import { useAsync } from '../lib/useAsync';
 import { useRouter } from '../lib/router';
 import { useRun } from '../lib/run';
-import { NA, defaultSnapshotName, errorMessage, fmtAbs, fmtCount, fmtRel, targetLabel } from '../lib/format';
+import { NA, fmtAbs, fmtCount, fmtRel, targetLabel } from '../lib/format';
 import { useExportDialog } from './ExportDialog';
 import { ImportedBadge, useSnapshotTransfer } from './SnapshotTransfer';
 
@@ -72,7 +72,7 @@ export function OverviewView(): JSX.Element {
         title="Your Nutanix estate"
         facts={
           latest
-            ? `Latest snapshot: ${latest.name} · ${latest.source ?? NA} · ${fmtAbs(latest.collected_at)} · ${fmtRel(latest.collected_at)}`
+            ? `Latest snapshot: ${latest.name} · ${latest.source ?? NA}${latest.scope?.excluded.length ? ` · ${latest.scope.label}` : ''} · ${fmtAbs(latest.collected_at)} · ${fmtRel(latest.collected_at)}`
             : undefined
         }
         description={latest ? undefined : 'Nothing collected yet. Every collection is saved on this computer and works offline.'}
@@ -261,26 +261,18 @@ function SavedTargets({
   illustrated: boolean;
 }): JSX.Element {
   const { navigate } = useRouter();
-  const { start, isRunning } = useRun();
+  const { isRunning } = useRun();
   const toast = useToast();
   const rows = state.data ?? [];
 
+  // A collection needs a snapshot name (and, for a Prism Central, its clusters), so
+  // "Collect" opens New collection with the target loaded and the name field focused.
   const collect = (c: SavedConnection) => {
     if (isRunning) {
       toast.show({ tone: 'warn', title: 'A collection is already running' });
       return;
     }
-    void start({
-      mode: c.mode,
-      host: c.host,
-      username: c.username,
-      password: '',
-      port: c.port,
-      insecure: c.insecure,
-      name: defaultSnapshotName(c.name || c.host),
-      formats: ['excel', 'word'],
-      saveCredentials: false,
-    }).catch((e) => toast.show({ tone: 'error', title: 'Collection could not start', detail: errorMessage(e) }));
+    navigate({ screen: 'new', connectionId: c.id });
   };
 
   return (

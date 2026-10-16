@@ -67,6 +67,18 @@ export interface ConnectionProfile {
   name: string;
   ndbHost?: string;
   ndbUser?: string;
+  /**
+   * Prism Central only: the cluster selection of the last collection from this target,
+   * by cluster uuid, so the next one preselects it. `known` is every cluster listed at
+   * the time: a cluster missing from it is new, and new clusters start selected.
+   * No credentials: uuids only.
+   */
+  clusterSelection?: ClusterSelection;
+}
+
+export interface ClusterSelection {
+  selected: string[];
+  known: string[];
 }
 
 /** The last connection test of a saved target, recorded by the main process. */
@@ -183,6 +195,41 @@ export interface TestConnectionResult {
   typical_seconds?: number | null;
 }
 
+// ─── clusters (scope) ───────────────────────────────────────────────────
+
+/** Same connection details as a test; the password may be empty (keychain). */
+export type ListClustersRequest = Omit<TestConnectionRequest, 'mode'> & { mode: ConnectionMode };
+
+/** A cluster a collection can be scoped to (registered to the PC, or the PE itself). */
+export interface RegisteredClusterInfo {
+  uuid: string;
+  name?: string | null;
+  aos_version?: string | null;
+  num_nodes?: number | null;
+  /** "AHV", "ESXi", ... */
+  hypervisors: string[];
+}
+
+export interface ClusterListResult {
+  mode: ConnectionMode;
+  host: string;
+  /** Which API listed them: v4, v3 (Prism Central) or v2 (Prism Element). */
+  api: ApiVersion;
+  version?: string | null;
+  /** Prism Central: every registered PE cluster, without the PC's own pseudo-cluster. */
+  clusters: RegisteredClusterInfo[];
+}
+
+/** The clusters a run collected, as stored with the snapshot. */
+export interface ClusterScopeInfo {
+  selected: { uuid: string; name?: string | null }[];
+  /** Registered clusters the run left out. */
+  excluded: { uuid: string; name?: string | null }[];
+  registered_count: number;
+  /** "3 of 5 clusters (PHX-PROD-01, ...)", "All 4 clusters" or "1 cluster". */
+  label?: string | null;
+}
+
 // ─── collection areas ───────────────────────────────────────────────────
 
 /** One collectable product area (a collector in the Python core). */
@@ -218,12 +265,22 @@ export interface CollectionRequest {
   password: string;
   port: number;
   insecure: boolean;
-  /** Snapshot name. */
+  /**
+   * Snapshot name, typed by the user (required; no date is added). Sanitized by the
+   * sidecar; a name another snapshot uses is refused before collecting (code -32003).
+   */
   name: string;
   /** Saved target's display name (saveCredentials only); empty or omitted = the host. */
   targetName?: string;
   /** Area ids from getCollectionAreas; empty or omitted = all available. */
   areas?: string[];
+  /**
+   * Prism Central: uuids of the registered clusters to collect (from listClusters).
+   * Omitted = every registered cluster. Objects of other clusters are never collected.
+   */
+  clusters?: string[];
+  /** Every cluster uuid the picker listed, remembered with `clusters` on the saved target. */
+  knownClusters?: string[];
   formats: ExportFormat[];
   /** Ignored: targets are only created and changed on the Targets page. */
   saveCredentials?: boolean;
@@ -241,6 +298,7 @@ export interface MultiCollectionTarget {
   password: string;
   port: number;
   insecure: boolean;
+  /** This target's snapshot name (required; the screen derives it from the run's name). */
   name: string;
   ndb?: NdbRequest;
 }
@@ -254,6 +312,7 @@ export interface MultiCollectionRequest {
   /** Report file name prefix (see ExportRequest.filePrefix). */
   filePrefix?: string;
   combine: boolean;
+  /** Snapshot name of the combined result (required when combining). */
   combinedName?: string;
 }
 
@@ -387,6 +446,8 @@ export interface InventoryResult {
   figures?: Figure[];
   api_routing?: ApiRoutingRow[];
   compat?: CompatInfo | null;
+  /** Clusters the run collected (null: combined run). */
+  scope?: ClusterScopeInfo | null;
 }
 
 export type MultiTargetResult =
@@ -425,6 +486,8 @@ export interface SnapshotInfo {
   /** "pc.2024.3", "AOS 7.0", or null for combined. */
   version?: string | null;
   size_bytes?: number | null;
+  /** Clusters the run collected; null for older snapshots and combined runs. */
+  scope?: ClusterScopeInfo | null;
 }
 
 export interface SnapshotList {
@@ -446,6 +509,7 @@ export interface SnapshotRunInfo {
   /** Reports written by the run, if the files still exist. */
   reports?: ReportFile[];
   warnings?: string[];
+  scope?: ClusterScopeInfo | null;
 }
 
 export interface SnapshotDetail extends SnapshotInfo {
@@ -692,6 +756,23 @@ export interface CompareResult {
   summary: { total: number; added: number; removed: number; changed: number };
   figures: Figure[];
   changes: ChangeRow[];
+  /**
+   * Set when the two snapshots cover different clusters: objects on clusters only one of
+   * them collected are left out of `changes` (counted in `out_of_scope`).
+   */
+  scope_notice?: CompareScopeNotice | null;
+}
+
+export interface CompareScopeNotice {
+  title: string;
+  /** Scope labels, e.g. "All 4 clusters" and "2 of 4 clusters (A, B)". */
+  baseline: string;
+  current: string;
+  /** Clusters only one snapshot collected. */
+  clusters: string[];
+  out_of_scope: number;
+  /** One sentence for the notice. */
+  detail: string;
 }
 
 // ─── export ─────────────────────────────────────────────────────────────
@@ -833,6 +914,7 @@ export const IPC = {
   // sidecar relays
   ping: 'core:ping',
   testConnection: 'core:testConnection',
+  listClusters: 'core:listClusters',
   getCollectionAreas: 'core:getCollectionAreas',
   startCollection: 'core:startCollection',
   startMultiCollection: 'core:startMultiCollection',
@@ -885,6 +967,8 @@ export interface NtnxApi {
   getLegalDocuments(): Promise<LegalDocuments>;
 
   testConnection(req: TestConnectionRequest): Promise<TestConnectionResult>;
+  /** The clusters a collection can be scoped to (read-only; rejects on failure). */
+  listClusters(req: ListClustersRequest): Promise<ClusterListResult>;
   getCollectionAreas(): Promise<CollectionAreasResult>;
   startCollection(req: CollectionRequest): Promise<RunHandle>;
   startMultiCollection(req: MultiCollectionRequest): Promise<RunHandle>;

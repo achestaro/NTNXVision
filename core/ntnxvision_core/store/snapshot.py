@@ -29,7 +29,7 @@ from pathlib import Path
 from typing import Any
 
 from ntnxvision_core.models import Environment
-from ntnxvision_core.store.names import max_stem_for, safe_name
+from ntnxvision_core.store.names import max_stem_for, safe_name, unique_name
 
 SNAP_SUFFIX = ".ntnxsnap.json"
 META_SUFFIX = ".ntnxmeta.json"
@@ -43,15 +43,34 @@ class SnapshotStore:
     def path_for(self, name: str) -> Path:
         return self.directory / f"{_safe(name, self.directory)}{SNAP_SUFFIX}"
 
-    def save(self, env: Environment, name: str, *, path: Path | None = None) -> Path:
+    def taken_names(self) -> list[str]:
+        """Names of the snapshots in the store."""
+        return [snapshot_name(p) for p in self.list_snapshots()]
+
+    def name_taken(self, name: str) -> bool:
+        """Is `name` (as sanitized for a file name) already used, ignoring case?
+
+        Both file systems default to case-insensitive, so ``Q4`` and ``q4`` collide."""
+        safe = _safe(name, self.directory).casefold()
+        return any(t.casefold() == safe for t in self.taken_names())
+
+    def save(self, env: Environment, name: str, *, path: Path | None = None,
+             unique: bool = False) -> Path:
         """Write the snapshot atomically (temp file + rename) and refresh its index.
 
         A snapshot without a `snapshot_id` gets one here, so every saved snapshot has a
         stable identity that survives export and import. `path` rewrites an existing
         snapshot in place (same name) instead of deriving the file from `name`.
+        `unique` never replaces another snapshot: a name already taken gets ``-2``,
+        ``-3``, ... (a collection checks its name up front; this covers a snapshot of the
+        same name saved while the run was collecting).
         """
         if not env.snapshot_id:
             env.snapshot_id = str(uuid.uuid4())
+        if path is None and unique:
+            stem = unique_name(_safe(name, self.directory), self.taken_names(),
+                               max_len=max_stem_for(self.directory))
+            path = self.directory / f"{stem}{SNAP_SUFFIX}"
         path = path or self.path_for(name)
         tmp = path.with_name(path.name + ".tmp")
         tmp.write_text(env.model_dump_json(exclude_none=False), encoding="utf-8")
@@ -88,6 +107,8 @@ def kind_of(env: Environment) -> str:
 
 def describe(env: Environment, path: Path) -> dict[str, Any]:
     """The `SnapshotInfo`-shaped part of the index for one Environment."""
+    from ntnxvision_core.scope import scope_dict
+
     kind = kind_of(env)
     source: str | None
     version: str | None
@@ -111,6 +132,7 @@ def describe(env: Environment, path: Path) -> dict[str, Any]:
         "source_type": env.source_type,
         "run": env.run,
         "stats": stats(env),
+        "scope": scope_dict(env.cluster_scope),
     }
 
 
@@ -194,7 +216,7 @@ def record_exports(path: Path, files: list[dict[str, Any]]) -> None:
 def info_from_meta(meta: dict[str, Any]) -> dict[str, Any]:
     """The `SnapshotInfo` fields of an index entry (what list/overview return)."""
     info = {k: meta.get(k) for k in ("name", "path", "snapshot_id", "collected_at", "summary",
-                                     "kind", "source", "version", "size_bytes")}
+                                     "kind", "source", "version", "size_bytes", "scope")}
     provenance = meta.get("provenance")
     info["imported"] = provenance if isinstance(provenance, dict) else None
     return info
