@@ -1,8 +1,6 @@
 // Credential storage via the OS keychain (Windows Credential Manager / macOS Keychain).
 // Passwords are NEVER written to disk in plaintext by this app.
 
-import { safeStorage } from 'electron';
-
 const SERVICE = 'NTNXVision';
 
 // keytar is a native module; import lazily so a missing build doesn't crash the app.
@@ -13,10 +11,6 @@ try {
   keytar = require('keytar');
 } catch {
   keytar = null;
-}
-
-function account(host: string, username: string): string {
-  return `${username}@${host}`;
 }
 
 // Demo mode and the end-to-end tests keep (fake) passwords in process memory instead of
@@ -35,36 +29,32 @@ export function storeKind(): 'keychain' | 'memory' | 'unavailable' {
   return keytar ? 'keychain' : 'unavailable';
 }
 
-export async function setPassword(host: string, username: string, password: string): Promise<void> {
-  if (memory) {
-    memory.set(account(host, username), password);
-    return;
-  }
-  if (keytar) {
-    await keytar.setPassword(SERVICE, account(host, username), password);
-    return;
-  }
-  // Fallback: encrypt with Electron safeStorage (still OS-backed) — no plaintext.
-  if (safeStorage.isEncryptionAvailable()) {
-    // Note: safeStorage has no key/value store; keytar is the primary path.
-    // We simply no-op here rather than persist plaintext.
-  }
-}
+// Accounts are named by app/src/main/targets.ts: "target:<id>" (password),
+// "target:<id>:ndb" (NDB password) and, before targets had stable ids, "username@host".
 
-export async function getPassword(host: string, username: string): Promise<string | null> {
-  if (memory) return memory.get(account(host, username)) ?? null;
-  if (keytar) {
-    return keytar.getPassword(SERVICE, account(host, username));
-  }
+export async function getSecret(account: string): Promise<string | null> {
+  if (memory) return memory.get(account) ?? null;
+  if (keytar) return keytar.getPassword(SERVICE, account);
   return null;
 }
 
-export async function deletePassword(host: string, username: string): Promise<void> {
+/** Throws when no keychain is available: a password is never kept anywhere else. */
+export async function setSecret(account: string, secret: string): Promise<void> {
   if (memory) {
-    memory.delete(account(host, username));
+    memory.set(account, secret);
     return;
   }
   if (keytar) {
-    await keytar.deletePassword(SERVICE, account(host, username));
+    await keytar.setPassword(SERVICE, account, secret);
+    return;
   }
+  throw new Error('No OS keychain is available on this computer');
+}
+
+export async function deleteSecret(account: string): Promise<void> {
+  if (memory) {
+    memory.delete(account);
+    return;
+  }
+  if (keytar) await keytar.deletePassword(SERVICE, account);
 }

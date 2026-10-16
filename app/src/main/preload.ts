@@ -7,7 +7,6 @@ import {
   AppSettings,
   CollectionRequest,
   CompareExportRequest,
-  ConnectionProfile,
   ExportRequest,
   FileFilter,
   IPC,
@@ -23,6 +22,7 @@ import {
   RunProgressEvent,
   SnapshotFileExportRequest,
   SnapshotFilesExportRequest,
+  TargetSaveRequest,
   TestConnectionRequest,
 } from '../shared/ipc';
 
@@ -88,8 +88,8 @@ const api: NtnxApi = {
   onOpenSnapshotFiles: (cb: (paths: string[]) => void) => subscribe(IPC.openSnapshotFiles, cb),
 
   listConnections: () => ipcRenderer.invoke(IPC.listConnections),
-  saveConnection: (profile: ConnectionProfile) => ipcRenderer.invoke(IPC.saveConnection, profile),
-  deleteConnection: (id: string) => ipcRenderer.invoke(IPC.deleteConnection, id),
+  saveTarget: (req: TargetSaveRequest) => ipcRenderer.invoke(IPC.saveTarget, req),
+  deleteTarget: (id: string) => ipcRenderer.invoke(IPC.deleteTarget, id),
   getSettings: () => ipcRenderer.invoke(IPC.getSettings),
   setSettings: (settings: AppSettings) => ipcRenderer.invoke(IPC.setSettings, settings),
 };
