@@ -518,6 +518,9 @@ class VolumeGroup(SourcedObject):
     uuid: str
     name: str | None = None
     cluster_name: str | None = None
+    #: v4 reports the owning cluster by uuid; kept so a cluster-scoped run can place the
+    #: group even when its cluster is outside the scope (and so has no name to resolve).
+    cluster_uuid: str | None = None
     disk_count: int | None = None
     total_capacity_bytes: int | None = None
     is_shared: bool | None = None
@@ -716,6 +719,34 @@ class SourceEnvironment(_Base):
         return data
 
 
+class ScopeCluster(_Base):
+    """One registered cluster as the cluster scope records it."""
+
+    uuid: str
+    name: str | None = None
+
+
+class ClusterScope(_Base):
+    """Which of a Prism Central's registered clusters a run collected.
+
+    A collection can be limited to some of the registered Prism Element clusters. Objects
+    that belong to the others are never kept (see `ntnxvision_core.scope`), so a snapshot
+    records what it covers: `selected` are the clusters collected, `excluded` the
+    registered ones left out, `registered_count` how many were registered at the time.
+    Prism-Central-wide objects (IAM, Flow policies, categories, protection policies,
+    X-Play, NCM) are collected whatever the scope.
+    """
+
+    selected: list[ScopeCluster] = Field(default_factory=list)
+    excluded: list[ScopeCluster] = Field(default_factory=list)
+    registered_count: int = 0
+
+    @property
+    def is_partial(self) -> bool:
+        """True when at least one registered cluster was left out."""
+        return bool(self.excluded)
+
+
 #: Version of the serialized `Environment` schema. Bump it when a change needs a
 #: migration for snapshot files written by older versions (`store.transfer` migrates
 #: older payloads forward and refuses newer ones). Payloads written before the field
@@ -803,6 +834,10 @@ class Environment(_Base):
 
     # Collection diagnostics: {collector_name: "ok" | "skipped: reason" | "error: ..."}
     collection_notes: dict[str, str] = Field(default_factory=dict)
+
+    #: The registered clusters this run collected (None: snapshots written before cluster
+    #: selection existed, and combined runs, whose per-PC runs collected every cluster).
+    cluster_scope: ClusterScope | None = None
 
     #: Metadata of the collection run that produced this snapshot — per-area outcome,
     #: API routing, compatibility, duration, reports (see `runinfo.build_run_metadata`).

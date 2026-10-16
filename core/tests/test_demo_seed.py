@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import re
+
 import pytest
 
 from ntnxvision_core import sidecar
@@ -24,8 +26,10 @@ def test_seed_fills_an_empty_profile_once(demo_profile):
     assert result["seeded"] is True
     names = result["snapshots"]
     assert len(names) == 6
-    assert any(n.startswith("pe01-") for n in names)
-    assert "combined-pc02-pc03" in names
+    # Date-free names, as the app now asks the user for (report files carry the date).
+    assert names == ["pc01 baseline", "pe01 baseline", "pc02 baseline", "pc03 baseline",
+                     "pc02 and pc03 combined", "pc01 week 2"]
+    assert not any(re.search(r"\d{4}-\d{2}-\d{2}", n) for n in names)
 
     listing = sidecar._m_list_snapshots(2, {})["snapshots"]
     assert {s["kind"] for s in listing} >= {"pc", "pe", "combined"}
@@ -38,7 +42,7 @@ def test_seed_fills_an_empty_profile_once(demo_profile):
     assert list((demo_profile / "exports").glob("*.docx"))
 
     # Compare has a real pc01 pair.
-    pc01 = sorted((s for s in listing if s["name"].startswith("pc01-")),
+    pc01 = sorted((s for s in listing if s["name"].startswith("pc01 ")),
                   key=lambda s: s["collected_at"])
     diff = sidecar._m_compare_snapshots(3, {"baseline": pc01[0]["path"],
                                             "current": pc01[-1]["path"]})

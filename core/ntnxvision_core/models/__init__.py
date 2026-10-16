@@ -13,6 +13,7 @@ from ntnxvision_core.models.environment import (
     Bucket,
     Category,
     Cluster,
+    ClusterScope,
     Database,
     DatabaseServer,
     DataProtectionSummary,
@@ -37,6 +38,7 @@ from ntnxvision_core.models.environment import (
     RecoveryPlan,
     RemoteSite,
     Role,
+    ScopeCluster,
     SecurityPolicy,
     ServiceGroup,
     SourcedObject,
@@ -54,6 +56,8 @@ from ntnxvision_core.models.environment import (
 
 __all__ = [
     "Environment",
+    "ClusterScope",
+    "ScopeCluster",
     "PrismCentral",
     # Multi-Prism-Central (combined) runs
     "SourceEnvironment",
