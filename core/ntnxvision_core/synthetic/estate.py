@@ -468,8 +468,9 @@ def _storage(est: PcEstate) -> None:
             raw = sum(h["storage_raw"] for h in est.hosts if h["cluster_uuid"] == c["uuid"])
             usable = int(raw * 0.95) // (c["rf"])
             if name == "NutanixManagementShare":
-                usable = 4 * TIB
-            used = int(usable * r.uniform(0.15, 0.62))
+                usable = min(4 * TIB, usable)
+            # The containers share the pool, so each uses a slice of it.
+            used = int(usable * r.uniform(0.08, 0.2))
             est.containers.append({
                 "uuid": uid(seed, "container", c["name"], name),
                 "name": full,

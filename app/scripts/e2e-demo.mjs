@@ -161,7 +161,8 @@ try {
     // The heterogeneous cluster (two node generations) and the two-node one (N-1 is N/A).
     await page.getByRole('button', { name: 'PHX-PROD-02', exact: true }).click();
     await page.getByText('Cluster details').waitFor({ timeout: 30_000 });
-    await page.getByText('vCPU Total at 4.0 : 1').waitFor();
+    await page.getByText('Target ratio').waitFor();
+    await page.getByText('4.0 : 1', { exact: true }).first().waitFor();
     await page.getByRole('button', { name: 'AMS-EDGE-02', exact: true }).click();
     await page.getByText('N-1 is not applicable to a 2-node cluster.').waitFor({ timeout: 30_000 });
   });
