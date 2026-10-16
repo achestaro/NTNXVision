@@ -61,7 +61,10 @@ a = Analysis(
     # fpdf2 is LGPL-3.0: keep it as plain .py files in the bundle folder (not inside the
     # PYZ archive) so a user can swap in a modified fpdf2 without rebuilding the sidecar.
     # See docs/LICENSING.md.
-    module_collection_mode={"fpdf": "py"},
+    # python-docx finds its header/footer templates as docx/parts/../templates/*.xml. On
+    # macOS that path only resolves if docx/parts/ exists on disk, so ship docx as .py
+    # files too (Windows resolves ".." lexically and never noticed).
+    module_collection_mode={"fpdf": "py", "docx": "pyz+py"},
 )
 pyz = PYZ(a.pure)
 
