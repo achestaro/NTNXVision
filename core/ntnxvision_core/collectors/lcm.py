@@ -120,12 +120,12 @@ class LcmCollector(Collector):
         try:
             data = self.conn.v4_get(_STATUS_PATH).get("data") or {}
         except NutanixApiError:
-            return f"ok: {count} entities"
+            return f"ok: {count:,} entities"
         framework = (data.get("frameworkVersion") or {}).get("currentVersion")
         if not framework:
-            return f"ok: {count} entities"
+            return f"ok: {count:,} entities"
         stale = " (framework update available)" if _needs_update(data) else ""
-        return f"ok: {count} entities, LCM framework {framework}{stale}"
+        return f"ok: {count:,} entities, LCM framework {framework}{stale}"
 
 
 def _needs_update(status: dict[str, Any]) -> bool:

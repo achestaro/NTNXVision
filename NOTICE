@@ -1,0 +1,46 @@
+NTNXVision
+Inventory and documentation tool for Nutanix Prism Central and its clusters.
+Copyright (c) 2026 Alberto Chestaro
+
+LICENSE
+-------
+NTNXVision is free software released under the MIT License. The full license text is in
+the LICENSE file distributed with this software.
+
+NO WARRANTY
+-----------
+NTNXVision is provided "AS IS", without warranty of any kind, express or implied, including
+but not limited to the warranties of merchantability, fitness for a particular purpose and
+noninfringement. In no event shall the authors or copyright holders be liable for any
+claim, damages or other liability arising from, out of or in connection with the software
+or its use. Inventories, reports and design documents it produces are informational; verify
+them against your environment before relying on them.
+
+TRADEMARKS
+----------
+Nutanix, Prism, Prism Central, Prism Element, AHV, AOS, Era, Nutanix Database Service
+(NDB), Flow, Files, Objects, Volumes, X-Play, NCM and the related names, logos and icons
+are trademarks or registered trademarks of Nutanix, Inc. in the United States and other
+countries. They are used in this software only to identify the Nutanix products it
+inventories.
+
+NTNXVision is an independent project. It is not affiliated with, endorsed by, or sponsored
+by Nutanix, Inc. All other trademarks are the property of their respective owners.
+
+OPERATION AND DATA HANDLING
+---------------------------
+* NTNXVision performs read-only API calls (GET/list requests) against Prism Central,
+  Prism Element and Nutanix Database Service. It never creates, changes or deletes
+  anything in the environments it connects to.
+* Credentials are stored only in the operating system's keychain (macOS Keychain or
+  Windows Credential Manager). They are never written to disk in plain text.
+* The app's internal communication is local only (standard input/output between the user
+  interface and its bundled engine); it does not open any network listener. Collected
+  snapshots and exported reports stay on your computer unless you share them.
+
+THIRD-PARTY SOFTWARE
+--------------------
+NTNXVision includes third-party software, fonts and assets distributed under their own
+licenses, including the GNU LGPL v3.0 (fpdf2), the Mozilla Public License 2.0 (certifi) and
+the SIL Open Font License 1.1 (Figtree, JetBrains Mono, Montserrat). See
+THIRD_PARTY_NOTICES.md for the complete list, versions and license texts.

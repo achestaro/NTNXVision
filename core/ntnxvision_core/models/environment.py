@@ -134,6 +134,9 @@ class VirtualMachine(SourcedObject):
     nics: list[Nic] = Field(default_factory=list)
     boot_type: str | None = None
     creation_time: str | None = None
+    #: Total provisioned disk when no per-disk detail was available (a VM recovered from
+    #: the groups API reports only its `capacity_bytes`). Ignored when `disks` is set.
+    disk_capacity_bytes: int | None = None
     api_source: str = "v4"  # provenance: which API version populated this
 
     @field_validator("categories", mode="before")
@@ -159,6 +162,8 @@ class VirtualMachine(SourcedObject):
 
     @property
     def total_disk_bytes(self) -> int:
+        if not self.disks and self.disk_capacity_bytes:
+            return self.disk_capacity_bytes
         return sum(d.disk_size_bytes or 0 for d in self.disks if not d.is_cdrom)
 
     @property
@@ -195,6 +200,10 @@ class Host(SourcedObject):
     num_vms: int | None = None
     gpu_list: list[str] = Field(default_factory=list)
     disk_count: int | None = None
+    #: The node's raw storage: the sum of its physical disk sizes (v4 host `disk` list),
+    #: or, where the API gives no per-disk sizes, the node's `storage.capacity_bytes`
+    #: (v3 groups / v2.0 usage stats). Feeds the cluster capacity figures (`capacity.py`).
+    storage_capacity_bytes: int | None = None
     api_source: str = "v4"
 
 
@@ -249,6 +258,8 @@ class Cluster(SourcedObject):
     redundancy_factor: int | None = None
     num_nodes: int | None = None
     external_ip: str | None = None
+    #: The cluster's iSCSI Data Services IP (Volumes, Files, Objects, CSI); often unset.
+    data_services_ip: str | None = None
     timezone: str | None = None
     encryption_enabled: bool | None = None
     is_lts: bool | None = None
@@ -512,6 +523,9 @@ class VolumeGroup(SourcedObject):
     uuid: str
     name: str | None = None
     cluster_name: str | None = None
+    #: v4 reports the owning cluster by uuid; kept so a cluster-scoped run can place the
+    #: group even when its cluster is outside the scope (and so has no name to resolve).
+    cluster_uuid: str | None = None
     disk_count: int | None = None
     total_capacity_bytes: int | None = None
     is_shared: bool | None = None
@@ -710,9 +724,49 @@ class SourceEnvironment(_Base):
         return data
 
 
+class ScopeCluster(_Base):
+    """One registered cluster as the cluster scope records it."""
+
+    uuid: str
+    name: str | None = None
+
+
+class ClusterScope(_Base):
+    """Which of a Prism Central's registered clusters a run collected.
+
+    A collection can be limited to some of the registered Prism Element clusters. Objects
+    that belong to the others are never kept (see `ntnxvision_core.scope`), so a snapshot
+    records what it covers: `selected` are the clusters collected, `excluded` the
+    registered ones left out, `registered_count` how many were registered at the time.
+    Prism-Central-wide objects (IAM, Flow policies, categories, protection policies,
+    X-Play, NCM) are collected whatever the scope.
+    """
+
+    selected: list[ScopeCluster] = Field(default_factory=list)
+    excluded: list[ScopeCluster] = Field(default_factory=list)
+    registered_count: int = 0
+
+    @property
+    def is_partial(self) -> bool:
+        """True when at least one registered cluster was left out."""
+        return bool(self.excluded)
+
+
+#: Version of the serialized `Environment` schema. Bump it when a change needs a
+#: migration for snapshot files written by older versions (`store.transfer` migrates
+#: older payloads forward and refuses newer ones). Payloads written before the field
+#: existed count as version 0.
+ENVIRONMENT_SCHEMA_VERSION = 1
+
+
 class Environment(_Base):
     """A full collection run — the unit persisted and exported."""
 
+    schema_version: int = ENVIRONMENT_SCHEMA_VERSION
+    #: Stable identity of the snapshot (a UUID), kept across export and import so a
+    #: snapshot file imported twice is recognised. Assigned when the snapshot is first
+    #: saved; snapshots written before it existed get one on their first export.
+    snapshot_id: str | None = None
     collected_at: str | None = None
     tool_version: str = "0.3.0"
     #: "prism_central" (collected via PC) or "prism_element" (direct cluster, v2.0).
@@ -785,6 +839,15 @@ class Environment(_Base):
 
     # Collection diagnostics: {collector_name: "ok" | "skipped: reason" | "error: ..."}
     collection_notes: dict[str, str] = Field(default_factory=dict)
+
+    #: The registered clusters this run collected (None: snapshots written before cluster
+    #: selection existed, and combined runs, whose per-PC runs collected every cluster).
+    cluster_scope: ClusterScope | None = None
+
+    #: Metadata of the collection run that produced this snapshot — per-area outcome,
+    #: API routing, compatibility, duration, reports (see `runinfo.build_run_metadata`).
+    #: None on snapshots written before it existed; the UI then shows the summary only.
+    run: dict[str, Any] | None = None
 
     @property
     def is_combined(self) -> bool:

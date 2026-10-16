@@ -12,7 +12,14 @@ readme = "README.md"
 # in ResolutionImpossible. 3.10–3.13 all have wheels for every runtime dep.
 requires-python = ">=3.10,<3.14"
 authors = [{ name = "Alberto Chestaro" }]
-license = { text = "Proprietary" }
+license = { text = "MIT" }
+classifiers = [
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Operating System :: MacOS",
+    "Operating System :: Microsoft :: Windows",
+    "Private :: Do Not Upload",  # PyPI rejects this classifier: the core ships only inside the app
+]
 
 # Runtime dependencies only — small and wheel-only (no native build tools required).
 # Install with `pip install -e .` (NOT `.[dev]`) to run the app.
@@ -26,6 +33,7 @@ dependencies = [
     "fpdf2>=2.7,<3",         # PDF export — pure Python, no native GTK/Pango deps
     "python-docx>=1.1,<2",   # Word Architecture Design Document
     "pillow>=10.1,<13",      # topology diagram rendering (also required by fpdf2)
+    "cryptography>=42,<47",  # optional password encryption of .ntnxsnap files (AES-256-GCM, scrypt)
 ]
 
 [project.optional-dependencies]
@@ -53,6 +61,7 @@ dev = [
     "types-requests",
     "types-openpyxl",
     "pyinstaller>=6.5",      # freeze the sidecar for packaging
+    "pip-licenses>=5.0",     # THIRD_PARTY_NOTICES.md (scripts/third_party_python.py)
 ]
 
 [project.scripts]
@@ -61,6 +70,11 @@ ntnxvision = "ntnxvision_core.__main__:app"
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["ntnxvision_core*"]
+
+# The PDF report embeds these OFL fonts (Figtree, Montserrat Light, JetBrains Mono); each
+# ships next to its license text.
+[tool.setuptools.package-data]
+"ntnxvision_core.exporters" = ["fonts/*.ttf", "fonts/OFL-*.txt"]
 
 [tool.ruff]
 line-length = 100

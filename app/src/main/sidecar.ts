@@ -6,7 +6,7 @@
 
 import { ChildProcessWithoutNullStreams, spawn } from 'node:child_process';
 import { EventEmitter } from 'node:events';
-import { existsSync } from 'node:fs';
+import { accessSync, chmodSync, constants as fsConstants, existsSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { app } from 'electron';
 
@@ -15,7 +15,54 @@ interface Pending {
   reject: (err: Error) => void;
 }
 
+/**
+ * Path of the PyInstaller one-folder sidecar inside a packaged app:
+ *   macOS   NTNXVision.app/Contents/Resources/sidecar/ntnxvision-sidecar
+ *   Windows <install dir>\resources\sidecar\ntnxvision-sidecar.exe
+ * `NTNXVISION_SIDECAR` overrides it (debugging a locally frozen build against a packaged
+ * shell). On macOS/Linux the execute bit is restored if an archive/copy step dropped it.
+ */
+export function packagedSidecarPath(): string {
+  const override = process.env.NTNXVISION_SIDECAR;
+  if (override) return override;
+  const exe = process.platform === 'win32' ? 'ntnxvision-sidecar.exe' : 'ntnxvision-sidecar';
+  const path = join(process.resourcesPath, 'sidecar', exe);
+  if (!existsSync(path)) {
+    throw new Error(`Bundled Python core not found at ${path}. The package is incomplete.`);
+  }
+  if (process.platform !== 'win32') {
+    try {
+      accessSync(path, fsConstants.X_OK);
+    } catch {
+      try {
+        chmodSync(path, statSync(path).mode | 0o755);
+      } catch (err) {
+        // Read-only install location (e.g. a mounted DMG) — spawn will report EACCES.
+        console.error('[sidecar] could not restore execute permission:', err);
+      }
+    }
+  }
+  return path;
+}
+
 export type ProgressListener = (params: Record<string, unknown>) => void;
+
+/** Demo mode: `NTNXVISION_DEMO=1` in the environment or `--demo` on the command line. */
+export function isDemoMode(): boolean {
+  const flag = (process.env.NTNXVISION_DEMO ?? '').trim().toLowerCase();
+  return ['1', 'true', 'yes', 'on'].includes(flag) || process.argv.includes('--demo');
+}
+
+/** JSON-RPC error code the sidecar uses when a run was cancelled via `cancel_run`. */
+export const CANCELLED_CODE = -32800;
+
+/** A JSON-RPC error from the sidecar, keeping its numeric code. */
+export class SidecarError extends Error {
+  constructor(message: string, readonly code: number | null) {
+    super(message);
+    this.name = 'SidecarError';
+  }
+}
 
 export class SidecarClient extends EventEmitter {
   private proc: ChildProcessWithoutNullStreams | null = null;
@@ -26,7 +73,20 @@ export class SidecarClient extends EventEmitter {
   start(): void {
     if (this.proc) return;
     const { command, args } = this.resolveExecutable();
-    this.proc = spawn(command, args, { stdio: ['pipe', 'pipe', 'pipe'] });
+    // windowsHide: the frozen sidecar is a console-subsystem .exe; without it Windows pops
+    // a console window next to the app.
+    // Demo mode reaches the sidecar through its environment (both the dev `python -m`
+    // entry and the frozen binary read NTNXVISION_DEMO).
+    const env = isDemoMode() ? { ...process.env, NTNXVISION_DEMO: '1' } : process.env;
+    this.proc = spawn(command, args, { stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true, env });
+    // Spawn failures (ENOENT/EACCES) arrive as 'error', not 'exit' — unhandled, they would
+    // crash the main process.
+    this.proc.on('error', (err) => {
+      console.error('[sidecar] failed to start:', err);
+      this.failAll(new Error(`Python core failed to start: ${err.message}`));
+      this.proc = null;
+    });
+    this.proc.stdin.on('error', (err) => console.error('[sidecar] stdin error:', err));
 
     this.proc.stdout.setEncoding('utf-8');
     this.proc.stdout.on('data', (chunk: string) => this.onData(chunk));
@@ -46,13 +106,22 @@ export class SidecarClient extends EventEmitter {
   }
 
   call<T = unknown>(method: string, params: Record<string, unknown> = {}): Promise<T> {
+    return this.callWithId<T>(method, params).promise;
+  }
+
+  /** Like call(), but also returns the JSON-RPC request id (legacy progress events carry it). */
+  callWithId<T = unknown>(
+    method: string,
+    params: Record<string, unknown> = {},
+  ): { id: number; promise: Promise<T> } {
     if (!this.proc) this.start();
     const id = this.nextId++;
     const payload = JSON.stringify({ jsonrpc: '2.0', id, method, params });
-    return new Promise<T>((resolve, reject) => {
+    const promise = new Promise<T>((resolve, reject) => {
       this.pending.set(id, { resolve: resolve as (v: unknown) => void, reject });
       this.proc!.stdin.write(payload + '\n');
     });
+    return { id, promise };
   }
 
   private onData(chunk: string): void {
@@ -81,7 +150,10 @@ export class SidecarClient extends EventEmitter {
     const pending = this.pending.get(msg.id);
     if (!pending) return;
     this.pending.delete(msg.id);
-    if (msg.error) pending.reject(new Error(msg.error.message || 'Core error'));
+    if (msg.error) {
+      const code = typeof msg.error.code === 'number' ? msg.error.code : null;
+      pending.reject(new SidecarError(msg.error.message || 'Core error', code));
+    }
     else pending.resolve(msg.result);
   }
 
@@ -92,9 +164,7 @@ export class SidecarClient extends EventEmitter {
 
   private resolveExecutable(): { command: string; args: string[] } {
     if (app.isPackaged) {
-      const exe =
-        process.platform === 'win32' ? 'ntnxvision-sidecar.exe' : 'ntnxvision-sidecar';
-      return { command: join(process.resourcesPath, 'sidecar', exe), args: [] };
+      return { command: packagedSidecarPath(), args: [] };
     }
     // Dev: prefer the core venv, fall back to PATH python.
     const venvPy =

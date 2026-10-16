@@ -1,37 +1,97 @@
 // Preload — exposes a minimal, typed `window.ntnx` API to the renderer over a secure
-// contextBridge. The renderer has no direct Node/Electron access.
+// contextBridge. The renderer has no direct Node/Electron access. The object literal is
+// checked against NtnxApi so a channel added to the contract can't be forgotten here.
 
-import { contextBridge, ipcRenderer } from 'electron';
+import { contextBridge, ipcRenderer, webUtils } from 'electron';
 import {
   AppSettings,
-  ConnectionProfile,
+  CollectionRequest,
+  CompareExportRequest,
+  ExportRequest,
+  FileFilter,
   IPC,
-  InventoryRequest,
-  MultiInventoryRequest,
-  ProgressEvent,
+  ImportConflictChoice,
+  InventoryFilter,
+  InventoryPage,
+  InventorySort,
+  ListClustersRequest,
+  MultiCollectionRequest,
+  NtnxApi,
+  Platform,
+  RunFinishedEvent,
+  RunProgressEvent,
+  SnapshotFileExportRequest,
+  SnapshotFilesExportRequest,
+  TargetSaveRequest,
+  TestConnectionRequest,
 } from '../shared/ipc';
 
-contextBridge.exposeInMainWorld('ntnx', {
+function subscribe<T>(channel: string, cb: (e: T) => void): () => void {
+  const listener = (_: unknown, payload: T) => cb(payload);
+  ipcRenderer.on(channel, listener);
+  return () => ipcRenderer.removeListener(channel, listener);
+}
+
+const api: NtnxApi = {
+  platform: process.platform as Platform,
+
   ping: () => ipcRenderer.invoke(IPC.ping),
-  inventory: (req: InventoryRequest) => ipcRenderer.invoke(IPC.inventory, req),
-  inventoryMulti: (req: MultiInventoryRequest) => ipcRenderer.invoke(IPC.inventoryMulti, req),
+  getAppInfo: () => ipcRenderer.invoke(IPC.getAppInfo),
+  getLegalDocuments: () => ipcRenderer.invoke(IPC.getLegalDocuments),
+
+  testConnection: (req: TestConnectionRequest) => ipcRenderer.invoke(IPC.testConnection, req),
+  listClusters: (req: ListClustersRequest) => ipcRenderer.invoke(IPC.listClusters, req),
+  getCollectionAreas: () => ipcRenderer.invoke(IPC.getCollectionAreas),
+  startCollection: (req: CollectionRequest) => ipcRenderer.invoke(IPC.startCollection, req),
+  startMultiCollection: (req: MultiCollectionRequest) =>
+    ipcRenderer.invoke(IPC.startMultiCollection, req),
+  cancelRun: (runId: string) => ipcRenderer.invoke(IPC.cancelRun, runId),
+  onProgress: (cb: (e: RunProgressEvent) => void) => subscribe(IPC.progress, cb),
+  onRunFinished: (cb: (e: RunFinishedEvent) => void) => subscribe(IPC.runFinished, cb),
+
+  getOverview: () => ipcRenderer.invoke(IPC.getOverview),
   listSnapshots: () => ipcRenderer.invoke(IPC.listSnapshots),
-  exportSnapshot: (path: string, formats: string[], exportDir?: string) =>
-    ipcRenderer.invoke(IPC.exportSnapshot, path, formats, exportDir),
+  getSnapshot: (path: string) => ipcRenderer.invoke(IPC.getSnapshot, path),
+  queryInventory: (
+    path: string,
+    objectType: string,
+    filter: InventoryFilter,
+    sort: InventorySort | null,
+    page: InventoryPage,
+  ) => ipcRenderer.invoke(IPC.queryInventory, path, objectType, filter, sort, page),
+  getObjectDetail: (path: string, objectType: string, id: string) =>
+    ipcRenderer.invoke(IPC.getObjectDetail, path, objectType, id),
+  compareSnapshots: (baseline: string, current: string) =>
+    ipcRenderer.invoke(IPC.compareSnapshots, baseline, current),
+  exportComparison: (req: CompareExportRequest) => ipcRenderer.invoke(IPC.exportComparison, req),
+  exportSnapshot: (req: ExportRequest) => ipcRenderer.invoke(IPC.exportSnapshot, req),
   renameSnapshot: (path: string, newName: string) =>
     ipcRenderer.invoke(IPC.renameSnapshot, path, newName),
   deleteSnapshot: (path: string) => ipcRenderer.invoke(IPC.deleteSnapshot, path),
+  clearSnapshots: () => ipcRenderer.invoke(IPC.clearSnapshots),
+  exportSnapshotFile: (req: SnapshotFileExportRequest) => ipcRenderer.invoke(IPC.exportSnapshotFile, req),
+  exportSnapshotFiles: (req: SnapshotFilesExportRequest) => ipcRenderer.invoke(IPC.exportSnapshotFiles, req),
+  inspectSnapshotFile: (path: string, password?: string) =>
+    ipcRenderer.invoke(IPC.inspectSnapshotFile, path, password),
+  importSnapshotFile: (path: string, onConflict: ImportConflictChoice, password?: string) =>
+    ipcRenderer.invoke(IPC.importSnapshotFile, path, onConflict, password),
+
   revealPath: (path: string) => ipcRenderer.invoke(IPC.revealPath, path),
+  openPath: (path: string) => ipcRenderer.invoke(IPC.openPath, path),
+  openExternal: (url: string) => ipcRenderer.invoke(IPC.openExternal, url),
+  chooseDirectory: (title?: string) => ipcRenderer.invoke(IPC.chooseDirectory, title),
+  chooseFile: (filters: FileFilter[]) => ipcRenderer.invoke(IPC.chooseFile, filters),
+  chooseSnapshotSavePath: (defaultName: string) => ipcRenderer.invoke(IPC.chooseSnapshotSavePath, defaultName),
+  chooseSnapshotFiles: () => ipcRenderer.invoke(IPC.chooseSnapshotFiles),
+  pathForFile: (file: File) => webUtils.getPathForFile(file),
+  takePendingSnapshotFiles: () => ipcRenderer.invoke(IPC.takePendingSnapshotFiles),
+  onOpenSnapshotFiles: (cb: (paths: string[]) => void) => subscribe(IPC.openSnapshotFiles, cb),
+
   listConnections: () => ipcRenderer.invoke(IPC.listConnections),
-  saveConnection: (profile: ConnectionProfile) =>
-    ipcRenderer.invoke(IPC.saveConnection, profile),
-  deleteConnection: (id: string) => ipcRenderer.invoke(IPC.deleteConnection, id),
+  saveTarget: (req: TargetSaveRequest) => ipcRenderer.invoke(IPC.saveTarget, req),
+  deleteTarget: (id: string) => ipcRenderer.invoke(IPC.deleteTarget, id),
   getSettings: () => ipcRenderer.invoke(IPC.getSettings),
   setSettings: (settings: AppSettings) => ipcRenderer.invoke(IPC.setSettings, settings),
-  chooseDirectory: () => ipcRenderer.invoke(IPC.chooseDirectory),
-  onProgress: (cb: (e: ProgressEvent) => void) => {
-    const listener = (_: unknown, params: ProgressEvent) => cb(params);
-    ipcRenderer.on(IPC.progress, listener);
-    return () => ipcRenderer.removeListener(IPC.progress, listener);
-  },
-});
+};
+
+contextBridge.exposeInMainWorld('ntnx', api);

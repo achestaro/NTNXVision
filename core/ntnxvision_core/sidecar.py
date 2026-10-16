@@ -2,59 +2,248 @@
 
 The Electron main process spawns `ntnxvision_core sidecar` and communicates over stdin/stdout
 using newline-delimited JSON-RPC 2.0 messages. This keeps the Python core free of any
-network listener — nothing binds a port.
+network listener — nothing binds a port (demo mode's mock Nutanix server, which binds
+127.0.0.1 only, is the single opt-in exception; see `synthetic.demo`).
 
 Request  : {"jsonrpc":"2.0","id":1,"method":"inventory","params":{...}}
 Response : {"jsonrpc":"2.0","id":1,"result":{...}}
 Progress : {"jsonrpc":"2.0","method":"progress","params":{...}}   (notification, no id)
 Error    : {"jsonrpc":"2.0","id":1,"error":{"code":-32000,"message":"..."}}
 
-Methods:
-  ping                      -> {"pong": true, "version": "..."}
-  inventory(host, username, password, port, insecure, name, export)  -> summary + paths
-  inventory_multi(targets, combine, formats, export_dir)  -> per-target results + combined
-  list_snapshots            -> [{name, path, collected_at}]
-  export(snapshot, format)  -> {path}
+Every method, with its params and result, is specified in docs/IPC_CONTRACT.md.
+
+Concurrency
+-----------
+The reader thread never does slow work. ``ping``, ``list_areas`` and ``cancel_run`` are
+answered inline; collection runs (``inventory``, ``inventory_cluster``,
+``inventory_multi``) get a thread of their own; everything else (snapshot browsing,
+exports, connection tests) runs on a small worker pool. Writes to stdout are serialised
+by one lock, so responses and progress notifications from any thread never interleave.
+
+One collection request runs at a time (a second is refused with -32002, as the UI shows
+a single run); a multi-PC request collects its targets in parallel, each with its own
+progress tagging.
+
+Cancellation
+------------
+`cancel_run` sets the run's `CancelToken`. The connection layers check it before every
+request and the engine between areas, so a run stops within one HTTP round-trip. A
+cancelled run **saves nothing**: no snapshot, no reports, and the request fails with
+-32800. Once a run has started writing its snapshot it is committed and `cancel_run`
+answers ``{"cancelled": false}`` — a half-written snapshot is never left behind.
 """
 
 from __future__ import annotations
 
 import json
+import shutil
 import sys
+import threading
+import uuid
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any
 
 from ntnxvision_core import __version__
+from ntnxvision_core import areas as area_catalogue
 from ntnxvision_core.api import PrismCredentials
 from ntnxvision_core.api.element_client import ElementCredentials
 from ntnxvision_core.api.errors import NutanixApiError
 from ntnxvision_core.api.ndb_client import NdbCredentials
+from ntnxvision_core.cancel import CancelToken, RunCancelled
 from ntnxvision_core.engine import (
     collect_element_environment,
     collect_environment,
     combine_environments,
 )
-from ntnxvision_core.exporters import export_environment
-from ntnxvision_core.paths import exports_dir, snapshots_dir
-from ntnxvision_core.store import SnapshotStore
+from ntnxvision_core.exporters import export_environment, extension_for
+from ntnxvision_core.exporters.naming import report_path
+from ntnxvision_core.paths import demo_enabled, exports_dir, snapshots_dir
+from ntnxvision_core.runinfo import CombinedTracker, RunTracker, build_run_metadata
+from ntnxvision_core.store import SnapshotStore, transfer
+from ntnxvision_core.store import snapshot as snapstore
+from ntnxvision_core.store.names import max_stem_for, safe_name
+
+CANCELLED = -32800
+BUSY = -32002
+API_ERROR = -32000
+OTHER_ERROR = -32001
+#: Snapshot files (`export_snapshot_file`, `inspect_snapshot_file`, `import_snapshot_file`).
+INVALID_FILE = -32010
+NEWER_VERSION = -32011
+PASSWORD_ERROR = -32012
+TRANSFER_ERROR = -32013
+#: The snapshot name is missing, unusable or already taken (checked before collecting).
+INVALID_NAME = -32003
+
+_FORMAT_LABELS = {"excel": "Excel workbook", "pdf": "PDF report", "word": "Word ADD"}
+
+
+class Busy(Exception):
+    """A collection is already running."""
+
+
+class InvalidName(Exception):
+    """A collection's snapshot name is missing, unusable or already used."""
+
+
+# ─── wire ──────────────────────────────────────────────────────────────
+
+_write_lock = threading.Lock()
+
+
+def _send(message: dict[str, Any]) -> None:
+    data = json.dumps(message, default=str) + "\n"
+    with _write_lock:
+        sys.stdout.write(data)
+        sys.stdout.flush()
+
+
+def _notify(method: str, params: dict[str, Any]) -> None:
+    _send({"jsonrpc": "2.0", "method": method, "params": params})
+
+
+def _error(req_id: Any, code: int, message: str) -> None:
+    _send({"jsonrpc": "2.0", "id": req_id, "error": {"code": code, "message": message}})
+
+
+def _emit_progress(payload: dict[str, Any]) -> None:
+    _notify("progress", payload)
+
+
+# ─── runs ──────────────────────────────────────────────────────────────
+
+
+class RunHandle:
+    def __init__(self, run_id: str) -> None:
+        self.run_id = run_id
+        self.token = CancelToken()
+        self.committed = False
+        self._lock = threading.Lock()
+
+    def cancel(self) -> bool:
+        with self._lock:
+            if self.committed:
+                return False
+            self.token.cancel()
+            return True
+
+    def commit(self) -> None:
+        """Point of no return: from here the run writes its results and cannot be
+        cancelled. Raises `RunCancelled` if a cancel arrived first."""
+        with self._lock:
+            self.token.check()
+            self.committed = True
+
+
+class RunRegistry:
+    def __init__(self, max_concurrent: int = 1) -> None:
+        self.max_concurrent = max_concurrent
+        self._runs: dict[str, RunHandle] = {}
+        self._lock = threading.Lock()
+
+    def begin(self, run_id: str | None) -> RunHandle:
+        with self._lock:
+            run_id = run_id or uuid.uuid4().hex
+            existing = self._runs.get(run_id)
+            if existing is not None:
+                return existing
+            if len(self._runs) >= self.max_concurrent:
+                raise Busy("A collection is already running")
+            handle = RunHandle(run_id)
+            self._runs[run_id] = handle
+            return handle
+
+    def get(self, run_id: str | None) -> RunHandle | None:
+        with self._lock:
+            return self._runs.get(run_id or "")
+
+    def end(self, run_id: str) -> None:
+        with self._lock:
+            self._runs.pop(run_id, None)
+
+    def cancel(self, run_id: str | None) -> bool:
+        handle = self.get(run_id)
+        return handle.cancel() if handle else False
+
+    def cancel_all(self) -> None:
+        with self._lock:
+            handles = list(self._runs.values())
+        for h in handles:
+            h.cancel()
+
+    def active(self) -> bool:
+        with self._lock:
+            return bool(self._runs)
+
+
+_runs = RunRegistry()
+_cache = snapstore.EnvironmentCache()
+_inventory: Any = None
+_inventory_lock = threading.Lock()
+
+
+def _inventory_service() -> Any:
+    global _inventory
+    with _inventory_lock:
+        if _inventory is None:
+            from ntnxvision_core.inventory import InventoryService
+
+            _inventory = InventoryService()
+        return _inventory
+
+
+# ─── dispatch ──────────────────────────────────────────────────────────
+
+_RUN_METHODS = {"inventory", "inventory_cluster", "inventory_multi"}
+_INLINE_METHODS = {"ping", "list_areas", "cancel_run"}
 
 
 def serve_stdio() -> None:
     """Read JSON-RPC requests from stdin, one per line, until EOF."""
-    for line in sys.stdin:
-        line = line.strip()
-        if not line:
-            continue
-        try:
-            request = json.loads(line)
-        except json.JSONDecodeError:
-            _send({"jsonrpc": "2.0", "id": None,
-                   "error": {"code": -32700, "message": "Parse error"}})
-            continue
-        _handle(request)
+    if demo_enabled():
+        from ntnxvision_core.synthetic import demo
 
-
-# ─── dispatch ──────────────────────────────────────────────────────────
+        demo.enable()
+    pool = ThreadPoolExecutor(max_workers=4, thread_name_prefix="rpc")
+    threads: list[threading.Thread] = []
+    try:
+        for line in sys.stdin:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                request = json.loads(line)
+            except json.JSONDecodeError:
+                _send({"jsonrpc": "2.0", "id": None,
+                       "error": {"code": -32700, "message": "Parse error"}})
+                continue
+            if not isinstance(request, dict):
+                _error(None, -32600, "Invalid request")
+                continue
+            method = request.get("method")
+            if method in _INLINE_METHODS:
+                _handle(request)
+            elif method in _RUN_METHODS:
+                params = request.get("params") or {}
+                try:
+                    handle = _runs.begin(params.get("run_id"))
+                except Busy as exc:
+                    _error(request.get("id"), BUSY, str(exc))
+                    continue
+                params["run_id"] = handle.run_id
+                request["params"] = params
+                t = threading.Thread(target=_handle, args=(request,), daemon=True,
+                                     name=f"run-{handle.run_id[:8]}")
+                t.start()
+                threads.append(t)
+                threads = [x for x in threads if x.is_alive()]
+            else:
+                pool.submit(_handle, request)
+    finally:
+        # stdin closed: the app is quitting. Stop runs at their next request.
+        _runs.cancel_all()
+        pool.shutdown(wait=False, cancel_futures=True)
 
 
 def _handle(request: dict[str, Any]) -> None:
@@ -68,27 +257,83 @@ def _handle(request: dict[str, Any]) -> None:
             return
         result = handler(req_id, params)
         _send({"jsonrpc": "2.0", "id": req_id, "result": result})
+    except RunCancelled:
+        _error(req_id, CANCELLED, "Run cancelled")
+    except Busy as exc:
+        _error(req_id, BUSY, str(exc))
+    except InvalidName as exc:
+        _error(req_id, INVALID_NAME, str(exc))
     except NutanixApiError as exc:
-        _error(req_id, -32000, str(exc))
+        _error(req_id, API_ERROR, str(exc))
+    except transfer.TransferError as exc:
+        _error(req_id, _transfer_code(exc), str(exc))
     except Exception as exc:  # noqa: BLE001
-        _error(req_id, -32001, f"{type(exc).__name__}: {exc}")
+        _error(req_id, OTHER_ERROR, f"{type(exc).__name__}: {exc}")
+
+
+# ─── simple methods ────────────────────────────────────────────────────
 
 
 def _m_ping(_req_id: Any, _params: dict[str, Any]) -> dict[str, Any]:
-    return {"pong": True, "version": __version__}
+    return {"pong": True, "version": __version__, "demo": demo_enabled()}
 
 
-def _progress_fn(req_id: Any, target: dict[str, Any] | None = None):
-    """Build a progress callback; `target` (index/total/host) tags each event for a
-    multi-Prism-Central run so the UI can bucket progress per target — omitted (None)
-    for a plain single-target collection, which is the common case.
+def _m_list_areas(_req_id: Any, _params: dict[str, Any]) -> dict[str, Any]:
+    return area_catalogue.catalogue()
+
+
+def _m_cancel_run(_req_id: Any, params: dict[str, Any]) -> dict[str, Any]:
+    return {"cancelled": _runs.cancel(params.get("run_id"))}
+
+
+def _m_test_connection(_req_id: Any, params: dict[str, Any]) -> dict[str, Any]:
+    from ntnxvision_core.connectivity import test_connection
+
+    return test_connection(params)
+
+
+def _m_list_clusters(_req_id: Any, params: dict[str, Any]) -> dict[str, Any]:
+    from ntnxvision_core.clusterlist import list_clusters
+
+    return list_clusters(params)
+
+
+def _m_demo_info(_req_id: Any, _params: dict[str, Any]) -> dict[str, Any]:
+    if not demo_enabled():
+        return {"enabled": False, "hosts": []}
+    from ntnxvision_core.synthetic import demo
+
+    return {"enabled": True, "hosts": demo.hosts()}
+
+
+# ─── collection ────────────────────────────────────────────────────────
+
+
+def snapshot_name_for(raw: Any, store: SnapshotStore | None = None,
+                      taken: set[str] | None = None, fallback: str | None = None) -> str:
+    """The snapshot name a collection will be saved under, or `InvalidName`.
+
+    The user types the name (no date is added: report files carry the export date).
+    It is sanitized like every snapshot file name (reserved characters, trimmed, capped),
+    and a name another snapshot already uses is refused, ignoring case, before anything
+    is collected. Snapshot ids stay unique regardless (each save gets a fresh UUID).
+    `taken` holds names claimed earlier in the same request (multi-PC targets).
+
+    `fallback` (multi-PC API callers that send no name: the host) is used as given and
+    never refused; the save then appends -2, -3 rather than replace a snapshot.
     """
-    def progress(idx: int, total: int, label: str, status: str) -> None:
-        payload = {"id": req_id, "index": idx, "total": total, "label": label, "status": status}
-        if target is not None:
-            payload.update(target)
-        _notify("progress", payload)
-    return progress
+    text = str(raw or "").strip()
+    store = store or _store()
+    if not text and fallback:
+        return safe_name(fallback, max_len=max_stem_for(store.directory))
+    if not text:
+        raise InvalidName("Enter a snapshot name.")
+    safe = safe_name(text, max_len=max_stem_for(store.directory), fallback="")
+    if not safe:
+        raise InvalidName("The snapshot name has no usable characters.")
+    if store.name_taken(safe) or safe.casefold() in (taken or set()):
+        raise InvalidName(f"A snapshot named '{safe}' already exists. Choose another name.")
+    return safe
 
 
 def _export_dir_from(params: dict[str, Any]) -> Path:
@@ -107,13 +352,67 @@ def _export_dir_from(params: dict[str, Any]) -> Path:
     return exports_dir()
 
 
-def _finalize(env: Any, name: str, params: dict[str, Any]) -> dict[str, Any]:
+def _export_options(params: dict[str, Any]) -> dict[str, Any]:
+    word = params.get("word") or {}
+    return {
+        "sections": params.get("sections"),
+        "template": word.get("template") or "standard",
+        "prepared_for": word.get("prepared_for") or "",
+        "author": word.get("author") or "",
+        "vcpu_ratio": params.get("vcpu_ratio"),
+    }
+
+
+def _file_prefix(params: dict[str, Any]) -> str:
+    """The user's report file name prefix (sanitized when the name is built)."""
+    raw = params.get("file_prefix")
+    return raw if isinstance(raw, str) else ""
+
+
+def _write_reports(env: Any, name: str, formats: list[str], out_dir: Path,
+                   options: dict[str, Any], tracker: RunTracker | CombinedTracker | None = None,
+                   prefix: str = "") -> tuple[list[dict[str, Any]], dict[str, str]]:
+    """Write each format as ``<prefix>-<name>-<YYYY-MM-DD>.<ext>`` (see exporters.naming),
+    never overwriting an existing file."""
+    files: list[dict[str, Any]] = []
+    errors: dict[str, str] = {}
+    for fmt in formats:
+        if tracker is not None:
+            tracker.phase("export", f"Writing {_FORMAT_LABELS.get(fmt, fmt)}…")
+        try:
+            ext = extension_for(fmt)
+            stem = report_path(out_dir, name, ext, prefix).stem if ext else name
+            path, detail = export_environment(env, fmt, out_dir, stem, options=options,
+                                              with_detail=True)
+            files.append(_report_file(fmt, Path(path), detail))
+        except Exception as exc:  # noqa: BLE001 — one failed format shouldn't lose the run
+            errors[fmt] = str(exc)
+    return files, errors
+
+
+def _report_file(fmt: str, path: Path, detail: str | None) -> dict[str, Any]:
+    try:
+        size: int | None = path.stat().st_size
+    except OSError:
+        size = None
+    return {"format": fmt, "path": str(path), "name": path.name, "size_bytes": size,
+            "detail": detail}
+
+
+def _finalize(env: Any, name: str, params: dict[str, Any], *,
+              tracker: RunTracker | CombinedTracker | None = None, mode: str | None = None,
+              handle: RunHandle | None = None) -> dict[str, Any]:
     """Snapshot, export requested formats, and assemble the JSON-RPC result.
 
     A snapshot-save failure or a per-format export failure is captured as a warning /
     structured error rather than aborting the whole request — a successful collection is
     never discarded because a downstream write failed.
     """
+    if handle is not None:
+        handle.commit()
+    if tracker is not None and tracker.finished_at is None:
+        tracker.finish()
+    env.run = build_run_metadata(env, tracker, mode=mode)
     result: dict[str, Any] = {
         "summary": env.summary(),
         "source_type": env.source_type,
@@ -121,133 +420,300 @@ def _finalize(env: Any, name: str, params: dict[str, Any]) -> dict[str, Any]:
         "warnings": list(env.warnings),
         "collection_notes": env.collection_notes,
         "snapshot_path": None,
+        "snapshot_name": name,
         "exports": {},
         "export_errors": {},
     }
 
+    if tracker is not None:
+        tracker.phase("snapshot", "Saving snapshot…")
+    snap_path: Path | None = None
     try:
-        result["snapshot_path"] = str(SnapshotStore(snapshots_dir()).save(env, name))
+        snap_path = SnapshotStore(snapshots_dir()).save(env, name, unique=True)
+        result["snapshot_path"] = str(snap_path)
+        result["snapshot_name"] = snapstore.snapshot_name(snap_path)
+        _cache.invalidate(snap_path)
     except Exception as exc:  # noqa: BLE001 — don't lose a successful run on a save error
         result["warnings"].append(f"Snapshot could not be saved: {exc}")
 
-    formats = params.get("formats") or (["excel"] if params.get("export", True) else [])
-    out_dir = _export_dir_from(params)
-    for fmt in formats:
-        try:
-            result["exports"][fmt] = str(export_environment(env, fmt, out_dir, name))
-        except Exception as exc:  # noqa: BLE001 — one failed format shouldn't lose the run
-            result["export_errors"][fmt] = str(exc)
+    formats = params.get("formats")
+    if formats is None:
+        formats = ["excel"] if params.get("export", True) else []
+    files, errors = _write_reports(env, result["snapshot_name"] or name, list(formats),
+                                   _export_dir_from(params), _export_options(params), tracker,
+                                   prefix=_file_prefix(params))
+    result["exports"] = {f["format"]: f["path"] for f in files}
+    result["export_errors"] = errors
     if "excel" in result["exports"]:
         result["excel_path"] = result["exports"]["excel"]
+    if snap_path is not None and files:
+        snapstore.record_exports(snap_path, [{**f, "run": True} for f in files])
+
+    run = dict(env.run or {})
+    run["reports"] = files
+    result.update({
+        "started_at": run.get("started_at"),
+        "finished_at": run.get("finished_at"),
+        "duration_ms": run.get("duration_ms"),
+        "areas": run.get("areas") or [],
+        "reports": files,
+        "figures": run.get("figures") or [],
+        "api_routing": run.get("api_routing") or [],
+        "compat": run.get("compat"),
+        "scope": run.get("scope"),
+    })
     return result
 
 
-def _m_inventory(req_id: Any, params: dict[str, Any]) -> dict[str, Any]:
-    creds = PrismCredentials(
-        host=params["host"],
-        username=params["username"],
-        password=params["password"],
-        port=int(params.get("port", 9440)),
-        verify_ssl=not params.get("insecure", False),
-    )
-    name = params.get("name") or "environment"
-
-    ndb_creds = None
-    ndb = params.get("ndb") or {}
+def _ndb_from(block: dict[str, Any] | None, insecure: bool) -> NdbCredentials | None:
+    ndb = block or {}
     if ndb.get("host") and ndb.get("username"):
-        ndb_creds = NdbCredentials(
-            host=ndb["host"],
-            username=ndb["username"],
-            password=ndb.get("password", ""),
-            verify_ssl=not params.get("insecure", False),
-        )
+        return NdbCredentials(host=ndb["host"], username=ndb["username"],
+                              password=ndb.get("password", ""), verify_ssl=not insecure)
+    return None
 
-    env = collect_environment(creds, progress=_progress_fn(req_id), ndb_creds=ndb_creds)
-    return _finalize(env, name, params)
+
+def _advance_demo(host: str) -> None:
+    if demo_enabled():
+        from ntnxvision_core.synthetic import demo
+
+        demo.advance(host)
+
+
+def _clusters_param(params: dict[str, Any]) -> list[str] | None:
+    """The selected cluster uuids; None (absent) collects every registered cluster."""
+    raw = params.get("clusters")
+    if raw is None:
+        return None
+    if not isinstance(raw, list) or not all(isinstance(u, str) and u for u in raw):
+        raise NutanixApiError("clusters must be a list of cluster uuids.")
+    if not raw:
+        raise NutanixApiError("Choose at least one cluster to collect.")
+    return list(raw)
+
+
+def _m_inventory(req_id: Any, params: dict[str, Any]) -> dict[str, Any]:
+    handle = _runs.begin(params.get("run_id"))
+    try:
+        insecure = bool(params.get("insecure", False))
+        creds = PrismCredentials(
+            host=params["host"],
+            username=params["username"],
+            password=params["password"],
+            port=int(params.get("port", 9440)),
+            verify_ssl=not insecure,
+        )
+        name = snapshot_name_for(params.get("name"))
+        tracker = RunTracker(_emit_progress, run_id=handle.run_id, mode="prism_central",
+                             host=creds.host, name=name, formats=params.get("formats") or [])
+        env = collect_environment(creds, ndb_creds=_ndb_from(params.get("ndb"), insecure),
+                                  areas=params.get("areas"), cancel=handle.token,
+                                  tracker=tracker, clusters=_clusters_param(params))
+        result = _finalize(env, name, params, tracker=tracker, mode="prism_central",
+                           handle=handle)
+        _advance_demo(creds.host)
+        return result
+    finally:
+        _runs.end(handle.run_id)
 
 
 def _m_inventory_cluster(req_id: Any, params: dict[str, Any]) -> dict[str, Any]:
     """Direct Prism Element (v2.0) inventory of a single cluster."""
-    creds = ElementCredentials(
-        host=params["host"],
-        username=params["username"],
-        password=params["password"],
-        port=int(params.get("port", 9440)),
-        verify_ssl=not params.get("insecure", False),
-    )
-    name = params.get("name") or "cluster"
-    env = collect_element_environment(creds, progress=_progress_fn(req_id))
-    return _finalize(env, name, params)
+    handle = _runs.begin(params.get("run_id"))
+    try:
+        creds = ElementCredentials(
+            host=params["host"],
+            username=params["username"],
+            password=params["password"],
+            port=int(params.get("port", 9440)),
+            verify_ssl=not params.get("insecure", False),
+        )
+        name = snapshot_name_for(params.get("name"))
+        tracker = RunTracker(_emit_progress, run_id=handle.run_id, mode="prism_element",
+                             host=creds.host, name=name, formats=params.get("formats") or [])
+        env = collect_element_environment(creds, areas=params.get("areas"),
+                                          cancel=handle.token, tracker=tracker)
+        result = _finalize(env, name, params, tracker=tracker, mode="prism_element",
+                           handle=handle)
+        _advance_demo(creds.host)
+        return result
+    finally:
+        _runs.end(handle.run_id)
 
 
 def _m_inventory_multi(req_id: Any, params: dict[str, Any]) -> dict[str, Any]:
     """Collect from several Prism Centrals in one request.
 
-    Each target is isolated — one unreachable/misconfigured PC is recorded as a
-    per-target failure and never aborts the others (same isolation principle as a
-    single collector failure within one run). Each successful target still gets its
-    own snapshot + exports, exactly as a solo `inventory` call would; when `combine`
-    is set and at least two targets succeeded, an additional merged snapshot/report
-    is produced via `combine_environments`.
+    Targets are collected **in parallel** (each with its own progress tagging) and each
+    is isolated — one unreachable or misconfigured PC is recorded as a per-target failure
+    and never aborts the others. Nothing is written until every target has finished
+    collecting, so cancelling a multi-PC run leaves no partial set of snapshots behind.
+    Each successful target then gets its own snapshot + exports, exactly as a solo
+    `inventory` call would; when `combine` is set and at least two targets succeeded, an
+    additional merged snapshot/report is produced via `combine_environments`.
     """
     targets = params.get("targets") or []
     if not targets:
         raise NutanixApiError("At least one target is required.")
+    handle = _runs.begin(params.get("run_id"))
+    try:
+        store = _store()
+        claimed: set[str] = set()
+        for t in targets:
+            t["name"] = snapshot_name_for(t.get("name"), store, claimed,
+                                          fallback=str(t.get("host") or "target"))
+            claimed.add(t["name"].casefold())
+        if params.get("combine") and len(targets) >= 2:
+            params["combined_name"] = snapshot_name_for(params.get("combined_name"), store,
+                                                        claimed, fallback="combined")
+        return _multi(handle, targets, params)
+    finally:
+        _runs.end(handle.run_id)
 
-    finalize_params = {"formats": params.get("formats"), "export_dir": params.get("export_dir")}
 
-    target_results: list[dict[str, Any]] = []
-    successful_envs = []
-    for i, t in enumerate(targets):
+def _multi(handle: RunHandle, targets: list[dict[str, Any]], params: dict[str, Any]
+           ) -> dict[str, Any]:
+    finalize_params = {"formats": params.get("formats"), "export_dir": params.get("export_dir"),
+                       "sections": params.get("sections"), "word": params.get("word"),
+                       "vcpu_ratio": params.get("vcpu_ratio"),
+                       "file_prefix": params.get("file_prefix")}
+    formats = params.get("formats") or []
+    outcomes: list[tuple[Any, RunTracker | None, Exception | None]] = [
+        (None, None, None)] * len(targets)
+
+    def collect(i: int) -> None:
+        t = targets[i]
         host = t.get("host", "")
-        ctx = {"target_index": i, "target_total": len(targets), "target_host": host}
+        tracker = RunTracker(_emit_progress, run_id=handle.run_id, mode="prism_central",
+                             host=host, name=t.get("name") or host, formats=formats,
+                             target={"target_index": i, "target_total": len(targets),
+                                     "target_host": host})
         try:
+            insecure = bool(t.get("insecure", False))
             creds = PrismCredentials(
                 host=host,
                 username=t["username"],
                 password=t["password"],
                 port=int(t.get("port", 9440)),
-                verify_ssl=not t.get("insecure", False),
+                verify_ssl=not insecure,
             )
-            ndb_creds = None
-            ndb = t.get("ndb") or {}
-            if ndb.get("host") and ndb.get("username"):
-                ndb_creds = NdbCredentials(
-                    host=ndb["host"], username=ndb["username"],
-                    password=ndb.get("password", ""),
-                    verify_ssl=not t.get("insecure", False),
-                )
-            env = collect_environment(
-                creds, progress=_progress_fn(req_id, ctx), ndb_creds=ndb_creds,
-            )
-            name = t.get("name") or host or f"target-{i + 1}"
-            result = _finalize(env, name, finalize_params)
-            target_results.append({"host": host, "success": True, **result})
-            successful_envs.append(env)
+            env = collect_environment(creds, ndb_creds=_ndb_from(t.get("ndb"), insecure),
+                                      areas=params.get("areas"), cancel=handle.token,
+                                      tracker=tracker)
+            tracker.finish()
+            outcomes[i] = (env, tracker, None)
+        except RunCancelled:
+            outcomes[i] = (None, tracker, None)
         except Exception as exc:  # noqa: BLE001 — one target's failure never aborts the rest
-            target_results.append({"host": host, "success": False, "error": str(exc)})
+            outcomes[i] = (None, tracker, exc)
+
+    parallel = bool(params.get("parallel", True)) and len(targets) > 1
+    if parallel:
+        with ThreadPoolExecutor(max_workers=min(4, len(targets)),
+                                thread_name_prefix="target") as pool:
+            list(pool.map(collect, range(len(targets))))
+    else:
+        for i in range(len(targets)):
+            collect(i)
+
+    handle.commit()  # raises RunCancelled if cancelled while collecting
+
+    target_results: list[dict[str, Any]] = []
+    successful_envs = []
+    successful_trackers: list[tuple[str, RunTracker]] = []
+    for i, (env, tracker, exc) in enumerate(outcomes):
+        t = targets[i]
+        host = t.get("host", "")
+        if env is None:
+            target_results.append({"host": host, "success": False,
+                                   "error": str(exc) if exc else "Not collected"})
+            continue
+        name = t.get("name") or host or f"target-{i + 1}"
+        if tracker is not None:
+            tracker.phase("snapshot", f"Saving {name}…")
+        result = _finalize(env, name, finalize_params, tracker=tracker, mode="prism_central")
+        target_results.append({"host": host, "success": True, **result})
+        successful_envs.append(env)
+        if tracker is not None:
+            successful_trackers.append((host, tracker))
+        _advance_demo(host)
 
     combined_result = None
     if params.get("combine") and len(successful_envs) >= 2:
+        _emit_progress({"type": "phase", "run_id": handle.run_id, "phase": "combine",
+                        "label": f"Combining {len(successful_envs):,} Prism Centrals…"})
         combined_env = combine_environments(successful_envs)
-        combined_name = params.get("combined_name") or "combined-environment"
-        combined_result = _finalize(combined_env, combined_name, finalize_params)
+        combined_name = params.get("combined_name") or "combined"
+        combined_result = _finalize(
+            combined_env, combined_name, finalize_params, mode="prism_central",
+            tracker=CombinedTracker(successful_trackers, _emit_progress, handle.run_id))
 
     return {"targets": target_results, "combined": combined_result}
 
 
-def _m_list_snapshots(_req_id: Any, _params: dict[str, Any]) -> list[dict[str, Any]]:
-    store = SnapshotStore(snapshots_dir())
-    out = []
-    for path in store.list_snapshots():
-        try:
-            env = store.load(path)
-            out.append({"name": path.stem.replace(".ntnxsnap", ""),
-                        "path": str(path), "collected_at": env.collected_at,
-                        "summary": env.summary()})
-        except Exception:  # noqa: BLE001 — skip corrupt snapshots
-            continue
-    return out
+# ─── snapshots ─────────────────────────────────────────────────────────
+
+
+def _store() -> SnapshotStore:
+    return SnapshotStore(snapshots_dir())
+
+
+def _m_list_snapshots(_req_id: Any, _params: dict[str, Any]) -> dict[str, Any]:
+    from ntnxvision_core.overview import all_metas
+
+    store = _store()
+    metas = all_metas(store.list_snapshots(), _cache)
+    return {
+        "snapshots": [snapstore.info_from_meta(m) for m in metas],
+        "dir": str(store.directory),
+        "total_bytes": sum(int(m.get("size_bytes") or 0) for m in metas),
+    }
+
+
+def _m_get_overview(_req_id: Any, _params: dict[str, Any]) -> dict[str, Any]:
+    from ntnxvision_core.overview import all_metas, build
+
+    return build(all_metas(_store().list_snapshots(), _cache))
+
+
+def _m_get_snapshot(_req_id: Any, params: dict[str, Any]) -> dict[str, Any]:
+    path = _resolve_snapshot_path(params["snapshot"])
+    meta = snapstore.read_meta(path, _cache)
+    stats = meta.get("stats") or {}
+    run = meta.get("run")
+    if isinstance(run, dict):
+        run = dict(run)
+        reports = [f for f in meta.get("exports") or [] if f.get("run")]
+        run["reports"] = [{k: v for k, v in f.items() if k != "run"} for f in reports
+                          if Path(str(f.get("path"))).exists()]
+    summary = meta.get("summary") or {}
+    return {
+        **snapstore.info_from_meta(meta),
+        "source_type": meta.get("source_type") or "prism_central",
+        "prism_central": {"host": meta.get("source"), "version": meta.get("version")},
+        "is_combined": meta.get("kind") == "combined",
+        "sources": meta.get("sources") or [],
+        "collection_notes": stats.get("notes") or {},
+        "export_estimates": _estimates(summary, meta.get("kind")),
+        "run": run,
+        "exports": [{k: v for k, v in f.items() if k != "run"}
+                    for f in meta.get("exports") or []],
+    }
+
+
+def _estimates(summary: dict[str, Any], kind: Any) -> dict[str, Any]:
+    """Rough sizes for the export dialog's format cards (calibrated on synthetic runs)."""
+    rows = sum(int(v or 0) for k, v in summary.items() if k != "source_environments")
+    sheets = 4 + sum(1 for k, v in summary.items()
+                     if v and k not in ("source_environments", "system_vms"))
+    vms = int(summary.get("vms") or 0)
+    # The PDF and the ADD carry no per-VM table, so VMs barely move their length.
+    doc_rows = max(0, rows - vms)
+    return {
+        "excel": {"bytes": 12_000 + rows * 190, "detail": f"{sheets:,} sheets"},
+        "pdf": {"bytes": 650_000 + doc_rows * 1_100, "detail": f"≈ {10 + doc_rows // 30:,} pages"},
+        "word": {"bytes": 800_000 + doc_rows * 900, "detail": f"≈ {16 + doc_rows // 25:,} pages"},
+    }
 
 
 def _m_export(_req_id: Any, params: dict[str, Any]) -> dict[str, Any]:
@@ -258,19 +724,16 @@ def _m_export(_req_id: Any, params: dict[str, Any]) -> dict[str, Any]:
     strings, so callers can tell success from failure.
     """
     snap_path = _resolve_snapshot_path(params["snapshot"])
-    env = SnapshotStore(snapshots_dir()).load(snap_path)
-    name = params.get("name") or snap_path.stem.replace(".ntnxsnap", "")
+    env = _cache.get(snap_path)
+    name = params.get("name") or snapstore.snapshot_name(snap_path)
     formats = params.get("formats") or [params.get("format", "excel")]
-
-    paths: dict[str, str] = {}
-    errors: dict[str, str] = {}
-    out_dir = _export_dir_from(params)
-    for fmt in formats:
-        try:
-            paths[fmt] = str(export_environment(env, fmt, out_dir, name))
-        except Exception as exc:  # noqa: BLE001
-            errors[fmt] = str(exc)
-    return {"paths": paths, "errors": errors, "path": next(iter(paths.values()), None)}
+    files, errors = _write_reports(env, name, list(formats), _export_dir_from(params),
+                                   _export_options(params), prefix=_file_prefix(params))
+    if files:
+        snapstore.record_exports(snap_path, files)
+    paths = {f["format"]: f["path"] for f in files}
+    return {"paths": paths, "errors": errors, "path": next(iter(paths.values()), None),
+            "files": files}
 
 
 def _m_rename_snapshot(_req_id: Any, params: dict[str, Any]) -> dict[str, Any]:
@@ -279,21 +742,41 @@ def _m_rename_snapshot(_req_id: Any, params: dict[str, Any]) -> dict[str, Any]:
     new_name = str(params.get("new_name") or "").strip()
     if not new_name:
         raise NutanixApiError("A new name is required.")
-    safe = "".join(c if c.isalnum() or c in "-_. " else "_" for c in new_name).strip()
+    safe = safe_name(new_name, fallback="")
     if not safe:
         raise NutanixApiError("The new name has no usable characters.")
-    target = snap_path.with_name(f"{safe}.ntnxsnap.json")
-    if target.exists() and target != snap_path:
-        raise NutanixApiError(f"A snapshot named '{safe}' already exists.")
-    snap_path.rename(target)
+    try:
+        target = snapstore.rename(snap_path, safe)
+    except FileExistsError as exc:
+        raise NutanixApiError(f"A snapshot named '{safe}' already exists.") from exc
+    _cache.invalidate(snap_path)
     return {"path": str(target), "name": safe}
 
 
 def _m_delete_snapshot(_req_id: Any, params: dict[str, Any]) -> dict[str, Any]:
     """Delete a saved snapshot (confined to the snapshots directory)."""
     snap_path = _resolve_snapshot_path(params["snapshot"])
-    snap_path.unlink()
+    snapstore.delete(snap_path)
+    _cache.invalidate(snap_path)
     return {"deleted": True}
+
+
+def _m_clear_snapshots(_req_id: Any, _params: dict[str, Any]) -> dict[str, Any]:
+    """Delete every snapshot (never exports, never the directory itself)."""
+    if _runs.active():
+        raise Busy("A collection is running. Wait for it to finish before clearing")
+    store = _store()
+    deleted = 0
+    for path in store.list_snapshots():
+        try:
+            snapstore.delete(path)
+            deleted += 1
+        except OSError:
+            continue
+    for orphan in store.directory.glob(f"*{snapstore.META_SUFFIX}"):
+        orphan.unlink(missing_ok=True)
+    _cache.invalidate()
+    return {"deleted": deleted}
 
 
 def _resolve_snapshot_path(raw: str) -> Path:
@@ -309,29 +792,277 @@ def _resolve_snapshot_path(raw: str) -> Path:
     return resolved
 
 
+# ─── snapshot files (.ntnxsnap) ────────────────────────────────────────
+
+
+def _transfer_code(exc: transfer.TransferError) -> int:
+    if isinstance(exc, transfer.UnsupportedVersion):
+        return NEWER_VERSION
+    if isinstance(exc, (transfer.PasswordRequired, transfer.WrongPassword)):
+        return PASSWORD_ERROR
+    if isinstance(exc, transfer.InvalidSnapshotFile):
+        return INVALID_FILE
+    return TRANSFER_ERROR
+
+
+def _export_item(raw: str) -> transfer.ExportItem:
+    path = _resolve_snapshot_path(raw)
+    store = _store()
+    env = _cache.get(path)
+    if not env.snapshot_id:
+        transfer.ensure_snapshot_id(store, path, env)
+        _cache.invalidate(path)
+    return transfer.ExportItem(env=env, meta=snapstore.read_meta(path, _cache))
+
+
+def _local_file(raw: Any, what: str) -> Path:
+    if not isinstance(raw, str) or not raw.strip():
+        raise transfer.TransferError(f"A {what} is required.")
+    path = Path(raw).expanduser()
+    if not path.is_absolute():
+        raise transfer.TransferError(f"The {what} must be an absolute path.")
+    return path
+
+
+def _m_export_snapshot_file(_req_id: Any, params: dict[str, Any]) -> dict[str, Any]:
+    """Export one snapshot (`snapshot`) or a bundle (`snapshots`) to one .ntnxsnap file."""
+    raws = params.get("snapshots") or [params.get("snapshot")]
+    items = [_export_item(str(r)) for r in raws if r]
+    dest = _local_file(params.get("dest_path"), "destination file")
+    return transfer.export_file(items, dest, password=params.get("password") or None,
+                                note=params.get("note"), app_version=params.get("app_version"))
+
+
+def _m_export_snapshot_files(_req_id: Any, params: dict[str, Any]) -> dict[str, Any]:
+    """Export several snapshots to a folder, one .ntnxsnap file each."""
+    dest_dir = _local_file(params.get("dest_dir"), "destination folder")
+    if not dest_dir.is_dir():
+        raise transfer.TransferError(f"The folder {dest_dir} does not exist.")
+    files = []
+    errors = []
+    for raw in params.get("snapshots") or []:
+        try:
+            item = _export_item(str(raw))
+            dest = transfer.unique_file(dest_dir, str(item.meta.get("name") or "snapshot"))
+            files.append(transfer.export_file(
+                [item], dest, password=params.get("password") or None, note=params.get("note"),
+                app_version=params.get("app_version")))
+        except Exception as exc:  # noqa: BLE001 — one failed snapshot never stops the batch
+            errors.append({"snapshot": str(raw), "error": str(exc)})
+    return {"dir": str(dest_dir), "files": files, "errors": errors}
+
+
+def _m_inspect_snapshot_file(_req_id: Any, params: dict[str, Any]) -> dict[str, Any]:
+    path = _local_file(params.get("path"), "snapshot file")
+    return transfer.inspect_file(path, _store(), password=params.get("password") or None)
+
+
+def _m_import_snapshot_file(_req_id: Any, params: dict[str, Any]) -> dict[str, Any]:
+    path = _local_file(params.get("path"), "snapshot file")
+    with _import_lock:
+        return transfer.import_file(path, _store(), password=params.get("password") or None,
+                                    on_conflict=str(params.get("on_conflict") or "keep_both"),
+                                    on_saved=_cache.invalidate)
+
+
+_import_lock = threading.Lock()
+
+
+# ─── inventory & compare ───────────────────────────────────────────────
+
+
+def _m_query_inventory(_req_id: Any, params: dict[str, Any]) -> dict[str, Any]:
+    path = _resolve_snapshot_path(params["snapshot"])
+    env = _cache.get(path)
+    return _inventory_service().query(
+        env, str(params.get("object_type") or "vms"), params.get("filter") or {},
+        params.get("sort"), params.get("page") or {}, params.get("vcpu_ratio"))
+
+
+def _m_get_object_detail(_req_id: Any, params: dict[str, Any]) -> dict[str, Any]:
+    path = _resolve_snapshot_path(params["snapshot"])
+    env = _cache.get(path)
+    try:
+        return _inventory_service().detail(
+            env, str(params.get("object_type") or "vms"), str(params.get("id") or ""),
+            params.get("vcpu_ratio"))
+    except KeyError as exc:
+        raise NutanixApiError(str(exc).strip("'\"")) from exc
+
+
+def _m_compare_snapshots(_req_id: Any, params: dict[str, Any]) -> dict[str, Any]:
+    from ntnxvision_core.compare import compare
+
+    base_path = _resolve_snapshot_path(params["baseline"])
+    cur_path = _resolve_snapshot_path(params["current"])
+    base_env, cur_env = _cache.get(base_path), _cache.get(cur_path)
+    result = compare(base_env, cur_env)
+    return {
+        "baseline": snapstore.info_from_meta(snapstore.read_meta(base_path, _cache)),
+        "current": snapstore.info_from_meta(snapstore.read_meta(cur_path, _cache)),
+        **result,
+    }
+
+
+def _m_export_comparison(_req_id: Any, params: dict[str, Any]) -> dict[str, Any]:
+    from ntnxvision_core.compare import export_comparison
+
+    base_path = _resolve_snapshot_path(params["baseline"])
+    cur_path = _resolve_snapshot_path(params["current"])
+    fmt = str(params.get("format")) if params.get("format") in ("csv", "pdf") else "excel"
+    out = export_comparison(_cache.get(base_path), _cache.get(cur_path),
+                            snapstore.snapshot_name(base_path), snapstore.snapshot_name(cur_path),
+                            fmt, _export_dir_from(params), prefix=_file_prefix(params))
+    return {"path": str(out)}
+
+
+# ─── demo seeding ──────────────────────────────────────────────────────
+
+DEMO_PASSWORD = "demo"
+_seed_lock = threading.Lock()
+
+
+def _shift_iso(value: str | None, delta: Any) -> str | None:
+    from datetime import datetime
+
+    if not value:
+        return value
+    try:
+        return (datetime.fromisoformat(value.replace("Z", "+00:00")) - delta).isoformat(
+            timespec="seconds")
+    except ValueError:
+        return value
+
+
+def _backdate(env: Any, tracker: RunTracker | None, delta: Any) -> None:
+    """Make a seeded collection look as if it ran `delta` ago."""
+    env.collected_at = _shift_iso(env.collected_at, delta)
+    if tracker is not None:
+        if tracker.finished_at is None:
+            tracker.finish()
+        tracker.started_at = _shift_iso(tracker.started_at, delta) or tracker.started_at
+        tracker.finished_at = _shift_iso(tracker.finished_at, delta)
+
+
+def _seed_pc(host: str, name: str, delta: Any, formats: list[str], params: dict[str, Any],
+             *, finalize: bool = True) -> tuple[Any, RunTracker, dict[str, Any] | None]:
+    creds = PrismCredentials(host=host, username="admin", password=DEMO_PASSWORD,
+                             port=9440, verify_ssl=True)
+    tracker = RunTracker(None, run_id=uuid.uuid4().hex, mode="prism_central", host=host,
+                         name=name, formats=formats)
+    env = collect_environment(creds, tracker=tracker)
+    _backdate(env, tracker, delta)
+    result = None
+    if finalize:
+        result = _finalize(env, name, {"formats": formats, "export_dir": params.get("export_dir")},
+                           tracker=tracker, mode="prism_central")
+    _advance_demo(host)
+    return env, tracker, result
+
+
+def _seed_demo(params: dict[str, Any]) -> list[str]:
+    """Collect a believable history from the demo estate.
+
+    * pc01 two weeks ago and again today (so Compare has a real pair, and the user's next
+      pc01 collection drifts one more week);
+    * pe01 (Prism Element) three days ago;
+    * pc02 + pc03 yesterday, plus their combined multi-PC report;
+    * today's pc01 run also writes Excel + Word reports, so Results shows files.
+
+    Names follow the app's convention: typed by the user, no date (the collection time is
+    stored with the snapshot and report files carry the export date).
+    """
+    from datetime import timedelta
+
+    made: list[str] = []
+
+    _, _, r = _seed_pc("pc01.demo.local", "pc01 baseline", timedelta(days=14), [], params)
+    made.append(r["snapshot_name"] if r else "")
+
+    creds = ElementCredentials(host="pe01.demo.local", username="admin",
+                               password=DEMO_PASSWORD, port=9440, verify_ssl=True)
+    tracker = RunTracker(None, run_id=uuid.uuid4().hex, mode="prism_element",
+                         host=creds.host, name="pe01 baseline")
+    env = collect_element_environment(creds, tracker=tracker)
+    _backdate(env, tracker, timedelta(days=3))
+    r = _finalize(env, "pe01 baseline", {"formats": []}, tracker=tracker,
+                  mode="prism_element")
+    _advance_demo(creds.host)
+    made.append(r["snapshot_name"])
+
+    parts = []
+    for host in ("pc02.demo.local", "pc03.demo.local"):
+        short = host.split(".")[0]
+        env_i, tracker_i, r = _seed_pc(host, f"{short} baseline", timedelta(days=1), [],
+                                       params)
+        made.append(r["snapshot_name"] if r else "")
+        parts.append((host, env_i, tracker_i))
+    combined = combine_environments([p[1] for p in parts])
+    combined.collected_at = parts[-1][1].collected_at
+    combined_tracker = CombinedTracker([(h, t) for h, _, t in parts], None, None)
+    combined_tracker.finished_at = max(t.finished_at or "" for _, _, t in parts) or None
+    combined_tracker.duration_ms = max(t.duration_ms or 0 for _, _, t in parts)
+    r = _finalize(combined, "pc02 and pc03 combined", {"formats": []}, mode="prism_central",
+                  tracker=combined_tracker)
+    made.append(r["snapshot_name"])
+
+    _, _, r = _seed_pc("pc01.demo.local", "pc01 week 2", timedelta(hours=2),
+                       ["excel", "word"], params)
+    made.append(r["snapshot_name"] if r else "")
+    return [m for m in made if m]
+
+
+def _m_demo_seed(_req_id: Any, params: dict[str, Any]) -> dict[str, Any]:
+    """Demo mode only: fill an empty demo profile with a few finished collections.
+
+    Idempotent — does nothing when demo snapshots already exist (unless `force`).
+    """
+    if not demo_enabled():
+        raise NutanixApiError("demo_seed is only available in demo mode.")
+    from ntnxvision_core.synthetic import demo
+
+    with _seed_lock:
+        if _store().list_snapshots() and not params.get("force"):
+            return {"seeded": False, "snapshots": []}
+        state = demo.state() or demo.enable()
+        saved_latency = state.api.latency_ms
+        state.api.latency_ms = 0.0  # seeding should take seconds, not minutes
+        try:
+            return {"seeded": True, "snapshots": _seed_demo(params)}
+        finally:
+            state.api.latency_ms = saved_latency
+
+
+def _m_disk_usage(_req_id: Any, _params: dict[str, Any]) -> dict[str, Any]:
+    usage = shutil.disk_usage(snapshots_dir())
+    return {"free_bytes": usage.free, "total_bytes": usage.total}
+
+
 _METHODS = {
     "ping": _m_ping,
+    "list_areas": _m_list_areas,
+    "test_connection": _m_test_connection,
+    "list_clusters": _m_list_clusters,
+    "cancel_run": _m_cancel_run,
+    "demo_info": _m_demo_info,
     "inventory": _m_inventory,
     "inventory_cluster": _m_inventory_cluster,
     "inventory_multi": _m_inventory_multi,
+    "get_overview": _m_get_overview,
     "list_snapshots": _m_list_snapshots,
+    "get_snapshot": _m_get_snapshot,
+    "query_inventory": _m_query_inventory,
+    "get_object_detail": _m_get_object_detail,
+    "compare_snapshots": _m_compare_snapshots,
+    "export_comparison": _m_export_comparison,
     "export": _m_export,
     "rename_snapshot": _m_rename_snapshot,
     "delete_snapshot": _m_delete_snapshot,
+    "clear_snapshots": _m_clear_snapshots,
+    "export_snapshot_file": _m_export_snapshot_file,
+    "export_snapshot_files": _m_export_snapshot_files,
+    "inspect_snapshot_file": _m_inspect_snapshot_file,
+    "import_snapshot_file": _m_import_snapshot_file,
+    "disk_usage": _m_disk_usage,
+    "demo_seed": _m_demo_seed,
 }
-
-
-# ─── wire helpers ──────────────────────────────────────────────────────
-
-
-def _send(message: dict[str, Any]) -> None:
-    sys.stdout.write(json.dumps(message) + "\n")
-    sys.stdout.flush()
-
-
-def _notify(method: str, params: dict[str, Any]) -> None:
-    _send({"jsonrpc": "2.0", "method": method, "params": params})
-
-
-def _error(req_id: Any, code: int, message: str) -> None:
-    _send({"jsonrpc": "2.0", "id": req_id, "error": {"code": code, "message": message}})

@@ -1,0 +1,383 @@
+/* Runway design tokens for NTNXVision.
+ *
+ * Values follow the Runway token set (nutanix-move-manager frontend/src/styles/tokens.css) and
+ * the approved mocks in docs/design/runway-mocks. Layers:
+ *   1. Global ramps (raw colours; nothing outside this file reads them)
+ *   2. Semantic tokens per mode — <html data-theme="light|dark|hc">; "system" is resolved
+ *      to light/dark by the renderer, with a prefers-color-scheme fallback below.
+ *   3. Nav family (command bar + rail): dark in every mode.
+ *   4. Accent swap — <html data-accent="iris|prism">.
+ *   5. Non-colour tokens: fonts, radii, type, motion, density (<html data-density>).
+ */
+
+/* ── 1. Global ramps ─────────────────────────────────────────────────── */
+:root {
+  --rw-slate-0: #ffffff;
+  --rw-slate-25: #fafbfb;
+  --rw-slate-50: #eceef0;
+  --rw-slate-60: #e8eef3;
+  --rw-slate-75: #e6eaee;
+  --rw-slate-100: #dee3e7;
+  --rw-slate-200: #c9d0d6;
+  --rw-slate-250: #b2c0cc;
+  --rw-slate-300: #9fb0bf;
+  --rw-slate-400: #8496a6;
+  --rw-slate-450: #778795;
+  --rw-slate-500: #5d6f7f;
+  --rw-slate-550: #5b6976;
+  --rw-slate-650: #3e4c59;
+  --rw-slate-750: #25323e;
+  --rw-slate-775: #1e2a35;
+  --rw-slate-800: #19232c;
+  --rw-slate-810: #16212b;
+  --rw-slate-820: #16202a;
+  --rw-slate-840: #131c25;
+  --rw-slate-870: #0f1a24;
+  --rw-slate-900: #0d141b;
+  --rw-slate-920: #0b131b;
+  --rw-slate-950: #070b0f;
+
+  --rw-neutral-0: #ffffff;
+  --rw-neutral-50: #ededed;
+  --rw-neutral-150: #cfcfcf;
+  --rw-neutral-250: #bdbdbd;
+  --rw-neutral-400: #9a9a9a;
+  --rw-neutral-550: #6e6e6e;
+  --rw-neutral-850: #262626;
+  --rw-neutral-1000: #000000;
+
+  --rw-iris-100: #eae8f8;
+  --rw-iris-300: #bbaaff;
+  --rw-iris-400: #9c86ff;
+  --rw-iris-600: #5b3fd9;
+  --rw-iris-900: #1b1f32;
+  --rw-iris-950: #13111a;
+
+  --rw-prism-100: #e4ecf5;
+  --rw-prism-300: #8cc4ff;
+  --rw-prism-400: #5aa2ee;
+  --rw-prism-600: #1a68bd;
+  --rw-prism-900: #152230;
+  --rw-prism-950: #0e141a;
+
+  --rw-cyan-100: #e2edef;
+  --rw-cyan-300: #6fe6f5;
+  --rw-cyan-400: #3cc6da;
+  --rw-cyan-700: #0a7283;
+  --rw-cyan-900: #12262e;
+  --rw-cyan-950: #0b1718;
+
+  --rw-green-100: #e4eee9;
+  --rw-green-300: #6bf5ae;
+  --rw-green-400: #44d690;
+  --rw-green-700: #197746;
+  --rw-green-900: #122727;
+  --rw-green-950: #0b1811;
+
+  --rw-amber-100: #f0ebe2;
+  --rw-amber-300: #ffd77a;
+  --rw-amber-400: #f2b450;
+  --rw-amber-700: #995800;
+  --rw-amber-900: #242420;
+  --rw-amber-950: #1a160c;
+
+  --rw-red-100: #f3e6e8;
+  --rw-red-300: #ff9daa;
+  --rw-red-400: #ff7c8c;
+  --rw-red-700: #b3263a;
+  --rw-red-900: #251e26;
+  --rw-red-950: #1a1011;
+}
+
+/* ── 2. Semantic tokens ──────────────────────────────────────────────── */
+
+/* Light (also the default before the renderer sets data-theme) */
+:root,
+:root[data-theme='light'] {
+  color-scheme: light;
+  --body: var(--rw-slate-50);
+  --surface: var(--rw-slate-25);
+  --surface-raised: var(--rw-slate-0);
+  --surface-hover: var(--rw-slate-75);
+  --rule: var(--rw-slate-200);
+  --rule-2: var(--rw-slate-100);
+  --rule-strong: var(--rw-slate-450);
+  --ink: var(--rw-slate-870);
+  --ink-2: var(--rw-slate-650);
+  --ink-3: var(--rw-slate-550);
+  --on-accent: var(--rw-slate-0);
+  --accent: var(--rw-iris-600);
+  --accent-tint: var(--rw-iris-100);
+  /* Brand iris: kept when data-accent swaps --accent to Prism blue */
+  --iris: var(--rw-iris-600);
+  --accent-prism: var(--rw-prism-600);
+  --on-accent-prism: var(--rw-slate-0);
+  --accent-prism-tint: var(--rw-prism-100);
+  --live: var(--rw-cyan-700);
+  --live-tint: var(--rw-cyan-100);
+  --ok: var(--rw-green-700);
+  --ok-tint: var(--rw-green-100);
+  --warn: var(--rw-amber-700);
+  --warn-tint: var(--rw-amber-100);
+  --error: var(--rw-red-700);
+  --error-tint: var(--rw-red-100);
+  --chart-1: #3370c7;
+  --chart-2: #b38c15;
+  --chart-3: #b54879;
+  --chart-4: #8a4700;
+  --chart-5: #894b9c;
+  --chart-6: #c65d26;
+  --chart-7: #3899c5;
+  --chart-8: #648828;
+  --seq-1: #88b1ef;
+  --seq-2: #5f94e2;
+  --seq-3: #3b77d0;
+  --seq-4: #255dac;
+  --seq-5: #164485;
+  --scrim: rgb(15 26 36 / 0.4);
+  --shadow-popover: 0 12px 32px rgb(15 26 36 / 0.18);
+}
+
+/* Dark */
+:root[data-theme='dark'] {
+  color-scheme: dark;
+  --body: var(--rw-slate-950);
+  --surface: var(--rw-slate-900);
+  --surface-raised: var(--rw-slate-840);
+  --surface-hover: var(--rw-slate-820);
+  --rule: var(--rw-slate-750);
+  --rule-2: var(--rw-slate-800);
+  --rule-strong: var(--rw-slate-500);
+  --ink: var(--rw-slate-60);
+  --ink-2: var(--rw-slate-250);
+  --ink-3: var(--rw-slate-400);
+  --on-accent: var(--rw-slate-950);
+  --accent: var(--rw-iris-400);
+  --accent-tint: var(--rw-iris-900);
+  --iris: var(--rw-iris-400);
+  --accent-prism: var(--rw-prism-400);
+  --on-accent-prism: var(--rw-slate-950);
+  --accent-prism-tint: var(--rw-prism-900);
+  --live: var(--rw-cyan-400);
+  --live-tint: var(--rw-cyan-900);
+  --ok: var(--rw-green-400);
+  --ok-tint: var(--rw-green-900);
+  --warn: var(--rw-amber-400);
+  --warn-tint: var(--rw-amber-900);
+  --error: var(--rw-red-400);
+  --error-tint: var(--rw-red-900);
+  --chart-1: #4885df;
+  --chart-2: #b38c15;
+  --chart-3: #c95a8b;
+  --chart-4: #9a5505;
+  --chart-5: #ac6bbf;
+  --chart-6: #d46a34;
+  --chart-7: #3e9dca;
+  --chart-8: #759b3d;
+  --seq-1: #204e90;
+  --seq-2: #3169b9;
+  --seq-3: #4d86d9;
+  --seq-4: #73a4ed;
+  --seq-5: #a1c3f5;
+  --scrim: rgb(0 0 0 / 0.6);
+  --shadow-popover: 0 12px 32px rgb(0 0 0 / 0.5);
+}
+
+/* System, before JS resolves it (data-theme absent) */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme]) {
+    color-scheme: dark;
+    --body: var(--rw-slate-950);
+    --surface: var(--rw-slate-900);
+    --surface-raised: var(--rw-slate-840);
+    --surface-hover: var(--rw-slate-820);
+    --rule: var(--rw-slate-750);
+    --rule-2: var(--rw-slate-800);
+    --rule-strong: var(--rw-slate-500);
+    --ink: var(--rw-slate-60);
+    --ink-2: var(--rw-slate-250);
+    --ink-3: var(--rw-slate-400);
+    --on-accent: var(--rw-slate-950);
+    --accent: var(--rw-iris-400);
+    --accent-tint: var(--rw-iris-900);
+    --iris: var(--rw-iris-400);
+    --accent-prism: var(--rw-prism-400);
+    --on-accent-prism: var(--rw-slate-950);
+    --accent-prism-tint: var(--rw-prism-900);
+    --live: var(--rw-cyan-400);
+    --live-tint: var(--rw-cyan-900);
+    --ok: var(--rw-green-400);
+    --ok-tint: var(--rw-green-900);
+    --warn: var(--rw-amber-400);
+    --warn-tint: var(--rw-amber-900);
+    --error: var(--rw-red-400);
+    --error-tint: var(--rw-red-900);
+    --scrim: rgb(0 0 0 / 0.6);
+    --shadow-popover: 0 12px 32px rgb(0 0 0 / 0.5);
+  }
+}
+
+/* High contrast */
+:root[data-theme='hc'] {
+  color-scheme: dark;
+  --body: var(--rw-neutral-1000);
+  --surface: var(--rw-neutral-1000);
+  --surface-raised: var(--rw-neutral-1000);
+  --surface-hover: var(--rw-neutral-850);
+  --rule: var(--rw-neutral-400);
+  --rule-2: var(--rw-neutral-550);
+  --rule-strong: var(--rw-neutral-250);
+  --ink: var(--rw-neutral-0);
+  --ink-2: var(--rw-neutral-50);
+  --ink-3: var(--rw-neutral-150);
+  --on-accent: var(--rw-neutral-1000);
+  --accent: var(--rw-iris-300);
+  --accent-tint: var(--rw-iris-950);
+  --iris: var(--rw-iris-300);
+  --accent-prism: var(--rw-prism-300);
+  --on-accent-prism: var(--rw-neutral-1000);
+  --accent-prism-tint: var(--rw-prism-950);
+  --live: var(--rw-cyan-300);
+  --live-tint: var(--rw-cyan-950);
+  --ok: var(--rw-green-300);
+  --ok-tint: var(--rw-green-950);
+  --warn: var(--rw-amber-300);
+  --warn-tint: var(--rw-amber-950);
+  --error: var(--rw-red-300);
+  --error-tint: var(--rw-red-950);
+  --chart-1: #4885df;
+  --chart-2: #b38c15;
+  --chart-3: #c95a8b;
+  --chart-4: #9a5505;
+  --chart-5: #ac6bbf;
+  --chart-6: #d46a34;
+  --chart-7: #3e9dca;
+  --chart-8: #759b3d;
+  --seq-1: #204e90;
+  --seq-2: #3169b9;
+  --seq-3: #4d86d9;
+  --seq-4: #73a4ed;
+  --seq-5: #a1c3f5;
+  --scrim: rgb(0 0 0 / 0.8);
+  --shadow-popover: 0 0 #0000;
+}
+
+/* ── 3. Nav family: dark in every mode ───────────────────────────────── */
+/* The mocks draw the bar and rail in #0B131B in both light and dark, so dark mode keeps
+   the light-mode bar values rather than Runway's darker slate-975. */
+:root {
+  --bar: var(--rw-slate-920);
+  --bar-hover: var(--rw-slate-810);
+  --bar-rule: var(--rw-slate-775);
+  --bar-text: var(--rw-slate-300);
+  --bar-text-active: var(--rw-slate-0);
+  --bar-accent: var(--rw-iris-400);
+  --bar-live: var(--rw-cyan-400);
+}
+
+:root[data-theme='hc'] {
+  --bar: var(--rw-neutral-1000);
+  --bar-hover: var(--rw-neutral-850);
+  --bar-rule: var(--rw-neutral-400);
+  --bar-text: var(--rw-neutral-50);
+  --bar-text-active: var(--rw-neutral-0);
+  --bar-accent: var(--rw-iris-300);
+  --bar-live: var(--rw-cyan-300);
+}
+
+/* ── 4. Accent ───────────────────────────────────────────────────────── */
+:root[data-accent='prism'] {
+  --accent: var(--accent-prism);
+  --on-accent: var(--on-accent-prism);
+  --accent-tint: var(--accent-prism-tint);
+}
+
+:root {
+  --focus: var(--accent);
+}
+
+/* Mode swatches: fixed per-mode colours for pickers that draw another mode than the
+   current one, and the iris value of the current mode (--accent turns Prism blue under
+   data-accent="prism"). Swatch accents follow the chosen accent. */
+:root {
+  --swatch-light-surface: var(--rw-slate-25);
+  --swatch-light-bar: var(--rw-slate-920);
+  --swatch-light-rule: var(--rw-slate-200);
+  --swatch-light-ink: var(--rw-slate-550);
+  --swatch-light-accent: var(--rw-iris-600);
+  --swatch-dark-surface: var(--rw-slate-900);
+  --swatch-dark-bar: var(--rw-slate-920);
+  --swatch-dark-rule: var(--rw-slate-750);
+  --swatch-dark-ink: var(--rw-slate-400);
+  --swatch-dark-accent: var(--rw-iris-400);
+  --swatch-hc-surface: var(--rw-neutral-1000);
+  --swatch-hc-bar: var(--rw-neutral-1000);
+  --swatch-hc-rule: var(--rw-neutral-400);
+  --swatch-hc-ink: var(--rw-neutral-150);
+  --swatch-hc-accent: var(--rw-iris-300);
+  --accent-iris: var(--rw-iris-600);
+}
+:root[data-accent='prism'] {
+  --swatch-light-accent: var(--rw-prism-600);
+  --swatch-dark-accent: var(--rw-prism-400);
+  --swatch-hc-accent: var(--rw-prism-300);
+}
+:root[data-theme='dark'] {
+  --accent-iris: var(--rw-iris-400);
+}
+:root[data-theme='hc'] {
+  --accent-iris: var(--rw-iris-300);
+}
+
+/* ── 5. Non-colour tokens ────────────────────────────────────────────── */
+:root {
+  --font-sans: 'Figtree Variable', Figtree, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-display: Montserrat, 'Figtree Variable', system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+
+  --radius-sm: 2px;
+  --radius-md: 3px;
+  --radius-lg: 4px;
+
+  --dur-fast: 120ms;
+  --dur-base: 180ms;
+  --ease: cubic-bezier(0.2, 0, 0, 1);
+
+  /* Density: comfortable (default) */
+  --row-h: 36px;
+  --row-h-head: 32px;
+  --cell-px: 12px;
+  --control-h: 32px;
+  --control-h-sm: 28px;
+  --control-px: 12px;
+  --panel-head-h: 36px;
+  --panel-p: 16px;
+  --page-px: 24px;
+  --gap: 16px;
+  --table-text: 13px;
+  --fig-size: 32px;
+  --fig-leading: 40px;
+}
+
+:root[data-density='compact'] {
+  --row-h: 30px;
+  --row-h-head: 28px;
+  --cell-px: 8px;
+  --control-h: 28px;
+  --control-h-sm: 24px;
+  --control-px: 10px;
+  --panel-head-h: 32px;
+  --panel-p: 12px;
+  --page-px: 16px;
+  --gap: 12px;
+  --table-text: 12px;
+  --fig-size: 24px;
+  --fig-leading: 32px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --dur-fast: 0ms;
+    --dur-base: 0ms;
+  }
+}
