@@ -57,7 +57,7 @@ function createWindow(): void {
     minWidth: 1024,
     minHeight: 640,
     backgroundColor: '#0B131B',
-    title: demo ? 'NTNXVision — demo data' : 'NTNXVision',
+    title: demo ? 'NTNXVision · demo data' : 'NTNXVision',
     webPreferences: {
       preload: join(__dirname, 'preload.js'),
       contextIsolation: true,

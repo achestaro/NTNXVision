@@ -678,7 +678,7 @@ def _m_delete_snapshot(_req_id: Any, params: dict[str, Any]) -> dict[str, Any]:
 def _m_clear_snapshots(_req_id: Any, _params: dict[str, Any]) -> dict[str, Any]:
     """Delete every snapshot (never exports, never the directory itself)."""
     if _runs.active():
-        raise Busy("A collection is running — wait for it to finish before clearing")
+        raise Busy("A collection is running. Wait for it to finish before clearing")
     store = _store()
     deleted = 0
     for path in store.list_snapshots():

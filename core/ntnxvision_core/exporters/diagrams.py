@@ -24,7 +24,7 @@ from typing import Any
 from PIL import Image, ImageDraw, ImageFilter, ImageFont
 
 from ntnxvision_core.models import Cluster, Environment
-from ntnxvision_core.numfmt import fmt_count
+from ntnxvision_core.numfmt import NA, fmt_count
 
 GIB = 1024**3
 #: Supersampling factor for crisp print output.
@@ -344,7 +344,7 @@ def _size_label(value_bytes: int | None) -> str:
 
 def _rpo(seconds: int | None) -> str:
     if seconds is None:
-        return "n/a"
+        return NA
     if seconds < 60:
         return f"{seconds}s"
     if seconds < 3600:
@@ -657,7 +657,7 @@ def executive_dashboard(env: Environment) -> Diagram | None:
         ("Clusters", fmt_count(len(env.clusters))),
         ("Hosts", fmt_count(len(env.hosts))),
         ("Virtual Machines", fmt_count(len(env.vms))),
-        ("Storage Capacity", _size_label(storage_total) if storage_total else "—"),
+        ("Storage Capacity", _size_label(storage_total) if storage_total else NA),
         ("Active Alerts", fmt_count(len(env.alerts))),
         ("Projects", fmt_count(len(env.projects))),
     ]
@@ -693,9 +693,9 @@ def vm_power_state_chart(env: Environment) -> Diagram | None:
                 center_value=fmt_count(total), center_label="total VMs")
 
     labelled = [
-        (f"Powered On — {fmt_count(on)} ({on / total:.0%})", _VM_ON, on),
-        (f"Powered Off — {fmt_count(off)} ({off / total:.0%})", _VM_OFF, off),
-        (f"Other / Suspended — {fmt_count(other)} ({other / total:.0%})", _VM_OTHER, other),
+        (f"Powered On: {fmt_count(on)} ({on / total:.0%})", _VM_ON, on),
+        (f"Powered Off: {fmt_count(off)} ({off / total:.0%})", _VM_OFF, off),
+        (f"Other / Suspended: {fmt_count(other)} ({other / total:.0%})", _VM_OTHER, other),
     ]
     labelled = [item for item in labelled if item[2] > 0]
     f_leg = _font(9.5)
@@ -734,7 +734,7 @@ def alert_severity_chart(env: Environment) -> Diagram | None:
     _draw_donut(draw, cx, cy, _DONUT_R, _DONUT_THICK, segments,
                 center_value=fmt_count(total), center_label="open alerts")
 
-    labelled = [(f"{label} — {fmt_count(v)} ({v / total:.0%})", c)
+    labelled = [(f"{label}: {fmt_count(v)} ({v / total:.0%})", c)
                 for label, c, v in counts if v > 0]
     f_leg = _font(9.5)
     lx = pad + _DONUT_R * 2 + 30
@@ -951,7 +951,7 @@ def cover_page(env: Environment, tool_name: str = "NTNXVision",
     f_eyebrow, f_h1, f_h2 = _font(12, bold=True), _font(38, bold=True), _font(16)
     title_lines = _wrap(draw, "Nutanix Platform Architecture & Inventory Report",
                         f_h1, max_title_w)
-    subtitle = f"Prism Central {env.prism_central.host or 'n/a'} · " \
+    subtitle = f"Prism Central {env.prism_central.host or NA} · " \
                "generated from live API collection"
 
     eyebrow_h, h1_line_h, gap1, h2_h = 16, 46, 14, 22
@@ -981,7 +981,7 @@ def cover_page(env: Environment, tool_name: str = "NTNXVision",
     rows = [
         *([("Prepared for", prepared_for)] if prepared_for else []),
         ("Prepared by", f"{author} · {tool_name}" if author else tool_name),
-        ("Report date", (env.collected_at or "n/a")[:10]),
+        ("Report date", (env.collected_at or NA)[:10]),
         ("Environment", f"{fmt_count(len(env.clusters))} clusters · "
                         f"{fmt_count(len(env.hosts))} hosts · {fmt_count(len(env.vms))} VMs"),
     ]

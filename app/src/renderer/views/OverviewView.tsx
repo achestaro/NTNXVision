@@ -26,7 +26,7 @@ import type { NutanixMarkName } from '../components/icons';
 import { useAsync } from '../lib/useAsync';
 import { useRouter } from '../lib/router';
 import { useRun } from '../lib/run';
-import { defaultSnapshotName, errorMessage, fmtAbs, fmtCount, fmtRel } from '../lib/format';
+import { NA, defaultSnapshotName, errorMessage, fmtAbs, fmtCount, fmtRel } from '../lib/format';
 import { useExportDialog } from './ExportDialog';
 
 export function OverviewView(): JSX.Element {
@@ -70,7 +70,7 @@ export function OverviewView(): JSX.Element {
         title="Your Nutanix estate"
         facts={
           latest
-            ? `Latest snapshot: ${latest.name} · ${latest.source ?? '—'} · ${fmtAbs(latest.collected_at)} · ${fmtRel(latest.collected_at)}`
+            ? `Latest snapshot: ${latest.name} · ${latest.source ?? NA} · ${fmtAbs(latest.collected_at)} · ${fmtRel(latest.collected_at)}`
             : undefined
         }
         description={latest ? undefined : 'Nothing collected yet. Every collection is saved on this computer and works offline.'}
@@ -230,7 +230,7 @@ function RecentTable({ rows, latest, baseline }: { rows: SnapshotInfo[]; latest:
 
 export function sourceLabel(s: SnapshotInfo): string {
   if (s.kind === 'pe') return `Prism Element${s.version ? ` · ${s.version}` : ''}`;
-  return s.source ?? '—';
+  return s.source ?? NA;
 }
 
 function QuickAction({ mark, title, desc, onClick }: { mark: NutanixMarkName; title: string; desc: string; onClick(): void }): JSX.Element {

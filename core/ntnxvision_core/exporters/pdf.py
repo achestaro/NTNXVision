@@ -19,7 +19,7 @@ from ntnxvision_core.exporters.diagrams import Diagram
 from ntnxvision_core.exporters.sourcing import source_hosts as _source_hosts
 from ntnxvision_core.exporters.sourcing import sources as _sources
 from ntnxvision_core.models import Environment
-from ntnxvision_core.numfmt import cell_text, fmt_count
+from ntnxvision_core.numfmt import NA, cell_text, fmt_count
 
 GIB = 1024**3
 # Enterprise palette.
@@ -65,7 +65,7 @@ class _Report(FPDF):
         self.ln(1)
         self.set_font("Helvetica", "", 7.5)
         self.set_text_color(*_GREY)
-        self.cell(0, 6, "NTNXVision - Nutanix Environment Report", align="L")
+        self.cell(0, 6, "NTNXVision · Nutanix Environment Report", align="L")
         # Pages added mid-render during the deferred ToC pass (in_toc_rendering) — and
         # the last such page, whose footer fpdf2 flushes just *after* that flag resets
         # (see _toc_inserted_pages) — report a bogus page_no() until fpdf2 re-splices
@@ -139,8 +139,8 @@ class PdfExporter:
 
         chosen = [s.replace("_", " ").capitalize() for s in SECTIONS if opts.includes(s)]
         lines = [
-            f"Source: {env.prism_central.host or 'n/a'} - collected "
-            f"{(env.collected_at or 'n/a')[:19].replace('T', ' ')} UTC.",
+            f"Source: {env.prism_central.host or NA}, collected "
+            f"{(env.collected_at or NA)[:19].replace('T', ' ')} UTC.",
             f"Sections included: {', '.join(chosen) or 'none'}.",
         ]
         if opts.prepared_for:
@@ -175,7 +175,7 @@ class PdfExporter:
             rows.append([pretty_label(key), outcome, detail])
         for w in env.warnings:
             rows.append(["Compatibility", "Warning", w])
-        self._section_table(pdf, "Appendix - Collection Notes",
+        self._section_table(pdf, "Appendix: Collection Notes",
                             ["Area", "Outcome", "Detail"], rows, [60, 40, 140])
 
     # ─── cover & summary ───────────────────────────────────────────
@@ -220,7 +220,7 @@ class PdfExporter:
 
     def _topology(self, pdf: _Report, env: Environment) -> None:
         self._diagram_page(pdf, "Environment Topology", [
-            ("Management topology - Prism Central and registered clusters.",
+            ("Management topology: Prism Central and registered clusters.",
              diagrams.management_topology(env)),
         ])
 
@@ -230,18 +230,18 @@ class PdfExporter:
             return
         cfg = env.pc_config
         rows = [
-            ["Version", cfg.version or "-"],
+            ["Version", cfg.version or NA],
             ["Deployment", "Scale-out (3-node)" if cfg.is_scale_out else "Single-node"
-             if cfg.is_scale_out is not None else "-"],
-            ["PC nodes", fmt_count(cfg.node_count or "-")],
-            ["Registered clusters", fmt_count(cfg.registered_cluster_count or "-")],
-            ["Total vCPU", fmt_count(cfg.num_vcpus or "-")],
-            ["Total memory (GiB)", fmt_count(_gib(cfg.memory_bytes) or "-")],
-            ["PC VM(s)", ", ".join(cfg.pc_vm_names) or "-"],
-            ["IP address(es)", ", ".join(cfg.ip_addresses) or "-"],
+             if cfg.is_scale_out is not None else NA],
+            ["PC nodes", fmt_count(cfg.node_count or NA)],
+            ["Registered clusters", fmt_count(cfg.registered_cluster_count or NA)],
+            ["Total vCPU", fmt_count(cfg.num_vcpus or NA)],
+            ["Total memory (GiB)", fmt_count(_gib(cfg.memory_bytes) or NA)],
+            ["PC VM(s)", ", ".join(cfg.pc_vm_names) or NA],
+            ["IP address(es)", ", ".join(cfg.ip_addresses) or NA],
         ]
         pdf.add_page()
-        self._h1(pdf, "Prism Central - Management & Sizing")
+        self._h1(pdf, "Prism Central: Management & Sizing")
         self._kv_table(pdf, [(k, v) for k, v in rows])
 
     def _source_pcs(self, pdf: _Report, env: Environment) -> None:
@@ -254,16 +254,16 @@ class PdfExporter:
             cfg, counts = s.pc_config, s.summary
             rows.append([
                 s.prism_central.host or "unknown",
-                s.prism_central.version or cfg.version or "-",
+                s.prism_central.version or cfg.version or NA,
                 "Scale-out" if cfg.is_scale_out else "Single-node"
-                if cfg.is_scale_out is not None else "-",
-                cfg.node_count or "-",
-                counts.get("clusters", "-"),
-                counts.get("hosts", "-"),
-                counts.get("vms", "-"),
+                if cfg.is_scale_out is not None else NA,
+                cfg.node_count or NA,
+                counts.get("clusters", NA),
+                counts.get("hosts", NA),
+                counts.get("vms", NA),
             ])
         self._section_table(
-            pdf, "Prism Centrals - Management & Sizing",
+            pdf, "Prism Centrals: Management & Sizing",
             ["Prism Central", "Version", "Deployment", "PC nodes", "Clusters", "Hosts", "VMs"],
             rows, [55, 35, 30, 25, 25, 20, 20],
         )
@@ -316,7 +316,7 @@ class PdfExporter:
             pdf.image(io.BytesIO(cap.png), x=pdf.l_margin, w=w_mm)  # advances pdf.y itself
             pdf.set_font("Helvetica", "I", 8)
             pdf.set_text_color(*_GREY)
-            pdf.cell(0, 5, "Storage container capacity - used vs. free per container.",
+            pdf.cell(0, 5, "Storage container capacity: used vs. free per container.",
                      new_x="LMARGIN", new_y="NEXT")
             pdf.ln(6)
 
@@ -376,7 +376,7 @@ class PdfExporter:
             f"Life Cycle Manager inventories {fmt_count(len(entities))} component(s) across this "
             f"environment; {fmt_count(pending)} have a newer version available"
             + (f" and {fmt_count(unknown)} could not be determined" if unknown else "")
-            + ". Available versions below are trimmed to the two newest LCM offers - the "
+            + ". Available versions below are trimmed to the two newest LCM offers; the "
             "Excel export lists them in full."
         )
         self._section_table(
@@ -457,7 +457,7 @@ class PdfExporter:
             (f"Cluster {c.name} - virtual switch and VLAN layout.",
              diagrams.network_topology(env, c)) for c in env.clusters[:8]
         ] + [
-            ("Flow Virtual Networking - VPCs with overlay and external subnets.",
+            ("Flow Virtual Networking: VPCs with overlay and external subnets.",
              diagrams.vpc_topology(env)),
         ])
 
@@ -748,7 +748,7 @@ def _versions(values: list[str], limit: int) -> str:
     version number that does not exist.
     """
     if not values:
-        return "-"
+        return NA
     extra = len(values) - limit
     head = ", ".join(values[:limit])
     return head if extra <= 0 else f"{head} (+{extra})"

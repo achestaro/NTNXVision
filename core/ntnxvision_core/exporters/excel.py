@@ -92,7 +92,7 @@ class ExcelExporter:
     def _overview_sheet(self, wb: Workbook, env: Environment) -> None:
         ws = cast(Worksheet, wb.active)
         ws.title = "Overview"
-        ws["A1"] = "NTNXVision — Environment Inventory"
+        ws["A1"] = "NTNXVision · Environment Inventory"
         ws["A1"].font = _TITLE_FONT
         # A combined run has no single management plane: name every contributing PC
         # rather than reporting a synthetic host with an "unknown" version.

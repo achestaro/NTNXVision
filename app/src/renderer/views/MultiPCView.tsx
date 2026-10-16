@@ -25,7 +25,7 @@ import { useSettings } from '../lib/settings';
 import { useRun } from '../lib/run';
 import { useRouter } from '../lib/router';
 import { useConfirmShortcut } from '../lib/keyboard';
-import { defaultSnapshotName, errorMessage, fmtCount, tildify } from '../lib/format';
+import { NA, defaultSnapshotName, errorMessage, fmtCount, tildify } from '../lib/format';
 
 type RowTest =
   | { kind: 'idle' }
@@ -96,7 +96,7 @@ export function MultiPCView(): JSX.Element {
   const [pasting, setPasting] = useState(false);
   const [combine, setCombine] = useState(true);
   const [combinedName, setCombinedName] = useState('combined-environment');
-  const [fmt, setFmt] = useState<Record<ExportFormat, boolean>>({ excel: true, pdf: false, word: true });
+  const [fmt, setFmt] = useState<Record<ExportFormat, boolean>>({ excel: true, pdf: false, word: false });
   const [dir, setDir] = useState('');
   const [startError, setStartError] = useState<string | null>(null);
 
@@ -341,7 +341,7 @@ export function MultiPCView(): JSX.Element {
                     header: 'NDB',
                     className: (r) => (r.ndbHost ? 'mono' : 'dash'),
                     style: { fontSize: 12 },
-                    render: (r) => r.ndbHost || '—',
+                    render: (r) => r.ndbHost || 'None',
                   },
                   { key: 'conn', header: 'Connection', render: (r) => <RowStatus row={r} /> },
                 ]}
@@ -438,7 +438,7 @@ export function MultiPCView(): JSX.Element {
               </div>
               <div className="kv">
                 <dt>Typical time</dt>
-                <dd className="mono">{typical ? `≈ ${Math.max(1, Math.round(typical / 60))} min, in parallel` : '—'}</dd>
+                <dd className="mono">{typical ? `≈ ${Math.max(1, Math.round(typical / 60))} min, in parallel` : NA}</dd>
               </div>
             </dl>
             {isRunning && (
@@ -527,7 +527,7 @@ function failureTitle(r: Row): string {
 }
 
 function failureBody(r: Row, others: number): string {
-  const rest = others > 0 ? ` You can also start now — ${r.host.split('.')[0]} will be skipped and noted in the report.` : '';
+  const rest = others > 0 ? ` You can also start now: ${r.host.split('.')[0]} will be skipped and noted in the report.` : '';
   if (r.test.kind === 'done' && r.test.result.status === 'auth_failed') {
     return `Enter the password and retry, or remove it to collect the other ${others}.${rest}`;
   }
@@ -671,7 +671,7 @@ function PasteDialog({ onClose, onAdd }: { onClose(): void; onAdd(p: Parsed[]): 
         </div>
       }
     >
-      <p className="dialog-body">One per line: an address, optionally with a port and a username — for example pc02.example.com:9440 admin.</p>
+      <p className="dialog-body">One per line: an address, optionally with a port and a username. For example: pc02.example.com:9440 admin.</p>
       <Field id="paste" label="Prism Centrals" style={{ marginTop: 12 }}>
         <textarea className="input mono" rows={8} value={text} onChange={(e) => setText(e.target.value)} data-autofocus spellCheck={false} />
       </Field>

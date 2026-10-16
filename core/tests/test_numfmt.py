@@ -21,9 +21,9 @@ def test_fmt_count_uses_comma_grouping() -> None:
     assert fmt_count(12000) == "12,000"
     assert fmt_count(1234567) == "1,234,567"
     assert fmt_count(1234.5) == "1,234.5"
-    # Non-numbers pass through; None is a dash, never "None".
-    assert fmt_count("—") == "—"
-    assert fmt_count(None) == "—"
+    # Non-numbers pass through; None is the N/A placeholder, never "None".
+    assert fmt_count("N/A") == "N/A"
+    assert fmt_count(None) == "N/A"
     assert fmt_count(True) == "True"
 
 

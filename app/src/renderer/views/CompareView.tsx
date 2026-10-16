@@ -23,7 +23,7 @@ import { useAsync } from '../lib/useAsync';
 import { useRouter } from '../lib/router';
 import { useRun } from '../lib/run';
 import { revealLabel } from '../lib/settings';
-import { errorMessage, fmtAbs, plural } from '../lib/format';
+import { NA, errorMessage, fmtAbs, plural } from '../lib/format';
 
 type Tab = 'all' | ChangeKind;
 const KIND: Record<ChangeKind, string> = { added: '+ Added', removed: '− Removed', changed: '~ Changed' };
@@ -108,7 +108,7 @@ export function CompareView({ baseline: baseProp, current: curProp }: { baseline
     days === null ? 'Compare snapshots' : days < 1 ? 'What changed today' : `What changed in ${plural(Math.round(days), 'day')}`;
   const facts =
     baseSnap && curSnap
-      ? `${curSnap.source === baseSnap.source ? curSnap.source ?? '' : `${baseSnap.source ?? '—'} → ${curSnap.source ?? '—'}`} · ${fmtAbs(baseSnap.collected_at)} → ${fmtAbs(curSnap.collected_at)}`
+      ? `${curSnap.source === baseSnap.source ? curSnap.source ?? '' : `${baseSnap.source ?? NA} → ${curSnap.source ?? NA}`} · ${fmtAbs(baseSnap.collected_at)} → ${fmtAbs(curSnap.collected_at)}`
       : undefined;
 
   const exportChanges = async () => {
@@ -225,7 +225,7 @@ export function CompareView({ baseline: baseProp, current: curProp }: { baseline
                 rows={rows}
                 rowKey={(c) => `${c.kind}|${c.object_type}|${c.object}|${c.field ?? ''}`}
                 primary
-                empty={r.summary.total ? 'No changes of this kind.' : 'No differences — the two snapshots match.'}
+                empty={r.summary.total ? 'No changes of this kind.' : 'No differences. The two snapshots match.'}
                 columns={[
                   { key: 'kind', header: 'Change', render: (c) => <Badge strong>{KIND[c.kind]}</Badge> },
                   { key: 'type', header: 'Type', render: (c) => c.object_type },
@@ -239,7 +239,7 @@ export function CompareView({ baseline: baseProp, current: curProp }: { baseline
                       c.field ? (
                         <>
                           <span className="mono t12">
-                            <span className="old">{c.before ?? '—'}</span> → <span style={{ color: 'var(--ink)' }}>{c.after ?? '—'}</span>
+                            <span className="old">{c.before ?? NA}</span> → <span style={{ color: 'var(--ink)' }}>{c.after ?? NA}</span>
                           </span>{' '}
                           <span className="muted">{c.field}</span>
                         </>

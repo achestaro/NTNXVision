@@ -3,7 +3,7 @@
 
 import React from 'react';
 import type { Figure } from '@shared/ipc';
-import { DASH, fmtCount } from '../lib/format';
+import { NA, fmtCount } from '../lib/format';
 
 export function FigureStrip({ figures, label }: { figures: Figure[]; label: string }): JSX.Element {
   return (
@@ -16,7 +16,7 @@ export function FigureStrip({ figures, label }: { figures: Figure[]; label: stri
 }
 
 export function FigureCell({ figure: f }: { figure: Figure }): JSX.Element {
-  const value = typeof f.value === 'number' ? fmtCount(f.value) : f.value ?? DASH;
+  const value = typeof f.value === 'number' ? fmtCount(f.value) : f.value ?? NA;
   return (
     <div className="fig">
       <div className="eyebrow">{f.label}</div>

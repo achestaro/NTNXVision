@@ -31,7 +31,7 @@ from openpyxl.styles import Font, PatternFill
 from ntnxvision_core.exporters.tables import COMPARE_TYPES, SPECS, Ctx, TableSpec
 from ntnxvision_core.inventory import display, fmt_bytes
 from ntnxvision_core.models import Environment
-from ntnxvision_core.numfmt import excel_number_format, fmt_count
+from ntnxvision_core.numfmt import NA, excel_number_format, fmt_count
 
 _TRAILING_NUM = re.compile(r"^(.*?)(\d+)$")
 _KIND_ORDER = {"changed": 0, "added": 1, "removed": 2}
@@ -42,7 +42,7 @@ def _where(spec: TableSpec, obj: Any, env: Environment) -> str:
     if place:
         return str(place)
     source = getattr(obj, "source_pc", None) or env.prism_central.host or ""
-    return source.split(".")[0] if source else "—"
+    return source.split(".")[0] if source else NA
 
 
 def _key(spec: TableSpec, obj: Any, env: Environment) -> str:
@@ -93,7 +93,7 @@ def raw_changes(base: Environment, cur: Environment) -> list[dict[str, Any]]:
                     out.append({
                         "kind": "changed", "type": type_id, "object_type": spec.singular,
                         "object": str(spec.name(new)), "where": _where(spec, new, cur),
-                        "field": col.diff, "before": a or "—", "after": b or "—",
+                        "field": col.diff, "before": a or NA, "after": b or NA,
                         "detail": None, "id": k,
                     })
     return out
@@ -128,7 +128,7 @@ def _describe(spec: TableSpec, obj: Any, ctx: Ctx, kind: str, cur: Environment |
               ) -> str | None:
     t = spec.type
     if t == "vms":
-        return " · ".join(x for x in (f"{fmt_count(obj.vcpu_total or '—')} vCPU",
+        return " · ".join(x for x in (f"{fmt_count(obj.vcpu_total or NA)} vCPU",
                                       fmt_bytes(obj.memory_bytes), obj.guest_os) if x)
     if t == "hosts":
         return " · ".join(x for x in (obj.block_model, f"{fmt_count(obj.num_cpu_cores)} cores"
@@ -251,7 +251,7 @@ def _group_row(kind: str, type_id: str, where: str, items: list[dict[str, Any]]
         sizes = {(o.vcpu_total, o.memory_bytes) for o in objs}
         if len(sizes) == 1:
             vcpu, mem = sizes.pop()
-            detail += f" · {fmt_count(vcpu or '—')} vCPU · {fmt_bytes(mem)}"
+            detail += f" · {fmt_count(vcpu or NA)} vCPU · {fmt_bytes(mem)}"
         else:
             detail += f" · {fmt_count(sum(o.vcpu_total or 0 for o in objs))} vCPU · " \
                       f"{fmt_bytes(sum(o.memory_bytes or 0 for o in objs))} total"
@@ -384,7 +384,7 @@ def export_comparison(base: Environment, cur: Environment, base_name: str, cur_n
     ws = wb.active
     assert ws is not None
     ws.title = "Summary"
-    ws.append(["NTNXVision — what changed"])
+    ws.append(["NTNXVision · What changed"])
     ws["A1"].font = Font(size=14, bold=True, color="1F4E78")
     ws.append([])
     meta = [
