@@ -152,6 +152,7 @@ class ExcelExporter:
         the collection / API-sunset summary the app shows on Results."""
         from ntnxvision_core.exporters.content import run_areas
         from ntnxvision_core.runinfo import api_routing, compat_info, coverage, sunset_areas
+        from ntnxvision_core.scope import describe as describe_scope
 
         ws.sheet_view.showGridLines = False
         ws.sheet_properties.tabColor = TH.IRIS
@@ -204,6 +205,8 @@ class ExcelExporter:
             ("Collection Mode", "Prism Element (v2.0 API)" if is_pe else
              "Combined Prism Central run" if env.is_combined else
              "Prism Central (v4 APIs, v3 where v4 is unavailable)"),
+            *([("Cluster Scope", scope_label)]
+              if (scope_label := describe_scope(env.cluster_scope, limit=None)) else []),
             ("Collected At (UTC)", TH.fmt_datetime(env.collected_at) or env.collected_at or NA),
             ("Report Date", TH.report_date()),
             ("Prepared For", opts.prepared_for or NA),
