@@ -114,6 +114,11 @@ def build_comparison_report(base: Environment, cur: Environment, base_name: str,
         strip.append(StripItem(f["label"], f"{shown}{unit}", TH.clean(f.get("qualifier")),
                                f.get("qualifier_tone")))
     summary.blocks.append(FigureStrip(strip))
+    notice = result.get("scope_notice")
+    if notice:
+        summary.add("Cluster Scope", Bullets(
+            [f"Baseline: {notice['baseline']}.", f"Current: {notice['current']}."],
+            intro=notice["detail"]))
     summary.add("Changes by Object Type", make_table(
         ["Object type", "Added", "Removed", "Changed", "Total"], _by_type(raw),
         "Objects added, removed and changed, per object type"),
@@ -144,6 +149,8 @@ def build_comparison_report(base: Environment, cur: Environment, base_name: str,
         ("Baseline source", _source(base)),
         ("Current", f"{cur_name}, collected {TH.collected_label(cur)}"),
         ("Current source", _source(cur)),
+        *([("Cluster scope", f"Baseline {notice['baseline']}; current {notice['current']}")]
+          if notice else []),
         ("Time between", f"{days:,.1f} days"),
         ("Changes", f"{fmt_count(s['total'])} objects: {fmt_count(s['added'])} added, "
                     f"{fmt_count(s['removed'])} removed, {fmt_count(s['changed'])} changed"),

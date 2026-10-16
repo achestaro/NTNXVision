@@ -26,7 +26,7 @@ import { useSettings } from '../lib/settings';
 import { useRun } from '../lib/run';
 import { useRouter } from '../lib/router';
 import { useConfirmShortcut } from '../lib/keyboard';
-import { NA, REPORT_EXT, defaultSnapshotName, errorMessage, fmtCount, reportFileName, targetLabel, tildify } from '../lib/format';
+import { NA, REPORT_EXT, errorMessage, fmtCount, reportFileName, sanitizeSnapshotName, snapshotNameIssue, targetLabel, tildify } from '../lib/format';
 
 type RowTest =
   | { kind: 'idle' }
@@ -96,7 +96,12 @@ export function MultiPCView(): JSX.Element {
   const [editing, setEditing] = useState<Row | 'new' | null>(null);
   const [pasting, setPasting] = useState(false);
   const [combine, setCombine] = useState(true);
-  const [combinedName, setCombinedName] = useState('combined-environment');
+  const [combinedName, setCombinedName] = useState('');
+  /** The run's snapshot name: each target is saved as "<name> (<target>)". */
+  const [runName, setRunName] = useState('');
+  const [nameTouched, setNameTouched] = useState(false);
+  const [startTried, setStartTried] = useState(false);
+  const [existingNames, setExistingNames] = useState<Set<string>>(new Set());
   const [fmt, setFmt] = useState<Record<ExportFormat, boolean>>({ excel: true, pdf: false, word: false });
   const [dir, setDir] = useState('');
   const [prefix, setPrefix] = useState('');
@@ -104,6 +109,13 @@ export function MultiPCView(): JSX.Element {
 
   useEffect(() => setDir(settings.exportDir || appInfo?.defaultExportDir || ''), [settings.exportDir, appInfo]);
   useEffect(() => setPrefix(settings.filePrefix ?? ''), [settings.filePrefix]);
+
+  useEffect(() => {
+    window.ntnx
+      .listSnapshots()
+      .then((l) => setExistingNames(new Set(l.snapshots.map((x) => x.name.toLowerCase()))))
+      .catch(() => setExistingNames(new Set()));
+  }, []);
 
   useEffect(() => {
     if (!loaded) return;
@@ -192,8 +204,33 @@ export function MultiPCView(): JSX.Element {
   const typical = Math.max(0, ...verified.map((r) => (r.test.kind === 'done' ? r.test.result.typical_seconds ?? 0 : 0)));
   const formats = (['excel', 'pdf', 'word'] as ExportFormat[]).filter((f) => fmt[f]);
 
+  // ── snapshot names: "<name> (<target>)" per target, "<name> (combined)" for the merge ──
+  const base = runName.trim();
+  const targetSnapshot = (r: Row) => `${base} (${targetLabel(r)})`;
+  const combining = combine && runnable.length >= 2;
+  const combinedSnapshot = combinedName.trim() || `${base} (combined)`;
+  const nameIssue = ((): string | null => {
+    const own = snapshotNameIssue(runName, new Set());
+    if (own) return own;
+    const planned = [...runnable.map(targetSnapshot), ...(combining ? [combinedSnapshot] : [])];
+    const seen = new Set<string>();
+    for (const n of planned) {
+      const safe = sanitizeSnapshotName(n);
+      const issue = snapshotNameIssue(n, existingNames);
+      if (issue) return issue;
+      if (seen.has(safe.toLowerCase())) return `Two snapshots would be named “${safe}”. Choose another name.`;
+      seen.add(safe.toLowerCase());
+    }
+    return null;
+  })();
+  const blockers = [
+    ...(nameIssue ? [nameIssue === 'Enter a snapshot name.' ? 'Enter a snapshot name for this run.' : nameIssue] : []),
+  ];
+  const canStart = runnable.length > 0 && !isRunning && blockers.length === 0;
+
   const start = async () => {
-    if (!runnable.length || isRunning) return;
+    setStartTried(true);
+    if (!canStart) return;
     setStartError(null);
     const typed = runnable.filter((r) => r.password);
     try {
@@ -204,15 +241,15 @@ export function MultiPCView(): JSX.Element {
           password: r.password,
           port: r.port,
           insecure: r.insecure,
-          name: defaultSnapshotName(r.host),
+          name: targetSnapshot(r),
           ndb: r.ndbHost ? { host: r.ndbHost, username: r.ndbUser ?? 'admin', password: r.ndbPassword ?? '' } : undefined,
         })),
         formats,
         saveCredentials: typed.length > 0 && typed.every((r) => r.savePassword),
         exportDir: dir || undefined,
         filePrefix: prefix,
-        combine: combine && runnable.length >= 2,
-        combinedName: combinedName.trim() || 'combined-environment',
+        combine: combining,
+        combinedName: combining ? combinedSnapshot : undefined,
       });
       if (prefix !== (settings.filePrefix ?? '')) void update({ filePrefix: prefix });
     } catch (e) {
@@ -220,7 +257,7 @@ export function MultiPCView(): JSX.Element {
     }
   };
 
-  useConfirmShortcut(() => void start(), !isRunning && runnable.length > 0);
+  useConfirmShortcut(() => void start(), canStart);
 
   const addParsed = async (parsed: Parsed[]) => {
     const existing = new Set(all.map((r) => `${r.host}:${r.port}`));
@@ -395,6 +432,27 @@ export function MultiPCView(): JSX.Element {
         <Panel as="aside" className="split-side" aria-labelledby="out">
           <PanelHeader id="out" title="Output" />
           <div style={{ padding: 16, display: 'flex', flexDirection: 'column', gap: 16 }}>
+            <Field
+              id="mp-name"
+              label="Snapshot name"
+              error={(nameTouched || startTried) && nameIssue ? nameIssue : null}
+              hint={
+                base && !nameIssue
+                  ? `Saved as “${sanitizeSnapshotName(runnable[0] || all[0] ? targetSnapshot((runnable[0] ?? all[0]) as Row) : `${base} (pc)`)}”, one per Prism Central. Every registered cluster of each is collected.`
+                  : 'Required. Each Prism Central is saved as “<name> (<target>)”. Every registered cluster of each is collected.'
+              }
+            >
+              <input
+                className="input"
+                value={runName}
+                placeholder="e.g. Q4 baseline"
+                maxLength={160}
+                autoComplete="off"
+                data-testid="multi-snapshot-name"
+                onChange={(e) => setRunName(e.target.value)}
+                onBlur={() => setNameTouched(true)}
+              />
+            </Field>
             <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start' }}>
               <Switch checked={combine} onChange={setCombine} labelledBy="cbl" style={{ marginTop: 2 }} />
               <div id="cbl">
@@ -403,8 +461,14 @@ export function MultiPCView(): JSX.Element {
               </div>
             </div>
             {combine && (
-              <Field id="cn" label="Combined report name">
-                <input className="input" value={combinedName} onChange={(e) => setCombinedName(e.target.value)} />
+              <Field id="cn" label="Combined snapshot name">
+                <input
+                  className="input"
+                  value={combinedName}
+                  placeholder={base ? `${base} (combined)` : '<name> (combined)'}
+                  maxLength={200}
+                  onChange={(e) => setCombinedName(e.target.value)}
+                />
               </Field>
             )}
             <fieldset className="plain">
@@ -441,7 +505,7 @@ export function MultiPCView(): JSX.Element {
                 value={prefix}
                 onChange={setPrefix}
                 names={formats.map((f) =>
-                  reportFileName(prefix, runnable[0] || all[0] ? defaultSnapshotName((runnable[0] ?? all[0]).host) : 'pc-name', REPORT_EXT[f]),
+                  reportFileName(prefix, sanitizeSnapshotName(runnable[0] || all[0] ? targetSnapshot((runnable[0] ?? all[0]) as Row) : `${base || 'name'} (pc)`) || 'snapshot-name', REPORT_EXT[f]),
                 )}
                 more={formats.length * Math.max(0, runnable.length - 1 + (combine && runnable.length >= 2 ? 1 : 0))}
               />
@@ -466,9 +530,14 @@ export function MultiPCView(): JSX.Element {
                 </button>
               </Callout>
             )}
-            <Button variant="primary" size="lg" block onClick={() => void start()} disabled={!runnable.length || isRunning}>
+            <Button variant="primary" size="lg" block onClick={() => void start()} disabled={!canStart} data-testid="multi-start">
               {cta}
             </Button>
+            {!isRunning && runnable.length > 0 && blockers.length > 0 && (
+              <div className="hint below" role="status" style={{ textAlign: 'center' }}>
+                {blockers.join(' ')}
+              </div>
+            )}
             {startError && (
               <div className="field-err" role="alert">
                 {startError}

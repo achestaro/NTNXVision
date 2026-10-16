@@ -404,6 +404,26 @@ class _Builder:
             return f"Prism Element {host} (AOS {ver})"
         return f"Prism Central {host} (version {ver})"
 
+    def scope_label(self) -> str | None:
+        """"3 of 5 clusters (A, B, C)" / "All 4 clusters", or None (no scope recorded)."""
+        from ntnxvision_core.scope import describe
+
+        return describe(self.env.cluster_scope, limit=None)
+
+    def scope_sentence(self) -> str | None:
+        """The partial-scope caveat for the summary and assumptions, or None."""
+        from ntnxvision_core.scope import names_label
+
+        scope = self.env.cluster_scope
+        if scope is None or not scope.is_partial:
+            return None
+        left = names_label([c.name or c.uuid for c in scope.excluded], limit=6)
+        return (f"Scope: {self.scope_label()}. The other registered "
+                f"{'cluster' if len(scope.excluded) == 1 else 'clusters'} ({left}) "
+                "were not collected, and nothing on them appears in this document. "
+                "Prism Central wide data (IAM, Flow policies, categories, protection "
+                "policies, recovery plans, X-Play and NCM) covers the whole Prism Central.")
+
     def compat_sentence(self) -> str:
         from ntnxvision_core.runinfo import compat_info
 
@@ -451,6 +471,7 @@ class _Builder:
             source,
             ("Compatibility", self.compat_sentence()),
             ("Collection mode", mode),
+            *([("Cluster scope", label)] if (label := self.scope_label()) else []),
             ("Environment", " · ".join([
                 plural(len(env.clusters), "cluster"), plural(len(env.hosts), "host"),
                 plural(len(env.vms), "VM")])),
@@ -479,6 +500,8 @@ class _Builder:
             f"{plural(len(env.hosts), 'node')} and hosting "
             f"{plural(len(env.vms), 'virtual machine')}."
         ))
+        if (scope := self.scope_sentence()):
+            ch.blocks.append(Paragraph(scope))
         if self.is_pe:
             ch.blocks.append(Paragraph(
                 "This is a Prism Element collection: it documents the cluster's compute, "
@@ -611,6 +634,8 @@ class _Builder:
             "target, a 5% storage reserve and the cluster redundancy factor; N-1 assumes "
             "the loss of the largest node.",
         ]
+        if (scope := self.scope_sentence()):
+            items.append(scope)
         if self.is_pe:
             items.append("Prism Element mode collects cluster infrastructure only (cluster, "
                          "hosts, storage containers, networks and VMs).")
