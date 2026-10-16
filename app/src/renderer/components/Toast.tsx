@@ -10,7 +10,12 @@ import { Button } from './Button';
 export interface ToastInput {
   tone: Exclude<Tone, 'idle'>;
   title: string;
+  /** Mono detail line (paths, versions, counts). */
   detail?: string;
+  /** One short plain-text line: the next step. */
+  hint?: string;
+  /** Tooltip on the toast body, e.g. the full technical message behind a short hint. */
+  tooltip?: string;
   action?: { label: string; onClick(): void };
 }
 
@@ -70,9 +75,10 @@ export function ToastProvider({ children }: { children: React.ReactNode }): JSX.
             onMouseLeave={() => arm(t.id, t.tone)}
           >
             <StatusGlyph tone={t.tone} />
-            <div className="toast-body">
+            <div className="toast-body" title={t.tooltip}>
               <div>{t.title}</div>
               {t.detail && <div className="toast-detail">{t.detail}</div>}
+              {t.hint && <div className="toast-hint">{t.hint}</div>}
             </div>
             {t.action && (
               <Button

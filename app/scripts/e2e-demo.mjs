@@ -295,9 +295,23 @@ try {
     await rail('Targets');
     await heading('Targets');
     await page.getByRole('button', { name: 'Test Down' }).click();
-    const toast = page.locator('.toast').filter({ hasText: 'Down: connection failed, unreachable' });
+    const toast = page.locator('.toast').filter({ hasText: 'Down: unreachable' });
     await toast.waitFor({ timeout: 30_000 });
     await targetRow('Down').getByText('Unreachable').waitFor({ timeout: 15_000 });
+    if (await toast.locator('.toast-detail').count()) throw new Error('row-test toast shows the raw sidecar message');
+    // The table fits its panel: no horizontal scroll, before or after the test.
+    const overflow = () =>
+      page.getByRole('table', { name: 'Targets' }).evaluate((t) => {
+        const box = t.parentElement;
+        return { width: window.innerWidth, scroll: box.scrollWidth - box.clientWidth, left: box.scrollLeft };
+      });
+    for (const width of [1440, 1100]) {
+      await page.setViewportSize({ width, height: 960 }).catch(() => {});
+      await page.waitForTimeout(100);
+      const o = await overflow();
+      if (o.scroll > 1 || o.left !== 0) throw new Error(`Targets table overflows its panel: ${JSON.stringify(o)}`);
+    }
+    await page.setViewportSize({ width: 1440, height: 960 }).catch(() => {});
     await targetsShot('e2e-targets-row-test-failed');
     await toast.getByRole('button', { name: 'Dismiss' }).click();
   });
@@ -425,7 +439,8 @@ try {
     await dialog.getByRole('button', { name: 'Save changes' }).click();
     await dialog.waitFor({ state: 'detached', timeout: 15_000 });
     const row = targetRow('Lab PC01 renamed');
-    await row.getByText('svc-inventory').waitFor({ timeout: 15_000 });
+    // Username folds away below a ~1,500 px window (it stays in the DOM and the editor).
+    await row.locator('td.col-user', { hasText: 'svc-inventory' }).waitFor({ state: 'attached', timeout: 15_000 });
     await row.getByText('Keychain').waitFor();
     // A new username makes the last test stale; the row's Test records a new one.
     await row.getByText('Not tested').waitFor();
