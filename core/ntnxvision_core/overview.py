@@ -7,7 +7,7 @@ however large the estate is.
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -26,8 +26,22 @@ def all_metas(paths: list[Path], cache: EnvironmentCache | None = None) -> list[
             metas.append(read_meta(path, cache))
         except Exception:  # noqa: BLE001 — one unreadable snapshot must not hide the rest
             continue
-    metas.sort(key=lambda m: str(m.get("collected_at") or ""), reverse=True)
+    # By collection time, never import time: an imported snapshot slots in where it was
+    # collected. Parsed, so "+02:00" and "+00:00" stamps from different machines order
+    # correctly.
+    metas.sort(key=lambda m: collected_key(m.get("collected_at")), reverse=True)
     return metas
+
+
+def collected_key(iso: Any) -> float:
+    """Sort key for an ISO timestamp with any offset (unknown = oldest)."""
+    try:
+        dt = datetime.fromisoformat(str(iso).replace("Z", "+00:00"))
+    except ValueError:
+        return float("-inf")
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.timestamp()
 
 
 def _short_date(iso: str | None) -> str:
@@ -44,7 +58,8 @@ def baseline_for(meta: dict[str, Any], metas: list[dict[str, Any]]) -> dict[str,
         if other is meta or other.get("path") == meta.get("path"):
             continue
         if other.get("kind") == meta.get("kind") and other.get("source") == meta.get("source") \
-                and str(other.get("collected_at") or "") < str(meta.get("collected_at") or ""):
+                and collected_key(other.get("collected_at")) < collected_key(
+                    meta.get("collected_at")):
             return other
     return None
 

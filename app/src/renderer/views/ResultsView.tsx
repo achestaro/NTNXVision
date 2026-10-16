@@ -12,6 +12,7 @@ import type {
   MultiTargetResult,
   ReportFile,
   SnapshotDetail,
+  SnapshotProvenance,
 } from '@shared/ipc';
 import {
   AreaStatusLabel,
@@ -37,6 +38,7 @@ import { useAsync } from '../lib/useAsync';
 import { revealLabel } from '../lib/settings';
 import { basename, dirname, errorMessage, fmtBytes, fmtClock, fmtCount, fmtDuration, plural, tildify } from '../lib/format';
 import { useExportDialog } from './ExportDialog';
+import { ImportedBadge, provenanceLine, useSnapshotTransfer } from './SnapshotTransfer';
 
 const FORMAT_META: Record<ExportFormat, { label: string; icon: typeof FileXlsIcon; create: string }> = {
   excel: { label: 'Excel', icon: FileXlsIcon, create: 'Create workbook' },
@@ -94,14 +96,24 @@ export function ResultsView({ snapshot }: { snapshot?: string }): JSX.Element {
         </>
       );
     }
-    return <ResultsBody lastResult={fromSnapshot(detail.data)} live={false} />;
+    return <ResultsBody lastResult={fromSnapshot(detail.data)} live={false} imported={detail.data.imported ?? null} />;
   }
   return <ResultsBody lastResult={live ? lastResult : null} live />;
 }
 
-function ResultsBody({ lastResult, live }: { lastResult: RunResult | null; live: boolean }): JSX.Element {
+function ResultsBody({
+  lastResult,
+  live,
+  imported = null,
+}: {
+  lastResult: RunResult | null;
+  live: boolean;
+  /** Provenance of an imported snapshot, shown in the header. */
+  imported?: SnapshotProvenance | null;
+}): JSX.Element {
   const { navigate } = useRouter();
   const exportDialog = useExportDialog();
+  const transfer = useSnapshotTransfer();
 
   if (!lastResult) {
     return (
@@ -170,10 +182,34 @@ function ResultsBody({ lastResult, live }: { lastResult: RunResult | null; live:
     <>
       <PageHeader
         eyebrow={live ? 'Collect / Complete' : 'Explore / Snapshots'}
-        title={live ? 'Collection complete' : `Collection of ${snapshotName ?? lastResult.label}`}
-        facts={facts}
+        title={
+          live ? (
+            'Collection complete'
+          ) : (
+            <>
+              Collection of {snapshotName ?? lastResult.label}
+              <ImportedBadge provenance={imported} />
+            </>
+          )
+        }
+        facts={
+          imported ? (
+            <>
+              {facts}
+              <br />
+              {provenanceLine(imported)}
+            </>
+          ) : (
+            facts
+          )
+        }
         actions={
           <>
+            {!live && r.snapshot_path && (
+              <Button onClick={() => transfer.exportFile({ path: r.snapshot_path!, name: snapshotName ?? lastResult.label })}>
+                Export snapshot file…
+              </Button>
+            )}
             <Button onClick={() => r.snapshot_path && exportDialog.open(r.snapshot_path)} disabled={!r.snapshot_path}>
               Export more…
             </Button>
