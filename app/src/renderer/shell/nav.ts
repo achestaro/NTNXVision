@@ -8,6 +8,7 @@ import {
   SquaresFourIcon,
   StackIcon,
   TableIcon,
+  TargetIcon,
 } from '@phosphor-icons/react';
 import type { Icon as PhosphorIcon } from '@phosphor-icons/react';
 import type { Screen } from '../lib/router';
@@ -27,6 +28,7 @@ export const NAV_GROUPS: { label: string; items: NavItem[] }[] = [
   {
     label: 'Collect',
     items: [
+      { screen: 'targets', label: 'Targets', icon: TargetIcon, key: 't' },
       { screen: 'new', label: 'New collection', icon: DownloadSimpleIcon, key: 'n', also: ['collecting', 'results'] },
       { screen: 'multi', label: 'Multiple PCs', icon: StackIcon, key: 'm' },
     ],

@@ -1,18 +1,18 @@
-// New collection (mock: NewCollection.dc.html) — connect, choose areas, pick reports.
+// New collection (mock: NewCollection.dc.html) — pick a saved target, choose areas, pick
+// reports. Targets are created and edited on the Targets page only: Step 1 picks one and
+// shows its details read-only, with an optional password for this run (never saved).
 // Adds the failed Test-connection states from the design review: rejected credentials,
 // untrusted certificate (with "Turn off verification for this target"), unreachable host,
 // and a version outside the supported range (warning, may proceed).
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { LockSimpleIcon, PlugIcon } from '@phosphor-icons/react';
+import { LockSimpleIcon, PlugIcon, PlusIcon } from '@phosphor-icons/react';
 import type {
   CollectionArea,
   CollectionAreasResult,
   ConnectionMode,
   ExportFormat,
   SavedConnection,
-  TestConnectionResult,
-  Tone,
 } from '@shared/ipc';
 import {
   Badge,
@@ -20,6 +20,7 @@ import {
   Callout,
   Checkbox,
   ChecklistHeader,
+  EmptyState,
   ErrorState,
   Field,
   FilePrefixField,
@@ -27,10 +28,10 @@ import {
   Icon,
   InlineEmpty,
   Loading,
+  LoadingPage,
   PageHeader,
   Panel,
   PanelHeader,
-  Segmented,
   Status,
   Switch,
 } from '../components';
@@ -38,23 +39,18 @@ import { useAsync } from '../lib/useAsync';
 import { useSettings, modKey } from '../lib/settings';
 import { useRun } from '../lib/run';
 import { useConfirmShortcut } from '../lib/keyboard';
+import { useRouter } from '../lib/router';
 import { NA, REPORT_EXT, errorMessage, fmtCount, reportFileName, sanitizeSnapshotName, snapshotNameIssue, targetLabel, tildify } from '../lib/format';
 import { ClusterPicker, initialSelection } from './ClusterPicker';
 import type { ClusterListState } from './ClusterPicker';
+import { TestOutcome, connectionSummary } from './ConnectionTest';
+import type { TestState } from './ConnectionTest';
 
 const FORMATS: { id: ExportFormat; label: string; desc: string }[] = [
   { id: 'excel', label: 'Excel workbook', desc: 'One sheet per object type, RVTools-style' },
   { id: 'pdf', label: 'PDF report', desc: 'Executive summary plus per-area sections' },
   { id: 'word', label: 'Word ADD', desc: 'Editable Architecture Design Document' },
 ];
-
-type TestState =
-  | { kind: 'idle' }
-  | { kind: 'testing' }
-  | { kind: 'done'; result: TestConnectionResult }
-  | { kind: 'error'; message: string };
-
-const NEW_TARGET = '__new__';
 
 export function NewCollectionView({
   connectionId,
@@ -65,9 +61,10 @@ export function NewCollectionView({
 }): JSX.Element {
   const { settings, appInfo, update } = useSettings();
   const { start, isRunning } = useRun();
+  const { navigate } = useRouter();
   const catalogue = useAsync<CollectionAreasResult>(() => window.ntnx.getCollectionAreas(), []);
-  const [profiles, setProfiles] = useState<SavedConnection[]>([]);
-  const [selected, setSelected] = useState<string>(NEW_TARGET);
+  const [profiles, setProfiles] = useState<SavedConnection[] | null>(null);
+  const [selected, setSelected] = useState<string>('');
 
   const [mode, setMode] = useState<ConnectionMode>(initialMode ?? 'prism_central');
   /** The saved target's name; empty = the host. */
@@ -77,14 +74,12 @@ export function NewCollectionView({
   const [username, setUsername] = useState('admin');
   const [password, setPassword] = useState('');
   const [verifyTls, setVerifyTls] = useState(true);
-  const [remember, setRemember] = useState(true);
   const [test, setTest] = useState<TestState>({ kind: 'idle' });
 
   const [off, setOff] = useState<Record<string, boolean>>({});
   const [ndbOn, setNdbOn] = useState(false);
   const [ndbHost, setNdbHost] = useState('');
   const [ndbUser, setNdbUser] = useState('admin');
-  const [ndbPass, setNdbPass] = useState('');
 
   const [fmt, setFmt] = useState<Record<ExportFormat, boolean>>({ excel: true, pdf: false, word: false });
   const [name, setName] = useState('');
@@ -101,12 +96,11 @@ export function NewCollectionView({
   const [prefix, setPrefix] = useState('');
   const [errors, setErrors] = useState<{ host?: string; name?: string; port?: string; areas?: string }>({});
   const [startError, setStartError] = useState<string | null>(null);
-  const hostRef = useRef<HTMLInputElement>(null);
   const clusterReq = useRef(0);
 
   const isPe = mode === 'prism_element';
-  const profile = profiles.find((p) => p.id === selected) ?? null;
-  const usingKeychain = !!profile?.hasPassword && !password && profile.host === host && profile.username === username;
+  const profile = profiles?.find((p) => p.id === selected) ?? null;
+  const usingKeychain = !!profile?.hasPassword && !password;
 
   useEffect(() => {
     setDir(settings.exportDir || appInfo?.defaultExportDir || '');
@@ -118,7 +112,10 @@ export function NewCollectionView({
       .listConnections()
       .then((ps) => {
         setProfiles(ps);
-        const pick = connectionId ? ps.find((p) => p.id === connectionId) : !initialMode ? ps[0] : undefined;
+        const pick =
+          (connectionId ? ps.find((p) => p.id === connectionId) : undefined) ??
+          (initialMode ? ps.find((p) => p.mode === initialMode) : undefined) ??
+          ps[0];
         if (pick) applyProfile(pick);
         // Arriving from "Collect" on a saved target: the name is all that is left to type.
         if (connectionId && pick) requestAnimationFrame(() => nameRef.current?.focus());
@@ -152,21 +149,12 @@ export function NewCollectionView({
   }
 
   const onPickSaved = (id: string) => {
-    if (id === NEW_TARGET) {
-      setSelected(NEW_TARGET);
-      setTargetName('');
-      setHost('');
-      setPassword('');
-      setUsername('admin');
-      setPort('9440');
-      setVerifyTls(true);
-      setTest({ kind: 'idle' });
-      requestAnimationFrame(() => hostRef.current?.focus());
-      return;
-    }
-    const p = profiles.find((x) => x.id === id);
+    const p = profiles?.find((x) => x.id === id);
     if (p) applyProfile(p);
   };
+
+  /** The Targets page editor for this target (or a new one); it comes back here after saving. */
+  const editTarget = (id?: string) => navigate({ screen: 'targets', edit: id ?? 'new', returnTo: 'new' });
 
   function resetClusters() {
     clusterReq.current += 1; // a reply still in flight is for the old details: ignore it
@@ -185,8 +173,7 @@ export function NewCollectionView({
   const nameIssue = snapshotNameIssue(name, existingNames);
   const validate = (): boolean => {
     const e: typeof errors = {};
-    if (!host.trim()) e.host = 'Enter an address.';
-    if (!portOk) e.port = 'Port must be 1–65535.';
+    if (!profile) e.host = 'Choose a target.';
     if (nameIssue) e.name = nameIssue;
     if (catalogue.data && !chosenAreas.length) e.areas = 'Choose at least one area to collect.';
     setErrors(e);
@@ -196,14 +183,14 @@ export function NewCollectionView({
   // ── clusters ──
   /** What identifies one cluster listing; a different key needs a new listing. */
   const connKey = `${mode}|${host.trim()}|${port}|${username}|${password ? 'typed' : 'keychain'}|${verifyTls}`;
-  const canList = !!host.trim() && portOk && !!username && (!!password || usingKeychain);
+  const canList = !!profile && !!host.trim() && portOk && !!username && (!!password || usingKeychain);
 
   const listClusters = useCallback(async () => {
     const key = connKey;
     const req = ++clusterReq.current;
     setClusterState({ kind: 'loading', key });
     try {
-      const result = await window.ntnx.listClusters({ mode, host: host.trim(), port: portNum, username, password, insecure: !verifyTls });
+      const result = await window.ntnx.listClusters({ mode, host: host.trim(), port: portNum, username, password, insecure: !verifyTls, targetId: profile?.id });
       if (req !== clusterReq.current) return;
       const memory = !isPe && profile && profile.host === host.trim() ? profile.clusterSelection : null;
       setClusterSel(initialSelection(result.clusters, memory));
@@ -229,11 +216,10 @@ export function NewCollectionView({
   }, [autoList]);
 
   const runTest = async (opts: { insecure?: boolean } = {}) => {
-    const e: typeof errors = {};
-    if (!host.trim()) e.host = 'Enter an address.';
-    if (!Number.isInteger(portNum) || portNum < 1 || portNum > 65535) e.port = 'Port must be 1–65535.';
-    setErrors(e);
-    if (Object.keys(e).length) return;
+    if (!profile) {
+      setErrors((x) => ({ ...x, host: 'Choose a target.' }));
+      return;
+    }
     setTest({ kind: 'testing' });
     try {
       const result = await window.ntnx.testConnection({
@@ -243,6 +229,7 @@ export function NewCollectionView({
         username,
         password,
         insecure: opts.insecure ?? !verifyTls,
+        targetId: profile.id,
       });
       setTest({ kind: 'done', result });
       // A working connection: list (or refresh) its clusters.
@@ -252,8 +239,17 @@ export function NewCollectionView({
     }
   };
 
-  const turnOffVerification = () => {
+  /** Saves "Verify TLS: off" on the target itself (the user recognised the fingerprint). */
+  const turnOffVerification = async () => {
+    if (!profile) return;
+    try {
+      const r = await window.ntnx.saveTarget({ ...profile, ndbHost: profile.ndbHost ?? '', insecure: true, password: '' });
+      if (r.ok) setProfiles(r.targets);
+    } catch {
+      /* still test this run without verification */
+    }
     setVerifyTls(false);
+    resetClusters();
     void runTest({ insecure: true });
   };
 
@@ -294,6 +290,7 @@ export function NewCollectionView({
     const scoped = !isPe && clusterState.kind === 'ready' && clusters.length > 0;
     try {
       await start({
+        targetId: profile?.id,
         mode,
         host: host.trim(),
         username,
@@ -306,10 +303,10 @@ export function NewCollectionView({
         clusters: scoped ? chosenClusters.map((c) => c.uuid) : undefined,
         knownClusters: scoped ? clusters.map((c) => c.uuid) : undefined,
         formats: chosenFormats.map((f) => f.id),
-        saveCredentials: remember,
         exportDir: dir || undefined,
         filePrefix: prefix,
-        ndb: !isPe && ndbOn && ndbHost ? { host: ndbHost, username: ndbUser, password: ndbPass } : undefined,
+        // The NDB password comes from the target's keychain entry (main process).
+        ndb: !isPe && ndbOn && ndbHost ? { host: ndbHost, username: ndbUser, password: '' } : undefined,
       });
       if (prefix !== (settings.filePrefix ?? '')) void update({ filePrefix: prefix });
     } catch (err) {
@@ -326,31 +323,48 @@ export function NewCollectionView({
     if (d) setDir(d);
   };
 
-  const savedSelect = (
-    <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-      <label className="lbl" htmlFor="saved" style={{ margin: 0 }}>
-        Saved target
-      </label>
-      <select id="saved" className="input" style={{ width: 280 }} value={selected} onChange={(e) => onPickSaved(e.target.value)}>
-        {profiles.map((p) => (
-          <option key={p.id} value={p.id} title={`${p.host}:${p.port}`}>
-            {targetLabel(p)} · {p.username}
-            {p.mode === 'prism_element' ? ' · Prism Element' : ''}
-          </option>
-        ))}
-        <option value={NEW_TARGET}>New target…</option>
-      </select>
-    </div>
+  const header = (
+    <PageHeader
+      eyebrow="Collect / New collection"
+      title="New collection"
+      description="Pick a target, choose what to collect, and pick your reports. Collection is read-only: nothing on the cluster changes."
+    />
   );
+
+  if (profiles === null) {
+    return (
+      <>
+        {header}
+        <LoadingPage label="Loading targets…" />
+      </>
+    );
+  }
+
+  if (profiles.length === 0) {
+    return (
+      <>
+        {header}
+        <Panel>
+          <EmptyState
+            illustration="no-target"
+            title="Add a target first"
+            description="Collections run against targets saved on the Targets page, with their passwords in your OS keychain."
+            action={
+              <Button variant="primary" icon={PlusIcon} onClick={() => editTarget()}>
+                Add a target
+              </Button>
+            }
+          />
+        </Panel>
+      </>
+    );
+  }
+
+  const sorted = [...profiles].sort((x, y) => targetLabel(x).localeCompare(targetLabel(y)));
 
   return (
     <>
-      <PageHeader
-        eyebrow="Collect / New collection"
-        title="New collection"
-        description="Connect, choose what to collect, and pick your reports. Collection is read-only: nothing on the cluster changes."
-        actions={savedSelect}
-      />
+      {header}
 
       {isRunning && (
         <Callout tone="live" title="A collection is already running.">
@@ -367,138 +381,115 @@ export function NewCollectionView({
             </PanelHeader>
             <div style={{ padding: 16, display: 'flex', flexDirection: 'column', gap: 16 }}>
               <div>
-                <span className="lbl" id="modeLbl">
-                  What are you connecting to?
-                </span>
-                <Segmented<ConnectionMode>
-                  aria-labelledby="modeLbl"
-                  value={mode}
-                  onChange={(m) => {
-                    setMode(m);
-                    resetTest();
-                  }}
-                  options={[
-                    { value: 'prism_central', label: 'Prism Central · all clusters' },
-                    { value: 'prism_element', label: 'Prism Element · one cluster' },
-                  ]}
-                />
-                <div className="hint below">
-                  {isPe
-                    ? 'Direct to one cluster over the v2.0 API (AOS 6.5 – 7.5). Infrastructure only.'
-                    : 'Recommended. Covers every registered cluster plus DR, Flow, Files, IAM and more.'}
-                </div>
-              </div>
-              <div className="connect-grid">
-                <Field id="tname" label="Name">
-                  <input
+                <label className="lbl" htmlFor="saved">
+                  Target
+                </label>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'center' }}>
+                  <select
+                    id="saved"
                     className="input"
-                    value={targetName}
-                    placeholder={host.trim() || 'Same as the address'}
-                    spellCheck={false}
-                    autoComplete="off"
-                    onChange={(e) => setTargetName(e.target.value)}
-                  />
-                </Field>
-                <Field
-                  id="host"
-                  label={isPe ? 'Cluster address (FQDN or IP)' : 'Prism Central address (FQDN or IP)'}
-                  error={errors.host}
-                >
-                  <input
-                    ref={hostRef}
-                    className="input mono"
-                    value={host}
-                    placeholder={isPe ? 'cluster.example.com' : 'pc.example.com'}
-                    spellCheck={false}
-                    autoCapitalize="off"
-                    onBlur={maybeListClusters}
+                    style={{ width: 360, maxWidth: '100%' }}
+                    value={selected}
+                    aria-invalid={!!errors.host}
                     onChange={(e) => {
-                      // A loaded target's name doesn't follow the user to another address.
-                      if (profile && e.target.value.trim() !== profile.host && targetName === (profile.name !== profile.host ? profile.name : '')) {
-                        setTargetName('');
-                      }
-                      setHost(e.target.value);
+                      onPickSaved(e.target.value);
                       setErrors((x) => ({ ...x, host: undefined }));
-                      resetTest();
                     }}
-                  />
-                </Field>
-                <Field id="port" label="Port" error={errors.port}>
-                  <input
-                    className="input mono"
-                    inputMode="numeric"
-                    value={port}
-                    onChange={(e) => {
-                      setPort(e.target.value.replace(/[^0-9]/g, ''));
-                      setErrors((x) => ({ ...x, port: undefined }));
-                      resetTest();
-                    }}
-                  />
-                </Field>
-                <Field id="user" label="Username">
-                  <input
-                    className="input"
-                    value={username}
-                    autoCapitalize="off"
-                    spellCheck={false}
-                    onChange={(e) => {
-                      setUsername(e.target.value);
-                      resetTest();
-                    }}
-                  />
-                </Field>
-                <div className="connect-pw">
-                  <label className="lbl" htmlFor="pw">
-                    Password
-                  </label>
-                  <div className="input-wrap">
-                    <input
-                      id="pw"
-                      className="input"
-                      type="password"
-                      value={password}
-                      aria-describedby="pw-hint"
-                      placeholder={usingKeychain ? 'Using the password saved in your keychain' : 'Password'}
-                      onChange={(e) => {
-                        setPassword(e.target.value);
-                        resetTest();
-                      }}
-                      onBlur={maybeListClusters}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter') maybeListClusters();
-                      }}
-                      style={usingKeychain ? { paddingRight: 96 } : undefined}
-                    />
-                    {usingKeychain && (
-                      <Badge className="input-badge">
-                        <Icon icon={LockSimpleIcon} size={12} />
-                        Keychain
-                      </Badge>
-                    )}
-                  </div>
-                  <div className="hint below" id="pw-hint">
-                    {profile?.hasPassword
-                      ? 'Leave empty to use the saved password. Type one to replace it for this run.'
-                      : 'Saved to your OS keychain when “Remember this target” is on, never to disk.'}
-                  </div>
+                  >
+                    {sorted.map((p) => (
+                      <option key={p.id} value={p.id} title={`${p.host}:${p.port}`}>
+                        {targetLabel(p)} · {p.mode === 'prism_element' ? 'Prism Element' : 'Prism Central'}
+                      </option>
+                    ))}
+                  </select>
+                  {profile && (
+                    <button type="button" className="textlink" onClick={() => editTarget(profile.id)}>
+                      Edit target
+                    </button>
+                  )}
+                  <button type="button" className="textlink" onClick={() => editTarget()}>
+                    Add a target
+                  </button>
                 </div>
+                {errors.host && <div className="field-err">{errors.host}</div>}
               </div>
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px 24px' }}>
-                <Checkbox
-                  checked={verifyTls}
-                  onChange={(v) => {
-                    setVerifyTls(v);
-                    resetTest();
-                  }}
-                >
-                  Verify TLS certificate
-                </Checkbox>
-                <Checkbox checked={remember} onChange={setRemember}>
-                  Remember this target and save the password to the keychain
-                </Checkbox>
+              {profile && (
+                <dl className="grid-kv" data-testid="target-details" style={{ display: 'grid', columnGap: 32, gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 300px), 1fr))' }}>
+                  <div className="kv">
+                    <dt>Type</dt>
+                    <dd className="strong">{isPe ? 'Prism Element · one cluster' : 'Prism Central · all clusters'}</dd>
+                  </div>
+                  <div className="kv">
+                    <dt>Address</dt>
+                    <dd className="mono">
+                      {host}:{port}
+                    </dd>
+                  </div>
+                  <div className="kv">
+                    <dt>Username</dt>
+                    <dd>{username}</dd>
+                  </div>
+                  <div className="kv">
+                    <dt>Verify TLS</dt>
+                    <dd>{verifyTls ? 'On' : 'Off'}</dd>
+                  </div>
+                  {!isPe && (
+                    <div className="kv">
+                      <dt>NDB</dt>
+                      <dd className={ndbHost ? 'mono' : 'dash'}>{ndbHost || NA}</dd>
+                    </div>
+                  )}
+                  <div className="kv">
+                    <dt>Password</dt>
+                    <dd>
+                      {profile.hasPassword ? (
+                        <Status tone="ok">Keychain</Status>
+                      ) : (
+                        <Status tone="idle" shape="outline">
+                          Not saved
+                        </Status>
+                      )}
+                    </dd>
+                  </div>
+                </dl>
+              )}
+              <div className="connect-pw" style={{ maxWidth: 420 }}>
+                <label className="lbl" htmlFor="pw">
+                  {profile?.hasPassword ? 'Password for this run (optional)' : 'Password for this run'}
+                </label>
+                <div className="input-wrap">
+                  <input
+                    id="pw"
+                    className="input"
+                    type="password"
+                    value={password}
+                    aria-describedby="pw-hint"
+                    placeholder={usingKeychain ? 'Using the password saved in your keychain' : 'Password'}
+                    onChange={(e) => {
+                      setPassword(e.target.value);
+                      resetTest();
+                    }}
+                    onBlur={maybeListClusters}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') maybeListClusters();
+                    }}
+                    style={usingKeychain ? { paddingRight: 96 } : undefined}
+                  />
+                  {usingKeychain && (
+                    <Badge className="input-badge">
+                      <Icon icon={LockSimpleIcon} size={12} />
+                      Keychain
+                    </Badge>
+                  )}
+                </div>
+                <div className="hint below" id="pw-hint">
+                  {profile?.hasPassword
+                    ? 'Leave empty to use the saved password. A password typed here is used for this run only, never saved.'
+                    : 'No password is saved for this target. Type one for this run, or save one with Edit target.'}
+                </div>
               </div>
               <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 12 }}>
-                <Button icon={PlugIcon} onClick={() => void runTest()} disabled={test.kind === 'testing'}>
+                <Button icon={PlugIcon} onClick={() => void runTest()} disabled={test.kind === 'testing' || !profile}>
                   Test connection
                 </Button>
                 {test.kind === 'testing' ? (
@@ -507,7 +498,7 @@ export function NewCollectionView({
                   <span className="hint">Checks credentials, version and API support in about 2 s.</span>
                 )}
               </div>
-              <TestOutcome test={test} host={host} port={port} verifyTls={verifyTls} onTurnOffVerification={turnOffVerification} onRetry={() => void runTest()} />
+              <TestOutcome test={test} host={host} port={port} verifyTls={verifyTls} onTurnOffVerification={() => void turnOffVerification()} onRetry={() => void runTest()} />
             </div>
           </Panel>
 
@@ -597,25 +588,16 @@ export function NewCollectionView({
             )}
             <div style={{ borderTop: '1px solid var(--rule-2)', padding: '12px 16px', display: 'flex', flexDirection: 'column', gap: 12 }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                <Switch checked={ndbOn && !isPe} onChange={setNdbOn} labelledBy="ndbLbl" disabled={isPe} />
+                <Switch checked={ndbOn && !isPe && !!ndbHost} onChange={setNdbOn} labelledBy="ndbLbl" disabled={isPe || !ndbHost} />
                 <div id="ndbLbl">
                   <div style={{ fontWeight: 500 }}>Nutanix Database Service (NDB)</div>
-                  <div className="hint">Separate Era API endpoint and credentials</div>
+                  <div className="hint">
+                    {ndbHost
+                      ? `${ndbHost} as ${ndbUser}, from the target`
+                      : 'Add an NDB endpoint to this target on the Targets page to include it'}
+                  </div>
                 </div>
               </div>
-              {ndbOn && !isPe && (
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 200px), 1fr))', gap: 16, paddingLeft: 44 }}>
-                  <Field id="ndbh" label="NDB host">
-                    <input className="input mono" placeholder="ndb.example.com" value={ndbHost} onChange={(e) => setNdbHost(e.target.value)} />
-                  </Field>
-                  <Field id="ndbu" label="NDB username">
-                    <input className="input" value={ndbUser} onChange={(e) => setNdbUser(e.target.value)} />
-                  </Field>
-                  <Field id="ndbp" label="NDB password">
-                    <input className="input" type="password" placeholder="Not saved to the keychain" value={ndbPass} onChange={(e) => setNdbPass(e.target.value)} />
-                  </Field>
-                </div>
-              )}
             </div>
           </Panel>
 
@@ -685,14 +667,12 @@ export function NewCollectionView({
             <dl>
               <div className="kv">
                 <dt>Target</dt>
+                <dd className="strong">{profile ? targetLabel(profile) : NA}</dd>
+              </div>
+              <div className="kv">
+                <dt>Address</dt>
                 <dd className="mono">{host || NA}</dd>
               </div>
-              {targetName.trim() && (
-                <div className="kv">
-                  <dt>Name</dt>
-                  <dd className="strong">{targetName.trim()}</dd>
-                </div>
-              )}
               <div className="kv">
                 <dt>Mode</dt>
                 <dd className="strong">{isPe ? 'Prism Element' : 'Prism Central'}</dd>
@@ -768,126 +748,3 @@ export function NewCollectionView({
   );
 }
 
-function connectionSummary(test: TestState): {
-  tone: Tone;
-  shape: 'filled' | 'outline';
-  short: string;
-  header: React.ReactNode;
-} {
-  if (test.kind === 'testing') return { tone: 'live', shape: 'filled', short: 'Testing…', header: null };
-  if (test.kind === 'error') {
-    return { tone: 'error', shape: 'filled', short: 'Test failed', header: <Status tone="error">Connection failed</Status> };
-  }
-  if (test.kind === 'done') {
-    const r = test.result;
-    if (r.status === 'ok') return { tone: 'ok', shape: 'filled', short: 'Verified', header: <Status tone="ok">Connection verified</Status> };
-    if (r.status === 'version_unsupported')
-      return { tone: 'warn', shape: 'filled', short: 'Verified · version warning', header: <Status tone="warn">Connected · unsupported version</Status> };
-    return { tone: 'error', shape: 'filled', short: 'Failed', header: <Status tone="error">Connection failed</Status> };
-  }
-  return { tone: 'idle', shape: 'outline', short: 'Not tested yet', header: null };
-}
-
-function TestOutcome({
-  test,
-  host,
-  port,
-  verifyTls,
-  onTurnOffVerification,
-  onRetry,
-}: {
-  test: TestState;
-  host: string;
-  port: string;
-  verifyTls: boolean;
-  onTurnOffVerification(): void;
-  onRetry(): void;
-}): JSX.Element | null {
-  if (test.kind === 'error') {
-    return (
-      <Callout tone="error" title="The connection test didn’t complete." actions={<Button size="sm" onClick={onRetry}>Test again</Button>}>
-        <div className="mono t12" style={{ color: 'var(--ink-2)' }}>
-          {test.message}
-        </div>
-      </Callout>
-    );
-  }
-  if (test.kind !== 'done') return null;
-  const r = test.result;
-  const detail = r.detail && (
-    <div className="mono t12" style={{ color: 'var(--ink-2)' }}>
-      {r.detail}
-    </div>
-  );
-  switch (r.status) {
-    case 'ok':
-      return (
-        <Callout tone="ok" title={r.message}>
-          {detail}
-        </Callout>
-      );
-    case 'version_unsupported':
-      return (
-        <Callout tone="warn" title={`Connected, but ${r.version ?? 'this version'} is outside the supported range${r.supported_range ? ` (${r.supported_range})` : ''}.`}>
-          You can still collect. Areas that behave differently on this version come back with notes instead of failing the run.
-          {detail}
-        </Callout>
-      );
-    case 'auth_failed':
-      return (
-        <Callout tone="error" title={`${host} rejected the credentials.`}>
-          Check the username and password, then test again. A saved keychain password may be out of date. Type the current one to replace it.
-          {detail}
-        </Callout>
-      );
-    case 'untrusted_cert':
-      return (
-        <Callout
-          tone="error"
-          title={`The certificate for ${host} isn’t trusted.`}
-          actions={
-            verifyTls && (
-              <Button size="sm" onClick={onTurnOffVerification}>
-                Turn off verification for this target
-              </Button>
-            )
-          }
-        >
-          {r.certificate?.self_signed ? 'It is self-signed, which is common for Prism.' : 'It isn’t signed by an authority this computer trusts.'} Only turn off verification if you recognize the fingerprint.
-          {r.certificate && (
-            <dl className="grid-kv mono t12" style={{ marginTop: 8, color: 'var(--ink-2)' }}>
-              <div className="kv">
-                <dt>Subject</dt>
-                <dd>{r.certificate.subject}</dd>
-              </div>
-              <div className="kv">
-                <dt>Issuer</dt>
-                <dd>{r.certificate.issuer}</dd>
-              </div>
-              <div className="kv">
-                <dt>SHA-256</dt>
-                <dd>{r.certificate.fingerprint_sha256}</dd>
-              </div>
-            </dl>
-          )}
-        </Callout>
-      );
-    case 'unreachable':
-      return (
-        <Callout tone="error" title={`Can’t reach ${host}:${port}.`} actions={<Button size="sm" onClick={onRetry}>Test again</Button>}>
-          Check the address and port, and any firewall or VPN between this computer and {host}.
-          {detail ?? (
-            <div className="mono t12" style={{ color: 'var(--ink-2)' }}>
-              {r.message}
-            </div>
-          )}
-        </Callout>
-      );
-    default:
-      return (
-        <Callout tone="error" title={r.message || 'The connection test failed.'} actions={<Button size="sm" onClick={onRetry}>Test again</Button>}>
-          {detail}
-        </Callout>
-      );
-  }
-}
