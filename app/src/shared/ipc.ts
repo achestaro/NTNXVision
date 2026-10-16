@@ -341,6 +341,10 @@ export interface RunFinishedEvent {
 export interface SnapshotInfo {
   name: string;
   path: string;
+  /** Stable identity (a UUID) kept across export and import; null for very old snapshots until their first export. */
+  snapshot_id?: string | null;
+  /** Set for a snapshot imported from a .ntnxsnap file: where it came from. */
+  imported?: SnapshotProvenance | null;
   collected_at?: string | null;
   summary: InventorySummary;
   kind?: SnapshotKind;
@@ -383,6 +387,121 @@ export interface SnapshotDetail extends SnapshotInfo {
   export_estimates?: Partial<Record<ExportFormat, { bytes?: number | null; detail?: string | null }>>;
   /** The collection run that produced this snapshot (absent for snapshots saved before this field existed). */
   run?: SnapshotRunInfo | null;
+}
+
+// ─── snapshot files (.ntnxsnap) ─────────────────────────────────────────
+
+/** The OS a snapshot file was exported on. */
+export type TransferPlatform = 'macos' | 'windows' | 'linux';
+
+/** Where an imported snapshot came from (stored with it on import). */
+export interface SnapshotProvenance {
+  imported_at: string;
+  imported_from: {
+    platform?: TransferPlatform | null;
+    app_version?: string | null;
+    /** The exporter's optional "exported by" note. */
+    note?: string | null;
+    exported_at?: string | null;
+  };
+  /** File name only, never a path. */
+  file_name?: string | null;
+  /** The snapshot's name in the file (it may have been suffixed on import). */
+  original_name?: string | null;
+  /** Set when "Keep both" gave the imported copy a new id. */
+  original_snapshot_id?: string | null;
+  /** Report history from the exporting machine, names only. */
+  reports?: { format?: ExportFormat | null; name: string; size_bytes?: number | null; detail?: string | null }[];
+  /** Provenance of an earlier import, when an imported snapshot was exported again. */
+  previous?: SnapshotProvenance | null;
+}
+
+export interface SnapshotFileExportRequest {
+  /** One snapshot path, or several to write one multi-snapshot bundle. */
+  snapshotPath: string | string[];
+  /** Absolute .ntnxsnap path (from chooseSnapshotSavePath). */
+  destPath: string;
+  /** Optional: encrypt the file (AES-256-GCM, scrypt-derived key). */
+  password?: string;
+  /** Optional "exported by" note shown in the import preview (max 200 characters). */
+  note?: string;
+}
+
+export interface SnapshotFileExportResult {
+  path: string;
+  name: string;
+  size_bytes: number;
+  encrypted: boolean;
+  snapshots: { snapshot_id: string; name: string | null }[];
+}
+
+export interface SnapshotFilesExportRequest {
+  snapshotPaths: string[];
+  /** Folder that receives one <name>.ntnxsnap per snapshot (existing files are never overwritten). */
+  destDir: string;
+  password?: string;
+  note?: string;
+}
+
+export interface SnapshotFilesExportResult {
+  dir: string;
+  files: SnapshotFileExportResult[];
+  errors: { snapshot: string; error: string }[];
+}
+
+/** One snapshot inside a file, as the import preview shows it. */
+export interface SnapshotFileEntry {
+  snapshot_id: string;
+  /** null while an encrypted file is locked. */
+  name: string | null;
+  collected_at?: string | null;
+  kind?: SnapshotKind | null;
+  source?: string | null;
+  version?: string | null;
+  sources?: string[];
+  summary: Partial<InventorySummary>;
+  /** Uncompressed size of the snapshot payload. */
+  size_bytes?: number | null;
+  /** A local snapshot with the same snapshot_id. */
+  conflict: { name: string; path: string } | null;
+  /** The name it would be saved under (sanitized, suffixed if taken). */
+  import_name: string | null;
+}
+
+/** inspect_snapshot_file: the manifest (and, once unlocked, the details) without importing. */
+export interface SnapshotFilePreview {
+  path: string;
+  file_name: string;
+  size_bytes: number;
+  format_version: number;
+  schema_version: number;
+  app_version?: string | null;
+  exported_at?: string | null;
+  exporter: { app_version?: string | null; platform?: TransferPlatform | null; note?: string | null };
+  encrypted: boolean;
+  /** Encrypted and no (or a wrong) password given: names, sources and counts are hidden. */
+  locked: boolean;
+  /** "The password is not correct." after a wrong password. */
+  password_error?: string | null;
+  snapshots: SnapshotFileEntry[];
+  /** How many snapshots already exist locally (same snapshot_id). */
+  conflicts: number;
+}
+
+/** What to do when the file holds a snapshot that already exists locally. */
+export type ImportConflictChoice = 'keep_both' | 'replace' | 'skip';
+
+export interface SnapshotFileImportResult {
+  imported: {
+    snapshot_id: string;
+    name: string;
+    path: string;
+    action: 'imported' | 'replaced' | 'kept_both' | 'skipped';
+    original_name: string;
+    renamed?: boolean;
+  }[];
+  count: number;
+  skipped: number;
 }
 
 // ─── inventory browsing ─────────────────────────────────────────────────
@@ -632,6 +751,10 @@ export const IPC = {
   renameSnapshot: 'core:renameSnapshot',
   deleteSnapshot: 'core:deleteSnapshot',
   clearSnapshots: 'core:clearSnapshots',
+  exportSnapshotFile: 'core:exportSnapshotFile',
+  exportSnapshotFiles: 'core:exportSnapshotFiles',
+  inspectSnapshotFile: 'core:inspectSnapshotFile',
+  importSnapshotFile: 'core:importSnapshotFile',
   // main-process only
   getAppInfo: 'app:getAppInfo',
   getLegalDocuments: 'app:getLegalDocuments',
@@ -640,6 +763,9 @@ export const IPC = {
   openExternal: 'shell:openExternal',
   chooseDirectory: 'shell:chooseDirectory',
   chooseFile: 'shell:chooseFile',
+  chooseSnapshotSavePath: 'shell:chooseSnapshotSavePath',
+  chooseSnapshotFiles: 'shell:chooseSnapshotFiles',
+  takePendingSnapshotFiles: 'app:takePendingSnapshotFiles',
   listConnections: 'store:listConnections',
   saveConnection: 'store:saveConnection',
   deleteConnection: 'store:deleteConnection',
@@ -648,6 +774,8 @@ export const IPC = {
   // main → renderer (events)
   progress: 'core:progress',
   runFinished: 'core:runFinished',
+  /** .ntnxsnap files opened from the OS (double-click, Open with, second launch). */
+  openSnapshotFiles: 'app:openSnapshotFiles',
 } as const;
 
 // The API surface exposed on window.ntnx by the preload bridge.
@@ -684,12 +812,26 @@ export interface NtnxApi {
   renameSnapshot(snapshotPath: string, newName: string): Promise<{ path: string; name: string }>;
   deleteSnapshot(snapshotPath: string): Promise<{ deleted: boolean }>;
   clearSnapshots(): Promise<{ deleted: number }>;
+  exportSnapshotFile(req: SnapshotFileExportRequest): Promise<SnapshotFileExportResult>;
+  exportSnapshotFiles(req: SnapshotFilesExportRequest): Promise<SnapshotFilesExportResult>;
+  inspectSnapshotFile(path: string, password?: string): Promise<SnapshotFilePreview>;
+  importSnapshotFile(path: string, onConflict: ImportConflictChoice, password?: string): Promise<SnapshotFileImportResult>;
 
   revealPath(path: string): Promise<void>;
   openPath(path: string): Promise<{ error: string | null }>;
   openExternal(url: string): Promise<void>;
-  chooseDirectory(): Promise<string | null>;
+  /** Folder picker; `title` defaults to the report folder wording. */
+  chooseDirectory(title?: string): Promise<string | null>;
   chooseFile(filters: FileFilter[]): Promise<string | null>;
+  /** Native save dialog with the .ntnxsnap filter. */
+  chooseSnapshotSavePath(defaultName: string): Promise<string | null>;
+  /** Native open dialog with the .ntnxsnap filter, multi-select. */
+  chooseSnapshotFiles(): Promise<string[]>;
+  /** Synchronous: the local path of a File dropped on the window (webUtils.getPathForFile). */
+  pathForFile(file: File): string;
+  /** .ntnxsnap files the OS asked the app to open; also marks the renderer ready for pushes. */
+  takePendingSnapshotFiles(): Promise<string[]>;
+  onOpenSnapshotFiles(cb: (paths: string[]) => void): () => void;
 
   listConnections(): Promise<SavedConnection[]>;
   saveConnection(profile: ConnectionProfile): Promise<SavedConnection[]>;

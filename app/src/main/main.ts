@@ -6,8 +6,9 @@
 
 import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron';
 import { randomUUID } from 'node:crypto';
+import { existsSync, readdirSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 import {
   AppInfo,
   AppSettings,
@@ -18,6 +19,7 @@ import {
   ExportRequest,
   FileFilter,
   IPC,
+  ImportConflictChoice,
   InventoryFilter,
   InventoryPage,
   InventoryResult,
@@ -28,6 +30,8 @@ import {
   RunFinishedEvent,
   RunProgressEvent,
   SavedConnection,
+  SnapshotFileExportRequest,
+  SnapshotFilesExportRequest,
   TestConnectionRequest,
 } from '../shared/ipc';
 import { SidecarClient, SidecarError, CANCELLED_CODE, isDemoMode } from './sidecar';
@@ -44,14 +48,18 @@ const loadBuiltRenderer =
   !isDev || process.env.NTNXVISION_RENDERER === 'dist' || process.argv.includes('--dist');
 // Automated end-to-end runs: never open Finder/Explorer windows, files or browsers.
 const e2e = process.env.NTNXVISION_E2E === '1';
+// e2e only: the native file dialogs answer from this folder instead of opening.
+const e2eDialogDir = e2e ? process.env.NTNXVISION_E2E_DIALOG_DIR || null : null;
 const sidecar = new SidecarClient();
 let mainWindow: BrowserWindow | null = null;
 
 function send(channel: string, payload: unknown): void {
-  mainWindow?.webContents.send(channel, payload);
+  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send(channel, payload);
 }
 
 function createWindow(): void {
+  // A new renderer asks for queued snapshot files once it has mounted.
+  rendererWantsFiles = false;
   mainWindow = new BrowserWindow({
     width: 1440,
     height: 900,
@@ -313,6 +321,112 @@ ipcMain.handle(IPC.deleteSnapshot, (_e, snapshotPath: string) =>
 
 ipcMain.handle(IPC.clearSnapshots, () => sidecar.call('clear_snapshots'));
 
+// ─── IPC handlers: snapshot files (.ntnxsnap) ──────────────────────────
+
+ipcMain.handle(IPC.exportSnapshotFile, (_e, req: SnapshotFileExportRequest) =>
+  sidecar.call('export_snapshot_file', {
+    ...(Array.isArray(req.snapshotPath) ? { snapshots: req.snapshotPath } : { snapshot: req.snapshotPath }),
+    dest_path: req.destPath,
+    password: req.password || undefined,
+    note: req.note || undefined,
+    app_version: app.getVersion(),
+  }),
+);
+
+ipcMain.handle(IPC.exportSnapshotFiles, (_e, req: SnapshotFilesExportRequest) =>
+  sidecar.call('export_snapshot_files', {
+    snapshots: req.snapshotPaths,
+    dest_dir: req.destDir,
+    password: req.password || undefined,
+    note: req.note || undefined,
+    app_version: app.getVersion(),
+  }),
+);
+
+ipcMain.handle(IPC.inspectSnapshotFile, (_e, path: string, password?: string) =>
+  sidecar.call('inspect_snapshot_file', { path, password: password || undefined }),
+);
+
+ipcMain.handle(IPC.importSnapshotFile, (_e, path: string, onConflict: ImportConflictChoice, password?: string) =>
+  sidecar.call('import_snapshot_file', { path, on_conflict: onConflict, password: password || undefined }),
+);
+
+const SNAPSHOT_FILTER: FileFilter[] = [{ name: 'NTNXVision snapshot', extensions: ['ntnxsnap'] }];
+const isSnapshotFile = (p: string) => /\.ntnxsnap$/i.test(p);
+
+function defaultFolder(): string {
+  return store.getSettings().exportDir || join(homedir(), 'Documents', 'NTNXVision');
+}
+
+ipcMain.handle(IPC.chooseSnapshotSavePath, async (_e, defaultName: string) => {
+  // Never let a snapshot name smuggle a path into the dialog's default.
+  const stem = basename(String(defaultName || 'snapshot'))
+    .replace(/[<>:"/\\|?*]/g, '_')
+    .replace(/\p{Cc}/gu, '_')
+    .replace(/\.ntnxsnap$/i, '');
+  const name = `${stem || 'snapshot'}.ntnxsnap`;
+  if (e2eDialogDir) return join(e2eDialogDir, name);
+  const folder = defaultFolder();
+  const result = await dialog.showSaveDialog(mainWindow!, {
+    title: 'Export snapshot file',
+    defaultPath: existsSync(folder) ? join(folder, name) : name,
+    filters: SNAPSHOT_FILTER,
+    properties: ['createDirectory', 'showOverwriteConfirmation'],
+  });
+  if (result.canceled || !result.filePath) return null;
+  return isSnapshotFile(result.filePath) ? result.filePath : `${result.filePath}.ntnxsnap`;
+});
+
+ipcMain.handle(IPC.chooseSnapshotFiles, async () => {
+  if (e2eDialogDir) {
+    return readdirSync(e2eDialogDir)
+      .filter(isSnapshotFile)
+      .sort()
+      .map((f) => join(e2eDialogDir, f));
+  }
+  const result = await dialog.showOpenDialog(mainWindow!, {
+    title: 'Import snapshot files',
+    properties: ['openFile', 'multiSelections'],
+    filters: SNAPSHOT_FILTER,
+  });
+  return result.canceled ? [] : result.filePaths;
+});
+
+// .ntnxsnap files handed to the app by the OS (double-click, "Open with", a second
+// launch). Queued until the renderer asks for them, then pushed as they arrive.
+const pendingSnapshotFiles: string[] = [];
+let rendererWantsFiles = false;
+
+function snapshotFilesFrom(argv: string[]): string[] {
+  return argv.filter((a) => !a.startsWith('-') && isSnapshotFile(a) && existsSync(a) && statSync(a).isFile());
+}
+
+function openSnapshotFiles(paths: string[]): void {
+  if (!paths.length) return;
+  if (mainWindow && !mainWindow.isDestroyed() && rendererWantsFiles) {
+    send(IPC.openSnapshotFiles, paths);
+    if (mainWindow.isMinimized()) mainWindow.restore();
+    mainWindow.focus();
+    return;
+  }
+  pendingSnapshotFiles.push(...paths);
+  // macOS keeps running with no window: open one, and its renderer takes the queue.
+  if (app.isReady() && (!mainWindow || mainWindow.isDestroyed()) && primary && !isSmokeRun()) {
+    createWindow();
+  }
+}
+
+ipcMain.handle(IPC.takePendingSnapshotFiles, () => {
+  rendererWantsFiles = true;
+  return pendingSnapshotFiles.splice(0);
+});
+
+// macOS: Finder sends open-file, possibly before the app is ready.
+app.on('open-file', (event, path) => {
+  event.preventDefault();
+  openSnapshotFiles(snapshotFilesFrom([path]));
+});
+
 // ─── IPC handlers: shell ───────────────────────────────────────────────
 
 ipcMain.handle(IPC.revealPath, (_e, p: string) => {
@@ -333,10 +447,11 @@ ipcMain.handle(IPC.openExternal, async (_e, url: string) => {
   await shell.openExternal(url);
 });
 
-ipcMain.handle(IPC.chooseDirectory, async () => {
+ipcMain.handle(IPC.chooseDirectory, async (_e, title?: string) => {
+  if (e2eDialogDir) return e2eDialogDir;
   const result = await dialog.showOpenDialog(mainWindow!, {
     properties: ['openDirectory', 'createDirectory'],
-    title: 'Choose where reports are saved',
+    title: title || 'Choose where reports are saved',
   });
   return result.canceled ? null : result.filePaths[0] ?? null;
 });
@@ -418,7 +533,25 @@ async function seedDemo(): Promise<void> {
 
 // ─── lifecycle ─────────────────────────────────────────────────────────
 
+// One window per profile: a second launch (Windows: double-clicking a .ntnxsnap while the
+// app runs) hands its arguments to this instance and quits.
+const primary = isSmokeRun() || app.requestSingleInstanceLock();
+if (!primary) {
+  app.quit();
+} else {
+  app.on('second-instance', (_e, argv) => {
+    openSnapshotFiles(snapshotFilesFrom(argv));
+    if (mainWindow) {
+      if (mainWindow.isMinimized()) mainWindow.restore();
+      mainWindow.focus();
+    }
+  });
+  // Windows and Linux pass the file on the command line of the first launch.
+  pendingSnapshotFiles.push(...snapshotFilesFrom(process.argv.slice(1)));
+}
+
 app.whenReady().then(async () => {
+  if (!primary) return;
   if (isSmokeRun()) return void runSmoke(sidecar); // packaging smoke test, no window
   sidecar.start();
   // A first demo launch fills the profile (~5 s) before the UI loads, so it opens on data.
