@@ -97,8 +97,12 @@ foreach ($n in 'CSC_LINK', 'WIN_CSC_LINK') {
 $targets = @('msi')
 if ($Nsis) { $targets += 'nsis' }
 $archs = if ($X64Only) { @('--x64') } else { @('--x64', '--arm64') }
-Step "electron-builder -> app\release ($($targets -join ', '); $($archs -join ' '))"
-Invoke-Checked npx electron-builder --win @targets @archs --publish never
+# One electron-builder run per arch: in a single multi-arch run the two light.exe (WiX)
+# processes extract WixUIExtension into the same temp dir and fail with LGHT0001.
+foreach ($a in $archs) {
+  Step "electron-builder -> app\release ($($targets -join ', '); $a)"
+  Invoke-Checked npx electron-builder --win @targets $a --publish never
+}
 
 if (-not $NoSmoke) {
   Step 'Packaged app smoke test (--smoke)'
