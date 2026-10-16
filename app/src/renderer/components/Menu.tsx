@@ -35,6 +35,8 @@ export function useAnchoredPopup(
   anchor: MenuAnchor,
   onClose: () => void,
   focusSelector: string,
+  /** The button that opened the popup: a mousedown on it is left to its own toggle. */
+  trigger?: React.RefObject<HTMLElement>,
 ): { left: number; top: number } {
   const [pos, setPos] = useState<{ left: number; top: number }>({ left: anchor.x, top: anchor.y });
 
@@ -53,7 +55,9 @@ export function useAnchoredPopup(
 
   useEffect(() => {
     const onDown = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) onClose();
+      const t = e.target as Node;
+      if (trigger?.current?.contains(t)) return;
+      if (ref.current && !ref.current.contains(t)) onClose();
     };
     const onScroll = () => onClose();
     document.addEventListener('mousedown', onDown);
@@ -64,7 +68,7 @@ export function useAnchoredPopup(
       window.removeEventListener('resize', onScroll);
       document.querySelector('main')?.removeEventListener('scroll', onScroll);
     };
-  }, [onClose, ref]);
+  }, [onClose, ref, trigger]);
 
   return pos;
 }
@@ -74,14 +78,16 @@ export function MenuPopup({
   anchor,
   onClose,
   label,
+  trigger,
 }: {
   items: MenuItem[];
   anchor: MenuAnchor;
   onClose(): void;
   label: string;
+  trigger?: React.RefObject<HTMLElement>;
 }): JSX.Element {
   const ref = useRef<HTMLDivElement>(null);
-  const pos = useAnchoredPopup(ref, anchor, onClose, '[role="menuitem"]:not([disabled])');
+  const pos = useAnchoredPopup(ref, anchor, onClose, '[role="menuitem"]:not([disabled])', trigger);
 
   const onKey = (e: React.KeyboardEvent) => {
     const els = Array.from(ref.current?.querySelectorAll<HTMLElement>('[role="menuitem"]:not([disabled])') ?? []);
@@ -175,7 +181,7 @@ export function KebabMenu({
           }
         }}
       />
-      {anchor && <MenuPopup items={items} anchor={anchor} onClose={close} label={label} />}
+      {anchor && <MenuPopup items={items} anchor={anchor} onClose={close} label={label} trigger={btn} />}
     </>
   );
 }
