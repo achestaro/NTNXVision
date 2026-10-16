@@ -81,3 +81,6 @@ desktop.ini
 
 # Mission Control Recall (code graph MCP) — machine-specific, do not commit
 .mcp.json
+
+# UI screenshots from app/scripts/screenshot.mjs
+/app/screenshots/

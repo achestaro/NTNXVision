@@ -17,6 +17,17 @@ interface Pending {
 
 export type ProgressListener = (params: Record<string, unknown>) => void;
 
+/** JSON-RPC error code the sidecar uses when a run was cancelled via `cancel_run`. */
+export const CANCELLED_CODE = -32800;
+
+/** A JSON-RPC error from the sidecar, keeping its numeric code. */
+export class SidecarError extends Error {
+  constructor(message: string, readonly code: number | null) {
+    super(message);
+    this.name = 'SidecarError';
+  }
+}
+
 export class SidecarClient extends EventEmitter {
   private proc: ChildProcessWithoutNullStreams | null = null;
   private nextId = 1;
@@ -46,13 +57,22 @@ export class SidecarClient extends EventEmitter {
   }
 
   call<T = unknown>(method: string, params: Record<string, unknown> = {}): Promise<T> {
+    return this.callWithId<T>(method, params).promise;
+  }
+
+  /** Like call(), but also returns the JSON-RPC request id (legacy progress events carry it). */
+  callWithId<T = unknown>(
+    method: string,
+    params: Record<string, unknown> = {},
+  ): { id: number; promise: Promise<T> } {
     if (!this.proc) this.start();
     const id = this.nextId++;
     const payload = JSON.stringify({ jsonrpc: '2.0', id, method, params });
-    return new Promise<T>((resolve, reject) => {
+    const promise = new Promise<T>((resolve, reject) => {
       this.pending.set(id, { resolve: resolve as (v: unknown) => void, reject });
       this.proc!.stdin.write(payload + '\n');
     });
+    return { id, promise };
   }
 
   private onData(chunk: string): void {
@@ -81,7 +101,10 @@ export class SidecarClient extends EventEmitter {
     const pending = this.pending.get(msg.id);
     if (!pending) return;
     this.pending.delete(msg.id);
-    if (msg.error) pending.reject(new Error(msg.error.message || 'Core error'));
+    if (msg.error) {
+      const code = typeof msg.error.code === 'number' ? msg.error.code : null;
+      pending.reject(new SidecarError(msg.error.message || 'Core error', code));
+    }
     else pending.resolve(msg.result);
   }
 
