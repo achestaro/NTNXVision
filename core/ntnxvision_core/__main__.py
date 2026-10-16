@@ -11,6 +11,7 @@ The two share the same engine, so anything the UI can do is scriptable from the 
 from __future__ import annotations
 
 import getpass
+import os
 from typing import Annotated
 
 import typer
@@ -22,17 +23,37 @@ from ntnxvision_core.api import PrismCredentials
 from ntnxvision_core.api.element_client import ElementCredentials
 from ntnxvision_core.api.errors import NutanixApiError
 from ntnxvision_core.api.ndb_client import NdbCredentials
+from ntnxvision_core.capacity import DEFAULT_VCPU_RATIO
 from ntnxvision_core.engine import (
     collect_element_environment,
     collect_environment,
     combine_environments,
 )
 from ntnxvision_core.exporters import export_environment
+from ntnxvision_core.models import Environment
 from ntnxvision_core.paths import exports_dir, snapshots_dir
 from ntnxvision_core.store import SnapshotStore
 
-app = typer.Typer(add_completion=False, help="NTNXVision — Nutanix inventory core.")
+app = typer.Typer(add_completion=False, help="NTNXVision: Nutanix inventory core.")
 console = Console()
+
+
+@app.callback()
+def _main(
+    demo: bool = typer.Option(
+        False, "--demo",
+        help="Run against the built-in synthetic Nutanix estate (pc01.demo.local, "
+             "pe01.demo.local, …) instead of the network. Same as NTNXVISION_DEMO=1.",
+    ),
+) -> None:
+    if demo:
+        os.environ["NTNXVISION_DEMO"] = "1"
+    from ntnxvision_core.paths import demo_enabled
+
+    if demo_enabled():
+        from ntnxvision_core.synthetic import demo as demo_mode
+
+        demo_mode.enable()
 
 
 @app.command()
@@ -115,10 +136,10 @@ def inventory_multi(
         "--host", help="Prism Central FQDN or IP; repeat per PC")],
     username: Annotated[list[str], typer.Option(
         "--username",
-        help="PC username — give once to use for every --host, or once per --host")],
+        help="PC username. Give it once to use for every --host, or once per --host")],
     password: Annotated[list[str] | None, typer.Option(
         "--password",
-        help="PC password — same pairing as --username; prompted per host if omitted")] = None,
+        help="PC password, paired like --username; prompted per host if omitted")] = None,
     port: int = typer.Option(9440, help="PC port (applies to every target)"),
     insecure: bool = typer.Option(False, "--insecure", help="Skip TLS verification (lab only)"),
     formats: str = typer.Option("excel", help="Comma-separated: excel,pdf,word"),
@@ -138,7 +159,7 @@ def inventory_multi(
     """Inventory several Prism Centrals in one run, optionally combining them.
 
     Each target is isolated: one unreachable or misconfigured PC is reported and skipped
-    without aborting the others — the same isolation the UI's multi-target mode gives.
+    without aborting the others: the same isolation the UI's multi-target mode gives.
     """
     usernames = _pair("--username", username, len(host))
     passwords = _pair("--password", password, len(host), allow_empty=True)
@@ -176,7 +197,7 @@ def inventory_multi(
         console.print(f"[bold]Combining[/bold] {len(collected)} environments …")
         _finish(combine_environments(collected), combined_name, formats)
     elif combine:
-        console.print("[yellow]⚠ Combine skipped — it needs at least two successful "
+        console.print("[yellow]⚠ Combine skipped: it needs at least two successful "
                       "targets.[/yellow]")
 
     if failures:
@@ -200,24 +221,24 @@ def _pair(option: str, values: list[str] | None, count: int,
         return values * count
     if len(values) != count:
         raise typer.BadParameter(
-            f"{option} given {len(values)} time(s) for {count} --host value(s) — "
-            f"pass it once for all hosts or once per host"
+            f"{option} given {len(values)} time(s) for {count} --host value(s). "
+            f"Pass it once for all hosts or once per host"
         )
     return values
 
 
-def _finish(env: object, name: str, formats: str) -> None:
+def _finish(env: Environment, name: str, formats: str) -> None:
     """Shared tail: print warnings + summary, snapshot, and export."""
-    for warning in env.warnings:  # type: ignore[attr-defined]
+    for warning in env.warnings:
         console.print(f"[yellow]⚠ {warning}[/yellow]")
 
     _print_summary(env)
 
-    snap_path = SnapshotStore(snapshots_dir()).save(env, name)  # type: ignore[arg-type]
+    snap_path = SnapshotStore(snapshots_dir()).save(env, name)
     console.print(f"Snapshot saved → [green]{snap_path}[/green]")
 
     for fmt in _parse_formats(formats):
-        out = export_environment(env, fmt, exports_dir(), name)  # type: ignore[arg-type]
+        out = export_environment(env, fmt, exports_dir(), name)
         console.print(f"{fmt.title()} exported → [green]{out}[/green]")
 
 
@@ -226,17 +247,49 @@ def export(
     snapshot: str = typer.Argument(..., help="Path to a .ntnxsnap.json snapshot"),
     formats: str = typer.Option("excel", help="Comma-separated: excel,pdf,word"),
     name: str = typer.Option(None, help="Output base name (defaults to snapshot name)"),
+    vcpu_ratio: float = typer.Option(
+        DEFAULT_VCPU_RATIO, "--vcpu-ratio",
+        help="Target vCPU:pCPU ratio for the cluster capacity figures"),
 ) -> None:
     """Re-export a saved snapshot to one or more formats (offline)."""
     env = SnapshotStore(snapshots_dir()).load(snapshot)
     base = name or "environment"
     for fmt in _parse_formats(formats):
-        out = export_environment(env, fmt, exports_dir(), base)
+        out = export_environment(env, fmt, exports_dir(), base, {"vcpu_ratio": vcpu_ratio})
         console.print(f"{fmt.title()} exported → [green]{out}[/green]")
 
 
 def _parse_formats(formats: str) -> list[str]:
     return [f.strip() for f in formats.split(",") if f.strip()]
+
+
+@app.command("mock-server")
+def mock_server(
+    latency_ms: float = typer.Option(0.0, help="Artificial latency per request"),
+) -> None:
+    """Serve the synthetic estate on 127.0.0.1 (HTTPS) until Ctrl-C, for poking at the
+    mock with curl. Send the target hostname in the X-NTNXVision-Demo-Host header."""
+    import time
+
+    from ntnxvision_core.synthetic.mockapi import MockApi
+    from ntnxvision_core.synthetic.profiles import demo_targets, make_resolver
+    from ntnxvision_core.synthetic.server import MockNutanixServer, demo_ca
+
+    targets = demo_targets()
+    server = MockNutanixServer(MockApi(make_resolver(targets), latency_ms=latency_ms))
+    port = server.start()
+    console.print(f"Mock Nutanix API on [bold]https://127.0.0.1:{port}[/bold] "
+                  f"(CA: {demo_ca()})")
+    for t in targets.values():
+        console.print(f"  {t.host:<24} {t.kind}")
+    console.print("Example: curl --cacert <CA> -u admin:demo -H "
+                  "'X-NTNXVision-Demo-Host: pc01.demo.local' "
+                  f"https://127.0.0.1:{port}/api/clustermgmt/v4.0/config/clusters")
+    try:
+        while True:
+            time.sleep(3600)
+    except KeyboardInterrupt:
+        server.stop()
 
 
 @app.command()
@@ -247,11 +300,11 @@ def sidecar() -> None:
     serve_stdio()
 
 
-def _print_summary(env: object) -> None:  # Environment
+def _print_summary(env: Environment) -> None:
     table = Table(title="Inventory summary")
     table.add_column("Object")
     table.add_column("Count", justify="right")
-    for key, value in env.summary().items():  # type: ignore[attr-defined]
+    for key, value in env.summary().items():
         table.add_row(key.replace("_", " ").title(), str(value))
     console.print(table)
 

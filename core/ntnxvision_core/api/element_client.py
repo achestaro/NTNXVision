@@ -23,7 +23,10 @@ from ntnxvision_core.api.errors import (
     AuthenticationError,
     ConnectionFailed,
     NutanixApiError,
+    TlsVerificationFailed,
 )
+from ntnxvision_core.api.transport import new_session
+from ntnxvision_core.cancel import CancelToken
 
 DEFAULT_PORT = 9440
 DEFAULT_TIMEOUT = 60
@@ -48,8 +51,11 @@ class ElementCredentials:
 class ElementConnection:
     creds: ElementCredentials
     timeout: int = DEFAULT_TIMEOUT
-    session: requests.Session = field(default_factory=requests.Session)
+    session: requests.Session = field(default_factory=new_session)
     aos_version: str | None = None
+    #: The raw v2.0 cluster entity read at connect time (name, node count, …).
+    cluster_info: dict[str, Any] = field(default_factory=dict)
+    cancel: CancelToken | None = None
 
     # ─── lifecycle ─────────────────────────────────────────────────
 
@@ -67,7 +73,7 @@ class ElementConnection:
         try:
             resp = self.session.get(f"{self.creds.base}/cluster", timeout=self.timeout)
         except requests.exceptions.SSLError as exc:
-            raise ConnectionFailed(
+            raise TlsVerificationFailed(
                 f"TLS verification failed for {self.creds.host}. For a lab cluster with a "
                 f"self-signed cert, disable SSL verification. ({exc})"
             ) from exc
@@ -85,6 +91,7 @@ class ElementConnection:
 
         try:
             cluster = resp.json()
+            self.cluster_info = cluster if isinstance(cluster, dict) else {}
             self.aos_version = cluster.get("version") or cluster.get("full_version")
         except ValueError:
             self.aos_version = None
@@ -102,6 +109,8 @@ class ElementConnection:
     # ─── request helpers ───────────────────────────────────────────
 
     def get(self, path: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
+        if self.cancel is not None:
+            self.cancel.check()
         resp = self.session.get(
             f"{self.creds.base}/{path.lstrip('/')}", params=params, timeout=self.timeout
         )
@@ -132,6 +141,30 @@ class ElementConnection:
             offset += len(entities)
             if not entities or (total is not None and offset >= total):
                 break
+        return results
+
+    def v1_list(self, path: str, page_size: int = 500) -> list[dict[str, Any]]:
+        """Read-only GET of a legacy v1 list (``/PrismGateway/services/rest/v1/``).
+
+        Only for data v2.0 does not expose (the Controller VMs). v1 pages by ``page`` /
+        ``count`` and reports ``metadata.grandTotalEntities``.
+        """
+        base = self.creds.base.rsplit("/v2.0", 1)[0] + "/v1"
+        results: list[dict[str, Any]] = []
+        page = 1
+        while True:
+            if self.cancel is not None:
+                self.cancel.check()
+            resp = self.session.get(f"{base}/{path.lstrip('/')}",
+                                    params={"page": page, "count": page_size},
+                                    timeout=self.timeout)
+            payload = self._json_or_raise(resp)
+            entities = payload.get("entities", []) or []
+            results.extend(e for e in entities if isinstance(e, dict))
+            total = (payload.get("metadata") or {}).get("grandTotalEntities")
+            if not entities or total is None or len(results) >= int(total):
+                break
+            page += 1
         return results
 
     def _json_or_raise(self, resp: requests.Response) -> dict[str, Any]:

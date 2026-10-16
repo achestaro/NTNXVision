@@ -1,736 +1,494 @@
 """Word Architecture Design Document (ADD) exporter (python-docx).
 
 This is NTNXVision's differentiator: rather than a raw data dump, it produces a narrative
-architecture design deliverable — cover page, executive summary, assumptions, logical and
-physical design, data protection strategy, security posture, storage services, databases,
-licensing, and appendices — styled with headings, a table of contents field, and captioned
-tables.
+architecture design deliverable: cover page, contents, executive summary, assumptions,
+logical and physical design, data protection, security posture, storage services,
+databases, licensing, lifecycle and an appendix on collection coverage and API routing.
 
-Every non-core section (anything gated behind a licensed/optional feature — DR, Flow,
-NUS, NDB, IAM, X-Play, NCM, Alerts, LCM, Catalog) is skipped entirely when the environment has
-no data for it, rather than rendering a heading over an empty table. Top-level section
-numbers are assigned at render time (see `_h1`) so skipped sections leave no gap in the
-sequence. Feature Usage & Licensing and Assumptions & Constraints are the places a reader
-learns *why* a section is missing — not a lone "not configured" line under its own heading.
+The content comes from `content.build_report`, the same model the PDF renders, so both
+documents carry the same chapters, numbering, tables, counts and wording. Optional
+chapters are left out when the environment has no data for them (Licensing & Feature
+Usage and Assumptions & Constraints say why), and chapter numbers close over the gap.
+
+Styling is the light Runway theme in Office-safe form: Calibri text in dark ink, an iris
+cover rule, an iris marker on Heading 1 and an iris rule under each table header, cool
+grey table rules, and status shown as a small coloured square beside an ink label.
+Headings use the real Heading 1 / Heading 2 styles so Word's navigation pane and the
+contents field work; the contents field is pre-filled with the headings and Word is asked
+to refresh it (page numbers) when the file is opened. A customer ``.dotx`` / ``.docx``
+template keeps its own styles: only direct table and cover formatting is applied then.
 """
 
 from __future__ import annotations
 
 import io
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
 from docx import Document
 from docx.document import Document as DocumentObject
-from docx.enum.text import WD_ALIGN_PARAGRAPH
+from docx.enum.style import WD_STYLE_TYPE
+from docx.enum.table import WD_TABLE_ALIGNMENT
+from docx.enum.text import WD_ALIGN_PARAGRAPH, WD_TAB_ALIGNMENT
 from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
-from docx.shared import Inches, Pt, RGBColor
+from docx.shared import Emu, Inches, Pt, RGBColor
 
-from ntnxvision_core.exporters import diagrams
-from ntnxvision_core.exporters.diagrams import Diagram
-from ntnxvision_core.exporters.sourcing import source_hosts as _source_hosts
-from ntnxvision_core.exporters.sourcing import sources as _sources
+from ntnxvision_core.exporters import theme as T
+from ntnxvision_core.exporters.content import (
+    Bullets,
+    Chapter,
+    Figure,
+    FigureRow,
+    FigureStrip,
+    Paragraph,
+    Report,
+    Status,
+    Table,
+    build_report,
+    cell_text,
+)
 from ntnxvision_core.models import Environment
-from ntnxvision_core.notes import clean_error as _clean_error
-from ntnxvision_core.notes import pretty_label as _pretty
+from ntnxvision_core.numfmt import NA
 
-GIB = 1024**3
-_NAVY = RGBColor(0x18, 0x3A, 0x5C)
-_ACCENT = RGBColor(0x00, 0x7A, 0xCC)
-_HEADER_BG = "1F4E78"
-_ZEBRA_BG = "F1F5FA"
+#: The status glyph: a small filled square in the status colour, then the ink label.
+GLYPH = "■"
+
+_INK = RGBColor.from_string(T.INK)
+_INK_2 = RGBColor.from_string(T.INK_2)
+_INK_3 = RGBColor.from_string(T.INK_3)
+_IRIS = RGBColor.from_string(T.IRIS)
 
 
 class WordExporter:
-    _h1n: int
+    #: Top-level chapters and data tables written by the last export (report detail line).
+    section_count: int = 0
+    table_count: int = 0
 
-    def export(self, env: Environment, path: str | Path) -> Path:
-        doc = Document()
-        self._h1n = 0
-        self._styles(doc)
-        self._cover(doc, env)
-        self._toc(doc)
-        self._executive_summary(doc, env)
-        self._licensing(doc, env)
-        self._assumptions(doc, env)
-        self._pc_management(doc, env)
-        self._logical_design(doc, env)
-        self._physical_design(doc, env)
-        self._health(doc, env)
-        self._lifecycle(doc, env)
-        self._catalog(doc, env)
-        self._storage_services(doc, env)
-        self._networking(doc, env)
-        self._data_protection(doc, env)
-        self._security(doc, env)
-        self._databases(doc, env)
-        self._iam_automation(doc, env)
+    def export(self, env: Environment, path: str | Path, options: Any = None) -> Path:
+        from ntnxvision_core.exporters import ExportOptions
+
+        opts = ExportOptions.coerce(options)
+        custom = opts.template not in ("", "standard")
+        doc = load_template(opts.template) if custom else Document()
+        report = build_report(env, opts, eyebrow="Architecture design document")
+        self._tables = 0
+        if not custom:
+            self._page_setup(doc)
+            self._styles(doc)
+        _ensure_styles(doc)
+        self._properties(doc, report, env, opts)
+        self._cover(doc, report)
+        self._toc(doc, report)
+        for chapter in report.chapters:
+            self._chapter(doc, chapter)
+        if not custom:  # a customer template keeps its own header and footer
+            self._header_footer(doc, report)
+        _update_fields_on_open(doc)
 
         out = Path(path)
         out.parent.mkdir(parents=True, exist_ok=True)
         doc.save(str(out))
+        self.section_count = len(report.chapters)
+        self.table_count = self._tables
         return out
 
     # ─── document scaffolding ──────────────────────────────────────
 
+    def _page_setup(self, doc: DocumentObject) -> None:
+        for section in doc.sections:
+            section.left_margin = section.right_margin = Inches(0.8)
+            section.top_margin = Inches(0.9)
+            section.bottom_margin = Inches(0.8)
+            section.header_distance = Inches(0.4)
+            section.footer_distance = Inches(0.35)
+
     def _styles(self, doc: DocumentObject) -> None:
-        normal = doc.styles["Normal"]
-        normal.font.name = "Calibri"
-        normal.font.size = Pt(11)
+        styles = doc.styles
+        normal = styles["Normal"]
+        _font(normal, T.OFFICE_FONT, 10.5, _INK)
+        normal.paragraph_format.space_after = Pt(6)
+        normal.paragraph_format.line_spacing = 1.12
+        _lang(normal, "en-US")
 
-    def _cover(self, doc: DocumentObject, env: Environment) -> None:
-        """Report cover — embeds the shared diagrams.cover_page() raster so the
-        Word and PDF covers are pixel-identical rather than two hand-drawn
-        approximations.
-        """
-        diag = diagrams.cover_page(env)
-        for _ in range(3):
-            doc.add_paragraph()
-        p = doc.add_paragraph()
-        p.alignment = WD_ALIGN_PARAGRAPH.CENTER
-        run = p.add_run()
-        run.add_picture(io.BytesIO(diag.png), width=Inches(min(6.3, diag.width_in)))
+        h1 = styles["Heading 1"]
+        _font(h1, T.OFFICE_FONT, 18, _INK, bold=True)
+        h1.paragraph_format.space_before = Pt(0)
+        h1.paragraph_format.space_after = Pt(12)
+        h1.paragraph_format.page_break_before = True
+        h1.paragraph_format.keep_with_next = True
+        _border(h1.element.get_or_add_pPr(), "left", T.IRIS, size=24, space=8)
+
+        h2 = styles["Heading 2"]
+        _font(h2, T.OFFICE_FONT, 13, _INK, bold=True)
+        h2.paragraph_format.space_before = Pt(16)
+        h2.paragraph_format.space_after = Pt(6)
+        h2.paragraph_format.keep_with_next = True
+
+        h3 = styles["Heading 3"]
+        _font(h3, T.OFFICE_FONT, 11, _INK_2, bold=True)
+
+        title = styles["Title"]
+        _font(title, T.OFFICE_FONT, 30, _INK)
+        _clear_border(title.element.get_or_add_pPr())
+        _clear_spacing(title.element)
+        title.paragraph_format.space_after = Pt(6)
+        subtitle = styles["Subtitle"]
+        _font(subtitle, T.OFFICE_FONT, 13, _INK_2, italic=False)
+        _clear_spacing(subtitle.element)
+        subtitle.paragraph_format.space_after = Pt(4)
+
+        caption = styles["Caption"]
+        _font(caption, T.OFFICE_FONT, 8.5, _INK_2, italic=False, bold=False)
+        caption.paragraph_format.space_before = Pt(4)
+        caption.paragraph_format.space_after = Pt(3)
+
+        bullet = styles["List Bullet"]
+        _font(bullet, T.OFFICE_FONT, 10.5, _INK)
+        bullet.paragraph_format.space_after = Pt(3)
+
+    def _properties(self, doc: DocumentObject, report: Report, env: Environment,
+                    opts: Any) -> None:
+        props = doc.core_properties
+        target = (f"{len(env.source_environments):,} Prism Centrals" if env.is_combined
+                  else env.prism_central.host or "Nutanix environment")
+        props.title = f"Architecture Design Document: {target}"
+        props.subject = report.subject
+        props.author = opts.author or "NTNXVision"
+        props.last_modified_by = opts.author or "NTNXVision"
+        props.category = "Architecture Design Document"
+        props.comments = ("Generated by NTNXVision from a read-only inventory snapshot "
+                          f"collected {T.collected_label(env)}.")
+        props.keywords = report.keywords
+        props.language = "en-US"
+        props.created = props.modified = datetime.now()
+        props.revision = 1
+
+    # ─── cover & contents ──────────────────────────────────────────
+
+    def _cover(self, doc: DocumentObject, report: Report) -> None:
+        cover = report.cover
+        band = doc.add_paragraph()
+        _border(band._p.get_or_add_pPr(), "top", T.IRIS, size=36, space=10)
+        band.paragraph_format.space_after = Pt(14)
+        word = band.add_run("NTNXVision")
+        _run(word, 10.5, _INK, bold=True)
+
+        eyebrow = doc.add_paragraph()
+        eyebrow.paragraph_format.space_before = Pt(96)
+        eyebrow.paragraph_format.space_after = Pt(6)
+        r = eyebrow.add_run(cover.eyebrow.upper())
+        _run(r, 8.5, _INK_3, bold=True)
+        _letter_spacing(r, 20)
+
+        doc.add_paragraph(T.clean(cover.title), style="Title")
+        sub = doc.add_paragraph(T.clean(cover.subtitle), style="Subtitle")
+        sub.paragraph_format.space_after = Pt(10)
+        rule = doc.add_paragraph()
+        rule.paragraph_format.right_indent = Inches(5.9)
+        rule.paragraph_format.space_after = Pt(40)
+        _border(rule._p.get_or_add_pPr(), "bottom", T.IRIS, size=12, space=1)
+
+        for label, value in cover.meta:
+            p = doc.add_paragraph()
+            p.paragraph_format.space_after = Pt(2.5)
+            p.paragraph_format.tab_stops.add_tab_stop(Inches(1.55))
+            p.paragraph_format.left_indent = Inches(1.55)
+            p.paragraph_format.first_line_indent = -Inches(1.55)
+            _run(p.add_run(f"{label}\t"), 9, _INK_3)
+            _run(p.add_run(T.clean(value) or NA), 10, _INK)
+
+        note = doc.add_paragraph()
+        note.paragraph_format.space_before = Pt(60)
+        _border(note._p.get_or_add_pPr(), "top", T.RULE_2, size=4, space=6)
+        _run(note.add_run(T.clean(cover.note)), 8.5, _INK_3, italic=True)
         doc.add_page_break()
 
-    def _toc(self, doc: DocumentObject) -> None:
-        self._heading(doc, "Table of Contents", level=1)
+    def _toc(self, doc: DocumentObject, report: Report) -> None:
+        """Contents: a real TOC field (Heading 1 and 2, hyperlinked), pre-filled with the
+        headings so it reads correctly before Word refreshes the page numbers."""
+        title = doc.add_paragraph("Contents", style="Contents Heading")
+        title.paragraph_format.keep_with_next = True
+        outline = report.outline()
+        first = doc.add_paragraph(style="TOC 1" if outline and outline[0][0] == 0 else None)
+        _field_begin(first, 'TOC \\o "1-2" \\h \\z \\u')
+        paragraphs = [first]
+        for i, (level, text) in enumerate(outline):
+            p = first if i == 0 else doc.add_paragraph(style=f"TOC {level + 1}")
+            p.add_run(T.clean(text))
+            paragraphs.append(p)
+        _field_end(paragraphs[-1])
+        hint = doc.add_paragraph()
+        hint.paragraph_format.space_before = Pt(10)
+        _run(hint.add_run("Page numbers are filled in when Word opens the document; to "
+                          "refresh them later, right-click the contents and choose Update "
+                          "Field."), 8.5, _INK_3, italic=True)
+
+    # ─── chapters ──────────────────────────────────────────────────
+
+    def _chapter(self, doc: DocumentObject, ch: Chapter) -> None:
+        h = doc.add_heading(T.clean(ch.heading), level=1)
+        h.paragraph_format.page_break_before = True
+        self._blocks(doc, ch.blocks)
+        for section in ch.sections:
+            doc.add_heading(T.clean(section.heading), level=2)
+            self._blocks(doc, section.blocks)
+
+    def _blocks(self, doc: DocumentObject, blocks: list[Any]) -> None:
+        for blk in blocks:
+            if isinstance(blk, Paragraph):
+                p = doc.add_paragraph()
+                if blk.style == "note":
+                    _run(p.add_run(T.clean(blk.text)), 9.5, _INK_3, italic=True)
+                else:
+                    p.add_run(T.clean(blk.text))
+            elif isinstance(blk, Bullets):
+                if blk.intro:
+                    intro = doc.add_paragraph()
+                    intro.paragraph_format.keep_with_next = True
+                    intro.paragraph_format.space_before = Pt(6)
+                    _run(intro.add_run(T.clean(blk.intro)), None, _INK, bold=True)
+                for item in blk.items:
+                    doc.add_paragraph(T.clean(item), style="List Bullet")
+            elif isinstance(blk, FigureStrip):
+                self._strip(doc, blk)
+            elif isinstance(blk, Table):
+                self._table(doc, blk)
+            elif isinstance(blk, Figure):
+                self._figure(doc, blk)
+            elif isinstance(blk, FigureRow):
+                self._figure_row(doc, blk)
+
+    def _strip(self, doc: DocumentObject, strip: FigureStrip) -> None:
+        """Headline figures in one ruled row: small label, light numeral, qualifier."""
+        if not strip.items:
+            return
+        width = _text_width(doc)
+        table = doc.add_table(rows=1, cols=len(strip.items))
+        table.alignment = WD_TABLE_ALIGNMENT.LEFT
+        _table_borders(table, top=T.RULE, bottom=T.RULE, inside_v=T.RULE_2)
+        _fixed_layout(table, [width / len(strip.items)] * len(strip.items))
+        for cell, item in zip(table.rows[0].cells, strip.items, strict=True):
+            label = cell.paragraphs[0]
+            label.paragraph_format.space_before = Pt(5)
+            label.paragraph_format.space_after = Pt(0)
+            _run(label.add_run(T.clean(item.label)), 8.5, _INK_3)
+            value = cell.add_paragraph()
+            value.paragraph_format.space_after = Pt(0)
+            r = value.add_run(T.clean(item.value))
+            _run(r, 22, _INK)
+            q = cell.add_paragraph()
+            q.paragraph_format.space_after = Pt(5)
+            if item.qualifier:
+                color = RGBColor.from_string(T.STATUS_HEX.get(item.tone or "", T.INK_3))
+                _run(q.add_run(T.clean(item.qualifier)), 8, color)
+        spacer = doc.add_paragraph()
+        spacer.paragraph_format.space_after = Pt(4)
+
+    def _table(self, doc: DocumentObject, t: Table) -> None:
+        cap = doc.add_paragraph(style="Caption")
+        cap.paragraph_format.keep_with_next = True
+        _run(cap.add_run(f"{t.label} "), None, _INK_2, bold=True)
+        _run(cap.add_run(T.clean(t.caption)), None, _INK_2)
+
+        width = _text_width(doc)
+        table = doc.add_table(rows=1, cols=len(t.headers))
+        table.alignment = WD_TABLE_ALIGNMENT.LEFT
+        _table_borders(table, bottom=T.RULE, inside_h=T.RULE_2)
+        _cell_margins(table, top=45, bottom=45, left=85, right=85)
+        _fixed_layout(table, _column_widths(t, width))
+
+        header = table.rows[0]
+        _repeat_header(header)
+        for cell, text, align in zip(header.cells, t.headers, t.align, strict=True):
+            _shade(cell, T.HEADER_FILL)
+            _cell_border(cell, "bottom", T.IRIS, size=8)
+            p = cell.paragraphs[0]
+            p.paragraph_format.space_after = Pt(0)
+            p.alignment = WD_ALIGN_PARAGRAPH.RIGHT if align == "R" else WD_ALIGN_PARAGRAPH.LEFT
+            _run(p.add_run(text), 8.5, _INK_2, bold=True)
+
+        for row in t.rows:
+            tr = table.add_row()
+            _cant_split(tr)
+            for cell, value, head, align in zip(tr.cells, row, t.headers, t.align,
+                                                strict=True):
+                p = cell.paragraphs[0]
+                p.paragraph_format.space_after = Pt(0)
+                p.alignment = (WD_ALIGN_PARAGRAPH.RIGHT if align == "R"
+                               else WD_ALIGN_PARAGRAPH.LEFT)
+                text = cell_text(value, head)
+                if isinstance(value, Status):
+                    glyph = p.add_run(f"{GLYPH} ")
+                    _run(glyph, 8.5, RGBColor.from_string(T.STATUS_HEX[value.tone]))
+                _run(p.add_run(text), 8.5, _INK_3 if text == NA else _INK)
+        self._tables += 1
+        spacer = doc.add_paragraph()
+        spacer.paragraph_format.space_after = Pt(6)
+
+    def _figure(self, doc: DocumentObject, f: Figure) -> None:
+        width = _text_width(doc)
         p = doc.add_paragraph()
-        run = p.add_run()
-        fld_begin = OxmlElement("w:fldChar")
-        fld_begin.set(qn("w:fldCharType"), "begin")
-        instr = OxmlElement("w:instrText")
-        instr.set(qn("xml:space"), "preserve")
-        instr.text = 'TOC \\o "1-2" \\h \\z \\u'
-        fld_sep = OxmlElement("w:fldChar")
-        fld_sep.set(qn("w:fldCharType"), "separate")
-        placeholder = OxmlElement("w:t")
-        placeholder.text = "Right-click and choose 'Update Field' to build the contents."
-        fld_end = OxmlElement("w:fldChar")
-        fld_end.set(qn("w:fldCharType"), "end")
-        for el in (fld_begin, instr, fld_sep, placeholder, fld_end):
-            run._r.append(el)
-        doc.add_page_break()
+        p.paragraph_format.keep_with_next = True
+        p.paragraph_format.space_before = Pt(4)
+        p.add_run().add_picture(io.BytesIO(f.diagram.png),
+                                width=Emu(min(width, int(Inches(f.diagram.width_in)))))
+        _alt_text(p, T.clean(f.title))
+        self._figure_caption(doc.add_paragraph(style="Caption"), f)
 
-    # ─── sections ──────────────────────────────────────────────────
-    # Core sections (Executive Summary, Licensing, Assumptions, PC Management,
-    # Logical/Physical Design) always render — every environment has clusters,
-    # hosts, and a management plane. Everything else is gated: a section is
-    # skipped entirely when the environment has no data for it at all, and its
-    # subsections are gated independently so a partially-used feature area
-    # (e.g. Files but not Objects) doesn't produce empty subsections either.
+    @staticmethod
+    def _figure_caption(cap: Any, f: Figure) -> None:
+        cap.paragraph_format.space_after = Pt(10)
+        _run(cap.add_run(T.clean(f.title)), None, _INK_3, italic=True)
 
-    def _executive_summary(self, doc: DocumentObject, env: Environment) -> None:
-        n = self._h1(doc, "Executive Summary")
-        c = env.summary()
-        if env.is_combined:
-            managed_by = (
-                f"environment spanning {len(env.source_environments)} Prism Centrals "
-                f"({', '.join(_source_hosts(env))})"
-            )
+    def _figure_row(self, doc: DocumentObject, row: FigureRow) -> None:
+        if not row.figures:
+            return
+        width = _text_width(doc)
+        n = len(row.figures)
+        table = doc.add_table(rows=1, cols=n)
+        _fixed_layout(table, [width / n] * n)
+        _cell_margins(table, top=0, bottom=0, left=0, right=110)
+        for cell, f in zip(table.rows[0].cells, row.figures, strict=True):
+            p = cell.paragraphs[0]
+            col = int(width / n) - int(Inches(0.1))
+            p.add_run().add_picture(io.BytesIO(f.diagram.png),
+                                    width=Emu(min(col, int(Inches(f.diagram.width_in)))))
+            _alt_text(p, T.clean(f.title))
+            cap = cell.add_paragraph(style="Caption")
+            self._figure_caption(cap, f)
+        doc.add_paragraph().paragraph_format.space_after = Pt(4)
+
+    # ─── running header / footer ───────────────────────────────────
+
+    def _header_footer(self, doc: DocumentObject, report: Report) -> None:
+        section = doc.sections[0]
+        section.different_first_page_header_footer = True
+        right = Emu(_text_width(doc))
+        hp = section.header.paragraphs[0]
+        hp.text = ""
+        _right_tab_only(hp, right)
+        _run(hp.add_run("NTNXVision"), 8, _INK, bold=True)
+        _run(hp.add_run(f"  ·  {report.running_title}\t{T.clean(report.scope)}"), 8, _INK_3)
+        _border(hp._p.get_or_add_pPr(), "bottom", T.RULE_2, size=4, space=4)
+
+        fp = section.footer.paragraphs[0]
+        fp.text = ""
+        _right_tab_only(fp, right)
+        _border(fp._p.get_or_add_pPr(), "top", T.RULE_2, size=4, space=4)
+        left = "Confidential"
+        if report.prepared_for:
+            left += f" · Prepared for {T.clean(report.prepared_for)}"
+        _run(fp.add_run(f"{left}\tPage "), 8, _INK_3)
+        _simple_field(fp, "PAGE")
+        _run(fp.add_run(" of "), 8, _INK_3)
+        _simple_field(fp, "NUMPAGES")
+        for extra in doc.sections[1:]:  # template sections inherit the first one's
+            extra.header.is_linked_to_previous = True
+            extra.footer.is_linked_to_previous = True
+
+
+# ─── helpers: layout ──────────────────────────────────────────────────────
+
+
+def _text_width(doc: DocumentObject) -> int:
+    s = doc.sections[-1]
+    return int(s.page_width or Inches(8.5)) - int(s.left_margin or 0) - int(s.right_margin or 0)
+
+
+def _column_widths(t: Table, width: int) -> list[float]:
+    """Column widths (EMU) from the shared weights: content-sized when the table is
+    narrow, spread across the text width otherwise."""
+    per_char = Inches(0.07)
+    pad = Inches(0.2)
+    glyph = Inches(0.13)
+    natural, minimum = [], []
+    for i, header in enumerate(t.headers):
+        texts = [cell_text(r[i], header) for r in t.rows[:250]]
+        extra = glyph if any(isinstance(r[i], Status) for r in t.rows[:250]) else 0
+        widest = max((len(x) for x in texts), default=0)
+        natural.append(min(max(widest, len(header) * 0.9), 60) * per_char + pad + extra)
+        # Never narrower than the longest word (a name, a date, a status), so the table
+        # wraps between words instead of breaking "CRITICAL" across two lines.
+        longest = max((len(w) for x in [*texts, header] for w in x.split(" ")), default=4)
+        minimum.append(min(longest, 18) * per_char + pad + extra)
+    total = sum(natural)
+    if total <= width:
+        return natural if total < width * 0.62 else [w * width / total for w in natural]
+    floor = sum(minimum)
+    if floor >= width:
+        return [m * width / floor for m in minimum]
+    spare, flex = width - floor, total - floor
+    return [m + (n - m) * spare / flex for n, m in zip(natural, minimum, strict=True)]
+
+
+def _fixed_layout(table: Any, widths: list[float]) -> None:
+    tbl = table._tbl
+    pr = tbl.tblPr
+    layout = OxmlElement("w:tblLayout")
+    layout.set(qn("w:type"), "fixed")
+    pr.append(layout)
+    tbl_w = pr.find(qn("w:tblW"))
+    if tbl_w is None:
+        tbl_w = OxmlElement("w:tblW")
+        pr.append(tbl_w)
+    tbl_w.set(qn("w:type"), "dxa")
+    tbl_w.set(qn("w:w"), str(int(sum(widths) / 635)))
+    table.autofit = False
+    grid = tbl.tblGrid
+    for col, w in zip(grid.findall(qn("w:gridCol")), widths, strict=False):
+        col.set(qn("w:w"), str(int(w / 635)))
+    for row in table.rows:
+        for cell, w in zip(row.cells, widths, strict=False):
+            cell.width = Emu(int(w))
+
+
+def _table_borders(table: Any, top: str | None = None, bottom: str | None = None,
+                   inside_h: str | None = None, inside_v: str | None = None) -> None:
+    pr = table._tbl.tblPr
+    borders = OxmlElement("w:tblBorders")
+    for edge, color in (("top", top), ("left", None), ("bottom", bottom), ("right", None),
+                        ("insideH", inside_h), ("insideV", inside_v)):
+        el = OxmlElement(f"w:{edge}")
+        if color:
+            el.set(qn("w:val"), "single")
+            el.set(qn("w:sz"), "4")
+            el.set(qn("w:space"), "0")
+            el.set(qn("w:color"), color)
         else:
-            managed_by = (
-                f"environment managed by Prism Central {env.prism_central.host or ''} "
-                f"(version {env.prism_central.version or 'unknown'})"
-            )
-        doc.add_paragraph(
-            f"This document presents the architecture of the Nutanix Cloud Platform "
-            f"{managed_by}. The environment consists of "
-            f"{c['clusters']} cluster(s) totalling {c['hosts']} node(s) and hosting "
-            f"{c['vms']} virtual machine(s)."
-        )
-        doc.add_paragraph(
-            "The design covers compute, storage, networking, data protection and disaster "
-            "recovery, network security (Flow), unified storage services (Files, Objects, "
-            "Volumes), database services (NDB), identity and access management, and licensing. "
-            "Each section documents the as-built configuration discovered during inventory "
-            "collection; sections for features not present in this environment are omitted "
-            "and instead noted in Feature Usage & Licensing and Assumptions & Constraints."
-        )
-        self._figure(
-            doc, diagrams.executive_dashboard(env),
-            f"Figure {n}-1. Executive summary dashboard — clusters, hosts, VMs, storage "
-            "capacity, active alerts, and projects at a glance.",
-        )
-        highlights = [
-            f"{c['protection_policies']} protection policy(ies) and {c['recovery_plans']} "
-            "recovery plan(s) providing data protection and DR.",
-            f"{c['security_policies']} Flow security policy(ies) enforcing microsegmentation.",
-            f"{c['file_servers']} file server(s) and {c['object_stores']} object store(s) "
-            "delivering unified storage.",
-            f"{c['databases']} database(s) under NDB lifecycle management.",
-        ]
-        for h in highlights:
-            doc.add_paragraph(h, style="List Bullet")
-        doc.add_page_break()
-
-    def _licensing(self, doc: DocumentObject, env: Environment) -> None:
-        n = self._h1(doc, "Licensing & Feature Usage")
-        from ntnxvision_core.analysis import analyze_feature_usage
-
-        self._table(
-            doc, ["Product", "Feature", "In Use", "Detail"],
-            [[fu.product, fu.feature, "Yes" if fu.in_use else "No", fu.detail]
-             for fu in analyze_feature_usage(env)],
-            f"Table {n}-1. Feature usage mapped to licensing product.",
-        )
-
-    def _assumptions(self, doc: DocumentObject, env: Environment) -> None:
-        self._h1(doc, "Assumptions & Constraints")
-        for item in [
-            "Inventory was collected read-only via the Prism Central v3/v4 APIs; no "
-            "configuration changes were made.",
-            "Data reflects the environment state at the collection timestamp on the cover page.",
-            "Feature availability depends on installed licenses and Prism Central version; "
-            "areas not deployed are noted as such below rather than as an empty section.",
-        ]:
-            doc.add_paragraph(item, style="List Bullet")
-        for w in env.warnings:
-            p = doc.add_paragraph(w, style="List Bullet")
-            p.runs[0].italic = True
-
-        skipped = {k: v for k, v in env.collection_notes.items() if v.startswith("skipped")}
-        errored = {k: v for k, v in env.collection_notes.items() if v.startswith("error")}
-        if skipped:
-            doc.add_paragraph("Areas not present / not deployed in this environment:")
-            for name, status in skipped.items():
-                reason = status.split(":", 1)[1].strip() if ":" in status else status
-                doc.add_paragraph(f"{_pretty(name)} — {reason}", style="List Bullet")
-        if errored:
-            doc.add_paragraph("Areas that could not be fully collected:")
-            for name, status in errored.items():
-                doc.add_paragraph(f"{_pretty(name)} — {_clean_error(status)}", style="List Bullet")
-        doc.add_page_break()
-
-    def _pc_management(self, doc: DocumentObject, env: Environment) -> None:
-        if env.is_combined:
-            self._source_pcs(doc, env)
-            return
-        cfg = env.pc_config
-        n = self._h1(doc, "Prism Central — Management & Sizing")
-        doc.add_paragraph(
-            "Prism Central is the management plane for this environment. The table below "
-            "records its version, sizing, and the number of clusters it manages."
-        )
-        deployment = (
-            "Scale-out (multi-node)" if cfg.is_scale_out
-            else "Single-node" if cfg.is_scale_out is not None else "Unknown"
-        )
-        self._table(
-            doc, ["Property", "Value"],
-            [
-                ["Version", cfg.version or "—"],
-                ["Deployment", deployment],
-                ["PC nodes", str(cfg.node_count or "—")],
-                ["Registered clusters", str(cfg.registered_cluster_count or "—")],
-                ["Total vCPU", str(cfg.num_vcpus or "—")],
-                ["Total memory (GiB)", str(_gib(cfg.memory_bytes) or "—")],
-                ["PC VM(s)", ", ".join(cfg.pc_vm_names) or "—"],
-                ["IP address(es)", ", ".join(cfg.ip_addresses) or "—"],
-            ],
-            f"Table {n}-1. Prism Central management-plane configuration.",
-        )
-
-    def _source_pcs(self, doc: DocumentObject, env: Environment) -> None:
-        """Combined-run replacement for the single-PC management section.
-
-        A combined environment has several independent management planes, so each is
-        documented on its own row; collapsing them into one sizing table would state one
-        PC's node count as the whole estate's.
-        """
-        n = self._h1(doc, "Prism Centrals — Management & Sizing")
-        doc.add_paragraph(
-            f"This document covers {len(env.source_environments)} independently managed "
-            "Prism Central instances, inventoried in a single run and combined into one "
-            "report. Each management plane is recorded below; the remaining sections "
-            "present the combined estate, with every table attributing its rows to the "
-            "Prism Central they came from."
-        )
-        rows = []
-        for s in env.source_environments:
-            cfg, counts = s.pc_config, s.summary
-            deployment = (
-                "Scale-out (multi-node)" if cfg.is_scale_out
-                else "Single-node" if cfg.is_scale_out is not None else "Unknown"
-            )
-            rows.append([
-                s.prism_central.host or "unknown",
-                s.prism_central.version or cfg.version or "—",
-                deployment,
-                str(cfg.node_count or "—"),
-                str(counts.get("clusters", "—")),
-                str(counts.get("hosts", "—")),
-                str(counts.get("vms", "—")),
-            ])
-        self._table(
-            doc,
-            ["Prism Central", "Version", "Deployment", "PC nodes", "Clusters", "Hosts", "VMs"],
-            rows,
-            f"Table {n}-1. Source Prism Centrals combined into this report.",
-        )
-
-    def _logical_design(self, doc: DocumentObject, env: Environment) -> None:
-        n = self._h1(doc, "Logical Design")
-        doc.add_paragraph(
-            "The environment is managed centrally through Prism Central, which registers and "
-            "orchestrates the clusters below. Workloads are organised using categories and "
-            "projects, protected by protection policies, and secured by Flow policies."
-        )
-        self._figure(
-            doc, diagrams.management_topology(env),
-            f"Figure {n}-1. Management topology — Prism Central and its registered clusters.",
-        )
-        self._heading(doc, f"{n}.1 Clusters Overview", level=2)
-        self._table(
-            doc, ["Cluster", "AOS", "Hypervisor", "Nodes", "RF", "Encryption"],
-            [[c.name, c.aos_version, ", ".join(c.hypervisor_types), str(c.num_nodes or ""),
-              str(c.redundancy_factor or ""), "Yes" if c.encryption_enabled else "No"]
-             for c in env.clusters],
-            f"Table {n}-1. Registered clusters.",
-            _sources(env, env.clusters),
-        )
-
-    def _physical_design(self, doc: DocumentObject, env: Environment) -> None:
-        n = self._h1(doc, "Physical Design")
-        self._heading(doc, f"{n}.1 Nodes / Hosts", level=2)
-        self._table(
-            doc, ["Host", "Cluster", "CPU Model", "Cores", "Memory (GiB)", "GPUs"],
-            [[h.name, h.cluster_name, h.cpu_model, str(h.num_cpu_cores or ""),
-              str(_gib(h.memory_bytes) or ""), ", ".join(h.gpu_list) or "—"]
-             for h in env.hosts],
-            f"Table {n}-1. Physical hosts.",
-            _sources(env, env.hosts),
-        )
-        fig = 0
-        for cluster in env.clusters[:8]:
-            d = diagrams.cluster_compute(env, cluster)
-            if d:
-                fig += 1
-                self._figure(doc, d, f"Figure {n}-{fig}. Cluster {cluster.name} — "
-                                     "node composition and capacity.")
-        self._heading(doc, f"{n}.2 Storage Containers", level=2)
-        self._table(
-            doc, ["Container", "Cluster", "RF", "Compression", "Dedup", "EC-X", "Max (GiB)"],
-            [[s.name, s.cluster_name, str(s.replication_factor or ""),
-              "On" if s.compression_enabled else "Off", s.deduplication or "None",
-              s.erasure_coding or "Off", str(_gib(s.max_capacity_bytes) or "")]
-             for s in env.storage_containers],
-            f"Table {n}-2. Storage containers and data-reduction settings.",
-        )
-        self._figure(
-            doc, diagrams.storage_capacity_chart(env),
-            f"Figure {n}-{fig + 1}. Storage container capacity — used vs. free per container.",
-        )
-        self._heading(doc, f"{n}.3 Virtual Machine Distribution", level=2)
-        self._figure(
-            doc, diagrams.vm_power_state_chart(env),
-            f"Figure {n}-{fig + 2}. VM power state distribution.",
-        )
-        self._figure(
-            doc, diagrams.vms_per_cluster_chart(env),
-            f"Figure {n}-{fig + 3}. Virtual machines per cluster.",
-        )
-
-    def _health(self, doc: DocumentObject, env: Environment) -> None:
-        if not env.alerts:
-            return
-        n = self._h1(doc, "Health & Alerts")
-        self._table(
-            doc, ["Severity", "Title", "Entity", "Cluster", "Resolved"],
-            [[a.severity, a.title, a.entity_name, a.cluster_name,
-              "Yes" if a.resolved else "No"] for a in env.alerts],
-            f"Table {n}-1. Health alerts.",
-        )
-        self._figure(
-            doc, diagrams.alert_severity_chart(env),
-            f"Figure {n}-1. Alert severity breakdown.",
-        )
-
-    def _lifecycle(self, doc: DocumentObject, env: Environment) -> None:
-        """Platform currency — the versions running and the upgrades LCM offers.
-
-        Sits with Health & Alerts rather than in the design chapters: it describes the
-        operational state of the as-built platform, not a design decision, and it is the
-        section an upgrade plan is written from.
-        """
-        if not env.lcm_entities:
-            return
-        n = self._h1(doc, "Platform Lifecycle (LCM)")
-        pending = sum(1 for e in env.lcm_entities if e.update_available)
-        unknown = sum(1 for e in env.lcm_entities if e.update_available is None)
-        doc.add_paragraph(
-            "Life Cycle Manager (LCM) inventories the firmware and software running on "
-            "this platform — AOS, the hypervisor, Prism Central services and the "
-            "component firmware beneath them — and is the mechanism by which they are "
-            "upgraded. The table below records each managed component, the version "
-            "currently running, and whether LCM offers a newer one."
-        )
-        currency = (
-            f"Of the {len(env.lcm_entities)} component(s) inventoried, {pending} "
-            f"{'has' if pending == 1 else 'have'} a newer version available"
-        )
-        if unknown:
-            currency += (
-                f"; for {unknown} component(s) LCM did not report an upgrade target, so "
-                "their currency is recorded as unknown rather than up to date"
-            )
-        doc.add_paragraph(f"{currency}.")
-        self._table(
-            doc, ["Component", "Class", "Cluster", "Current Version", "Update Available",
-                  "Available Versions"],
-            [[e.name or "—", e.entity_class or "—", e.cluster_name or "—",
-              e.current_version or "—", _update_flag(e.update_available),
-              _versions(e.available_versions, 3)] for e in env.lcm_entities],
-            f"Table {n}-1. LCM component inventory and available updates (upgrade targets "
-            "beyond the three newest are summarised as a count; the Excel export lists "
-            "them in full).",
-            _sources(env, env.lcm_entities),
-        )
-
-    def _catalog(self, doc: DocumentObject, env: Environment) -> None:
-        if not (env.templates or env.images or env.ovas):
-            return
-        n = self._h1(doc, "Catalog — Templates, Images & OVAs")
-        sub = 0
-        if env.templates:
-            sub += 1
-            self._heading(doc, f"{n}.{sub} VM Templates", level=2)
-            self._table(
-                doc, ["Template", "Guest OS", "vCPU", "Memory (GiB)", "Active Version"],
-                [[t.name, t.guest_os, str(t.num_vcpus or ""), str(_gib(t.memory_bytes) or ""),
-                  t.active_version or "—"] for t in env.templates],
-                f"Table {n}-{sub}. VM templates.",
-            )
-        if env.images:
-            sub += 1
-            self._heading(doc, f"{n}.{sub} Images", level=2)
-            self._table(
-                doc, ["Image", "Type", "Size (GiB)", "Architecture", "Clusters"],
-                [[i.name, i.image_type, str(_gib(i.size_bytes) or ""), i.architecture or "—",
-                  ", ".join(i.cluster_names) or "—"] for i in env.images],
-                f"Table {n}-{sub}. Images.",
-            )
-        if env.ovas:
-            sub += 1
-            self._heading(doc, f"{n}.{sub} OVAs", level=2)
-            self._table(
-                doc, ["OVA", "Size (GiB)", "Disks", "Cluster"],
-                [[o.name, str(_gib(o.size_bytes) or ""), str(o.disk_count or ""),
-                  o.cluster_name or "—"] for o in env.ovas],
-                f"Table {n}-{sub}. OVAs.",
-            )
-
-    def _storage_services(self, doc: DocumentObject, env: Environment) -> None:
-        if not (env.file_servers or env.file_shares or env.object_stores
-                or env.buckets or env.volume_groups):
-            return
-        n = self._h1(doc, "Unified Storage Services (NUS)")
-        sub = 0
-        tbl = 0
-        if env.file_servers or env.file_shares:
-            sub += 1
-            self._heading(doc, f"{n}.{sub} Files", level=2)
-            if env.file_servers:
-                tbl += 1
-                self._table(
-                    doc, ["File Server", "Cluster", "Version", "FSVMs", "Shares"],
-                    [[f.name, f.cluster_name, f.version, str(f.num_fsvm or ""),
-                      str(f.share_count or "")] for f in env.file_servers],
-                    f"Table {n}-{tbl}. Nutanix Files servers.",
-                )
-            if env.file_shares:
-                tbl += 1
-                self._table(
-                    doc, ["Share", "File Server", "Type", "Protocol", "Max Size (GiB)",
-                          "Used (GiB)"],
-                    [[s.name, s.file_server_name, s.share_type, s.protocol,
-                      str(_gib(s.max_size_bytes) or ""), str(_gib(s.used_bytes) or "")]
-                     for s in env.file_shares],
-                    f"Table {n}-{tbl}. File shares.",
-                )
-        if env.object_stores or env.buckets:
-            sub += 1
-            self._heading(doc, f"{n}.{sub} Objects", level=2)
-            if env.object_stores:
-                tbl += 1
-                self._table(
-                    doc, ["Object Store", "Cluster", "Workers", "Capacity (GiB)", "Buckets"],
-                    [[o.name, o.cluster_name, str(o.num_worker_nodes or ""),
-                      str(_gib(o.total_capacity_bytes) or ""), str(o.bucket_count or "")]
-                     for o in env.object_stores],
-                    f"Table {n}-{tbl}. Nutanix Objects stores.",
-                )
-            if env.buckets:
-                tbl += 1
-                self._table(
-                    doc, ["Bucket", "Object Store", "Versioning", "WORM", "Objects",
-                          "Used (GiB)"],
-                    [[b.name, b.object_store_name, "Yes" if b.versioning else "No",
-                      "Yes" if b.worm_enabled else "No", str(b.object_count or ""),
-                      str(_gib(b.used_bytes) or "")] for b in env.buckets],
-                    f"Table {n}-{tbl}. Buckets.",
-                )
-        if env.volume_groups:
-            sub += 1
-            tbl += 1
-            self._heading(doc, f"{n}.{sub} Volumes", level=2)
-            self._table(
-                doc, ["Volume Group", "Cluster", "Disks", "Capacity (GiB)", "Shared"],
-                [[v.name, v.cluster_name, str(v.disk_count or ""),
-                  str(_gib(v.total_capacity_bytes) or ""), "Yes" if v.is_shared else "No"]
-                 for v in env.volume_groups],
-                f"Table {n}-{tbl}. Volume groups.",
-            )
-
-    def _networking(self, doc: DocumentObject, env: Environment) -> None:
-        if not (env.subnets or env.vpcs):
-            return
-        n = self._h1(doc, "Networking")
-        sub = 0
-        tbl = 0
-        fig = 0
-        if env.subnets:
-            sub += 1
-            tbl += 1
-            self._heading(doc, f"{n}.{sub} Subnets", level=2)
-            self._table(
-                doc, ["Subnet", "Cluster", "Type", "VLAN", "vSwitch", "VPC"],
-                [[s.name, s.cluster_name, s.subnet_type, str(s.vlan_id or ""),
-                  s.virtual_switch or "—", s.vpc_name or "—"]
-                 for s in env.subnets],
-                f"Table {n}-{tbl}. Subnets.",
-            )
-            for cluster in env.clusters[:8]:
-                d = diagrams.network_topology(env, cluster)
-                if d:
-                    fig += 1
-                    self._figure(doc, d, f"Figure {n}-{fig}. Cluster {cluster.name} — "
-                                         "virtual switch and VLAN layout.")
-        if env.vpcs:
-            sub += 1
-            tbl += 1
-            self._heading(doc, f"{n}.{sub} Virtual Networking (VPCs)", level=2)
-            self._table(
-                doc, ["VPC", "Subnets", "External Subnets", "Routable Prefixes", "Routes",
-                      "Routing Policies"],
-                [[v.name, ", ".join(v.subnet_names) or "—", ", ".join(v.external_subnets),
-                  ", ".join(v.externally_routable_prefixes),
-                  str(v.route_count) if v.route_count is not None else "—",
-                  str(v.routing_policy_count) if v.routing_policy_count is not None else "—"]
-                 for v in env.vpcs],
-                f"Table {n}-{tbl}. Flow virtual networking VPCs.",
-            )
-            self._figure(
-                doc, diagrams.vpc_topology(env),
-                f"Figure {n}-{fig + 1}. Flow Virtual Networking — VPCs with overlay and "
-                "external subnets.",
-            )
-
-    def _data_protection(self, doc: DocumentObject, env: Environment) -> None:
-        if not (env.protection_policies or env.recovery_plans):
-            return
-        n = self._h1(doc, "Data Protection & Disaster Recovery")
-        doc.add_paragraph(
-            "Data protection is delivered through protection policies (snapshot and "
-            "replication schedules) and recovery plans (orchestrated failover). The tables "
-            "below document the configured strategy."
-        )
-        self._figure(
-            doc, diagrams.replication_topology(env),
-            f"Figure {n}-1. Replication topology — protection policy flows between "
-            "availability zones.",
-        )
-        sub = 0
-        tbl = 0
-        if env.protection_policies:
-            sub += 1
-            tbl += 1
-            self._heading(doc, f"{n}.{sub} Protection Policies", level=2)
-            self._table(
-                doc, ["Policy", "RPO (s)", "Replication", "Source AZ", "Target AZ"],
-                [[p.name, str(p.rpo_seconds or ""), p.replication_type, p.source_az or "—",
-                  p.target_az or "—"] for p in env.protection_policies],
-                f"Table {n}-{tbl}. Protection policies.",
-            )
-        if env.recovery_plans:
-            sub += 1
-            tbl += 1
-            self._heading(doc, f"{n}.{sub} Recovery Plans", level=2)
-            self._table(
-                doc, ["Plan", "Stages", "Entities", "Primary", "Recovery"],
-                [[r.name, str(r.stage_count or ""), str(r.entities_count or ""),
-                  r.primary_location or "—", r.recovery_location or "—"]
-                 for r in env.recovery_plans],
-                f"Table {n}-{tbl}. Recovery plans.",
-            )
-
-    def _security(self, doc: DocumentObject, env: Environment) -> None:
-        if not (env.security_policies or env.categories):
-            return
-        n = self._h1(doc, "Security Posture (Flow)")
-        sub = 0
-        if env.security_policies:
-            sub += 1
-            self._heading(doc, f"{n}.{sub} Security Policies", level=2)
-            self._table(
-                doc, ["Policy", "Type", "State", "Inbound", "Outbound", "Secured Group"],
-                [[p.name, p.policy_type, p.state, str(p.inbound_rule_count or ""),
-                  str(p.outbound_rule_count or ""), p.secured_group or "—"]
-                 for p in env.security_policies],
-                f"Table {n}-{sub}. Flow network security policies.",
-            )
-        if env.categories:
-            sub += 1
-            self._heading(doc, f"{n}.{sub} Categories", level=2)
-            self._table(
-                doc, ["Category", "Value", "Description"],
-                [[c.name, c.value or "—", c.description or "—"] for c in env.categories],
-                f"Table {n}-{sub}. Categories.",
-            )
-
-    def _databases(self, doc: DocumentObject, env: Environment) -> None:
-        if not (env.databases or env.database_servers or env.time_machines):
-            return
-        n = self._h1(doc, "Database Services (NDB)")
-        sub = 0
-        if env.databases:
-            sub += 1
-            self._heading(doc, f"{n}.{sub} Databases", level=2)
-            self._table(
-                doc, ["Database", "Engine", "Type", "Status", "SLA"],
-                [[d.name, d.db_engine, d.db_type, d.status, d.sla_name or "—"]
-                 for d in env.databases],
-                f"Table {n}-{sub}. NDB-managed databases.",
-            )
-        if env.database_servers:
-            sub += 1
-            self._heading(doc, f"{n}.{sub} Database Servers", level=2)
-            self._table(
-                doc, ["Server", "Engine", "Status", "Cluster", "Cores", "Memory (GB)"],
-                [[s.name, s.db_engine, s.status, s.cluster_name or "—",
-                  str(s.vm_cores or ""), str(s.memory_gb or "")]
-                 for s in env.database_servers],
-                f"Table {n}-{sub}. Database servers.",
-            )
-        if env.time_machines:
-            sub += 1
-            self._heading(doc, f"{n}.{sub} Time Machines", level=2)
-            self._table(
-                doc, ["Time Machine", "Database", "SLA", "Status", "Schedule", "Clones"],
-                [[t.name, t.database_name, t.sla_name or "—", t.status, t.schedule or "—",
-                  str(t.clone_count or "")] for t in env.time_machines],
-                f"Table {n}-{sub}. Time machines.",
-            )
-
-    def _iam_automation(self, doc: DocumentObject, env: Environment) -> None:
-        if not (env.users or env.roles or env.playbooks or env.ncm_reports):
-            return
-        n = self._h1(doc, "Identity, Automation & Reporting")
-        sub = 0
-        if env.users:
-            sub += 1
-            self._heading(doc, f"{n}.{sub} Users", level=2)
-            self._table(
-                doc, ["User", "Display Name", "Type", "Directory", "State"],
-                [[u.username, u.display_name or "—", u.user_type, u.directory or "—", u.state]
-                 for u in env.users],
-                f"Table {n}-{sub}. Users.",
-            )
-        if env.roles:
-            sub += 1
-            self._heading(doc, f"{n}.{sub} Roles", level=2)
-            self._table(
-                doc, ["Role", "Description", "System", "Permissions"],
-                [[r.name, r.description or "—", "Yes" if r.is_system else "No",
-                  str(r.permission_count or "")] for r in env.roles],
-                f"Table {n}-{sub}. Roles.",
-            )
-        if env.playbooks:
-            sub += 1
-            self._heading(doc, f"{n}.{sub} Playbooks (X-Play)", level=2)
-            self._table(
-                doc, ["Playbook", "Trigger", "Actions", "Enabled", "Executions"],
-                [[p.name, p.trigger_type, str(p.action_count or ""),
-                  "Yes" if p.is_enabled else "No", str(p.execution_count or "")]
-                 for p in env.playbooks],
-                f"Table {n}-{sub}. X-Play playbooks.",
-            )
-        if env.ncm_reports:
-            sub += 1
-            self._heading(doc, f"{n}.{sub} NCM Reports", level=2)
-            self._table(
-                doc, ["Report", "Type", "Schedule", "Last Run"],
-                [[r.name, r.report_type or "—", r.schedule or "—", r.last_run or "—"]
-                 for r in env.ncm_reports],
-                f"Table {n}-{sub}. NCM reports.",
-            )
-
-    # ─── helpers ───────────────────────────────────────────────────
-
-    def _figure(self, doc: DocumentObject, diag: Diagram | None, caption: str) -> None:
-        """Embed a rendered topology diagram, centered, with an italic caption."""
-        if diag is None:
-            return
-        p = doc.add_paragraph()
-        p.alignment = WD_ALIGN_PARAGRAPH.CENTER
-        run = p.add_run()
-        run.add_picture(io.BytesIO(diag.png), width=Inches(min(6.3, diag.width_in)))
-        cap = doc.add_paragraph(caption)
-        cap.alignment = WD_ALIGN_PARAGRAPH.CENTER
-        cap.runs[0].italic = True
-        cap.runs[0].font.size = Pt(9)
-        cap.runs[0].font.color.rgb = RGBColor(0x70, 0x70, 0x70)
-
-    def _heading(self, doc: DocumentObject, text: str, level: int) -> None:
-        h = doc.add_heading(text, level=level)
-        for run in h.runs:
-            run.font.color.rgb = _NAVY if level == 1 else _ACCENT
-
-    def _h1(self, doc: DocumentObject, title: str) -> int:
-        """Top-level heading with an auto-incrementing number, so a section
-        skipped for lack of data leaves no gap in the sequence.
-        """
-        self._h1n += 1
-        self._heading(doc, f"{self._h1n}. {title}", level=1)
-        return self._h1n
-
-    def _table(self, doc: DocumentObject, headers: list[str], rows: list[list[Any]],
-               caption: str, sources: list[str] | None = None) -> None:
-        """`sources` (combined multi-PC runs only) prepends a "Prism Central" column
-        naming the PC each row came from — names repeat across estates, so without it
-        two merged rows can read as duplicates.
-        """
-        if not rows:
-            return
-        if sources is not None:
-            headers = ["Prism Central", *headers]
-            rows = [[src, *row] for src, row in zip(sources, rows, strict=True)]
-        table = doc.add_table(rows=1, cols=len(headers))
-        table.style = "Table Grid"
-        # Branded header row: navy fill, white bold text.
-        for i, h in enumerate(headers):
-            cell = table.rows[0].cells[i]
-            _shade_cell(cell, _HEADER_BG)
-            cell.text = ""
-            run = cell.paragraphs[0].add_run(h)
-            run.font.bold = True
-            run.font.size = Pt(9)
-            run.font.color.rgb = RGBColor(0xFF, 0xFF, 0xFF)
-        for r_idx, row in enumerate(rows):
-            cells = table.add_row().cells
-            for i, value in enumerate(row):
-                cells[i].text = ""
-                run = cells[i].paragraphs[0].add_run("" if value is None else str(value))
-                run.font.size = Pt(9)
-                if r_idx % 2 == 1:  # zebra striping
-                    _shade_cell(cells[i], _ZEBRA_BG)
-        cap = doc.add_paragraph(caption)
-        cap.runs[0].italic = True
-        cap.runs[0].font.size = Pt(9)
-        cap.runs[0].font.color.rgb = RGBColor(0x70, 0x70, 0x70)
+            el.set(qn("w:val"), "nil")
+        borders.append(el)
+    pr.append(borders)
 
 
-def _shade_cell(cell: Any, hex_color: str) -> None:
+def _cell_margins(table: Any, top: int, bottom: int, left: int, right: int) -> None:
+    pr = table._tbl.tblPr
+    mar = OxmlElement("w:tblCellMar")
+    for edge, value in (("top", top), ("left", left), ("bottom", bottom), ("right", right)):
+        el = OxmlElement(f"w:{edge}")
+        el.set(qn("w:w"), str(value))
+        el.set(qn("w:type"), "dxa")
+        mar.append(el)
+    pr.append(mar)
+
+
+def _repeat_header(row: Any) -> None:
+    tr_pr = row._tr.get_or_add_trPr()
+    el = OxmlElement("w:tblHeader")
+    el.set(qn("w:val"), "true")
+    tr_pr.append(el)
+    _cant_split(row)
+
+
+def _cant_split(row: Any) -> None:
+    tr_pr = row._tr.get_or_add_trPr()
+    el = OxmlElement("w:cantSplit")
+    el.set(qn("w:val"), "true")
+    tr_pr.append(el)
+
+
+def _shade(cell: Any, hex_color: str) -> None:
     """Set a table cell's background fill (docx has no direct API for this)."""
     tc_pr = cell._tc.get_or_add_tcPr()
     shd = OxmlElement("w:shd")
@@ -740,27 +498,244 @@ def _shade_cell(cell: Any, hex_color: str) -> None:
     tc_pr.append(shd)
 
 
-def _update_flag(value: bool | None) -> str:
-    """Yes / No / Unknown for an LCM update flag — None means LCM did not say, and
-    rendering that as "No" would state in a deliverable that a component is current.
+def _cell_border(cell: Any, edge: str, color: str, size: int = 4) -> None:
+    tc_pr = cell._tc.get_or_add_tcPr()
+    borders = tc_pr.find(qn("w:tcBorders"))
+    if borders is None:
+        borders = OxmlElement("w:tcBorders")
+        tc_pr.append(borders)
+    el = OxmlElement(f"w:{edge}")
+    el.set(qn("w:val"), "single")
+    el.set(qn("w:sz"), str(size))
+    el.set(qn("w:space"), "0")
+    el.set(qn("w:color"), color)
+    borders.append(el)
+
+
+# ─── helpers: text ────────────────────────────────────────────────────────
+
+
+def _rfonts(el: Any, name: str) -> None:
+    """Set every rFonts slot (theme fonts in the default template otherwise win)."""
+    r_pr = el.get_or_add_rPr()
+    fonts = r_pr.find(qn("w:rFonts"))
+    if fonts is None:
+        fonts = OxmlElement("w:rFonts")
+        r_pr.insert(0, fonts)
+    for attr in ("asciiTheme", "hAnsiTheme", "eastAsiaTheme", "cstheme"):
+        fonts.attrib.pop(qn(f"w:{attr}"), None)
+    for attr in ("ascii", "hAnsi", "eastAsia", "cs"):
+        fonts.set(qn(f"w:{attr}"), name)
+
+
+def _font(style: Any, name: str, size: float, color: RGBColor, bold: bool | None = None,
+          italic: bool | None = None) -> None:
+    style.font.name = name
+    style.font.size = Pt(size)
+    style.font.color.rgb = color
+    if bold is not None:
+        style.font.bold = bold
+    if italic is not None:
+        style.font.italic = italic
+    _rfonts(style.element, name)
+
+
+def _lang(style: Any, tag: str) -> None:
+    r_pr = style.element.get_or_add_rPr()
+    lang = OxmlElement("w:lang")
+    lang.set(qn("w:val"), tag)
+    r_pr.append(lang)
+
+
+def _run(run: Any, size: float | None, color: RGBColor, bold: bool = False,
+         italic: bool = False) -> Any:
+    if size is not None:
+        run.font.size = Pt(size)
+    run.font.color.rgb = color
+    if bold:
+        run.font.bold = True
+    if italic:
+        run.font.italic = True
+    return run
+
+
+def _letter_spacing(run: Any, twentieths: int) -> None:
+    r_pr = run._r.get_or_add_rPr()
+    sp = OxmlElement("w:spacing")
+    sp.set(qn("w:val"), str(twentieths))
+    r_pr.append(sp)
+
+
+def _border(p_pr: Any, edge: str, color: str, size: int = 4, space: int = 1) -> None:
+    borders = p_pr.find(qn("w:pBdr"))
+    if borders is None:
+        borders = OxmlElement("w:pBdr")
+        p_pr.append(borders)
+    el = OxmlElement(f"w:{edge}")
+    el.set(qn("w:val"), "single")
+    el.set(qn("w:sz"), str(size))
+    el.set(qn("w:space"), str(space))
+    el.set(qn("w:color"), color)
+    borders.append(el)
+
+
+def _right_tab_only(paragraph: Any, position: Emu) -> None:
+    """One right-aligned tab at the text edge. The Header / Footer styles carry centre and
+    right stops for Letter (3.25" / 6.5"); left in place, the centre stop catches the tab
+    and runs the right-hand text into the left."""
+    stops = paragraph.paragraph_format.tab_stops
+    for inches in (3.25, 6.5):
+        stops.add_tab_stop(Inches(inches), WD_TAB_ALIGNMENT.CLEAR)
+    stops.add_tab_stop(position, WD_TAB_ALIGNMENT.RIGHT)
+
+
+def _clear_spacing(style_el: Any) -> None:
+    """Drop the character spacing (tracking) the default Title / Subtitle styles carry."""
+    r_pr = style_el.get_or_add_rPr()
+    for el in r_pr.findall(qn("w:spacing")):
+        r_pr.remove(el)
+
+
+def _clear_border(p_pr: Any) -> None:
+    borders = p_pr.find(qn("w:pBdr"))
+    if borders is not None:
+        p_pr.remove(borders)
+
+
+def _alt_text(paragraph: Any, text: str) -> None:
+    """Alt text (title and description) on the picture just added, for screen readers."""
+    for doc_pr in paragraph._p.iter(qn("wp:docPr")):
+        doc_pr.set("descr", text)
+        doc_pr.set("title", text)
+
+
+def _field_begin(paragraph: Any, instruction: str) -> None:
+    run = paragraph.add_run()
+    begin = OxmlElement("w:fldChar")
+    begin.set(qn("w:fldCharType"), "begin")
+    begin.set(qn("w:dirty"), "true")
+    instr = OxmlElement("w:instrText")
+    instr.set(qn("xml:space"), "preserve")
+    instr.text = instruction
+    sep = OxmlElement("w:fldChar")
+    sep.set(qn("w:fldCharType"), "separate")
+    for el in (begin, instr, sep):
+        run._r.append(el)
+
+
+def _field_end(paragraph: Any) -> None:
+    run = paragraph.add_run()
+    end = OxmlElement("w:fldChar")
+    end.set(qn("w:fldCharType"), "end")
+    run._r.append(end)
+
+
+def _simple_field(paragraph: Any, instruction: str) -> None:
+    fld = OxmlElement("w:fldSimple")
+    fld.set(qn("w:instr"), instruction)
+    run = OxmlElement("w:r")
+    r_pr = OxmlElement("w:rPr")
+    color = OxmlElement("w:color")
+    color.set(qn("w:val"), T.INK_3)
+    size = OxmlElement("w:sz")
+    size.set(qn("w:val"), "16")
+    r_pr.append(color)
+    r_pr.append(size)
+    run.append(r_pr)
+    text = OxmlElement("w:t")
+    text.text = "1"
+    run.append(text)
+    fld.append(run)
+    paragraph._p.append(fld)
+
+
+def _update_fields_on_open(doc: DocumentObject) -> None:
+    """Ask Word to refresh fields (the contents' page numbers) when the file opens."""
+    settings = doc.settings.element
+    el = settings.find(qn("w:updateFields"))
+    if el is None:
+        el = OxmlElement("w:updateFields")
+        settings.append(el)
+    el.set(qn("w:val"), "true")
+
+
+def _ensure_styles(doc: DocumentObject) -> None:
+    """Styles the renderer uses that python-docx's default template (or a customer
+    template) may lack: the contents heading and the TOC levels."""
+    existing = {s.name for s in doc.styles}
+    if "Contents Heading" not in existing:
+        st = doc.styles.add_style("Contents Heading", WD_STYLE_TYPE.PARAGRAPH)
+        st.base_style = doc.styles["Normal"]
+        _font(st, T.OFFICE_FONT, 18, _INK, bold=True)
+        st.paragraph_format.space_after = Pt(12)
+        _border(st.element.get_or_add_pPr(), "left", T.IRIS, size=24, space=8)
+    for level, (size, color, indent, bold) in {
+        1: (10.5, _INK, 0.0, True), 2: (10, _INK_2, 0.3, False),
+    }.items():
+        name = f"TOC {level}"
+        if name in existing:
+            continue
+        st = doc.styles.add_style(name, WD_STYLE_TYPE.PARAGRAPH)
+        st.base_style = doc.styles["Normal"]
+        _font(st, T.OFFICE_FONT, size, color, bold=bold)
+        st.paragraph_format.left_indent = Inches(indent)
+        st.paragraph_format.space_before = Pt(5 if level == 1 else 1)
+        st.paragraph_format.space_after = Pt(1)
+    for name in ("Title", "Subtitle", "Caption"):
+        if name not in existing:
+            doc.styles.add_style(name, WD_STYLE_TYPE.PARAGRAPH).base_style = \
+                doc.styles["Normal"]
+
+
+_REQUIRED_STYLES = (
+    ("Heading 1", "paragraph"), ("Heading 2", "paragraph"), ("Heading 3", "paragraph"),
+    ("List Bullet", "paragraph"), ("Caption", "paragraph"),
+)
+
+
+def load_template(template: str) -> DocumentObject:
+    """Open a customer ``.dotx`` / ``.docx`` as the base document, body emptied.
+
+    python-docx refuses ``.dotx`` because its main part has the *template* content
+    type; the package is otherwise identical to a document, so a copy with that one
+    content type rewritten opens normally. The template's body is removed (keeping the
+    final section properties: page size, margins, headers and footers), its styles,
+    theme, numbering and headers/footers are kept, and any style this exporter relies on
+    that the template does not define is added so rendering never fails on a missing
+    style.
     """
-    if value is None:
-        return "Unknown"
-    return "Yes" if value else "No"
+    import tempfile
+    import zipfile
+
+    src = Path(template).expanduser()
+    if not src.is_file():
+        raise FileNotFoundError(f"Word template not found: {src}")
+    if src.suffix.lower() not in (".dotx", ".docx"):
+        raise ValueError("A Word template must be a .dotx or .docx file")
+    with tempfile.TemporaryDirectory() as tmp:
+        work = Path(tmp) / "template.docx"
+        with zipfile.ZipFile(src) as zin, zipfile.ZipFile(work, "w", zipfile.ZIP_DEFLATED) as zout:
+            for item in zin.infolist():
+                data = zin.read(item.filename)
+                if item.filename == "[Content_Types].xml":
+                    data = data.replace(
+                        b"wordprocessingml.template.main+xml",
+                        b"wordprocessingml.document.main+xml")
+                zout.writestr(item, data)
+        doc = Document(str(work))
+    body = doc.element.body
+    for child in list(body):
+        if child.tag != qn("w:sectPr"):
+            body.remove(child)
+    existing = {s.name for s in doc.styles}
+    for name, kind in _REQUIRED_STYLES:
+        if name not in existing:
+            style = doc.styles.add_style(
+                name, WD_STYLE_TYPE.PARAGRAPH if kind == "paragraph" else WD_STYLE_TYPE.CHARACTER)
+            if name.startswith("Heading"):
+                style.font.bold = True
+                style.font.size = Pt({"1": 16, "2": 13, "3": 12}[name[-1]])
+    return doc
 
 
-def _versions(values: list[str], limit: int) -> str:
-    """The `limit` newest versions LCM offers, plus a count of the rest — a dozen
-    version strings in one cell would push the table past the page width.
-    """
-    if not values:
-        return "—"
-    extra = len(values) - limit
-    head = ", ".join(values[:limit])
-    return head if extra <= 0 else f"{head} (+{extra} more)"
-
-
-def _gib(value: int | None) -> float | None:
-    if not value:
-        return None
-    return round(value / GIB, 1)
+__all__ = ["WordExporter", "load_template"]

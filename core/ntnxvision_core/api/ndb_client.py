@@ -18,7 +18,10 @@ from ntnxvision_core.api.errors import (
     AuthenticationError,
     ConnectionFailed,
     NutanixApiError,
+    TlsVerificationFailed,
 )
+from ntnxvision_core.api.transport import new_session
+from ntnxvision_core.cancel import CancelToken
 
 DEFAULT_TIMEOUT = 60
 
@@ -39,7 +42,8 @@ class NdbCredentials:
 class NdbConnection:
     creds: NdbCredentials
     timeout: int = DEFAULT_TIMEOUT
-    session: requests.Session = field(default_factory=requests.Session)
+    session: requests.Session = field(default_factory=new_session)
+    cancel: CancelToken | None = None
 
     def connect(self) -> None:
         if not self.creds.verify_ssl:
@@ -53,6 +57,10 @@ class NdbConnection:
         self.session.verify = self.creds.verify_ssl
         try:
             resp = self.session.get(f"{self.creds.base}/clusters", timeout=self.timeout)
+        except requests.exceptions.SSLError as exc:
+            raise TlsVerificationFailed(
+                f"TLS verification failed for NDB at {self.creds.host} ({exc})"
+            ) from exc
         except requests.exceptions.RequestException as exc:
             raise ConnectionFailed(f"Could not reach NDB at {self.creds.host} ({exc})") from exc
         if resp.status_code in (401, 403):
@@ -61,6 +69,8 @@ class NdbConnection:
             raise NutanixApiError(f"NDB returned HTTP {resp.status_code}")
 
     def get(self, path: str, params: dict[str, Any] | None = None) -> Any:
+        if self.cancel is not None:
+            self.cancel.check()
         resp = self.session.get(
             f"{self.creds.base}/{path.lstrip('/')}", params=params, timeout=self.timeout
         )

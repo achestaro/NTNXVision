@@ -31,15 +31,8 @@ ElementProgress = Any
 
 def collect_element(conn: ElementConnection, env: Any, progress: Any = None) -> None:
     """Populate env from a direct Prism Element connection (v2.0 API)."""
-    steps = [
-        ("Cluster", _cluster),
-        ("Hosts / Nodes", _hosts),
-        ("Storage Containers", _storage),
-        ("Networks", _networks),
-        ("Virtual Machines", _vms),
-    ]
-    total = len(steps)
-    for idx, (label, fn) in enumerate(steps):
+    total = len(ELEMENT_STEPS)
+    for idx, (_area, label, fn) in enumerate(ELEMENT_STEPS):
         if progress:
             progress(idx, total, label, "running")
         try:
@@ -70,6 +63,7 @@ def _cluster(conn: ElementConnection, env: Any) -> None:
             ),
             num_nodes=data.get("num_nodes"),
             external_ip=data.get("cluster_external_ipaddress"),
+            data_services_ip=data.get("cluster_external_data_services_ipaddress") or None,
             timezone=data.get("timezone"),
             encryption_enabled=data.get("encrypted"),
             operation_mode=data.get("operation_mode"),
@@ -105,6 +99,9 @@ def _hosts(conn: ElementConnection, env: Any) -> None:
                 hypervisor_ip=host.get("hypervisor_address"),
                 boot_time=str(host.get("boot_time_in_usecs") or "") or None,
                 num_vms=host.get("num_vms"),
+                # The node's raw capacity, as the Prism Element hosts table shows it.
+                storage_capacity_bytes=_as_int(
+                    (host.get("usage_stats") or {}).get("storage.capacity_bytes")),
                 api_source="v2.0",
             )
         )
@@ -168,7 +165,43 @@ def _vms(conn: ElementConnection, env: Any) -> None:
     include = {"include_vm_disk_config": "true", "include_vm_nic_config": "true"}
     for vm in conn.v2_list("vms", extra_params=include):
         env.vms.append(_map_vm(vm))
+    _cvms(conn, env)
     env.collection_notes["vms"] = "ok"
+
+
+def _cvms(conn: ElementConnection, env: Any) -> None:
+    """Controller VMs, for the cluster capacity figures (their vCPUs are subtracted).
+
+    v2.0 `/vms` never lists CVMs. The v1 VM list does, flagged `controllerVm`, with each
+    one's `numVCpus` and host. Best-effort and read-only (GET): a cluster that refuses the
+    v1 call just leaves the CVM list empty, and CPU capacity then reads N/A.
+    """
+    try:
+        rows = conn.v1_list("vms")
+    except Exception:  # noqa: BLE001 - v1 unavailable or shaped differently
+        return
+    seen = {v.uuid for v in env.vms}
+    for row in rows:
+        if not row.get("controllerVm"):
+            continue
+        uuid = str(row.get("uuid") or row.get("vmId") or "")
+        if not uuid or uuid in seen:
+            continue
+        ips = [ip for ip in (row.get("ipAddresses") or []) if isinstance(ip, str)]
+        env.system_vms.append(
+            VirtualMachine(
+                uuid=uuid,
+                name=str(row.get("vmName") or ""),
+                power_state=(row.get("powerState") or "").upper() or None,
+                num_vcpus=_as_int(row.get("numVCpus")),
+                memory_bytes=_as_int(row.get("memoryCapacityInBytes")),
+                host_uuid=row.get("hostUuid"),
+                host_name=row.get("hostName"),
+                nics=[Nic(ip_addresses=ips)] if ips else [],
+                vm_type="CVM",
+                api_source="v1",
+            )
+        )
 
 
 def _map_vm(vm: dict[str, Any]) -> VirtualMachine:
@@ -224,6 +257,17 @@ def _nics(vm: dict[str, Any]) -> list[Nic]:
             )
         )
     return out
+
+
+#: (area id, label, step) in run order. The area ids match the Prism Central collectors'
+#: so the UI's area list, progress events and run metadata read the same in both modes.
+ELEMENT_STEPS: list[tuple[str, str, Any]] = [
+    ("clusters", "Cluster", _cluster),
+    ("hosts", "Hosts / Nodes", _hosts),
+    ("storage_containers", "Storage Containers", _storage),
+    ("subnets", "Networks", _networks),
+    ("vms", "Virtual Machines", _vms),
+]
 
 
 # ─── helpers ───────────────────────────────────────────────────────────
