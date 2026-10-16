@@ -830,7 +830,7 @@ def _m_export_comparison(_req_id: Any, params: dict[str, Any]) -> dict[str, Any]
 
     base_path = _resolve_snapshot_path(params["baseline"])
     cur_path = _resolve_snapshot_path(params["current"])
-    fmt = "csv" if params.get("format") == "csv" else "excel"
+    fmt = str(params.get("format")) if params.get("format") in ("csv", "pdf") else "excel"
     out = export_comparison(_cache.get(base_path), _cache.get(cur_path),
                             snapstore.snapshot_name(base_path), snapstore.snapshot_name(cur_path),
                             fmt, _export_dir_from(params))
