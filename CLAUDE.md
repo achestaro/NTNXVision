@@ -121,7 +121,11 @@ the typed channels in `app/src/shared/ipc.ts`, which the main process relays to 
   flattened rows/sections → format-specific renderer. Word is the ADD (Architecture Design
   Document) template — the differentiator over a plain data dump. `tables.py` holds the
   per-type column specs shared by the Excel sheets and the Inventory grid (change a column
-  there, not in one view). `ExportOptions` carries PDF/Word section selection, the Word
+  there, not in one view). Column-order rule: the Cluster column comes first in every
+  table (grid, Excel, PDF, Word), enforced by `TableSpec` and `content.make_table`; only
+  the VM tables opt out, and a combined run's "Prism Central" column follows Cluster
+  (`tests/test_column_order.py`). `compare_pdf.py` renders the Compare page's PDF export
+  with the inventory PDF's renderer. `ExportOptions` carries PDF/Word section selection, the Word
   template (built-in or a customer `.dotx`) and the cover's prepared-for / author.
 - `compat.py` — version compatibility checks (Prism Central `pc.2024.1`–`7.5.1.6`, AOS
   `6.5`–`7.5`). **Warn-but-proceed**: out-of-range versions surface as non-blocking warnings;

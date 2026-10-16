@@ -122,6 +122,12 @@ class MockApi:
         #: (host, method, path) → request count, for tests that assert paging happened.
         self.hits: dict[tuple[str, str, str], int] = {}
 
+    def reset(self) -> None:
+        """Forget rate-limit history, so the one-off 429 replays for a fresh session."""
+        with self._lock:
+            self._alert_hits.clear()
+            self._throttled_once.clear()
+
     # ─── entry point ───────────────────────────────────────────────
 
     def handle(

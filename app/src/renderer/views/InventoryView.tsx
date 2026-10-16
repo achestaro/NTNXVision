@@ -19,6 +19,7 @@ import type {
 import {
   Badge,
   Button,
+  ChecklistMenu,
   DataTable,
   EmptyState,
   ErrorState,
@@ -83,6 +84,7 @@ export function InventoryView({
   const [hidden, setHidden] = useState<Record<string, boolean>>({});
   const [facetMenu, setFacetMenu] = useState<{ facet: InventoryFacet; x: number; y: number } | null>(null);
   const [colMenu, setColMenu] = useState<{ x: number; y: number } | null>(null);
+  const colBtn = useRef<HTMLButtonElement>(null);
   const [exporting, setExporting] = useState(false);
 
   useEffect(() => {
@@ -174,6 +176,7 @@ export function InventoryView({
     .filter(Boolean)
     .join(' · ');
   const columns = (q?.columns ?? []).filter((c) => !hidden[c.key]);
+  const hiddenCount = (q?.columns ?? []).filter((c) => c.kind !== 'name' && hidden[c.key]).length;
   const filtered = !!debounced || Object.keys(facets).length > 0;
 
   const tableColumns: Column<InventoryRow>[] = columns.map((c) => ({
@@ -345,16 +348,20 @@ export function InventoryView({
             })}
             <div style={{ flex: 1 }} />
             <Button
+              ref={colBtn}
               variant="ghost"
               size="sm"
-              aria-haspopup="menu"
+              aria-haspopup="dialog"
+              aria-expanded={!!colMenu}
               disabled={!q?.columns.length}
               onClick={(e) => {
+                if (colMenu) return setColMenu(null);
                 const r = e.currentTarget.getBoundingClientRect();
                 setColMenu({ x: r.right, y: r.bottom + 4 });
               }}
             >
               Columns
+              {hiddenCount > 0 && <span className="muted">{` · ${fmtCount(hiddenCount)} hidden`}</span>}
             </Button>
             <Button size="sm" onClick={() => void exportView()} disabled={!q || !q.matching || exporting}>
               {exporting ? 'Exporting…' : 'Export view…'}
@@ -450,16 +457,17 @@ export function InventoryView({
         />
       )}
       {colMenu && q && (
-        <MenuPopup
+        <ChecklistMenu
           label="Columns"
           anchor={{ x: colMenu.x, y: colMenu.y, alignRight: true }}
-          onClose={() => setColMenu(null)}
-          items={q.columns
-            .filter((c) => c.kind !== 'name')
-            .map<MenuItem>((c) => ({
-              label: `${hidden[c.key] ? 'Show' : 'Hide'} ${c.label.toLowerCase()}`,
-              onSelect: () => setHidden((p) => ({ ...p, [c.key]: !p[c.key] })),
-            }))}
+          onClose={() => {
+            setColMenu(null);
+            colBtn.current?.focus();
+          }}
+          // The name column identifies the row, so it stays on (shown checked and disabled).
+          items={q.columns.map((c) => ({ key: c.key, label: c.label, checked: c.kind === 'name' || !hidden[c.key], disabled: c.kind === 'name' }))}
+          onToggle={(key, v) => setHidden((p) => ({ ...p, [key]: !v }))}
+          onSelectAll={() => setHidden({})}
         />
       )}
     </>

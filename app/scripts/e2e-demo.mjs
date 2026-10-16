@@ -161,6 +161,17 @@ try {
     await page.getByText('k8s-worker-').first().waitFor();
   });
 
+  await run('compare-export-pdf', async () => {
+    await page.getByRole('button', { name: 'Export changes…' }).click();
+    const dialog = page.getByRole('dialog');
+    await dialog.getByRole('button', { name: 'PDF report' }).click();
+    await dialog.getByRole('checkbox').uncheck(); // don't open Finder / Explorer
+    await dialog.getByRole('button', { name: 'Export PDF' }).click();
+    await page.getByText(/^Exported [\d,]+ changes?$/).first().waitFor({ timeout: 120_000 });
+    const files = await readdir(exportDir);
+    if (!files.some((f) => f.startsWith('changes-') && f.endsWith('.pdf'))) throw new Error('no comparison PDF written');
+  });
+
   await run('snapshots', async () => {
     await rail('Snapshots');
     await page.getByText('pc01-week1').first().waitFor();

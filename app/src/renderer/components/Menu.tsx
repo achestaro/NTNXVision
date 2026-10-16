@@ -24,18 +24,18 @@ export interface MenuAnchor {
   alignRight?: boolean;
 }
 
-export function MenuPopup({
-  items,
-  anchor,
-  onClose,
-  label,
-}: {
-  items: MenuItem[];
-  anchor: MenuAnchor;
-  onClose(): void;
-  label: string;
-}): JSX.Element {
-  const ref = useRef<HTMLDivElement>(null);
+/**
+ * Position a fixed popup at `anchor` (kept inside the viewport, flipped up when it would
+ * overflow), focus the first element matching `focusSelector`, and close on an outside
+ * click, a window resize or a scroll of the main pane. Shared by MenuPopup and
+ * ChecklistMenu.
+ */
+export function useAnchoredPopup(
+  ref: React.RefObject<HTMLElement>,
+  anchor: MenuAnchor,
+  onClose: () => void,
+  focusSelector: string,
+): { left: number; top: number } {
   const [pos, setPos] = useState<{ left: number; top: number }>({ left: anchor.x, top: anchor.y });
 
   useLayoutEffect(() => {
@@ -48,7 +48,7 @@ export function MenuPopup({
     left = Math.max(8, Math.min(left, window.innerWidth - w - 8));
     if (top + h > window.innerHeight - 8) top = Math.max(8, anchor.y - h - (anchor.alignRight ? 36 : 0));
     setPos({ left, top });
-    el.querySelector<HTMLElement>('[role="menuitem"]:not([disabled])')?.focus();
+    el.querySelector<HTMLElement>(focusSelector)?.focus();
   }, [anchor]);
 
   useEffect(() => {
@@ -64,7 +64,24 @@ export function MenuPopup({
       window.removeEventListener('resize', onScroll);
       document.querySelector('main')?.removeEventListener('scroll', onScroll);
     };
-  }, [onClose]);
+  }, [onClose, ref]);
+
+  return pos;
+}
+
+export function MenuPopup({
+  items,
+  anchor,
+  onClose,
+  label,
+}: {
+  items: MenuItem[];
+  anchor: MenuAnchor;
+  onClose(): void;
+  label: string;
+}): JSX.Element {
+  const ref = useRef<HTMLDivElement>(null);
+  const pos = useAnchoredPopup(ref, anchor, onClose, '[role="menuitem"]:not([disabled])');
 
   const onKey = (e: React.KeyboardEvent) => {
     const els = Array.from(ref.current?.querySelectorAll<HTMLElement>('[role="menuitem"]:not([disabled])') ?? []);
