@@ -18,6 +18,7 @@ import { ResultsView } from './views/ResultsView';
 import { InventoryView } from './views/InventoryView';
 import { SnapshotsView } from './views/SnapshotsView';
 import { MultiPCView } from './views/MultiPCView';
+import { TargetsView } from './views/TargetsView';
 import { CompareView } from './views/CompareView';
 import { SettingsView } from './views/SettingsView';
 import { LegalView } from './views/LegalView';
@@ -140,6 +141,8 @@ function Shell(): JSX.Element {
         return <NewCollectionView key={route.connectionId ?? route.mode ?? 'new'} connectionId={route.connectionId} mode={route.mode} />;
       case 'multi':
         return <MultiPCView />;
+      case 'targets':
+        return <TargetsView key={`${route.edit ?? ''}|${route.returnTo ?? ''}`} edit={route.edit} returnTo={route.returnTo} />;
       case 'collecting':
         return <CollectingView />;
       case 'results':
