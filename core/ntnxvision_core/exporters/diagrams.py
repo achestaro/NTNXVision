@@ -900,7 +900,8 @@ def _wrap(draw: ImageDraw.ImageDraw, text: str, font: Any, max_w: float) -> list
     return lines
 
 
-def cover_page(env: Environment, tool_name: str = "NTNXVision") -> Diagram:
+def cover_page(env: Environment, tool_name: str = "NTNXVision",
+               prepared_for: str = "", author: str = "") -> Diagram:
     """Report cover — dark navy-to-blue gradient with a soft cyan glow, a
     hexagon logomark, a large title block, and a metadata footer row. This is
     NTNXVision's own cover identity (established in the workflow-evaluation
@@ -976,7 +977,8 @@ def cover_page(env: Environment, tool_name: str = "NTNXVision") -> Diagram:
     fy += 18
     f_dt, f_dd = _font(11), _font(11, bold=False)
     rows = [
-        ("Prepared by", tool_name),
+        *([("Prepared for", prepared_for)] if prepared_for else []),
+        ("Prepared by", f"{author} · {tool_name}" if author else tool_name),
         ("Report date", (env.collected_at or "n/a")[:10]),
         ("Environment", f"{len(env.clusters)} clusters · {len(env.hosts)} hosts · "
                         f"{len(env.vms)} VMs"),
@@ -986,7 +988,7 @@ def cover_page(env: Environment, tool_name: str = "NTNXVision") -> Diagram:
                   fill=(124, 157, 176, 255), anchor="lm")
         draw.text((round((pad_x + 110) * S), round(fy * S)), value, font=f_dd,
                   fill=(234, 246, 255, 255), anchor="lm")
-        fy += 20
+        fy += 18 if prepared_for else 20
     draw.text((round((w - pad_x) * S), round((footer_top + 18) * S)),
               "CONFIDENTIAL · INTERNAL USE ONLY", font=_font(10.5, bold=True),
               fill=(127, 212, 242, 255), anchor="rm")

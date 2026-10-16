@@ -7,6 +7,8 @@
 2. Unless --ping-only: a tiny synthetic snapshot is exported to Excel, PDF and Word through
    the frozen binary. This is what catches missing PyInstaller data files (python-docx
    templates, fpdf2 font metrics, openpyxl resources) that a ping never touches.
+3. Unless --ping-only: in demo mode (NTNXVISION_DEMO=1) a connection test against the
+   bundled mock Prism Central must succeed — which needs the demo TLS files packaged.
 
 HOME / APPDATA are pointed at a throwaway directory so the real user's snapshots and
 exports are never read or written. Exits 0 on success, 1 on any failure.
@@ -100,6 +102,32 @@ def main() -> int:
                         print(f"FAIL: {fmt} export is empty: {p}")
                         return 1
                     print(f"ok   export {fmt:<5} -> {Path(p).name} ({size} bytes)")
+        except Exception as exc:  # noqa: BLE001
+            print(f"FAIL: {exc}")
+            return 1
+        finally:
+            if proc.stdin:
+                proc.stdin.close()
+            try:
+                proc.wait(timeout=30)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+
+        if ping_only:
+            print("sidecar smoke test passed")
+            return 0
+        demo_env = dict(env, NTNXVISION_DEMO="1", NTNXVISION_DEMO_LATENCY_MS="0")
+        proc = subprocess.Popen([str(binary)], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                                stderr=sys.stderr, text=True, encoding="utf-8", env=demo_env)
+        try:
+            res = rpc(proc, 3, "test_connection", {
+                "mode": "prism_central", "host": "pc01.demo.local", "port": 9440,
+                "username": "admin", "password": "demo", "insecure": False,
+            })
+            if res.get("status") != "ok":
+                print(f"FAIL: demo test_connection -> {res}")
+                return 1
+            print(f"ok   demo test_connection -> {res.get('message')}")
         except Exception as exc:  # noqa: BLE001
             print(f"FAIL: {exc}")
             return 1

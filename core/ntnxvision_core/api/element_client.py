@@ -23,7 +23,10 @@ from ntnxvision_core.api.errors import (
     AuthenticationError,
     ConnectionFailed,
     NutanixApiError,
+    TlsVerificationFailed,
 )
+from ntnxvision_core.api.transport import new_session
+from ntnxvision_core.cancel import CancelToken
 
 DEFAULT_PORT = 9440
 DEFAULT_TIMEOUT = 60
@@ -48,8 +51,11 @@ class ElementCredentials:
 class ElementConnection:
     creds: ElementCredentials
     timeout: int = DEFAULT_TIMEOUT
-    session: requests.Session = field(default_factory=requests.Session)
+    session: requests.Session = field(default_factory=new_session)
     aos_version: str | None = None
+    #: The raw v2.0 cluster entity read at connect time (name, node count, …).
+    cluster_info: dict[str, Any] = field(default_factory=dict)
+    cancel: CancelToken | None = None
 
     # ─── lifecycle ─────────────────────────────────────────────────
 
@@ -67,7 +73,7 @@ class ElementConnection:
         try:
             resp = self.session.get(f"{self.creds.base}/cluster", timeout=self.timeout)
         except requests.exceptions.SSLError as exc:
-            raise ConnectionFailed(
+            raise TlsVerificationFailed(
                 f"TLS verification failed for {self.creds.host}. For a lab cluster with a "
                 f"self-signed cert, disable SSL verification. ({exc})"
             ) from exc
@@ -85,6 +91,7 @@ class ElementConnection:
 
         try:
             cluster = resp.json()
+            self.cluster_info = cluster if isinstance(cluster, dict) else {}
             self.aos_version = cluster.get("version") or cluster.get("full_version")
         except ValueError:
             self.aos_version = None
@@ -102,6 +109,8 @@ class ElementConnection:
     # ─── request helpers ───────────────────────────────────────────
 
     def get(self, path: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
+        if self.cancel is not None:
+            self.cancel.check()
         resp = self.session.get(
             f"{self.creds.base}/{path.lstrip('/')}", params=params, timeout=self.timeout
         )

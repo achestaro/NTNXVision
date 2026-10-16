@@ -75,43 +75,118 @@ class _Report(FPDF):
 
 
 class PdfExporter:
-    def export(self, env: Environment, path: str | Path) -> Path:
+    #: Pages in the last export (for the "48 pages" report detail).
+    page_count: int = 0
+
+    def export(self, env: Environment, path: str | Path, options: Any = None) -> Path:
+        from ntnxvision_core.exporters import ExportOptions
+
+        opts = ExportOptions.coerce(options)
+        on = opts.includes
         pdf = _Report(orientation="L", unit="mm", format="A4")
         pdf.set_auto_page_break(auto=True, margin=16)
         pdf.set_title("NTNXVision Environment Report")
+        pdf.set_creator("NTNXVision")
+        if opts.author:
+            pdf.set_author(opts.author)
+        if opts.prepared_for:
+            pdf.set_subject(f"Prepared for {opts.prepared_for}")
 
-        self._cover(pdf, env)
+        self._cover(pdf, env, opts.prepared_for, opts.author)
         pdf.add_page()  # dedicated blank page: insert_toc_placeholder reserves *this* one
         pdf.insert_toc_placeholder(self._render_toc, pages=1, allow_extra_pages=True)
-        self._summary(pdf, env)
-        self._feature_usage(pdf, env)
-        self._topology(pdf, env)
-        self._pc_config(pdf, env)
-        self._infra_sections(pdf, env)
-        self._system_vms(pdf, env)
-        self._health(pdf, env)
-        self._lcm_section(pdf, env)
-        self._catalog(pdf, env)
-        self._dr_section(pdf, env)
-        self._flow_section(pdf, env)
-        self._nus_section(pdf, env)
-        self._ndb_section(pdf, env)
-        self._iam_section(pdf, env)
+        if on("executive_summary"):
+            self._summary(pdf, env)
+            self._feature_usage(pdf, env)
+            self._topology(pdf, env)
+        else:
+            # The placeholder has already advanced to a fresh page; fill it rather than
+            # let the next section's page break leave it blank.
+            self._scope(pdf, env, opts)
+        if on("clusters_hosts"):
+            self._pc_config(pdf, env)
+            self._infra_sections(pdf, env)
+            self._health(pdf, env)
+        if on("workloads_storage"):
+            self._system_vms(pdf, env)
+            self._catalog(pdf, env)
+        if on("licensing_lcm"):
+            self._lcm_section(pdf, env)
+            self._licensing(pdf, env)
+        if on("data_protection"):
+            self._dr_section(pdf, env)
+        if on("security_networking"):
+            self._flow_section(pdf, env)
+            self._iam_section(pdf, env)
+        if on("platform_services"):
+            self._nus_section(pdf, env)
+            self._ndb_section(pdf, env)
+        if on("collection_notes"):
+            self._notes(pdf, env)
 
         out = Path(path)
         out.parent.mkdir(parents=True, exist_ok=True)
         pdf.output(str(out))
+        self.page_count = len(pdf.pages)
         return out
+
+    def _scope(self, pdf: _Report, env: Environment, opts: Any) -> None:
+        self._h1(pdf, "About This Report")
+        pdf.set_font("Helvetica", "", 11)
+        pdf.set_text_color(*_INK)
+        from ntnxvision_core.exporters import SECTIONS
+
+        chosen = [s.replace("_", " ").capitalize() for s in SECTIONS if opts.includes(s)]
+        lines = [
+            f"Source: {env.prism_central.host or 'n/a'} - collected "
+            f"{(env.collected_at or 'n/a')[:19].replace('T', ' ')} UTC.",
+            f"Sections included: {', '.join(chosen) or 'none'}.",
+        ]
+        if opts.prepared_for:
+            lines.append(f"Prepared for: {opts.prepared_for}.")
+        if opts.author:
+            lines.append(f"Author: {opts.author}.")
+        for line in lines:
+            pdf.multi_cell(0, 7, _latin1(line), new_x="LMARGIN", new_y="NEXT")
+
+    def _licensing(self, pdf: _Report, env: Environment) -> None:
+        self._section_table(
+            pdf, "Licensing", ["Product", "Edition", "Quantity", "Expiry", "Compliance"],
+            [[lic.product, lic.edition, lic.quantity, (lic.expiry or "")[:10], lic.compliance]
+             for lic in env.licenses],
+            [60, 50, 30, 45, 50],
+        )
+
+    def _notes(self, pdf: _Report, env: Environment) -> None:
+        from ntnxvision_core.notes import clean_error, pretty_label
+
+        rows: list[list[Any]] = []
+        for key, status in env.collection_notes.items():
+            if status == "ok":
+                outcome, detail = "Collected", ""
+            elif status.startswith("ok:"):
+                outcome, detail = "Collected (note)", status[3:].strip()
+            elif status.startswith("skipped"):
+                outcome = "Not present"
+                detail = status.split(":", 1)[1].strip() if ":" in status else status
+            else:
+                outcome, detail = "Error", clean_error(status)
+            rows.append([pretty_label(key), outcome, detail])
+        for w in env.warnings:
+            rows.append(["Compatibility", "Warning", w])
+        self._section_table(pdf, "Appendix - Collection Notes",
+                            ["Area", "Outcome", "Detail"], rows, [60, 40, 140])
 
     # ─── cover & summary ───────────────────────────────────────────
 
-    def _cover(self, pdf: _Report, env: Environment) -> None:
+    def _cover(self, pdf: _Report, env: Environment, prepared_for: str = "",
+               author: str = "") -> None:
         """Report cover — full-bleed, edge-to-edge (matching the coworker script's
         cover), embedding the shared diagrams.cover_page() raster so the PDF and
         Word covers are otherwise pixel-identical.
         """
         pdf.add_page()
-        diag = diagrams.cover_page(env)
+        diag = diagrams.cover_page(env, prepared_for=prepared_for, author=author)
         pdf.image(io.BytesIO(diag.png), x=0, y=0, w=pdf.w, h=pdf.h)
 
     def _summary(self, pdf: _Report, env: Environment) -> None:
