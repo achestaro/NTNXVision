@@ -18,6 +18,10 @@ to cope with on real systems is reproduced deliberately:
 * **Rate limiting** — the v4 alerts endpoint enforces 2 requests/second with 429s, and
   can be told to 429 once on its second page so the retry note appears.
 * **Products not deployed** — Files / Objects / Flow VN / X-Play / NCM 404 on v3.
+* **Cluster filters** — the v4 VM, storage container and alert lists honour an OData
+  ``$filter`` of ``<field> eq '<cluster uuid>'`` terms joined by ``or`` on their cluster
+  reference (`FILTERABLE`); any other ``$filter`` is a 400, as a real PC answers for a
+  field it does not filter on.
 """
 
 from __future__ import annotations
@@ -81,6 +85,30 @@ class _Derived:
         self.v3_vms += [(v, uid(v["uuid"], "intent")) for v in self.esxi[:3]]
 
 
+#: v4 list path → the one field its ``$filter`` accepts (each item's ``cluster_uuid``).
+FILTERABLE: dict[str, str] = {
+    "vmm/v4.0/ahv/config/vms": "cluster/extId",
+    "vmm/v4.0/esxi/config/vms": "cluster/extId",
+    "clustermgmt/v4.0/config/storage-containers": "clusterExtId",
+    "monitoring/v4.0/serviceability/alerts": "originatingClusterUUID",
+}
+
+_FILTER_TERM = re.compile(r"^\s*([A-Za-z][\w/]*)\s+eq\s+'([^']*)'\s*$")
+
+
+def parse_filter(expr: str) -> tuple[str, set[str]] | None:
+    """``a eq 'x' or a eq 'y'`` → ("a", {"x", "y"}); None for anything else."""
+    fields: set[str] = set()
+    values: set[str] = set()
+    for term in expr.split(" or "):
+        m = _FILTER_TERM.match(term)
+        if not m:
+            return None
+        fields.add(m.group(1))
+        values.add(m.group(2))
+    return (fields.pop(), values) if len(fields) == 1 else None
+
+
 def _page(items: list[Any], offset: int, length: int) -> list[Any]:
     return items[offset: offset + length]
 
@@ -121,6 +149,8 @@ class MockApi:
         self._throttled_once: set[tuple[str, int]] = set()
         #: (host, method, path) → request count, for tests that assert paging happened.
         self.hits: dict[tuple[str, str, str], int] = {}
+        #: (host, path) → the last ``$filter`` served, for tests of server-side scoping.
+        self.filters: dict[tuple[str, str], str] = {}
 
     def reset(self) -> None:
         """Forget rate-limit history, so the one-off 429 replays for a fresh session."""
@@ -273,14 +303,28 @@ class MockApi:
                                   f"The {namespace} service is not running."), {}
 
         d = self.derived(est)
+        ahv, esxi, containers, alerts = d.ahv, d.esxi, est.containers, est.alerts
+        flt = query.get("$filter")
+        if flt:
+            parsed = parse_filter(flt)
+            if parsed is None or FILTERABLE.get(path) != parsed[0]:
+                return 400, _v4_error("VALIDATION_ERROR",
+                                      f"Unsupported $filter for /api/{path}: {flt}"), {}
+            with self._lock:
+                self.filters[(target.host, path)] = flt
+            keep = parsed[1]
+            ahv = [v for v in ahv if v["cluster_uuid"] in keep]
+            esxi = [v for v in esxi if v["cluster_uuid"] in keep]
+            containers = [c for c in containers if c["cluster_uuid"] in keep]
+            alerts = [a for a in alerts if a["cluster_uuid"] in keep]
         lists: dict[str, tuple[list[Any], Callable[[Any], dict[str, Any]]]] = {
             "clustermgmt/v4.0/config/clusters": (
                 [None, *est.clusters],
                 lambda c: r.pc_cluster_v4(est) if c is None else r.cluster_v4(est, c)),
             "clustermgmt/v4.0/config/hosts": (
                 est.hosts, lambda h: r.host_v4(h, d.vms_per_host.get(h["uuid"], 0))),
-            "clustermgmt/v4.0/config/storage-containers": (est.containers, r.container_v4),
-            "vmm/v4.0/ahv/config/vms": (d.ahv, r.vm_v4_ahv),
+            "clustermgmt/v4.0/config/storage-containers": (containers, r.container_v4),
+            "vmm/v4.0/ahv/config/vms": (ahv, r.vm_v4_ahv),
             "vmm/v4.0/content/images": (est.images, r.image_v4),
             "vmm/v4.0/content/templates": (est.templates, r.template_v4),
             "vmm/v4.0/content/ovas": (est.ovas, lambda o: r.ova_v4(est, o)),
@@ -316,18 +360,18 @@ class MockApi:
             throttled = self._rate_limit(target, page)
             if throttled is not None:
                 return throttled
-            return self._v4_page(est.alerts, r.alert_v4, path, page, limit)
+            return self._v4_page(alerts, r.alert_v4, path, page, limit)
         if path == "vmm/v4.0/esxi/config/vms":
-            window = _page(d.esxi, page * limit, limit)
+            window = _page(esxi, page * limit, limit)
             if any(v["esxi_bad"] for v in window):
                 return 500, _v4_error("INTERNAL_ERROR",
                                       "Failed to serialize VM entity: unexpected null value "
                                       "in guestCustomization"), {}
-            return self._v4_page(d.esxi, r.vm_v4_esxi, path, page, limit)
+            return self._v4_page(esxi, r.vm_v4_esxi, path, page, limit)
         if path == "lifecycle/v4.0/resources/status":
             return 200, r.v4_single(r.lcm_status_v4(f.lcm_framework_stale)), {}
         if path == "monitoring/v4.0/serviceability/alerts":
-            return self._v4_page(est.alerts, r.alert_v4, path, page, limit)
+            return self._v4_page(alerts, r.alert_v4, path, page, limit)
         if path in lists:
             items, render = lists[path]
             return self._v4_page(items, render, path, page, limit)
