@@ -7,6 +7,8 @@ export type Route =
   | { screen: 'overview' }
   | { screen: 'new'; connectionId?: string; mode?: 'prism_central' | 'prism_element' }
   | { screen: 'multi' }
+  /** `edit`: a target id or 'new' opens the editor; after saving, `returnTo` goes back there. */
+  | { screen: 'targets'; edit?: string; returnTo?: 'new' | 'multi' }
   | { screen: 'collecting' }
   | { screen: 'results'; snapshot?: string }
   | { screen: 'inventory'; snapshot?: string; type?: string; filterText?: string }

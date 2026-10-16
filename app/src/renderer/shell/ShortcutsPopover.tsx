@@ -32,6 +32,7 @@ export function ShortcutsPopover({ onClose }: { onClose(): void }): JSX.Element 
     ['Search and jump', [`${mod}K`]],
     ['Keyboard shortcuts', ['?']],
     ['Go to Overview', ['g', 'o']],
+    ['Go to Targets', ['g', 't']],
     ['Go to New collection', ['g', 'n']],
     ['Go to Multiple PCs', ['g', 'm']],
     ['Go to Inventory', ['g', 'i']],

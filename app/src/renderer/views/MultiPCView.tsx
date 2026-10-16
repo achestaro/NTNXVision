@@ -1,5 +1,6 @@
 // Multiple Prism Centrals (mock: MultiPC.dc.html). Per the design review, row actions live
-// in a kebab menu (Edit, Test, Remove) instead of inline Edit/Remove buttons.
+// in a kebab menu (Edit, Test, Remove) instead of inline Edit/Remove buttons. The list only
+// holds Prism Central targets saved on the Targets page; Edit opens the Targets editor.
 
 import React, { useEffect, useMemo, useState } from 'react';
 import { PlusIcon } from '@phosphor-icons/react';
@@ -9,7 +10,7 @@ import {
   Callout,
   Checkbox,
   DataTable,
-  Dialog,
+  EmptyState,
   Field,
   FilePrefixField,
   LoadingPage,
@@ -43,10 +44,9 @@ interface Row {
   name: string;
   ndbHost?: string;
   ndbUser?: string;
-  ndbPassword?: string;
   hasPassword: boolean;
+  /** A one-run password when the keychain has none (never saved). */
   password: string;
-  savePassword: boolean;
   test: RowTest;
 }
 
@@ -62,7 +62,6 @@ function fromConnection(c: SavedConnection): Row {
     ndbUser: c.ndbUser,
     hasPassword: c.hasPassword,
     password: '',
-    savePassword: true,
     test: { kind: 'idle' },
   };
 }
@@ -93,8 +92,6 @@ export function MultiPCView(): JSX.Element {
   const toast = useToast();
   const [saved, setSaved] = useState<SavedConnection[]>([]);
   const [rows, setRows] = useState<Row[] | null>(null);
-  const [editing, setEditing] = useState<Row | 'new' | null>(null);
-  const [pasting, setPasting] = useState(false);
   const [combine, setCombine] = useState(true);
   const [combinedName, setCombinedName] = useState('');
   /** The run's snapshot name: each target is saved as "<name> (<target>)". */
@@ -150,6 +147,7 @@ export function MultiPCView(): JSX.Element {
         username: row.username,
         password: row.password,
         insecure: row.insecure,
+        targetId: row.id,
       });
       patch(row.id, { test: { kind: 'done', result } });
     } catch (e) {
@@ -161,31 +159,8 @@ export function MultiPCView(): JSX.Element {
 
   const remove = (row: Row) => persist((rows ?? []).filter((r) => r.id !== row.id));
 
-  const upsert = async (row: Row, prevId?: string) => {
-    try {
-      const cs = await window.ntnx.saveConnection({
-        id: row.id.startsWith('tmp:') ? '' : row.id,
-        mode: 'prism_central',
-        host: row.host,
-        username: row.username,
-        port: row.port,
-        insecure: row.insecure,
-        name: row.name.trim() || row.host,
-        ndbHost: row.ndbHost,
-        ndbUser: row.ndbUser,
-      });
-      setSaved(cs);
-      const savedRow = cs.find((c) => c.host === row.host && c.username === row.username && c.port === row.port);
-      const merged: Row = savedRow ? { ...row, id: savedRow.id, hasPassword: savedRow.hasPassword } : row;
-      const cur = rows ?? [];
-      const target = prevId ?? merged.id;
-      const next = cur.some((r) => r.id === target) ? cur.map((r) => (r.id === target ? merged : r)) : [...cur, merged];
-      persist(next);
-      void testRow(merged);
-    } catch (e) {
-      toast.show({ tone: 'error', title: 'Couldn’t save the target', detail: errorMessage(e) });
-    }
-  };
+  /** The Targets page editor; saving there comes back here (a new PC joins this list). */
+  const editTarget = (id?: string) => navigate({ screen: 'targets', edit: id ?? 'new', returnTo: 'multi' });
 
   const addSaved = (id: string) => {
     const c = saved.find((x) => x.id === id);
@@ -232,20 +207,20 @@ export function MultiPCView(): JSX.Element {
     setStartTried(true);
     if (!canStart) return;
     setStartError(null);
-    const typed = runnable.filter((r) => r.password);
     try {
       await startMulti({
         targets: runnable.map((r) => ({
+          targetId: r.id,
           host: r.host,
           username: r.username,
           password: r.password,
           port: r.port,
           insecure: r.insecure,
           name: targetSnapshot(r),
-          ndb: r.ndbHost ? { host: r.ndbHost, username: r.ndbUser ?? 'admin', password: r.ndbPassword ?? '' } : undefined,
+          // The NDB password comes from the target's keychain entry (main process).
+          ndb: r.ndbHost ? { host: r.ndbHost, username: r.ndbUser ?? 'admin', password: '' } : undefined,
         })),
         formats,
-        saveCredentials: typed.length > 0 && typed.every((r) => r.savePassword),
         exportDir: dir || undefined,
         filePrefix: prefix,
         combine: combining,
@@ -259,44 +234,11 @@ export function MultiPCView(): JSX.Element {
 
   useConfirmShortcut(() => void start(), canStart);
 
-  const addParsed = async (parsed: Parsed[]) => {
-    const existing = new Set(all.map((r) => `${r.host}:${r.port}`));
-    const fresh = parsed.filter((p) => !existing.has(`${p.host}:${p.port}`));
-    if (!fresh.length) {
-      toast.show({ tone: 'warn', title: 'Nothing new to add', detail: 'Every address is already in the list.' });
-      return;
-    }
-    try {
-      let cs = saved;
-      for (const p of fresh) {
-        if (cs.some((c) => c.host === p.host && c.port === p.port && c.username === p.username)) continue;
-        cs = await window.ntnx.saveConnection({
-          id: '',
-          mode: 'prism_central',
-          host: p.host,
-          username: p.username,
-          port: p.port,
-          insecure: false,
-          name: p.host,
-        });
-      }
-      setSaved(cs);
-      const newRows = fresh
-        .map((p) => cs.find((c) => c.host === p.host && c.port === p.port && c.username === p.username))
-        .filter((c): c is SavedConnection => !!c)
-        .map(fromConnection);
-      persist([...all, ...newRows]);
-      toast.show({ tone: 'ok', title: `Added ${fmtCount(newRows.length)} Prism ${newRows.length === 1 ? 'Central' : 'Centrals'}` });
-    } catch (e) {
-      toast.show({ tone: 'error', title: 'Couldn’t add the list', detail: errorMessage(e) });
-    }
-  };
-
   const rowActions = (r: Row): MenuItem[] => [
-    { label: 'Edit', onSelect: () => setEditing(r) },
+    { label: 'Edit target…', onSelect: () => editTarget(r.id) },
     { label: 'Test', onSelect: () => void testRow(r) },
     'separator',
-    { label: 'Remove', danger: true, onSelect: () => remove(r) },
+    { label: 'Remove from this run', danger: true, onSelect: () => remove(r) },
   ];
 
   const cta = useMemo(() => {
@@ -313,13 +255,37 @@ export function MultiPCView(): JSX.Element {
     );
   }
 
+  const header = (
+    <PageHeader
+      eyebrow="Collect / Multiple Prism Centrals"
+      title="Multiple Prism Centrals"
+      description="Collect several Prism Centrals in one run, then merge them into a single estate-wide report."
+    />
+  );
+
+  if (!saved.some((c) => c.mode === 'prism_central')) {
+    return (
+      <>
+        {header}
+        <Panel>
+          <EmptyState
+            illustration="no-target"
+            title="Add a Prism Central target first"
+            description="Multiple PCs collects from Prism Central targets saved on the Targets page, with their passwords in your OS keychain."
+            action={
+              <Button variant="primary" icon={PlusIcon} onClick={() => editTarget()}>
+                Add a target
+              </Button>
+            }
+          />
+        </Panel>
+      </>
+    );
+  }
+
   return (
     <>
-      <PageHeader
-        eyebrow="Collect / Multiple Prism Centrals"
-        title="Multiple Prism Centrals"
-        description="Collect several Prism Centrals in one run, then merge them into a single estate-wide report."
-      />
+      {header}
 
       <div className="split">
         <div className="split-main">
@@ -347,8 +313,8 @@ export function MultiPCView(): JSX.Element {
                 empty={
                   <div className="empty-page" style={{ padding: '24px 16px' }}>
                     <Illustration name="no-target" size={160} />
-                    <h2>No Prism Centrals yet</h2>
-                    <p>Add one, pick a saved target, or paste a list.</p>
+                    <h2>No Prism Centrals in this run yet</h2>
+                    <p>Add Prism Central targets from the list below.</p>
                   </div>
                 }
                 columns={[
@@ -384,7 +350,7 @@ export function MultiPCView(): JSX.Element {
                     header: 'NDB',
                     className: (r) => (r.ndbHost ? 'mono' : 'dash'),
                     style: { fontSize: 12 },
-                    render: (r) => r.ndbHost || 'None',
+                    render: (r) => r.ndbHost || NA,
                   },
                   { key: 'conn', header: 'Connection', render: (r) => <RowStatus row={r} /> },
                 ]}
@@ -398,26 +364,39 @@ export function MultiPCView(): JSX.Element {
               />
             </div>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, padding: '10px 12px', borderTop: '1px solid var(--rule-2)' }}>
-              <Button size="sm" icon={PlusIcon} onClick={() => setEditing('new')}>
-                Add Prism Central
-              </Button>
               <select
                 className="input sm"
-                aria-label="Add a saved target"
-                style={{ width: 240 }}
+                aria-label="Add a target"
+                style={{ width: 260 }}
                 value=""
                 onChange={(e) => addSaved(e.target.value)}
                 disabled={!available.length}
               >
-                <option value="">{available.length ? 'Add a saved target…' : 'No other saved targets'}</option>
-                {available.map((c) => (
-                  <option key={c.id} value={c.id} title={`${c.host}:${c.port}`}>
-                    {targetLabel(c)} · {c.username}
-                  </option>
-                ))}
+                <option value="">{available.length ? 'Add a target to this run…' : 'Every Prism Central target is listed'}</option>
+                {[...available]
+                  .sort((x, y) => targetLabel(x).localeCompare(targetLabel(y)))
+                  .map((c) => (
+                    <option key={c.id} value={c.id} title={`${c.host}:${c.port}`}>
+                      {targetLabel(c)} · {c.host}
+                    </option>
+                  ))}
               </select>
-              <Button size="sm" variant="ghost" onClick={() => setPasting(true)}>
-                Paste a list…
+              {available.length > 1 && (
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => {
+                    const added = available.map(fromConnection);
+                    persist([...(rows ?? []), ...added]);
+                    added.forEach((r) => void testRow(r));
+                  }}
+                >
+                  Add all {fmtCount(available.length)}
+                </Button>
+              )}
+              <div style={{ flex: 1 }} />
+              <Button size="sm" variant="ghost" icon={PlusIcon} onClick={() => editTarget()}>
+                New target…
               </Button>
             </div>
           </Panel>
@@ -547,25 +526,6 @@ export function MultiPCView(): JSX.Element {
         </Panel>
       </div>
 
-      {editing && (
-        <TargetDialog
-          row={editing === 'new' ? null : editing}
-          onClose={() => setEditing(null)}
-          onSave={(r) => {
-            void upsert(r, editing === 'new' ? undefined : editing.id);
-            setEditing(null);
-          }}
-        />
-      )}
-      {pasting && (
-        <PasteDialog
-          onClose={() => setPasting(false)}
-          onAdd={(parsed) => {
-            setPasting(false);
-            void addParsed(parsed);
-          }}
-        />
-      )}
     </>
   );
 }
@@ -621,157 +581,4 @@ function failureBody(r: Row, others: number): string {
     return `Edit the target and turn off certificate verification if you trust it, or remove it.${rest}`;
   }
   return `Check the address and network, then retry, or remove it.${rest}`;
-}
-
-function TargetDialog({ row, onClose, onSave }: { row: Row | null; onClose(): void; onSave(r: Row): void }): JSX.Element {
-  // A name equal to the address is the default: show it as the placeholder instead.
-  const [name, setName] = useState(row?.name && row.name !== row.host ? row.name : '');
-  const [host, setHost] = useState(row?.host ?? '');
-  const [port, setPort] = useState(String(row?.port ?? 9440));
-  const [username, setUsername] = useState(row?.username ?? 'admin');
-  const [password, setPassword] = useState(row?.password ?? '');
-  const [verify, setVerify] = useState(!(row?.insecure ?? false));
-  const [savePw, setSavePw] = useState(row?.savePassword ?? true);
-  const [ndbHost, setNdbHost] = useState(row?.ndbHost ?? '');
-  const [ndbUser, setNdbUser] = useState(row?.ndbUser ?? 'admin');
-  const [ndbPass, setNdbPass] = useState(row?.ndbPassword ?? '');
-  const [err, setErr] = useState<string | null>(null);
-
-  const save = () => {
-    const p = Number(port);
-    if (!host.trim()) return setErr('Enter an address.');
-    if (!Number.isInteger(p) || p < 1 || p > 65535) return setErr('Port must be 1–65535.');
-    onSave({
-      id: row?.id ?? `tmp:${host.trim()}:${p}:${username}`,
-      host: host.trim(),
-      port: p,
-      username,
-      password,
-      insecure: !verify,
-      name: name.trim() || host.trim(),
-      ndbHost: ndbHost.trim() || undefined,
-      ndbUser: ndbHost.trim() ? ndbUser : undefined,
-      ndbPassword: ndbHost.trim() ? ndbPass : undefined,
-      hasPassword: row?.hasPassword ?? false,
-      savePassword: savePw,
-      test: { kind: 'idle' },
-    });
-  };
-
-  return (
-    <Dialog
-      open
-      onClose={onClose}
-      width={560}
-      title={row ? `Edit ${targetLabel(row)}` : 'Add Prism Central'}
-      onConfirm={save}
-      footer={
-        <div className="dialog-foot">
-          <Button onClick={onClose}>Cancel</Button>
-          <Button variant="primary" onClick={save} kbd="⌘↵">
-            {row ? 'Save and test' : 'Add and test'}
-          </Button>
-        </div>
-      }
-    >
-      <div className="connect-grid" style={{ marginTop: 16 }}>
-        <Field id="t-name" label="Name">
-          <input
-            className="input"
-            value={name}
-            placeholder={host.trim() || 'Same as the address'}
-            spellCheck={false}
-            autoComplete="off"
-            onChange={(e) => setName(e.target.value)}
-          />
-        </Field>
-        <Field id="t-host" label="Prism Central address (FQDN or IP)" error={err}>
-          <input className="input mono" value={host} onChange={(e) => (setHost(e.target.value), setErr(null))} data-autofocus />
-        </Field>
-        <Field id="t-port" label="Port">
-          <input className="input mono" value={port} onChange={(e) => setPort(e.target.value.replace(/[^0-9]/g, ''))} />
-        </Field>
-        <Field id="t-user" label="Username">
-          <input className="input" value={username} onChange={(e) => setUsername(e.target.value)} />
-        </Field>
-        <Field id="t-pw" label="Password" className="connect-pw" hint={row?.hasPassword ? 'Leave empty to use the password saved in your keychain.' : undefined}>
-          <input className="input" type="password" value={password} onChange={(e) => setPassword(e.target.value)} />
-        </Field>
-        <div className="span-all" style={{ display: 'flex', flexWrap: 'wrap', gap: '8px 24px' }}>
-          <Checkbox checked={verify} onChange={setVerify}>
-            Verify TLS certificate
-          </Checkbox>
-          <Checkbox checked={savePw} onChange={setSavePw}>
-            Save the password to the keychain
-          </Checkbox>
-        </div>
-        <div className="span-all eyebrow" style={{ borderTop: '1px solid var(--rule-2)', paddingTop: 12 }}>
-          NDB (optional)
-        </div>
-        <Field id="t-ndb" label="NDB host" className="span-all">
-          <input className="input mono" placeholder="ndb.example.com" value={ndbHost} onChange={(e) => setNdbHost(e.target.value)} />
-        </Field>
-        <Field id="t-ndbu" label="NDB username">
-          <input className="input" value={ndbUser} onChange={(e) => setNdbUser(e.target.value)} disabled={!ndbHost} />
-        </Field>
-        <Field id="t-ndbp" label="NDB password" className="connect-pw">
-          <input className="input" type="password" value={ndbPass} onChange={(e) => setNdbPass(e.target.value)} disabled={!ndbHost} />
-        </Field>
-      </div>
-    </Dialog>
-  );
-}
-
-interface Parsed {
-  host: string;
-  port: number;
-  username: string;
-}
-
-function parseList(text: string): { ok: Parsed[]; bad: string[] } {
-  const ok: Parsed[] = [];
-  const bad: string[] = [];
-  for (const raw of text.split(/\r?\n/)) {
-    const line = raw.trim();
-    if (!line || line.startsWith('#')) continue;
-    const [addr, user] = line.split(/[\s,;]+/);
-    const m = /^([A-Za-z0-9.-]+)(?::(\d{1,5}))?$/.exec(addr.replace(/^https?:\/\//, '').replace(/\/.*$/, ''));
-    if (!m) {
-      bad.push(line);
-      continue;
-    }
-    ok.push({ host: m[1], port: m[2] ? Number(m[2]) : 9440, username: user || 'admin' });
-  }
-  return { ok, bad };
-}
-
-function PasteDialog({ onClose, onAdd }: { onClose(): void; onAdd(p: Parsed[]): void }): JSX.Element {
-  const [text, setText] = useState('');
-  const { ok, bad } = parseList(text);
-  const add = () => ok.length && onAdd(ok);
-  return (
-    <Dialog
-      open
-      onClose={onClose}
-      width={560}
-      title="Paste a list of Prism Centrals"
-      onConfirm={add}
-      footer={
-        <div className="dialog-foot">
-          <Button onClick={onClose}>Cancel</Button>
-          <span className="dialog-foot-right">
-            {bad.length > 0 && <span className="hint">{bad.length} lines not understood</span>}
-            <Button variant="primary" onClick={add} disabled={!ok.length} kbd="⌘↵">
-              {ok.length ? `Add ${fmtCount(ok.length)}` : 'Add'}
-            </Button>
-          </span>
-        </div>
-      }
-    >
-      <p className="dialog-body">One per line: an address, optionally with a port and a username. For example: pc02.example.com:9440 admin.</p>
-      <Field id="paste" label="Prism Centrals" style={{ marginTop: 12 }}>
-        <textarea className="input mono" rows={8} value={text} onChange={(e) => setText(e.target.value)} data-autofocus spellCheck={false} />
-      </Field>
-    </Dialog>
-  );
 }
