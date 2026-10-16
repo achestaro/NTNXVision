@@ -122,6 +122,12 @@ class MockApi:
         #: (host, method, path) → request count, for tests that assert paging happened.
         self.hits: dict[tuple[str, str, str], int] = {}
 
+    def reset_throttling(self) -> None:
+        """Forget the one-off alerts 429s and the rate-limit window (demo.reset)."""
+        with self._lock:
+            self._throttled_once.clear()
+            self._alert_hits.clear()
+
     # ─── entry point ───────────────────────────────────────────────
 
     def handle(
@@ -238,6 +244,8 @@ class MockApi:
             rows = est.containers
         elif etype == "vm" and "is_cvm==1" in str(body.get("filter_criteria") or ""):
             rows = est.cvms
+        elif etype == "host":
+            rows = est.hosts
         else:
             return 400, {"message": f"Unsupported groups query for {etype}"}, {}
         page = _page(rows, offset, count)
@@ -389,6 +397,14 @@ class MockApi:
     # ─── Prism Element v2.0 ────────────────────────────────────────
 
     def _pe(self, est: PeEstate, method: str, path: str, query: dict[str, str]) -> Response:
+        if method == "GET" and path.rstrip("/") == "/PrismGateway/services/rest/v1/vms":
+            # Only the Controller VMs: the collector reads v1 for nothing else.
+            page_no = max(1, _int(query.get("page"), 1))
+            count = min(max(1, _int(query.get("count"), 20)), 500)
+            host_uuid = {h["name"]: h["uuid"] for h in est.hosts}
+            rows = _page(est.cvms, (page_no - 1) * count, count)
+            return 200, r.v1_list([r.pe_cvm_v1(c, host_uuid.get(c["host_name"]))
+                                   for c in rows], len(est.cvms), page_no, count), {}
         prefix = "/PrismGateway/services/rest/v2.0/"
         if method != "GET" or not path.startswith(prefix):
             return 404, {"message": f"Not found: {path}"}, {}

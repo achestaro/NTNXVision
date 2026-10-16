@@ -24,7 +24,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from ntnxvision_core.synthetic.estate import GIB, MIB, PcEstate, PeEstate
+from ntnxvision_core.synthetic.estate import GIB, MIB, PcEstate, PeEstate, uid
 
 _R = {"$fv": "v4.r0"}
 
@@ -268,6 +268,11 @@ def host_v4(h: dict[str, Any], num_vms: int) -> dict[str, Any]:
         "maintenanceState": h["maintenance"],
         # v4 pads a GPU-less host's list with an empty string.
         "gpuList": h["gpus"] or [""],
+        # Physical disks; their sizes sum to the node's raw storage.
+        "disk": [{"extId": uid(h["uuid"], "disk", i), "serialId": f"{h['serial']}-D{i:02d}",
+                  "sizeInBytes": d["size"], "storageTier": d["tier"],
+                  "mountPath": f"/home/nutanix/data/stargate-storage/disks/{i}"}
+                 for i, d in enumerate(h["disks"])],
     })
 
 
@@ -338,6 +343,11 @@ _GROUP_ATTRS = {
     "storage.user_free_bytes": lambda ct: str(ct["free"]),
 }
 
+_HOST_ATTRS = {
+    "host_name": lambda h: h["name"],
+    "storage.capacity_bytes": lambda h: str(h["storage_raw"]),
+}
+
 _CVM_ATTRS = {
     "vm_name": lambda v: v["name"],
     "power_state": lambda v: "on",
@@ -353,7 +363,8 @@ _CVM_ATTRS = {
 def groups_response(
     entity_type: str, rows: list[dict[str, Any]], attrs: list[str], total: int,
 ) -> dict[str, Any]:
-    getters = _GROUP_ATTRS if entity_type == "storage_container" else _CVM_ATTRS
+    getters = (_GROUP_ATTRS if entity_type == "storage_container"
+               else _HOST_ATTRS if entity_type == "host" else _CVM_ATTRS)
     results = []
     for row in rows:
         data = []
@@ -1121,7 +1132,27 @@ def pe_host_v2(h: dict[str, Any], num_vms: int) -> dict[str, Any]:
         "serial": h["serial"], "ipmi_address": h["ipmi_ip"],
         "service_vmexternal_ip": h["cvm_ip"], "hypervisor_address": h["hv_ip"],
         "boot_time_in_usecs": 1755000000000000, "num_vms": num_vms,
+        "usage_stats": {"storage.capacity_bytes": str(h["storage_raw"])},
     }
+
+
+def pe_cvm_v1(cvm: dict[str, Any], host_uuid: str | None) -> dict[str, Any]:
+    """A Controller VM as Prism Element's v1 VM list reports it (v2.0 omits CVMs)."""
+    return {
+        "vmId": f"{cvm['uuid']}::1", "uuid": cvm["uuid"], "vmName": cvm["name"],
+        "controllerVm": True, "powerState": "on", "numVCpus": cvm["vcpus"],
+        "memoryCapacityInBytes": cvm["memory"], "hostName": cvm["host_name"],
+        "hostUuid": host_uuid, "ipAddresses": [cvm["ip"]],
+    }
+
+
+def v1_list(entities: list[dict[str, Any]], total: int, page: int, count: int
+            ) -> dict[str, Any]:
+    return {"metadata": {"grandTotalEntities": total, "totalEntities": total,
+                         "page": page, "count": count,
+                         "startIndex": (page - 1) * count + 1,
+                         "endIndex": (page - 1) * count + len(entities)},
+            "entities": entities}
 
 
 def pe_container_v2(ct: dict[str, Any]) -> dict[str, Any]:

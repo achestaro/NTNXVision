@@ -317,6 +317,7 @@ def _export_options(params: dict[str, Any]) -> dict[str, Any]:
         "template": word.get("template") or "standard",
         "prepared_for": word.get("prepared_for") or "",
         "author": word.get("author") or "",
+        "vcpu_ratio": params.get("vcpu_ratio"),
     }
 
 
@@ -498,7 +499,8 @@ def _m_inventory_multi(req_id: Any, params: dict[str, Any]) -> dict[str, Any]:
 def _multi(handle: RunHandle, targets: list[dict[str, Any]], params: dict[str, Any]
            ) -> dict[str, Any]:
     finalize_params = {"formats": params.get("formats"), "export_dir": params.get("export_dir"),
-                       "sections": params.get("sections"), "word": params.get("word")}
+                       "sections": params.get("sections"), "word": params.get("word"),
+                       "vcpu_ratio": params.get("vcpu_ratio")}
     formats = params.get("formats") or []
     outcomes: list[tuple[Any, RunTracker | None, Exception | None]] = [
         (None, None, None)] * len(targets)
@@ -798,7 +800,7 @@ def _m_query_inventory(_req_id: Any, params: dict[str, Any]) -> dict[str, Any]:
     env = _cache.get(path)
     return _inventory_service().query(
         env, str(params.get("object_type") or "vms"), params.get("filter") or {},
-        params.get("sort"), params.get("page") or {})
+        params.get("sort"), params.get("page") or {}, params.get("vcpu_ratio"))
 
 
 def _m_get_object_detail(_req_id: Any, params: dict[str, Any]) -> dict[str, Any]:
@@ -806,7 +808,8 @@ def _m_get_object_detail(_req_id: Any, params: dict[str, Any]) -> dict[str, Any]
     env = _cache.get(path)
     try:
         return _inventory_service().detail(
-            env, str(params.get("object_type") or "vms"), str(params.get("id") or ""))
+            env, str(params.get("object_type") or "vms"), str(params.get("id") or ""),
+            params.get("vcpu_ratio"))
     except KeyError as exc:
         raise NutanixApiError(str(exc).strip("'\"")) from exc
 
