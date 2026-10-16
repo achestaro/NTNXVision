@@ -27,6 +27,7 @@ import { useSettings } from '../lib/settings';
 import { useRun } from '../lib/run';
 import { useRouter } from '../lib/router';
 import { useConfirmShortcut } from '../lib/keyboard';
+import { testOutcome } from './ConnectionTest';
 import { NA, REPORT_EXT, errorMessage, fmtCount, reportFileName, sanitizeSnapshotName, snapshotNameIssue, targetLabel, tildify } from '../lib/format';
 
 type RowTest =
@@ -68,21 +69,6 @@ function fromConnection(c: SavedConnection): Row {
 
 function failed(r: Row): boolean {
   return r.test.kind === 'error' || (r.test.kind === 'done' && !r.test.result.ok);
-}
-
-function failureText(r: Row): string {
-  if (r.test.kind === 'error') return r.test.message;
-  if (r.test.kind !== 'done') return '';
-  switch (r.test.result.status) {
-    case 'auth_failed':
-      return 'credentials rejected';
-    case 'untrusted_cert':
-      return 'certificate not trusted';
-    case 'unreachable':
-      return 'unreachable';
-    default:
-      return r.test.result.message;
-  }
 }
 
 export function MultiPCView(): JSX.Element {
@@ -236,7 +222,7 @@ export function MultiPCView(): JSX.Element {
 
   const rowActions = (r: Row): MenuItem[] => [
     { label: 'Edit target…', onSelect: () => editTarget(r.id) },
-    { label: 'Test', onSelect: () => void testRow(r) },
+    { label: 'Test connection', onSelect: () => void testRow(r) },
     'separator',
     { label: 'Remove from this run', danger: true, onSelect: () => remove(r) },
   ];
@@ -354,13 +340,6 @@ export function MultiPCView(): JSX.Element {
                   },
                   { key: 'conn', header: 'Connection', render: (r) => <RowStatus row={r} /> },
                 ]}
-                rowInlineActions={(r) =>
-                  failed(r) ? (
-                    <Button size="sm" onClick={() => void testRow(r)} style={{ marginRight: 4 }}>
-                      Retry
-                    </Button>
-                  ) : null
-                }
               />
             </div>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, padding: '10px 12px', borderTop: '1px solid var(--rule-2)' }}>
@@ -402,7 +381,22 @@ export function MultiPCView(): JSX.Element {
           </Panel>
 
           {failedRows.map((r) => (
-            <Callout key={r.id} tone="error" title={failureTitle(r)}>
+            <Callout
+              key={r.id}
+              tone="error"
+              title={failureTitle(r)}
+              actions={
+                r.test.kind === 'done' && r.test.result.status === 'untrusted_cert' ? (
+                  <Button size="sm" onClick={() => editTarget(r.id)}>
+                    Edit target…
+                  </Button>
+                ) : (
+                  <Button size="sm" onClick={() => void testRow(r)}>
+                    Test again
+                  </Button>
+                )
+              }
+            >
               {failureBody(r, all.length - 1)}
             </Callout>
           ))}
@@ -532,7 +526,14 @@ export function MultiPCView(): JSX.Element {
 
 function RowStatus({ row: r }: { row: Row }): JSX.Element {
   if (r.test.kind === 'testing') return <Status tone="live">Testing…</Status>;
-  if (r.test.kind === 'error') return <Status tone="error">Failed · {r.test.message}</Status>;
+  // Failures name the reason only (the red glyph says it failed) so the row's kebab stays
+  // in view; the full message is the tooltip and the callout below the table.
+  if (r.test.kind === 'error')
+    return (
+      <span title={r.test.message}>
+        <Status tone="error">Test failed</Status>
+      </span>
+    );
   if (r.test.kind === 'done') {
     const res = r.test.result;
     if (res.status === 'ok')
@@ -547,7 +548,11 @@ function RowStatus({ row: r }: { row: Row }): JSX.Element {
           Verified <span className="mono t12 muted">· {res.version} unsupported</span>
         </Status>
       );
-    return <Status tone="error">Failed · {failureText(r)}</Status>;
+    return (
+      <span title={res.message}>
+        <Status tone="error">{res.status === 'error' ? 'Failed' : testOutcome(res.status).label}</Status>
+      </span>
+    );
   }
   return (
     <Status tone="idle" shape="outline">
@@ -575,10 +580,10 @@ function failureTitle(r: Row): string {
 function failureBody(r: Row, others: number): string {
   const rest = others > 0 ? ` You can also start now: ${r.host.split('.')[0]} will be skipped and noted in the report.` : '';
   if (r.test.kind === 'done' && r.test.result.status === 'auth_failed') {
-    return `Enter the password and retry, or remove it to collect the other ${others}.${rest}`;
+    return `Enter the password and test again, or remove it to collect the other ${others}.${rest}`;
   }
   if (r.test.kind === 'done' && r.test.result.status === 'untrusted_cert') {
     return `Edit the target and turn off certificate verification if you trust it, or remove it.${rest}`;
   }
-  return `Check the address and network, then retry, or remove it.${rest}`;
+  return `Check the address and network, then test again, or remove it.${rest}`;
 }

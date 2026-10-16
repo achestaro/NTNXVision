@@ -30,7 +30,7 @@ import type { MenuItem, SortState } from '../components';
 import { useRouter } from '../lib/router';
 import { useSettings } from '../lib/settings';
 import { NA, errorMessage, fmtAbs, fmtCount, fmtRel, plural, targetLabel } from '../lib/format';
-import { TestOutcome } from './ConnectionTest';
+import { TestOutcome, testOutcome } from './ConnectionTest';
 import type { TestState } from './ConnectionTest';
 
 /** What the snapshot list says about one target (matched by address). */
@@ -138,7 +138,26 @@ export function TargetsView({ edit, returnTo }: { edit?: string; returnTo?: 'new
         insecure: t.insecure,
         targetId: t.id,
       });
-      toast.show({ tone: r.ok ? 'ok' : 'error', title: `${targetLabel(t)}: ${r.ok ? 'connection verified' : 'connection failed'}`, detail: r.ok ? r.version ?? undefined : r.message });
+      const o = testOutcome(r.status);
+      const title =
+        r.status === 'ok'
+          ? `${targetLabel(t)}: connection verified`
+          : r.status === 'version_unsupported'
+            ? `${targetLabel(t)}: connected, version outside the supported range`
+            : `${targetLabel(t)}: connection failed, ${o.label.toLowerCase()}`;
+      const detail =
+        r.status === 'ok'
+          ? r.version ?? undefined
+          : r.status === 'version_unsupported'
+            ? [r.version, r.supported_range && `supported ${r.supported_range}`, 'you can still collect'].filter(Boolean).join(' · ')
+            : [r.message, o.hint].filter(Boolean).join('. ');
+      toast.show({
+        tone: o.tone,
+        title,
+        detail,
+        // A failure is fixed in the editor: a new password, or TLS verification off for a self-signed certificate.
+        action: r.ok ? undefined : { label: 'Edit…', onClick: () => setEditing(t) },
+      });
     } catch (e) {
       toast.show({ tone: 'error', title: `Couldn’t test ${targetLabel(t)}`, detail: errorMessage(e) });
     } finally {
@@ -394,9 +413,13 @@ function LastTest({ target: t, testing }: { target: SavedConnection; testing: bo
   );
   if (r.status === 'ok') return <Status tone="ok">Verified{when}</Status>;
   if (r.status === 'version_unsupported') return <Status tone="warn">Version warning{when}</Status>;
-  const what =
-    r.status === 'auth_failed' ? 'Credentials rejected' : r.status === 'untrusted_cert' ? 'Certificate not trusted' : r.status === 'unreachable' ? 'Unreachable' : 'Failed';
-  return <Status tone="error">{what}{when}</Status>;
+  const o = testOutcome(r.status);
+  return (
+    <Status tone={o.tone}>
+      {o.label}
+      {when}
+    </Status>
+  );
 }
 
 type Errors = Partial<Record<TargetField, string>>;
@@ -510,7 +533,9 @@ function TargetEditor({
 
   const facts = target
     ? [
-        target.lastTest ? `Last tested ${fmtRel(target.lastTest.at)}` : 'Not tested yet',
+        target.lastTest
+          ? `Last tested ${fmtRel(target.lastTest.at)}${target.lastTest.status === 'ok' ? '' : ` (${testOutcome(target.lastTest.status).label.toLowerCase()})`}`
+          : 'Not tested yet',
         stats?.last ? `last collected ${fmtRel(stats.last)}` : 'never collected',
         plural(stats?.count ?? 0, 'snapshot'),
       ].join(' · ')
