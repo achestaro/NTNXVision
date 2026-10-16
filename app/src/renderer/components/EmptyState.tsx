@@ -15,6 +15,7 @@ export function EmptyState({
   action,
   secondary,
   illustration,
+  compact = false,
 }: {
   title: string;
   description: string;
@@ -22,10 +23,12 @@ export function EmptyState({
   secondary?: React.ReactNode;
   /** The view's one Nutanix isometric illustration (nutanixManifest.ts, tier 3). */
   illustration: IllustrationName;
+  /** Panel-sized: smaller illustration and padding, centred in the panel's height. */
+  compact?: boolean;
 }): JSX.Element {
   return (
-    <div className="empty-page">
-      <Illustration name={illustration} size={160} />
+    <div className={compact ? 'empty-page compact' : 'empty-page'}>
+      <Illustration name={illustration} size={compact ? 96 : 160} />
       <h2>{title}</h2>
       <p>{description}</p>
       {(action || secondary) && (

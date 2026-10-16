@@ -1768,6 +1768,27 @@ dl {
   display: flex;
   gap: 8px;
 }
+.empty-page.compact {
+  flex: 1;
+  justify-content: center;
+  gap: 4px;
+  padding: 16px;
+}
+.empty-page.compact h2 {
+  font-size: 14px;
+  line-height: 20px;
+  margin-top: 4px;
+}
+.empty-page.compact p {
+  font-size: 13px;
+  line-height: 18px;
+  max-width: 360px;
+}
+/* A panel that fills its grid cell, so side-by-side panels share one height. */
+.panel.panel-fill {
+  display: flex;
+  flex-direction: column;
+}
 .empty-inline {
   padding: 16px 12px;
   color: var(--ink-3);
