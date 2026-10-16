@@ -1,4 +1,4 @@
-// 40 px command bar, dark in every theme: brand · ⌘K search · run/connection readout ·
+// 40 px command bar, dark in every theme: brand · ⌘K search · live run progress ·
 // theme menu (System / Light / Dark / High contrast) · help.
 
 import React from 'react';
@@ -6,7 +6,7 @@ import { MagnifyingGlassIcon, QuestionIcon } from '@phosphor-icons/react';
 import { Icon } from '../components/Icon';
 import { NutanixIcon } from '../components/icons';
 import { useRouter } from '../lib/router';
-import { modKey, useSettings } from '../lib/settings';
+import { modKey } from '../lib/settings';
 import { runCounts, useRun } from '../lib/run';
 import { fmtCount } from '../lib/format';
 import { ThemeModeMenu } from './ThemeModeMenu';
@@ -15,16 +15,12 @@ export function CommandBar({
   onOpenPalette,
   helpOpen,
   onToggleHelp,
-  readout,
 }: {
   onOpenPalette(): void;
   helpOpen: boolean;
   onToggleHelp(): void;
-  /** Latest snapshot's source · version, shown when nothing is running. */
-  readout: string | null;
 }): JSX.Element {
   const { navigate } = useRouter();
-  const { appInfo } = useSettings();
   const { run, isRunning } = useRun();
 
   let live: string | null = null;
@@ -46,12 +42,7 @@ export function CommandBar({
         <span className="kbd">{modKey()}K</span>
       </button>
       <div style={{ flex: 1 }} />
-      {appInfo?.demo && (
-        <span className="bar-readout" title="Demo mode: collections run against the built-in synthetic Nutanix estate, not your network">
-          Demo data
-        </span>
-      )}
-      {live ? (
+      {live && (
         <button
           type="button"
           className="bar-readout live"
@@ -61,8 +52,6 @@ export function CommandBar({
           <span className="g" style={{ background: 'var(--bar-live)' }} aria-hidden="true" />
           {live}
         </button>
-      ) : (
-        readout && <span className="bar-readout">{readout}</span>
       )}
       <ThemeModeMenu />
       <button

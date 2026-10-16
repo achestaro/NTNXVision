@@ -205,7 +205,11 @@ try {
   await page.getByRole('heading', { level: 1 }).first().waitFor({ timeout: 60_000 });
 
   await run('overview-empty', async () => {
-    await page.getByText('Demo data').first().waitFor();
+    await page.getByRole('heading', { name: 'No snapshots yet' }).waitFor();
+    await page.getByRole('heading', { name: 'No saved targets yet' }).waitFor();
+    // The command bar carries no static text labels, only icons (and a live run button).
+    const barText = (await page.locator('header.cbar').innerText()).trim();
+    if (/Demo data|·/.test(barText)) throw new Error(`command bar shows labels: ${barText}`);
   });
 
   await run('new-collection-empty', async () => {
