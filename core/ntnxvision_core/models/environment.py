@@ -134,6 +134,9 @@ class VirtualMachine(SourcedObject):
     nics: list[Nic] = Field(default_factory=list)
     boot_type: str | None = None
     creation_time: str | None = None
+    #: Total provisioned disk when no per-disk detail was available (a VM recovered from
+    #: the groups API reports only its `capacity_bytes`). Ignored when `disks` is set.
+    disk_capacity_bytes: int | None = None
     api_source: str = "v4"  # provenance: which API version populated this
 
     @field_validator("categories", mode="before")
@@ -159,6 +162,8 @@ class VirtualMachine(SourcedObject):
 
     @property
     def total_disk_bytes(self) -> int:
+        if not self.disks and self.disk_capacity_bytes:
+            return self.disk_capacity_bytes
         return sum(d.disk_size_bytes or 0 for d in self.disks if not d.is_cdrom)
 
     @property

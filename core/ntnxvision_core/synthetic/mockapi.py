@@ -14,7 +14,10 @@ to cope with on real systems is reproduced deliberately:
 * **Version gating** — below the v4 GA line (pc.2024.3 / 7.0) every ``v4.0`` path 404s.
 * **Namespaces** — absent namespaces 404, unavailable ones 503 (the Objects case).
 * **Partial failures** — ESXi VM records flagged ``esxi_bad`` make any page containing
-  them answer 500, so the tolerant pager has to salvage the rest record by record.
+  them answer 500 (PLAT-10006, as on the lab PC), so the tolerant pager has to salvage
+  the rest record by record; their single GET 500s too. With ``Features.groups_mh_vm``
+  the groups API serves ``mh_vm`` rows (``is_cvm`` and ``cluster=in=`` filters honoured)
+  so the VM collector can recover them; without it ``mh_vm`` is a 400.
 * **Rate limiting** — the v4 alerts endpoint enforces 2 requests/second with 429s, and
   can be told to 429 once on its second page so the retry note appears.
 * **Products not deployed** — Files / Objects / Flow VN / X-Play / NCM 404 on v3.
@@ -276,6 +279,8 @@ class MockApi:
             rows = est.cvms
         elif etype == "host":
             rows = est.hosts
+        elif etype == "mh_vm" and est.features.groups_mh_vm:
+            rows = _mh_vm_rows(est, str(body.get("filter_criteria") or ""))
         else:
             return 400, {"message": f"Unsupported groups query for {etype}"}, {}
         page = _page(rows, offset, count)
@@ -364,10 +369,18 @@ class MockApi:
         if path == "vmm/v4.0/esxi/config/vms":
             window = _page(esxi, page * limit, limit)
             if any(v["esxi_bad"] for v in window):
-                return 500, _v4_error("INTERNAL_ERROR",
-                                      "Failed to serialize VM entity: unexpected null value "
-                                      "in guestCustomization"), {}
+                return 500, _internal_error(), {}
             return self._v4_page(esxi, r.vm_v4_esxi, path, page, limit)
+        m = re.fullmatch(r"vmm/v4\.0/(ahv|esxi)/config/vms/([^/]+)", path)
+        if m:
+            pool, render_vm = (ahv, r.vm_v4_ahv) if m.group(1) == "ahv" \
+                else (esxi, r.vm_v4_esxi)
+            vm = next((v for v in pool if v["uuid"] == m.group(2)), None)
+            if vm is None:
+                return _not_found_v4(path)
+            if vm["esxi_bad"]:
+                return 500, _internal_error(), {}
+            return 200, r.v4_single(render_vm(vm)), {}
         if path == "lifecycle/v4.0/resources/status":
             return 200, r.v4_single(r.lcm_status_v4(f.lcm_framework_stale)), {}
         if path == "monitoring/v4.0/serviceability/alerts":
@@ -513,6 +526,53 @@ def _v4_error(code: str, message: str) -> dict[str, Any]:
     return {"$objectType": "common.v1.response.ApiResponse",
             "data": {"$objectType": "common.v1.response.ErrorResponse",
                      "error": [{"code": code, "message": message, "severity": "ERROR"}]}}
+
+
+def _internal_error() -> dict[str, Any]:
+    """The error a real PC answers for a v4 VM record it cannot serialize."""
+    return _v4_error("PLAT-10006",
+                     "Failed to perform the operation due to an internal error.")
+
+
+def _mh_vm_rows(est: PcEstate, criteria: str) -> list[dict[str, Any]]:
+    """Every VM and CVM as a flat ``mh_vm`` groups row (values as strings, like a PC).
+
+    Honours ``is_cvm==0|1`` and ``cluster=in=<uuid>|<uuid>`` / ``cluster==<uuid>`` terms
+    joined by ``;``; any other term is ignored (served unfiltered), never guessed at.
+    """
+    cluster_uuid = {c["name"]: c["uuid"] for c in est.clusters}
+    rows: list[dict[str, Any]] = []
+    for v in est.vms:
+        rows.append({
+            "uuid": v["uuid"], "vm_name": v["name"], "cluster_name": v["cluster_name"],
+            "cluster": v["cluster_uuid"],
+            "hypervisor_type": "kKvm" if v["hypervisor"] == "AHV" else "kVMware",
+            "num_vcpus": str(v["sockets"] * v["cores"]),
+            "memory_size_bytes": str(v["memory"]),
+            "power_state": str(v["power"]).lower(), "is_cvm": "0", "vm_type": "kGuestVM",
+            "host_name": None, "node": v["host_uuid"],
+            "capacity_bytes": str(sum(d["size"] for d in v["disks"])),
+            "guest_os_name": v["guest_os"],
+        })
+    for c in est.cvms:
+        rows.append({
+            "uuid": c["uuid"], "vm_name": c["name"], "cluster_name": c["cluster_name"],
+            "cluster": cluster_uuid.get(c["cluster_name"]),
+            "hypervisor_type": "kKvm" if c["hypervisor"] == "AHV" else "kVMware",
+            "num_vcpus": str(c["vcpus"]), "memory_size_bytes": str(c["memory"]),
+            "power_state": "on", "is_cvm": "1", "vm_type": "kCVM", "host_name": None,
+            "node": None, "capacity_bytes": "0", "guest_os_name": "",
+        })
+    for term in criteria.split(";"):
+        key, op, value = term.partition("=in=") if "=in=" in term else term.partition("==")
+        if not op:
+            continue
+        wanted = set(value.split("|")) if op == "=in=" else {value}
+        if key == "is_cvm":
+            rows = [x for x in rows if x["is_cvm"] in wanted]
+        elif key == "cluster":
+            rows = [x for x in rows if x["cluster"] in wanted]
+    return rows
 
 
 def _not_found_v4(path: str) -> Response:
