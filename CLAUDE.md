@@ -15,7 +15,7 @@ mapping, data model, roadmap) — read it before making structural changes.
 ```
 app/    Electron + React frontend (main process, renderer, IPC contract)
 core/   Python core (api, collectors, models, store, exporters, engine)
-docs/   Architecture & design documents
+docs/   Architecture & design documents (local only: gitignored, never committed; the repo is public)
 build/  Packaging config (electron-builder + PyInstaller)
 ```
 
@@ -184,3 +184,6 @@ rule rather than assuming v4 is always available.
 - IPC is local-only (stdio), no external listeners. Demo mode's mock Nutanix API is the
   only socket the sidecar opens: 127.0.0.1 only, opt-in, synthetic data only.
 - Collect only what the area selection asks for; a cancelled run writes nothing.
+- The repository is public: never commit real lab data (hostnames, IPs, usernames, emails,
+  screenshots, snapshots, exported reports) or credentials. Use example values
+  (`example.lab`, 192.0.2.x / 198.51.100.x) in tests; private material belongs in `docs/`.
