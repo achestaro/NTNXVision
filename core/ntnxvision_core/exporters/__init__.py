@@ -24,6 +24,11 @@ if TYPE_CHECKING:
 
 _EXTENSIONS = {"excel": "xlsx", "xlsx": "xlsx", "pdf": "pdf", "word": "docx", "docx": "docx"}
 
+
+def extension_for(fmt: str) -> str | None:
+    """The file extension of an export format ("excel" -> "xlsx"), or None if unknown."""
+    return _EXTENSIONS.get(fmt.lower())
+
 #: The section ids the export dialog offers, in document order.
 SECTIONS = (
     "executive_summary", "clusters_hosts", "workloads_storage", "data_protection",
@@ -107,4 +112,4 @@ def export_environment(
     return (path, detail) if with_detail else path
 
 
-__all__ = ["SECTIONS", "ExcelExporter", "ExportOptions", "export_environment"]
+__all__ = ["SECTIONS", "ExcelExporter", "ExportOptions", "export_environment", "extension_for"]

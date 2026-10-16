@@ -453,7 +453,8 @@ def _host_detail(env: Environment, h: Any, ctx: Ctx) -> dict[str, Any]:
     return out
 
 
-#: Cluster columns the detail pane replaces with its own "Capacity" fields.
+#: Capacity column keys the detail pane always renders through `capacity_fields` (the
+#: Clusters spec no longer carries them; kept so a re-added one is not shown twice).
 _CAPACITY_KEYS = frozenset({"cpu_ratio", "cpu_ratio_n1", "vcpu_total", "vcpu_total_n1",
                             "storage_ratio", "storage_ratio_n1", "storage_total",
                             "storage_total_n1"})
