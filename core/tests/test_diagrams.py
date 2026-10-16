@@ -122,9 +122,10 @@ def test_word_export_embeds_diagrams(tmp_path) -> None:
 
     out = WordExporter().export(_env(), tmp_path / "add.docx")
     doc = Document(str(out))
-    # management + compute + network + vpc + replication + exec dashboard +
-    # storage capacity + VM power state + VMs-per-cluster figures
-    assert len(doc.inline_shapes) >= 9
+    # management + compute + network + vpc + replication + storage capacity +
+    # VM power state + VMs-per-cluster figures. The cover and the executive figure strip
+    # are native Word content now (editable text), not pictures.
+    assert len(doc.inline_shapes) >= 8
 
 
 def test_pdf_export_with_diagrams(tmp_path) -> None:

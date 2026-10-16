@@ -21,8 +21,9 @@ from dataclasses import dataclass, field
 from functools import lru_cache
 from typing import Any
 
-from PIL import Image, ImageDraw, ImageFilter, ImageFont
+from PIL import Image, ImageDraw, ImageFont
 
+from ntnxvision_core.exporters import theme as T
 from ntnxvision_core.models import Cluster, Environment
 from ntnxvision_core.numfmt import NA, fmt_count
 
@@ -32,46 +33,40 @@ S = 3
 #: Logical pixels per inch when embedding (keeps body text ~7pt on the page).
 BASE_DPI = 120
 
-# ─── palette ───────────────────────────────────────────────────────────
+# ─── palette (Runway, light) ───────────────────────────────────────────
+# Neutral cards on white with cool grey rules; the iris accent only marks the root card;
+# colour otherwise means a status (ok / warn / error) or a chart series in Runway order.
 
-_INK = (31, 36, 44)
-_SUB = (122, 130, 142)
-_NAVY = (24, 58, 92)
-_ACCENT = (0, 122, 204)
-_FRAME = (226, 230, 236)
-_CARD_FILL = (246, 247, 249)
-_CARD_BORDER = (203, 208, 216)
-_DIM_FILL = (250, 250, 251)
-_DIM_BORDER = (228, 231, 236)
-_OK_FILL = (240, 253, 244)
-_OK_BORDER = (134, 239, 172)
-_OK_TEXT = (21, 128, 61)
-_PILL_FILL = (219, 234, 254)
-_PILL_TEXT = (29, 78, 216)
-_GREY_PILL_FILL = (234, 237, 241)
-_EDGE = (176, 183, 193)
+_INK = T.INK_RGB
+_SUB = T.INK_3_RGB
+_NAVY = T.INK_RGB
+_ACCENT = T.IRIS_RGB
+_FRAME = T.RULE_2_RGB
+_CARD_FILL = T.SURFACE_RGB
+_CARD_BORDER = T.RULE_RGB
+_DIM_FILL = (255, 255, 255)
+_DIM_BORDER = T.RULE_2_RGB
+_OK_TEXT = T.INK_2_RGB
+_OK_GLYPH = T.STATUS_RGB["ok"]
+_PILL_FILL = T.BODY_RGB
+_PILL_TEXT = T.INK_2_RGB
+_GREY_PILL_FILL = T.BODY_RGB
+_EDGE = (178, 192, 204)
 
-# Stat tiles, donuts, and bars (executive dashboard + inventory charts).
-_TRACK = (238, 242, 246)
-_VM_ON = (34, 153, 79)
-_VM_OFF = (148, 158, 171)
-_VM_OTHER = (194, 121, 10)
-_ALERT_CRIT = (214, 71, 63)
-_ALERT_WARN = (232, 145, 45)
-_ALERT_INFO = (46, 120, 214)
-_ALERT_OTHER = (154, 167, 180)
-#: Fixed hue order for per-cluster identity — never reassigned per render, so
-#: the same cluster gets the same color across the storage/VM charts in a report.
-_CLUSTER_PALETTE = [
-    (0, 122, 204),    # blue (matches _ACCENT)
-    (235, 104, 52),   # orange
-    (27, 175, 122),   # aqua
-    (237, 161, 0),    # yellow
-    (232, 123, 164),  # magenta
-    (0, 131, 0),      # green
-    (74, 58, 167),    # violet
-    (227, 73, 72),    # red
-]
+# Figure strip, donuts, and bars (executive summary + inventory charts).
+_TRACK = T.RULE_2_RGB
+_VM_ON = T.CHART_RGB[0]
+_VM_OFF = T.RULE_RGB
+_VM_OTHER = T.CHART_RGB[1]
+_ALERT_CRIT = T.STATUS_RGB["error"]
+_ALERT_WARN = T.STATUS_RGB["warn"]
+_ALERT_INFO = T.INK_3_RGB
+_ALERT_OTHER = T.RULE_RGB
+_USED = T.CHART_RGB[0]
+_FREE = T.RULE_2_RGB
+#: Fixed hue order for per-cluster identity (the Runway chart palette), never reassigned
+#: per render, so the same cluster keeps its colour across a report's charts.
+_CLUSTER_PALETTE = list(T.CHART_RGB)
 
 # ─── geometry (logical px) ─────────────────────────────────────────────
 
@@ -99,9 +94,12 @@ _BAR_LABEL_W = 150
 _BAR_VALS_W = 190
 _BAR_TRACK_W = 400
 
-# (path, collection-index); checked in order, first loadable + style match wins.
+# (path, collection-index); checked in order, first loadable + style match wins. The
+# vendored Figtree comes first so figures look the same on every platform and match the
+# PDF's body font; the system fonts remain as a fallback.
 _FONT_CANDIDATES: dict[bool, list[tuple[str, int]]] = {
     False: [
+        (str(T.FIGTREE), 0),
         ("/System/Library/Fonts/Helvetica.ttc", 0),
         ("/System/Library/Fonts/Supplemental/Arial.ttf", 0),
         ("C:/Windows/Fonts/segoeui.ttf", 0),
@@ -109,6 +107,7 @@ _FONT_CANDIDATES: dict[bool, list[tuple[str, int]]] = {
         ("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 0),
     ],
     True: [
+        (str(T.FIGTREE_SEMIBOLD), 0),
         ("/System/Library/Fonts/Helvetica.ttc", 1),
         ("/System/Library/Fonts/Supplemental/Arial Bold.ttf", 0),
         ("C:/Windows/Fonts/segoeuib.ttf", 0),
@@ -263,24 +262,26 @@ def _draw_node(draw: ImageDraw.ImageDraw, n: Node, x: float, y: float,
 
     if n.tag:
         f_tag = _font(9)
-        tag_w = draw.textlength(n.tag, font=f_tag) + 12 * S
-        tag_h = 15 * S
-        tx2 = round((x + w - _PAD_X) * S - tag_w)
-        pill_fill, pill_text = {
-            "ok": (_OK_FILL, _OK_TEXT),
-            "grey": (_GREY_PILL_FILL, _SUB),
-        }.get(n.tag_style, (_PILL_FILL, _PILL_TEXT))
-        draw.rounded_rectangle(
-            [tx2, title_cy - tag_h // 2, tx2 + round(tag_w), title_cy + tag_h // 2],
-            radius=tag_h // 2, fill=pill_fill,
-        )
         if n.tag_style == "ok":
+            # A status, Runway style: a small square glyph and an ink label, no pill.
+            glyph = 7 * S
+            tag_w = draw.textlength(n.tag, font=f_tag) + glyph + 5 * S
+            tx2 = round((x + w - _PAD_X) * S - tag_w)
+            draw.rectangle([tx2, title_cy - glyph // 2, tx2 + glyph, title_cy + glyph // 2],
+                           fill=_OK_GLYPH)
+            draw.text((tx2 + glyph + 5 * S, title_cy), n.tag, font=f_tag, fill=_OK_TEXT,
+                      anchor="lm")
+        else:
+            tag_w = draw.textlength(n.tag, font=f_tag) + 12 * S
+            tag_h = 15 * S
+            tx2 = round((x + w - _PAD_X) * S - tag_w)
+            pill_text = _SUB if n.tag_style == "grey" else _PILL_TEXT
             draw.rounded_rectangle(
                 [tx2, title_cy - tag_h // 2, tx2 + round(tag_w), title_cy + tag_h // 2],
-                radius=tag_h // 2, outline=_OK_BORDER, width=max(1, S // 2),
+                radius=round(3 * S), fill=_PILL_FILL,
             )
-        draw.text((tx2 + round(tag_w) // 2, title_cy), n.tag, font=f_tag,
-                  fill=pill_text, anchor="mm")
+            draw.text((tx2 + round(tag_w) // 2, title_cy), n.tag, font=f_tag,
+                      fill=pill_text, anchor="mm")
         max_title_w -= tag_w + 8 * S
 
     draw.text((round(tx * S), title_cy),
@@ -374,6 +375,10 @@ def _cluster_resolver(env: Environment) -> Callable[[Any], Cluster | None]:
     by_name: dict[tuple[str | None, str | None], Cluster] = {}
     for c in env.clusters:
         by_name.setdefault((c.name, c.source_pc), c)
+    # A Prism Element collection holds exactly one cluster, and its v2.0 networks carry no
+    # cluster reference at all: they belong to that cluster.
+    only = (env.clusters[0] if env.source_type == "prism_element" and len(env.clusters) == 1
+            else None)
 
     def resolve(obj: Any) -> Cluster | None:
         uuid = getattr(obj, "cluster_uuid", None)
@@ -381,8 +386,8 @@ def _cluster_resolver(env: Environment) -> Callable[[Any], Cluster | None]:
             return by_uuid[uuid]
         name = getattr(obj, "cluster_name", None)
         if not name:
-            return None
-        return by_name.get((name, getattr(obj, "source_pc", None)))
+            return only
+        return by_name.get((name, getattr(obj, "source_pc", None))) or only
 
     return resolve
 
@@ -430,7 +435,8 @@ def management_topology(env: Environment) -> Diagram | None:
     else:
         lines = [line for line in (
             env.prism_central.host,
-            f"version {env.prism_central.version}" if env.prism_central.version else None,
+            (f"AOS {env.prism_central.version}" if is_pe else
+             f"version {env.prism_central.version}") if env.prism_central.version else None,
         ) if line]
         if not is_pe and env.pc_config.node_count:
             deploy = "Scale-out" if env.pc_config.is_scale_out else "Single-node"
@@ -440,9 +446,9 @@ def management_topology(env: Environment) -> Diagram | None:
     vm_counts = _counts_per_cluster(env, env.vms)
     host_counts = _counts_per_cluster(env, env.hosts)
     for c in env.clusters:
-        hyp = "/".join(c.hypervisor_types) if c.hypervisor_types else "unknown"
+        hyp = "/".join(c.hypervisor_types) if c.hypervisor_types else NA
         nodes = c.num_nodes or host_counts.get(id(c)) or "?"
-        lines = [f"AOS {c.aos_version or 'unknown'} · {hyp}",
+        lines = [f"AOS {c.aos_version or NA} · {hyp}",
                  f"{fmt_count(nodes)} node(s) · {fmt_count(vm_counts.get(id(c), 0))} VM(s)"]
         if env.is_combined and c.source_pc:
             lines.append(c.source_pc)
@@ -462,7 +468,7 @@ def cluster_compute(env: Environment, cluster: Cluster) -> Diagram | None:
         return None
     root = Node(
         cluster.name or cluster.uuid,
-        [f"AOS {cluster.aos_version or 'unknown'}",
+        [f"AOS {cluster.aos_version or NA}",
          f"{fmt_count(cluster.num_nodes or len(hosts))} node(s)"
          + (f" · RF {cluster.redundancy_factor}" if cluster.redundancy_factor else "")],
         style="root",
@@ -576,16 +582,29 @@ def replication_topology(env: Environment) -> Diagram | None:
     return _render(roots, col_w=[280, 320], col_gap=150)
 
 
-# ─── chart primitives (stat tiles, donuts, bars) ────────────────────────
 
 
-def _new_canvas(w: float, h: float) -> tuple[Image.Image, ImageDraw.ImageDraw]:
+# ─── chart primitives (figure strip, donuts, bars) ──────────────────────
+
+
+@lru_cache(maxsize=8)
+def _light_font(size: float) -> ImageFont.FreeTypeFont | ImageFont.ImageFont:
+    """Montserrat Light, the Runway figure face, for display numerals."""
+    try:
+        return ImageFont.truetype(str(T.MONTSERRAT_LIGHT), round(size * S))
+    except OSError:  # pragma: no cover - vendored font missing
+        return _font(size)
+
+
+def _new_canvas(w: float, h: float, frame: bool = True
+                ) -> tuple[Image.Image, ImageDraw.ImageDraw]:
     img = Image.new("RGB", (round(w * S), round(h * S)), "white")
     draw = ImageDraw.Draw(img)
-    draw.rounded_rectangle(
-        [S, S, round(w * S) - S, round(h * S) - S],
-        radius=round(12 * S), outline=_FRAME, width=S,
-    )
+    if frame:
+        draw.rounded_rectangle(
+            [S, S, round(w * S) - S, round(h * S) - S],
+            radius=round(6 * S), outline=_FRAME, width=S,
+        )
     return img, draw
 
 
@@ -595,34 +614,18 @@ def _finish(img: Image.Image, w: float, h: float) -> Diagram:
     return Diagram(png=buf.getvalue(), width=round(w), height=round(h))
 
 
-def _draw_tile(draw: ImageDraw.ImageDraw, x: float, y: float, w: float, h: float,
-               value: str, label: str, fill: tuple[int, int, int]) -> None:
-    box = [round(x * S), round(y * S), round((x + w) * S), round((y + h) * S)]
-    draw.rounded_rectangle(box, radius=round(8 * S), fill=fill)
-    f_val = _font(18, bold=True)
-    f_lbl = _font(8.5)
-    cx, cy = x + w / 2, y + h / 2 - 8
-    max_w = (w - 10) * S
-    draw.text((round(cx * S), round(cy * S)), _fit(draw, value, f_val, max_w),
-              font=f_val, fill="white", anchor="mm")
-    label_col = (191, 224, 247) if fill == _NAVY else (216, 238, 250)
-    draw.text((round(cx * S), round((y + h - 18) * S)),
-              _fit(draw, label.upper(), f_lbl, max_w),
-              font=f_lbl, fill=label_col, anchor="mm")
-
-
 def _legend_item(draw: ImageDraw.ImageDraw, x: float, y: float, label: str,
-                  color: tuple[int, int, int], font: Any) -> float:
-    """Draw one legend dot + label at (x, y); return the logical-px width consumed."""
-    draw.ellipse([round(x * S), round((y - 4) * S), round((x + 8) * S), round((y + 4) * S)],
-                 fill=color)
+                 color: tuple[int, int, int], font: Any) -> float:
+    """Draw one legend square + label at (x, y); return the logical-px width consumed."""
+    draw.rectangle([round(x * S), round((y - 4) * S), round((x + 8) * S), round((y + 4) * S)],
+                   fill=color)
     draw.text((round((x + 16) * S), round(y * S)), label, font=font, fill=_INK, anchor="lm")
     return 16 + draw.textlength(label, font=font) / S
 
 
 def _draw_donut(draw: ImageDraw.ImageDraw, cx: float, cy: float, r: float, thickness: float,
-                 segments: list[tuple[int, tuple[int, int, int]]],
-                 center_value: str | None = None, center_label: str | None = None) -> None:
+                segments: list[tuple[int, tuple[int, int, int]]],
+                center_value: str | None = None, center_label: str | None = None) -> None:
     """Ring chart starting at 12 o'clock, clockwise, with a thin gap between segments."""
     total = sum(v for v, _ in segments)
     if total <= 0:
@@ -639,9 +642,9 @@ def _draw_donut(draw: ImageDraw.ImageDraw, cx: float, cy: float, r: float, thick
         start += span
     if center_value:
         draw.text((round(cx * S), round((cy - 6) * S)), center_value,
-                  font=_font(22, bold=True), fill=_INK, anchor="mm")
+                  font=_light_font(24), fill=_INK, anchor="mm")
     if center_label:
-        draw.text((round(cx * S), round((cy + 14) * S)), center_label.upper(),
+        draw.text((round(cx * S), round((cy + 15) * S)), center_label,
                   font=_font(8.5), fill=_SUB, anchor="mm")
 
 
@@ -649,36 +652,48 @@ def _draw_donut(draw: ImageDraw.ImageDraw, cx: float, cy: float, r: float, thick
 
 
 def executive_dashboard(env: Environment) -> Diagram | None:
-    """Six-tile at-a-glance summary: clusters, hosts, VMs, storage, alerts, projects."""
+    """At-a-glance figure strip: clusters, hosts, VMs, storage, open alerts, projects.
+
+    Runway draws headline numbers as one ruled row of light numerals with small labels
+    above, separated by hairlines (never a grid of coloured KPI tiles). The PDF and Word
+    exporters draw this strip natively; this raster version serves any other consumer.
+    """
     if not env.clusters and not env.hosts and not env.vms:
         return None
     storage_total = sum(c.max_capacity_bytes or 0 for c in env.storage_containers)
-    tiles = [
+    items = [
         ("Clusters", fmt_count(len(env.clusters))),
         ("Hosts", fmt_count(len(env.hosts))),
-        ("Virtual Machines", fmt_count(len(env.vms))),
-        ("Storage Capacity", _size_label(storage_total) if storage_total else NA),
-        ("Active Alerts", fmt_count(len(env.alerts))),
+        ("Virtual machines", fmt_count(len(env.vms))),
+        ("Storage capacity", _size_label(storage_total) if storage_total else NA),
+        ("Open alerts", fmt_count(sum(1 for a in env.alerts if not a.resolved))),
         ("Projects", fmt_count(len(env.projects))),
     ]
-    w = 2 * _FRAME_PAD + len(tiles) * _TILE_W + (len(tiles) - 1) * _TILE_GAP
-    h = 2 * _FRAME_PAD + _TILE_H
-    img, draw = _new_canvas(w, h)
-    x = _FRAME_PAD
-    for i, (label, value) in enumerate(tiles):
-        _draw_tile(draw, x, _FRAME_PAD, _TILE_W, _TILE_H, value, label,
-                   _NAVY if i % 2 == 0 else _ACCENT)
-        x += _TILE_W + _TILE_GAP
+    cell_w, h = 150.0, 78.0
+    w = cell_w * len(items)
+    img, draw = _new_canvas(w, h, frame=False)
+    draw.line([0, S, round(w * S), S], fill=_FRAME, width=S)
+    draw.line([0, round((h - 1) * S), round(w * S), round((h - 1) * S)], fill=_FRAME, width=S)
+    for i, (label, value) in enumerate(items):
+        x = i * cell_w
+        if i:
+            draw.line([round(x * S), round(12 * S), round(x * S), round((h - 12) * S)],
+                      fill=_CARD_BORDER, width=S)
+        draw.text((round((x + 14) * S), round(22 * S)), label, font=_font(9.5), fill=_SUB,
+                  anchor="lm")
+        draw.text((round((x + 14) * S), round(50 * S)),
+                  _fit(draw, value, _light_font(26), (cell_w - 20) * S),
+                  font=_light_font(26), fill=_INK, anchor="lm")
     return _finish(img, w, h)
 
 
 def vm_power_state_chart(env: Environment) -> Diagram | None:
-    """Donut of VM power state — on / off / other (suspended, paused, unknown)."""
+    """Donut of VM power state: on / off / other (suspended, paused, unknown)."""
     if not env.vms:
         return None
     total = len(env.vms)
-    on = sum(1 for v in env.vms if (v.power_state or "").upper() == "ON")
-    off = sum(1 for v in env.vms if (v.power_state or "").upper() == "OFF")
+    on = sum(1 for v in env.vms if T.power_label(v.power_state) == "On")
+    off = sum(1 for v in env.vms if T.power_label(v.power_state) == "Off")
     other = total - on - off
     segments = [(v, c) for v, c in
                 [(on, _VM_ON), (off, _VM_OFF), (other, _VM_OTHER)] if v > 0]
@@ -689,13 +704,14 @@ def vm_power_state_chart(env: Environment) -> Diagram | None:
     h = pad * 2 + _DONUT_R * 2
     img, draw = _new_canvas(w, h)
     cx, cy = pad + _DONUT_R, h / 2
+    # The centre carries the share powered on: the VM total is already a headline figure.
     _draw_donut(draw, cx, cy, _DONUT_R, _DONUT_THICK, segments,
-                center_value=fmt_count(total), center_label="total VMs")
+                center_value=f"{on / total:.0%}", center_label="powered on")
 
     labelled = [
-        (f"Powered On: {fmt_count(on)} ({on / total:.0%})", _VM_ON, on),
-        (f"Powered Off: {fmt_count(off)} ({off / total:.0%})", _VM_OFF, off),
-        (f"Other / Suspended: {fmt_count(other)} ({other / total:.0%})", _VM_OTHER, other),
+        (f"Powered on: {fmt_count(on)} ({on / total:.0%})", _VM_ON, on),
+        (f"Powered off: {fmt_count(off)} ({off / total:.0%})", _VM_OFF, off),
+        (f"Other or suspended: {fmt_count(other)} ({other / total:.0%})", _VM_OTHER, other),
     ]
     labelled = [item for item in labelled if item[2] > 0]
     f_leg = _font(9.5)
@@ -708,20 +724,24 @@ def vm_power_state_chart(env: Environment) -> Diagram | None:
 
 
 def alert_severity_chart(env: Environment) -> Diagram | None:
-    """Donut of open alert severity — critical / warning / info / other.
+    """Donut of alert severity (critical / warning / info / other) over the open alerts,
+    or over every alert when none is open. None for an environment with no alerts.
 
-    Returns None for a clean environment, same as the vendor script omits this
-    figure entirely when there are zero alerts.
+    Severity is a status, so the segments use the status colours (error, warn) and grey
+    for informational alerts, not chart series colours.
     """
-    total = len(env.alerts)
-    if not total:
+    if not env.alerts:
         return None
-    s = env.alerts_summary
+    pool = [a for a in env.alerts if not a.resolved] or list(env.alerts)
+    is_open = any(not a.resolved for a in env.alerts)
+    total = len(pool)
+    sev = Counter((a.severity or "").upper() for a in pool)
+    other = total - sev["CRITICAL"] - sev["WARNING"] - sev["INFO"]
     counts = [
-        ("Critical", _ALERT_CRIT, s.critical_count),
-        ("Warning", _ALERT_WARN, s.warning_count),
-        ("Info", _ALERT_INFO, s.info_count),
-        ("Other", _ALERT_OTHER, s.other_count),
+        ("Critical", _ALERT_CRIT, sev["CRITICAL"]),
+        ("Warning", _ALERT_WARN, sev["WARNING"]),
+        ("Info", _ALERT_INFO, sev["INFO"]),
+        ("Other", _ALERT_OTHER, other),
     ]
     segments = [(v, c) for _label, c, v in counts if v > 0]
 
@@ -732,7 +752,8 @@ def alert_severity_chart(env: Environment) -> Diagram | None:
     img, draw = _new_canvas(w, h)
     cx, cy = pad + _DONUT_R, h / 2
     _draw_donut(draw, cx, cy, _DONUT_R, _DONUT_THICK, segments,
-                center_value=fmt_count(total), center_label="open alerts")
+                center_value=fmt_count(total), center_label="open alerts" if is_open
+                else "alerts")
 
     labelled = [(f"{label}: {fmt_count(v)} ({v / total:.0%})", c)
                 for label, c, v in counts if v > 0]
@@ -746,7 +767,7 @@ def alert_severity_chart(env: Environment) -> Diagram | None:
 
 
 def storage_capacity_chart(env: Environment) -> Diagram | None:
-    """Horizontal stacked bars — used vs. free capacity per storage container."""
+    """Horizontal stacked bars: used vs. free capacity per storage container."""
     containers = [c for c in env.storage_containers if c.max_capacity_bytes]
     if not containers:
         return None
@@ -763,30 +784,20 @@ def storage_capacity_chart(env: Environment) -> Diagram | None:
     f_label = _font(10.5, bold=True)
     f_vals = _font(9)
     track_x = pad + _BAR_LABEL_W
-    y = pad
+    y: float = pad
+    bar_h = _BAR_ROW_H * 0.6
     for c in containers:
         used = c.used_bytes or 0
         free = max((c.max_capacity_bytes or 0) - used, 0)
-        used_w, free_w = used * scale, free * scale
+        used_w = used * scale
         mid_y = y + _BAR_ROW_H / 2
-        draw.rounded_rectangle(
-            [round(track_x * S), round(y * S),
-             round((track_x + _BAR_TRACK_W) * S), round((y + _BAR_ROW_H) * S)],
-            radius=round(4 * S), fill=_TRACK,
-        )
+        top, bottom = mid_y - bar_h / 2, mid_y + bar_h / 2
+        cap_w = (c.max_capacity_bytes or 0) * scale
+        draw.rectangle([round(track_x * S), round(top * S),
+                        round((track_x + cap_w) * S), round(bottom * S)], fill=_FREE)
         if used_w > 0:
-            draw.rounded_rectangle(
-                [round(track_x * S), round(y * S),
-                 round((track_x + used_w) * S), round((y + _BAR_ROW_H) * S)],
-                radius=round(4 * S), fill=_ACCENT,
-            )
-        if free_w > 2:
-            fx0 = track_x + used_w + 2
-            draw.rounded_rectangle(
-                [round(fx0 * S), round(y * S),
-                 round((fx0 + free_w - 2) * S), round((y + _BAR_ROW_H) * S)],
-                radius=round(4 * S), fill=(207, 233, 244),
-            )
+            draw.rectangle([round(track_x * S), round(top * S),
+                            round((track_x + used_w) * S), round(bottom * S)], fill=_USED)
         draw.text((round(pad * S), round(mid_y * S)),
                   _fit(draw, c.name or c.uuid, f_label, (_BAR_LABEL_W - 8) * S),
                   font=f_label, fill=_INK, anchor="lm")
@@ -797,13 +808,13 @@ def storage_capacity_chart(env: Environment) -> Diagram | None:
 
     lx: float = track_x
     ly = y + 8
-    for label, color in [("Used capacity", _ACCENT), ("Free capacity", (207, 233, 244))]:
+    for label, color in [("Used capacity", _USED), ("Free capacity", _FREE)]:
         lx += _legend_item(draw, lx, ly, label, color, f_vals) + 24
     return _finish(img, w, h)
 
 
 def vms_per_cluster_chart(env: Environment) -> Diagram | None:
-    """Bar chart of VM count per cluster; bar colors are a fixed per-cluster identity."""
+    """Bar chart of VM count per cluster; bar colours follow the Runway chart order."""
     if not env.clusters or not env.vms:
         return None
     counts = _counts_per_cluster(env, env.vms)
@@ -815,23 +826,22 @@ def vms_per_cluster_chart(env: Environment) -> Diagram | None:
     max_v = max(v for _, v in bars)
 
     pad, bar_w, bar_gap, plot_h, label_h = _FRAME_PAD, 82, 26, 150, 34
-    w = pad * 2 + len(bars) * bar_w + (len(bars) - 1) * bar_gap
+    w = max(pad * 2 + len(bars) * bar_w + (len(bars) - 1) * bar_gap, 300)
     h = pad * 2 + plot_h + label_h
     img, draw = _new_canvas(w, h)
     baseline = pad + plot_h
     draw.line([round(pad * S), round(baseline * S), round((w - pad) * S), round(baseline * S)],
-              fill=_FRAME, width=S)
+              fill=_CARD_BORDER, width=S)
 
-    f_val, f_name = _font(12, bold=True), _font(9.5)
+    f_val, f_name = _font(11), _font(9.5)
     x = pad
     for i, (name, count) in enumerate(bars):
         bh = max(6.0, count / max_v * (plot_h - 24))
         color = _CLUSTER_PALETTE[i % len(_CLUSTER_PALETTE)]
-        r = min(round(5 * S), round(bh * S / 2), round(bar_w * S / 2))
-        draw.rounded_rectangle(
+        draw.rectangle(
             [round(x * S), round((baseline - bh) * S),
              round((x + bar_w) * S), round(baseline * S)],
-            radius=max(1, r), fill=color,
+            fill=color,
         )
         draw.text((round((x + bar_w / 2) * S), round((baseline - bh - 12) * S)),
                   fmt_count(count), font=f_val, fill=_INK, anchor="mm")
@@ -839,162 +849,3 @@ def vms_per_cluster_chart(env: Environment) -> Diagram | None:
                   _fit(draw, name, f_name, bar_w * S), font=f_name, fill=_SUB, anchor="mm")
         x += bar_w + bar_gap
     return _finish(img, w, h)
-
-
-# ─── cover page ──────────────────────────────────────────────────────────
-
-
-def _vgradient(draw: ImageDraw.ImageDraw, x0: float, y0: float, x1: float, y1: float,
-               stops: list[tuple[float, tuple[int, int, int]]], steps: int = 64) -> None:
-    """Fill a rectangle (already-scaled px) with a multi-stop top-to-bottom gradient.
-
-    ``stops`` is a list of ``(t, rgb)`` with ``t`` ascending in ``[0, 1]``.
-    """
-    band_h = (y1 - y0) / steps
-    for i in range(steps):
-        t = i / max(1, steps - 1)
-        color = stops[-1][1]
-        for (t0, c0), (t1, c1) in zip(stops, stops[1:], strict=False):
-            if t0 <= t <= t1:
-                lt = (t - t0) / (t1 - t0) if t1 > t0 else 0
-                color = (
-                    round(c0[0] + (c1[0] - c0[0]) * lt),
-                    round(c0[1] + (c1[1] - c0[1]) * lt),
-                    round(c0[2] + (c1[2] - c0[2]) * lt),
-                )
-                break
-        draw.rectangle([x0, y0 + i * band_h, x1, y0 + (i + 1) * band_h + 1], fill=color)
-
-
-def _hgradient(draw: ImageDraw.ImageDraw, x0: float, y0: float, x1: float, y1: float,
-               stops: list[tuple[float, tuple[int, int, int]]], steps: int = 64) -> None:
-    """Same as :func:`_vgradient` but left-to-right."""
-    band_w = (x1 - x0) / steps
-    for i in range(steps):
-        t = i / max(1, steps - 1)
-        color = stops[-1][1]
-        for (t0, c0), (t1, c1) in zip(stops, stops[1:], strict=False):
-            if t0 <= t <= t1:
-                lt = (t - t0) / (t1 - t0) if t1 > t0 else 0
-                color = (
-                    round(c0[0] + (c1[0] - c0[0]) * lt),
-                    round(c0[1] + (c1[1] - c0[1]) * lt),
-                    round(c0[2] + (c1[2] - c0[2]) * lt),
-                )
-                break
-        draw.rectangle([x0 + i * band_w, y0, x0 + (i + 1) * band_w + 1, y1], fill=color)
-
-
-def _wrap(draw: ImageDraw.ImageDraw, text: str, font: Any, max_w: float) -> list[str]:
-    """Greedy word-wrap `text` to fit `max_w` scaled px per line."""
-    words = text.split()
-    lines: list[str] = []
-    cur = ""
-    for word in words:
-        trial = f"{cur} {word}".strip()
-        if not cur or draw.textlength(trial, font=font) <= max_w:
-            cur = trial
-        else:
-            lines.append(cur)
-            cur = word
-    if cur:
-        lines.append(cur)
-    return lines
-
-
-def cover_page(env: Environment, tool_name: str = "NTNXVision",
-               prepared_for: str = "", author: str = "") -> Diagram:
-    """Report cover — dark navy-to-blue gradient with a soft cyan glow, a
-    hexagon logomark, a large title block, and a metadata footer row. This is
-    NTNXVision's own cover identity (established in the workflow-evaluation
-    mockup), not a literal reproduction of the coworker script's cover.
-    """
-    w, h = 900, 620  # @ BASE_DPI -> 7.5in x ~5.17in.
-    img = Image.new("RGBA", (w * S, h * S), (255, 255, 255, 255))
-    draw = ImageDraw.Draw(img, "RGBA")
-
-    _vgradient(draw, 0, 0, w * S, h * S, [
-        (0.0, (1, 18, 38)), (0.46, (1, 42, 94)), (1.0, (2, 77, 161)),
-    ])
-
-    # Soft cyan glow, upper right — a blurred translucent ellipse composited in.
-    glow = Image.new("RGBA", (w * S, h * S), (0, 0, 0, 0))
-    gdraw = ImageDraw.Draw(glow)
-    gcx, gcy = round(w * 0.85 * S), round(h * -0.10 * S)
-    grx, gry = round(550 * S), round(250 * S)
-    gdraw.ellipse([gcx - grx, gcy - gry, gcx + grx, gcy + gry], fill=(0, 163, 224, 90))
-    img.alpha_composite(glow.filter(ImageFilter.GaussianBlur(radius=60 * S)))
-    draw = ImageDraw.Draw(img, "RGBA")
-
-    # Bottom accent bar: cyan -> light cyan -> cyan.
-    bar_h = 10
-    _hgradient(draw, 0, (h - bar_h) * S, w * S, h * S,
-              [(0.0, (0, 163, 224)), (0.55, (95, 214, 255)), (1.0, (0, 163, 224))])
-
-    pad_x, pad_y = 60.0, 56.0
-
-    # Logomark: hexagon outline + filled center dot, wordmark beside it.
-    hex_scale = 34 / 40
-    hex_pts = [(pad_x + x * hex_scale, pad_y + y * hex_scale)
-               for x, y in [(20, 2), (36, 11), (36, 29), (20, 38), (4, 29), (4, 11)]]
-    draw.polygon([(round(px * S), round(py * S)) for px, py in hex_pts],
-                 outline=(95, 214, 255, 255), width=round(2 * S))
-    ccx, ccy, cr = pad_x + 20 * hex_scale, pad_y + 20 * hex_scale, 6.5 * hex_scale
-    draw.ellipse([round((ccx - cr) * S), round((ccy - cr) * S),
-                  round((ccx + cr) * S), round((ccy + cr) * S)], fill=(95, 214, 255, 255))
-    draw.text((round((pad_x + 34 + 12) * S), round((pad_y + 17) * S)),
-              f"{tool_name} · Nutanix Environment Report".upper(),
-              font=_font(12, bold=True), fill=(191, 233, 251, 255), anchor="lm")
-
-    # Title block, vertically centered in the space between the mark and the footer.
-    max_title_w = 560 * S
-    f_eyebrow, f_h1, f_h2 = _font(12, bold=True), _font(38, bold=True), _font(16)
-    title_lines = _wrap(draw, "Nutanix Platform Architecture & Inventory Report",
-                        f_h1, max_title_w)
-    subtitle = f"Prism Central {env.prism_central.host or NA} · " \
-               "generated from live API collection"
-
-    eyebrow_h, h1_line_h, gap1, h2_h = 16, 46, 14, 22
-    block_h = eyebrow_h + gap1 + len(title_lines) * h1_line_h + 10 + h2_h
-    footer_top = h - pad_y - 96
-    mid_zone_top, mid_zone_bottom = pad_y + 34 + 30, footer_top
-    ty = mid_zone_top + max(0.0, (mid_zone_bottom - mid_zone_top - block_h) / 2)
-
-    draw.text((round(pad_x * S), round(ty * S)), "ENVIRONMENT DOCUMENTATION",
-              font=f_eyebrow, fill=(127, 212, 242, 255), anchor="lm")
-    ty += eyebrow_h + gap1
-    for line in title_lines:
-        draw.text((round(pad_x * S), round(ty * S)), line, font=f_h1,
-                  fill=(255, 255, 255, 255), anchor="lm")
-        ty += h1_line_h
-    ty += 6
-    draw.text((round(pad_x * S), round(ty * S)), subtitle, font=f_h2,
-              fill=(207, 230, 247, 255), anchor="lm")
-
-    # Footer: metadata rows on the left, confidential label on the right, both
-    # sitting on a thin translucent divider.
-    fy = footer_top
-    draw.line([round(pad_x * S), round(fy * S), round((w - pad_x) * S), round(fy * S)],
-              fill=(255, 255, 255, 46), width=round(S))
-    fy += 18
-    f_dt, f_dd = _font(11), _font(11, bold=False)
-    rows = [
-        *([("Prepared for", prepared_for)] if prepared_for else []),
-        ("Prepared by", f"{author} · {tool_name}" if author else tool_name),
-        ("Report date", (env.collected_at or NA)[:10]),
-        ("Environment", f"{fmt_count(len(env.clusters))} clusters · "
-                        f"{fmt_count(len(env.hosts))} hosts · {fmt_count(len(env.vms))} VMs"),
-    ]
-    for label, value in rows:
-        draw.text((round(pad_x * S), round(fy * S)), label, font=f_dt,
-                  fill=(124, 157, 176, 255), anchor="lm")
-        draw.text((round((pad_x + 110) * S), round(fy * S)), value, font=f_dd,
-                  fill=(234, 246, 255, 255), anchor="lm")
-        fy += 18 if prepared_for else 20
-    draw.text((round((w - pad_x) * S), round((footer_top + 18) * S)),
-              "CONFIDENTIAL · INTERNAL USE ONLY", font=_font(10.5, bold=True),
-              fill=(127, 212, 242, 255), anchor="rm")
-
-    buf = io.BytesIO()
-    img.convert("RGB").save(buf, format="PNG")
-    return Diagram(png=buf.getvalue(), width=w, height=h)

@@ -82,7 +82,7 @@ def export_environment(
     detail: str | None
     if fmt in ("excel", "xlsx"):
         excel = ExcelExporter()
-        path = excel.export(env, out)
+        path = excel.export(env, out, opts)
         detail = f"{fmt_count(excel.sheet_count)} sheets"
     elif fmt == "pdf":
         from ntnxvision_core.exporters.pdf import PdfExporter

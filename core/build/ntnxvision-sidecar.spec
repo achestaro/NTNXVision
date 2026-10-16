@@ -37,6 +37,8 @@ datas = (
     + collect_data_files("fpdf")
     # openpyxl ships a few non-.py resources (e.g. VBA/theme XML).
     + collect_data_files("openpyxl")
+    # The OFL fonts the PDF report embeds, with their license texts.
+    + collect_data_files("ntnxvision_core", includes=["exporters/fonts/*"])
     # Licensing: every runtime dependency's *.dist-info (METADATA + its LICENSE/NOTICE
     # files), plus the project's LICENSE / NOTICE / THIRD_PARTY_NOTICES.md under legal/.
     + copy_metadata("ntnxvision-core", recursive=True)
