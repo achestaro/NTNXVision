@@ -5,7 +5,8 @@ format name it picks the right exporter, derives the output filename, and return
 written path. `ExportOptions` carries the per-export choices the UI offers: which
 sections the PDF and Word documents include, the Word template (built-in or a customer
 ``.dotx``/``.docx``), and the "prepared for" / author fields for the cover and document
-properties. Excel always contains every sheet.
+properties, and the target vCPU:pCPU ratio behind the cluster capacity figures (recorded
+in every report so the numbers can be reproduced). Excel always contains every sheet.
 """
 
 from __future__ import annotations
@@ -14,6 +15,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, overload
 
+from ntnxvision_core.capacity import DEFAULT_VCPU_RATIO, coerce_ratio
 from ntnxvision_core.exporters.excel import ExcelExporter
 from ntnxvision_core.numfmt import fmt_count
 
@@ -35,6 +37,8 @@ class ExportOptions:
     template: str = "standard"
     prepared_for: str = ""
     author: str = ""
+    #: Target vCPU:pCPU ratio for the "vCPU Total" capacity figures (capacity.py).
+    vcpu_ratio: float = DEFAULT_VCPU_RATIO
 
     def includes(self, section: str) -> bool:
         return self.sections is None or section in self.sections
@@ -51,6 +55,7 @@ class ExportOptions:
             template=str(value.get("template") or "standard"),
             prepared_for=str(value.get("prepared_for") or ""),
             author=str(value.get("author") or ""),
+            vcpu_ratio=coerce_ratio(value.get("vcpu_ratio")),
         )
 
 

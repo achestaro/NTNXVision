@@ -34,7 +34,7 @@ from ntnxvision_core.exporters.theme import (
     tone_for,
 )
 from ntnxvision_core.models import Environment
-from ntnxvision_core.numfmt import NA, PLAIN_HEADERS, fmt_count
+from ntnxvision_core.numfmt import NA, PLAIN_HEADERS, fmt_count, fmt_ratio
 
 GIB = 1024**3
 TIB = GIB * 1024
@@ -358,7 +358,7 @@ class _Builder:
 
         self.env = env
         self.opts = opts
-        self.ctx = Ctx(env)
+        self.ctx = Ctx(env, getattr(opts, "vcpu_ratio", None))
         self.is_pe = env.source_type == "prism_element"
         self.areas = run_areas(env)
         self.coverage = coverage(self.areas)
@@ -590,6 +590,9 @@ class _Builder:
             "areas not deployed are listed below rather than shown as empty sections.",
             "Capacities use binary units (GiB and TiB; 1 GiB = 1,073,741,824 bytes), "
             "timestamps are UTC, and N/A marks a value the API did not return.",
+            f"Cluster capacity figures use a {fmt_ratio(self.ctx.vcpu_ratio)} vCPU:pCPU "
+            "target, a 5% storage reserve and the cluster redundancy factor; N-1 assumes "
+            "the loss of the largest node.",
         ]
         if self.is_pe:
             items.append("Prism Element mode collects cluster infrastructure only (cluster, "
@@ -724,7 +727,58 @@ class _Builder:
             Figure(cap, "Storage container capacity: used and free"
                    + (f" (first {shown} of {total} containers)." if total > shown else "."))
             if cap else None)
+        self.capacity_section(ch)
         return ch
+
+    def capacity_section(self, ch: Chapter) -> None:
+        """Cluster capacity and oversubscription (CPU and storage, full and N-1)."""
+        env = self.env
+        caps = [(c, k) for c in env.clusters
+                if (k := self.ctx.capacity(c)) is not None and k.nodes]
+        if not caps:
+            return
+        target = fmt_ratio(self.ctx.vcpu_ratio)
+
+        def num(v: float | None) -> int | None:
+            return None if v is None else int(round(v))
+
+        def tib(v: float | None) -> float | None:
+            return None if v is None else round(v / TIB, 1)
+
+        lead = Paragraph(
+            "Capacity is calculated per cluster from the collected nodes. Usable cores are "
+            "the physical cores of every node (hyperthreads not counted) less the vCPUs of "
+            f"its Controller VM; vCPU Total is usable cores at the {target} vCPU:pCPU target "
+            "used for this report. Storage Total is the raw storage of every node x 0.95 "
+            "(5% reserve) / the cluster redundancy factor. Oversubscription is provisioned "
+            "vCPUs / usable cores, and provisioned VM disk / Storage Total. Provisioned "
+            "figures count every VM, powered on or off, including Prism Central; CVMs are "
+            "excluded because their vCPUs are already subtracted.")
+        n1 = Paragraph(
+            "N-1 assumes the loss of the node that costs the most (the one with the most "
+            "usable cores for CPU, the most raw storage for storage), so heterogeneous "
+            "clusters are judged on their worst case. It is N/A for one- and two-node "
+            "clusters.", "note")
+        cpu = make_table(
+            ["Cluster", "Nodes", "Cores", "CVM vCPU", "Usable Cores", "vCPU Total",
+             "vCPU Total N-1", "vCPU Allocated", "vCPU:pCore", "vCPU:pCore N-1"],
+            [[c.name, k.node_count, k.physical_cores, k.cvm_vcpus, k.usable_cores,
+              num(k.vcpu_total), num(k.vcpu_total_n1), k.provisioned_vcpus,
+              fmt_ratio(k.cpu_ratio), fmt_ratio(k.cpu_ratio_n1)] for c, k in caps],
+            f"CPU capacity and oversubscription at a {target} target",
+            self.src([c for c, _ in caps]))
+        storage = make_table(
+            ["Cluster", "Nodes", "RF", "Raw (TiB)", "Storage Total (TiB)",
+             "Storage Total N-1 (TiB)", "Provisioned (TiB)", "Provisioned:Usable",
+             "Provisioned:Usable N-1"],
+            [[c.name, k.node_count, k.rf, tib(k.raw_bytes), tib(k.storage_total_bytes),
+              tib(k.storage_total_n1_bytes), tib(k.provisioned_disk_bytes),
+              fmt_ratio(k.storage_ratio), fmt_ratio(k.storage_ratio_n1)] for c, k in caps],
+            "Storage capacity and oversubscription", self.src([c for c, _ in caps]))
+        notes = [f"{c.name}{f' ({c.source_pc})' if env.is_combined and c.source_pc else ''}: "
+                 f"{note}" for c, k in caps for note in k.notes]
+        ch.add("Capacity & Oversubscription", lead, n1, cpu, storage,
+               Bullets(notes, "Capacity notes:") if notes else None)
 
     def workloads(self) -> Chapter:
         env = self.env

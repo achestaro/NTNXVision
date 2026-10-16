@@ -165,6 +165,8 @@ def reset() -> None:
         with target._lock:
             target.epoch = 0
             target._cache = {}
+    # The one-off alerts 429 fires again, so each test sees the same first collection.
+    st.api.reset_throttling()
 
 
 def hosts() -> list[dict[str, str]]:
