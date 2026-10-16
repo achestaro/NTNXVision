@@ -13,7 +13,9 @@ export function Illustration({
   label,
 }: {
   name: IllustrationName;
-  size?: 160 | 200 | 240;
+  /** 96 is the panel-sized empty state (EmptyState `compact`), a deliberate exception the
+   *  user asked for so an empty Overview panel matches its illustrated neighbours. */
+  size?: 96 | 160 | 200 | 240;
   /** Accessible name; omit when the empty-state title says it (the default). */
   label?: string;
 }): JSX.Element {

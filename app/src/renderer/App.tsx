@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { SettingsProvider, useSettings } from './lib/settings';
 import { RouterProvider, useRouter } from './lib/router';
-import { RunProvider, useRun } from './lib/run';
+import { RunProvider } from './lib/run';
 import { isMod, isTyping, moveTableFocus } from './lib/keyboard';
 import { ToastProvider } from './components/Toast';
 import { CommandBar } from './shell/CommandBar';
@@ -44,11 +44,9 @@ export function App(): JSX.Element {
 function Shell(): JSX.Element {
   const { route, navigate } = useRouter();
   const { appInfo } = useSettings();
-  const { dataVersion } = useRun();
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
   const [coreState, setCoreState] = useState<'starting' | 'ready' | 'error'>('starting');
-  const [readout, setReadout] = useState<string | null>(null);
   const gPending = useRef<number | null>(null);
 
   useEffect(() => {
@@ -57,17 +55,6 @@ function Shell(): JSX.Element {
       .then(() => setCoreState('ready'))
       .catch(() => setCoreState('error'));
   }, []);
-
-  // Bar readout: the latest snapshot's source and version.
-  useEffect(() => {
-    window.ntnx
-      .listSnapshots()
-      .then((r) => {
-        const s = r.snapshots[0];
-        setReadout(s ? [s.source, s.version].filter(Boolean).join(' · ') || s.name : null);
-      })
-      .catch(() => setReadout(null));
-  }, [dataVersion]);
 
   const closePalette = useCallback(() => setPaletteOpen(false), []);
   const closeHelp = useCallback(() => setHelpOpen(false), []);
@@ -120,7 +107,6 @@ function Shell(): JSX.Element {
         onOpenPalette={() => setPaletteOpen(true)}
         helpOpen={helpOpen}
         onToggleHelp={() => setHelpOpen((o) => !o)}
-        readout={readout}
       />
       <div className="body-row">
         <Rail version={appInfo?.version ?? null} coreState={coreState} />

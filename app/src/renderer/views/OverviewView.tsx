@@ -119,7 +119,7 @@ export function OverviewView(): JSX.Element {
           display: 'grid',
           gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 420px), 1fr))',
           gap: 16,
-          alignItems: 'start',
+          alignItems: 'stretch',
         }}
       >
         {latest && (
@@ -135,7 +135,7 @@ export function OverviewView(): JSX.Element {
           </Panel>
         )}
 
-        <Panel aria-labelledby="quick">
+        <Panel className="panel-fill" aria-labelledby="quick">
           <PanelHeader id="quick" title="Start a collection" />
           <QuickAction
             mark="prism"
@@ -157,10 +157,10 @@ export function OverviewView(): JSX.Element {
           />
         </Panel>
 
-        <SavedTargets state={connections} illustrated={!!latest} />
+        <SavedTargets state={connections} />
 
         {latest && o.coverage && (
-          <Panel aria-labelledby="coverage">
+          <Panel className="panel-fill" aria-labelledby="coverage">
             <PanelHeader id="coverage" title="Latest run coverage">
               <Button variant="ghost" size="sm" onClick={() => navigate({ screen: 'results', snapshot: latest.path })}>
                 Details
@@ -254,11 +254,8 @@ function QuickAction({ mark, title, desc, onClick }: { mark: NutanixMarkName; ti
 
 function SavedTargets({
   state,
-  illustrated,
 }: {
   state: ReturnType<typeof useAsync<SavedConnection[]>>;
-  /** Show the empty state's illustration (only when the view has no other one). */
-  illustrated: boolean;
 }): JSX.Element {
   const { navigate } = useRouter();
   const { isRunning } = useRun();
@@ -276,7 +273,7 @@ function SavedTargets({
   };
 
   return (
-    <Panel aria-labelledby="saved">
+    <Panel className="panel-fill" aria-labelledby="saved">
       <PanelHeader id="saved" title="Saved targets" meta={state.data ? fmtCount(rows.length) : undefined}>
         <Button variant="ghost" size="sm" onClick={() => navigate({ screen: 'targets' })}>
           Manage
@@ -286,21 +283,14 @@ function SavedTargets({
         <InlineEmpty>Saved targets unavailable · {state.error}</InlineEmpty>
       ) : state.loading && !state.data ? (
         <InlineEmpty>Loading…</InlineEmpty>
-      ) : rows.length === 0 && illustrated ? (
+      ) : rows.length === 0 ? (
         <EmptyState
+          compact
           illustration="no-target"
           title="No saved targets yet"
           description="Add a Prism Central or a cluster on the Targets page, and collect from it here in one click."
           action={<Button onClick={() => navigate({ screen: 'targets', edit: 'new' })}>Add a target</Button>}
         />
-      ) : rows.length === 0 ? (
-        <InlineEmpty>
-          No saved targets yet.{' '}
-          <button type="button" className="textlink" onClick={() => navigate({ screen: 'targets', edit: 'new' })}>
-            Add a target
-          </button>
-          .
-        </InlineEmpty>
       ) : (
         <DataTable<SavedConnection>
           head={false}
