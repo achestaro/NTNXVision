@@ -6,7 +6,9 @@
 //   npm run build && node scripts/e2e-demo.mjs [outDir] [--keep-open]
 //
 // It launches Electron with NTNXVISION_DEMO=1 and an isolated profile (temp userData,
-// snapshot dir and in-memory keychain), then walks: empty Overview → connection tests
+// snapshot dir and in-memory keychain), then walks: empty Overview → New collection and
+// Multiple PCs empty states (no targets) → Targets page: inline validation, test in the
+// form, create the targets every later step picks from → connection tests
 // (ok, bad password, self-signed, unreachable) → collect pc01 → Results → a second,
 // drifted collection → cancel a run → Inventory filter + VM detail → Compare + export →
 // Snapshots + export dialog (PDF/Word with sections) → snapshot file round trip (export a
@@ -19,8 +21,10 @@
 // failed listing with retry), a scoped snapshot holding only the chosen clusters, the
 // remembered selection, Compare's scope notice and report names carrying one date.
 // Screenshots of each step go to <outDir> (default ./screenshots/e2e), plus the UX review
-// set in ./screenshots/UX and the scope set in ./screenshots/Scope. Exits non-zero on the
-// first failed step.
+// set in ./screenshots/UX, the scope set in ./screenshots/Scope and the Targets set in
+// ./screenshots/Targets. Targets CRUD: create, edit (rename + a new username keeps the
+// keychain password), per-row test, delete with confirm (snapshots kept). Exits non-zero
+// on the first failed step.
 
 import { _electron as electron } from 'playwright-core';
 import electronPath from 'electron';
@@ -46,6 +50,8 @@ const uxDir = join(appDir, 'screenshots', 'UX');
 await mkdir(uxDir, { recursive: true });
 const scopeDir = join(appDir, 'screenshots', 'Scope');
 await mkdir(scopeDir, { recursive: true });
+const targetsDir = join(appDir, 'screenshots', 'Targets');
+await mkdir(targetsDir, { recursive: true });
 const pad2 = (n) => String(n).padStart(2, '0');
 const now = new Date();
 // The export date in report file names (local YYYY-MM-DD).
@@ -102,17 +108,45 @@ async function run(name, fn) {
 const rail = (name) => page.getByRole('navigation', { name: 'Primary' }).getByRole('button', { name, exact: true }).click();
 const heading = (name, timeout = 30_000) => page.getByRole('heading', { name }).first().waitFor({ timeout });
 
-async function fillTarget(host, password, name, targetName = '') {
+/** Fill the Targets page editor (already open) and save it. */
+async function saveTargetForm({ name, host, username = 'admin', password = '', pe = false }, button = 'Add target') {
+  const dialog = page.getByRole('dialog');
+  if (pe) await dialog.getByRole('button', { name: 'Prism Element · one cluster' }).click();
+  await dialog.locator('#t-name').fill(name);
+  await dialog.locator('#t-host').fill(host);
+  await dialog.locator('#t-user').fill(username);
+  if (password) await dialog.locator('#t-pw').fill(password);
+  await dialog.getByRole('button', { name: button }).click();
+  await dialog.waitFor({ state: 'detached', timeout: 15_000 });
+}
+
+/** Add a target on the Targets page. */
+async function addTarget(t) {
+  await rail('Targets');
+  await heading('Targets');
+  await page.getByRole('button', { name: 'Add a target' }).first().click();
+  await saveTargetForm(t);
+  await page.getByRole('table', { name: 'Targets' }).getByRole('button', { name: t.name, exact: true }).waitFor({ timeout: 15_000 });
+}
+
+/** New collection with a saved target picked (and an optional one-run password). */
+async function fillTarget(target, password = '', name = '') {
   await rail('New collection');
-  await page.locator('#host').fill(host);
-  await page.locator('#tname').fill(targetName);
-  await page.getByLabel('Username').fill('admin');
+  await page.locator('#saved').waitFor({ timeout: 15_000 });
+  const value = await page.locator('#saved option').filter({ hasText: new RegExp(`^${target} · `) }).getAttribute('value');
+  await page.locator('#saved').selectOption(value);
   await page.locator('#pw').fill(password);
   if (name) await page.getByLabel('Snapshot name').fill(name);
 }
 
 /** The saved-target picker's option labels. */
 const savedOptions = () => page.locator('#saved option').allTextContents();
+const targetsShot = async (name) => {
+  await page.waitForTimeout(300); // let a dialog finish fading in
+  await page.screenshot({ path: join(targetsDir, `${name}.png`), fullPage: true });
+};
+/** The Targets table row for a target name. */
+const targetRow = (name) => page.getByRole('table', { name: 'Targets' }).getByRole('row').filter({ has: page.getByRole('button', { name, exact: true }) });
 
 const uxShot = (name) => page.screenshot({ path: join(uxDir, `${name}.png`), fullPage: true });
 const scopeShot = (name) => page.screenshot({ path: join(scopeDir, `${name}.png`), fullPage: true });
@@ -174,20 +208,84 @@ try {
     await page.getByText('Demo data').first().waitFor();
   });
 
+  await run('new-collection-empty', async () => {
+    // No targets yet: New collection offers only "Add a target".
+    await rail('New collection');
+    await page.getByRole('heading', { name: 'Add a target first' }).waitFor({ timeout: 15_000 });
+    if (await page.locator('#host, #saved').count()) throw new Error('connection fields shown without targets');
+    await targetsShot('e2e-new-collection-empty');
+  });
+
+  await run('multi-empty', async () => {
+    await rail('Multiple PCs');
+    await page.getByRole('heading', { name: 'Add a Prism Central target first' }).waitFor({ timeout: 15_000 });
+    if (await page.getByRole('button', { name: /Paste a list/ }).count()) throw new Error('Paste a list is still offered');
+    await targetsShot('e2e-multi-empty');
+  });
+
+  await run('targets-create-validate-test', async () => {
+    // From New collection's empty state to the Targets editor; it returns after saving.
+    await rail('New collection');
+    await page.getByRole('button', { name: 'Add a target' }).click();
+    const dialog = page.getByRole('dialog');
+    await dialog.getByRole('heading', { name: 'Add a target' }).waitFor();
+    // Inline validation.
+    await dialog.locator('#t-host').fill('https://pc01.demo.local/');
+    await dialog.getByRole('button', { name: 'Add target' }).click();
+    await dialog.getByText('Enter a name.').waitFor();
+    await dialog.getByText(/without https:\/\/ or a path/).waitFor();
+    await targetsShot('e2e-target-form-errors');
+    // Test from the form, before saving.
+    await dialog.locator('#t-name').fill('Lab PC01');
+    await dialog.locator('#t-host').fill('pc01.demo.local');
+    await dialog.locator('#t-pw').fill('demo');
+    await dialog.getByRole('button', { name: 'Test connection' }).click();
+    await dialog.getByText(/Connected to Prism Central/).first().waitFor({ timeout: 30_000 });
+    await targetsShot('e2e-target-form-tested');
+    await dialog.getByRole('button', { name: 'Add target' }).click();
+    // Back on New collection with the new target picked.
+    await heading('New collection');
+    await page.getByTestId('target-details').getByText('pc01.demo.local:9440').waitFor({ timeout: 15_000 });
+  });
+
+  await run('targets-create', async () => {
+    for (const t of [
+      { name: 'Self-signed', host: 'selfsigned.demo.local', password: 'demo' },
+      { name: 'Down', host: 'down.demo.local', password: 'demo' },
+      { name: 'Tiny', host: 'tiny.demo.local', password: 'demo' },
+      { name: 'PC02', host: 'pc02.demo.local', password: 'demo' },
+      { name: 'PC03', host: 'pc03.demo.local', password: 'demo' },
+      { name: 'PE01', host: 'pe01.demo.local', password: 'demo', pe: true },
+    ]) {
+      await addTarget(t);
+    }
+    // A duplicate name is refused inline.
+    await page.getByRole('button', { name: 'Add a target' }).first().click();
+    await page.getByRole('dialog').locator('#t-name').fill('lab pc01');
+    await page.getByRole('dialog').locator('#t-host').fill('pc09.demo.local');
+    await page.getByRole('dialog').getByRole('button', { name: 'Add target' }).click();
+    await page.getByRole('dialog').getByText('Another target already uses this name.').waitFor();
+    await page.getByRole('dialog').getByRole('button', { name: 'Cancel' }).click();
+    await targetRow('PE01').getByText('PE', { exact: true }).waitFor();
+    await targetRow('Lab PC01').getByText('Keychain').waitFor();
+    await targetsShot('e2e-targets-list');
+  });
+
   await run('test-auth-failed', async () => {
-    await fillTarget('pc01.demo.local', 'wrong');
+    // A one-run password override (never saved) that the PC rejects.
+    await fillTarget('Lab PC01', 'wrong');
     await testConnection('Connection failed');
   });
   await run('test-self-signed', async () => {
-    await fillTarget('selfsigned.demo.local', 'demo');
-    await testConnection('self-signed');
+    await fillTarget('Self-signed');
+    await testConnection('It is self-signed');
   });
   await run('test-unreachable', async () => {
-    await fillTarget('down.demo.local', 'demo');
+    await fillTarget('Down');
     await testConnection('Connection failed');
   });
   await run('test-ok', async () => {
-    await fillTarget('pc01.demo.local', 'demo', '', 'Lab PC01');
+    await fillTarget('Lab PC01');
     await testConnection('Connection verified');
   });
 
@@ -264,18 +362,16 @@ try {
   });
 
   await run('saved-target-name', async () => {
-    await rail('New collection');
-    // The first saved target loads on its own: listed and picked by its name.
-    await page.waitForFunction(() => document.querySelector('#tname')?.value === 'Lab PC01', null, { timeout: 15_000 });
+    // Step 1 offers saved targets only, by name, with the details read-only.
+    await fillTarget('Lab PC01');
     const opts = await savedOptions();
-    if (!opts.some((o) => o.startsWith('Lab PC01 · admin'))) throw new Error(`saved targets: ${opts.join(' | ')}`);
-    const left = (sel) => page.locator(sel).evaluate((el) => el.getBoundingClientRect());
-    const [n, h, u, pw] = [await left('#tname'), await left('#host'), await left('#user'), await left('#pw')];
-    if (!(n.left < h.left && Math.abs(n.top - h.top) < 2)) throw new Error('Name is not left of the address');
-    if (!(Math.abs(u.top - pw.top) < 2 && u.left < pw.left && u.top > n.top)) throw new Error('Username is not beside Password');
+    if (!opts.includes('Lab PC01 · Prism Central') || !opts.includes('PE01 · Prism Element')) throw new Error(`saved targets: ${opts.join(' | ')}`);
+    if (await page.locator('#host, #tname, #user').count()) throw new Error('Step 1 still has editable connection fields');
+    if (await page.getByText('Remember this target', { exact: false }).count()) throw new Error('"Remember this target" is still offered');
+    await page.getByTestId('target-details').getByText('Keychain').waitFor();
     await uxShot('connect-prism-central');
-    await page.getByRole('button', { name: 'Prism Element · one cluster' }).click();
-    await page.getByLabel('Cluster address (FQDN or IP)').waitFor();
+    await fillTarget('PE01');
+    await page.getByTestId('target-details').getByText('Prism Element · one cluster').waitFor();
     await uxShot('connect-prism-element');
     await rail('Overview');
     await page.getByRole('table', { name: 'Saved targets' }).getByText(/^Lab PC01/).first().waitFor({ timeout: 30_000 });
@@ -299,9 +395,30 @@ try {
     await scopeShot('name-duplicate');
   });
 
+  await run('targets-edit', async () => {
+    // Rename and change the username: the id stays, so the keychain password follows.
+    await rail('Targets');
+    await targetRow('Lab PC01').getByRole('button', { name: 'Lab PC01', exact: true }).click();
+    const dialog = page.getByRole('dialog');
+    await dialog.getByRole('heading', { name: 'Edit Lab PC01' }).waitFor();
+    await dialog.getByText(/Last tested .* 1 snapshot/).waitFor();
+    await dialog.locator('#t-name').fill('Lab PC01 renamed');
+    await dialog.locator('#t-user').fill('svc-inventory');
+    await targetsShot('e2e-target-edit');
+    await dialog.getByRole('button', { name: 'Save changes' }).click();
+    await dialog.waitFor({ state: 'detached', timeout: 15_000 });
+    const row = targetRow('Lab PC01 renamed');
+    await row.getByText('svc-inventory').waitFor({ timeout: 15_000 });
+    await row.getByText('Keychain').waitFor();
+    // A new username makes the last test stale; the row's Test records a new one.
+    await row.getByText('Not tested').waitFor();
+    await row.getByRole('button', { name: 'Test Lab PC01 renamed' }).click();
+    await row.getByText('Verified').waitFor({ timeout: 30_000 });
+    if (await targetRow('Lab PC01').count()) throw new Error('the rename left the old target behind');
+  });
+
   await run('second-collection', async () => {
-    await fillTarget('pc01.demo.local', 'demo', 'pc01-week2', 'Lab PC01 renamed');
-    await page.getByLabel('Snapshot name').focus(); // leave the password: the clusters list
+    await fillTarget('Lab PC01 renamed', '', 'pc01-week2');
     await clustersListed(4);
     await page.getByTestId('cluster-toggle-all').click(); // every cluster this time
     if ((await clusterCount()) !== '4 / 4') throw new Error(`selection ${await clusterCount()}`);
@@ -314,16 +431,21 @@ try {
     await rail('New collection');
     const opts = await savedOptions();
     const pc01 = await page.locator('#saved option[title="pc01.demo.local:9440"]').count();
-    if (pc01 !== 1 || !opts.some((o) => o.startsWith('Lab PC01 renamed · admin')) || opts.some((o) => o.startsWith('Lab PC01 · admin'))) {
+    if (pc01 !== 1 || !opts.includes('Lab PC01 renamed · Prism Central') || opts.includes('Lab PC01 · Prism Central')) {
       throw new Error(`rename made a duplicate or was lost: ${opts.join(' | ')}`);
     }
+    // "Edit target" next to the picker opens the Targets editor for it.
+    await fillTarget('Tiny');
+    await page.getByRole('button', { name: 'Edit target' }).click();
+    await page.getByRole('dialog').getByRole('heading', { name: 'Edit Tiny' }).waitFor({ timeout: 15_000 });
+    await page.getByRole('dialog').getByRole('button', { name: 'Cancel' }).click();
   });
 
   await run('cluster-picker-single', async () => {
     // One registered cluster: listed as soon as the password is complete, selected and
     // greyed out.
-    await fillTarget('tiny.demo.local', 'demo');
-    await page.locator('#pw').press('Tab');
+    // Picking a target with a keychain password lists its clusters straight away.
+    await fillTarget('Tiny');
     await clustersListed(1);
     if (!(await clusterBox('LAB-01').isChecked()) || !(await clusterBox('LAB-01').isDisabled())) {
       throw new Error('the single cluster is not selected and disabled');
@@ -334,7 +456,7 @@ try {
   });
 
   await run('cluster-picker-error', async () => {
-    await fillTarget('pc01.demo.local', 'wrong');
+    await fillTarget('Lab PC01 renamed', 'wrong');
     await page.locator('#pw').press('Tab');
     await page.getByTestId('cluster-error').getByText('Couldn’t load the clusters.').waitFor({ timeout: 30_000 });
     await page.getByTestId('cluster-picker').scrollIntoViewIfNeeded();
@@ -346,7 +468,7 @@ try {
   });
 
   await run('cancel', async () => {
-    await fillTarget('pc02.demo.local', 'demo', 'pc02-cancelled');
+    await fillTarget('PC02', '', 'pc02-cancelled');
     await page.getByRole('button', { name: /Start collection/ }).click();
     await page.getByRole('button', { name: 'Cancel run' }).click();
     await page.getByRole('dialog').getByRole('button', { name: 'Cancel run' }).click();
@@ -541,26 +663,50 @@ try {
 
   await run('multi-pc', async () => {
     await rail('Multiple PCs');
-    await page.getByRole('button', { name: /Paste a list|Paste/ }).first().click();
-    await page.getByRole('dialog').locator('textarea').fill('tiny.demo.local admin\npc03.demo.local admin\ndown.demo.local admin');
-    await page.getByRole('dialog').getByRole('button', { name: /^Add/ }).click();
-    for (const host of ['tiny.demo.local', 'pc03.demo.local', 'down.demo.local']) {
-      await page.getByLabel(`Password for ${host}`).fill('demo');
+    // Only saved Prism Central targets are offered (no inline add, no paste).
+    const picker = page.getByLabel('Add a target', { exact: true });
+    const options = await picker.locator('option').allTextContents();
+    if (options.some((o) => o.startsWith('PE01'))) throw new Error('a Prism Element target is offered');
+    for (const name of ['Tiny', 'PC03', 'Down']) {
+      const value = await picker.locator('option').filter({ hasText: new RegExp(`^${name} · `) }).getAttribute('value');
+      await picker.selectOption(value);
     }
+    // Keychain passwords: no password prompts; Down fails its test and is left out.
+    if (await page.getByLabel(/^Password for /).count()) throw new Error('asked for a saved password');
+    await page.getByRole('row').filter({ hasText: 'down.demo.local' }).getByText(/^Failed/).waitFor({ timeout: 30_000 });
+    await targetsShot('e2e-multi-picker');
     // The run's snapshot name is required here too.
     await expectDisabled('[data-testid="multi-start"]', true, 'Multiple PCs Start without a name');
     await page.getByTestId('multi-snapshot-name').fill('Q4 multi');
     await expectDisabled('[data-testid="multi-start"]', false, 'Multiple PCs Start with a name');
-    await page.getByRole('button', { name: /Collect from 3 Prism Centrals/ }).click();
+    await page.getByRole('button', { name: /Collect from 2 Prism Centrals/ }).click();
     await heading('Collection complete', 180_000);
-    await page.getByText(/2 of 3 collected/).first().waitFor({ timeout: 10_000 });
+    await page.getByText(/2 of 2 collected/).first().waitFor({ timeout: 10_000 });
     // Multi-PC reports follow the remembered prefix too: "<prefix>-<name> (<target>)-<date>".
     const files = await readdir(exportDir);
-    for (const stem of ['tiny.demo.local', 'pc03.demo.local']) {
+    for (const stem of ['Tiny', 'PC03']) {
       if (!files.includes(`ACME Q4-Q4 multi (${stem})-${today}.xlsx`)) {
         throw new Error(`no prefixed ${stem} report: ${files.join(', ')}`);
       }
     }
+  });
+
+  await run('targets-delete', async () => {
+    await rail('Targets');
+    await page.getByRole('button', { name: 'Actions for PC03' }).click();
+    await page.getByRole('menuitem', { name: 'Delete…' }).click();
+    const dialog = page.getByRole('dialog');
+    await dialog.getByRole('heading', { name: 'Delete PC03?' }).waitFor();
+    await dialog.getByText(/The 1 snapshot collected from it is kept/).waitFor();
+    await targetsShot('e2e-target-delete');
+    await dialog.getByRole('button', { name: 'Delete target' }).click();
+    await page.getByText('Deleted PC03').first().waitFor({ timeout: 15_000 });
+    await targetRow('PC03').waitFor({ state: 'detached' });
+    // Its snapshot stays; it is no longer offered anywhere.
+    await rail('Snapshots');
+    await page.getByText('Q4 multi (PC03)').first().waitFor({ timeout: 15_000 });
+    await rail('New collection');
+    if ((await savedOptions()).some((o) => o.startsWith('PC03'))) throw new Error('a deleted target is still offered');
   });
 
   await run('overview', async () => {

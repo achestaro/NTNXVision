@@ -277,7 +277,11 @@ function SavedTargets({
 
   return (
     <Panel aria-labelledby="saved">
-      <PanelHeader id="saved" title="Saved targets" meta={state.data ? fmtCount(rows.length) : undefined} />
+      <PanelHeader id="saved" title="Saved targets" meta={state.data ? fmtCount(rows.length) : undefined}>
+        <Button variant="ghost" size="sm" onClick={() => navigate({ screen: 'targets' })}>
+          Manage
+        </Button>
+      </PanelHeader>
       {state.error ? (
         <InlineEmpty>Saved targets unavailable · {state.error}</InlineEmpty>
       ) : state.loading && !state.data ? (
@@ -286,14 +290,14 @@ function SavedTargets({
         <EmptyState
           illustration="no-target"
           title="No saved targets yet"
-          description="Tick “Remember this target” when you collect, and it appears here to collect again in one click."
-          action={<Button onClick={() => navigate({ screen: 'new' })}>New collection</Button>}
+          description="Add a Prism Central or a cluster on the Targets page, and collect from it here in one click."
+          action={<Button onClick={() => navigate({ screen: 'targets', edit: 'new' })}>Add a target</Button>}
         />
       ) : rows.length === 0 ? (
         <InlineEmpty>
-          No saved targets yet. Tick “Remember this target” in{' '}
-          <button type="button" className="textlink" onClick={() => navigate({ screen: 'new' })}>
-            New collection
+          No saved targets yet.{' '}
+          <button type="button" className="textlink" onClick={() => navigate({ screen: 'targets', edit: 'new' })}>
+            Add a target
           </button>
           .
         </InlineEmpty>
@@ -342,7 +346,7 @@ function SavedTargets({
                     Collect
                   </Button>
                 ) : (
-                  <Button size="sm" onClick={() => navigate({ screen: 'new', connectionId: c.id })} aria-label={`Add password for ${c.host}`}>
+                  <Button size="sm" onClick={() => navigate({ screen: 'targets', edit: c.id })} aria-label={`Add password for ${c.host}`}>
                     Add password
                   </Button>
                 ),

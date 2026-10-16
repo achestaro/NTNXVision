@@ -117,6 +117,13 @@ export function CommandPalette({ onClose }: { onClose(): void }): JSX.Element {
         run: () => navigate({ screen: 'new' }),
       },
       {
+        id: 'act:add-target',
+        group: 'Actions',
+        label: 'Add a target',
+        icon: PlugIcon,
+        run: () => navigate({ screen: 'targets', edit: 'new' }),
+      },
+      {
         id: 'act:theme',
         group: 'Actions',
         label: resolvedTheme === 'light' ? 'Switch to dark theme' : 'Switch to light theme',
