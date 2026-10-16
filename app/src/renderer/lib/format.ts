@@ -17,6 +17,15 @@ export function fmtCount(n: number | null | undefined): string {
   return sign + INT.format(Math.round(Math.abs(n)));
 }
 
+const RATIO = new Intl.NumberFormat('en-US', { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+
+/** Oversubscription ratio, one decimal with spaces around the colon: 3.46 → "3.5 : 1".
+ * Matches `fmt_ratio` in the core's numfmt.py. */
+export function fmtRatio(n: number | null | undefined): string {
+  if (n === null || n === undefined || Number.isNaN(n)) return NA;
+  return `${RATIO.format(n)} : 1`;
+}
+
 /** Signed delta: +4, −6, 0. */
 export function fmtDelta(n: number): string {
   if (n > 0) return `+${fmtCount(n)}`;
