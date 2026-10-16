@@ -1,0 +1,186 @@
+name: Release
+
+# Builds the Windows MSI and the macOS DMG/ZIP (arm64 + x64) with the one-command build
+# scripts, smoke-tests the frozen sidecar and the packaged app on each OS, and uploads the
+# installers. Tags (v*) additionally get a draft GitHub Release with every installer.
+
+on:
+  push:
+    tags: ["v*"]
+    branches: ["feature/packaging-msi"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
+
+env:
+  PYTHON_VERSION: "3.13"
+  NODE_VERSION: "22"
+
+jobs:
+  checks:
+    name: Core tests + app lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: core/pyproject.toml
+      - name: pytest
+        working-directory: core
+        run: |
+          python -m pip install -e ".[dev]"
+          python -m pytest -q
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+      - name: eslint
+        working-directory: app
+        run: |
+          npm ci --ignore-scripts --no-audit --no-fund   # lint needs no native keytar build
+          npm run lint
+
+  build:
+    name: Package (${{ matrix.name }})
+    needs: checks
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: windows-x64+arm64
+            os: windows-latest
+            artifact: NTNXVision-windows-msi
+            files: |
+              app/release/*.msi
+          - name: macos-arm64
+            os: macos-latest
+            artifact: NTNXVision-macos-arm64
+            files: |
+              app/release/*.dmg
+              app/release/*.zip
+          - name: macos-x64
+            os: macos-15-intel
+            artifact: NTNXVision-macos-x64
+            files: |
+              app/release/*.dmg
+              app/release/*.zip
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: core/pyproject.toml
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+
+      # electron-builder downloads Electron and (Windows) the WiX toolset; cache both.
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/AppData/Local/electron/Cache
+            ~/AppData/Local/electron-builder/Cache
+            ~/Library/Caches/electron
+            ~/Library/Caches/electron-builder
+          key: electron-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('app/package-lock.json') }}
+
+      - name: Build (macOS)
+        if: runner.os == 'macOS'
+        env:
+          # All optional. Exported to electron-builder names only when non-empty: an empty
+          # CSC_LINK makes electron-builder treat "" as a certificate path and abort.
+          SEC_CSC_LINK: ${{ secrets.MAC_CSC_LINK }}
+          SEC_CSC_KEY_PASSWORD: ${{ secrets.MAC_CSC_KEY_PASSWORD }}
+          SEC_APPLE_ID: ${{ secrets.APPLE_ID }}
+          SEC_APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          SEC_APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          # Sign only with an explicitly provided certificate, never a runner keychain identity.
+          export CSC_IDENTITY_AUTO_DISCOVERY=false
+          if [ -n "$SEC_CSC_LINK" ]; then
+            export CSC_IDENTITY_AUTO_DISCOVERY=true
+            export CSC_LINK="$SEC_CSC_LINK" CSC_KEY_PASSWORD="$SEC_CSC_KEY_PASSWORD"
+          fi
+          if [ -n "$SEC_APPLE_ID" ]; then
+            export APPLE_ID="$SEC_APPLE_ID"
+            export APPLE_APP_SPECIFIC_PASSWORD="$SEC_APPLE_APP_SPECIFIC_PASSWORD"
+            export APPLE_TEAM_ID="$SEC_APPLE_TEAM_ID"
+          fi
+          ./scripts/build-macos.sh --skip-tests
+
+      - name: Build (Windows MSI)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          SEC_WIN_CSC_LINK: ${{ secrets.WIN_CSC_LINK }}
+          SEC_WIN_CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
+        run: |
+          $env:CSC_IDENTITY_AUTO_DISCOVERY = 'false'
+          if ($env:SEC_WIN_CSC_LINK) {
+            $env:WIN_CSC_LINK = $env:SEC_WIN_CSC_LINK
+            $env:WIN_CSC_KEY_PASSWORD = $env:SEC_WIN_CSC_KEY_PASSWORD
+          }
+          ./scripts/build-windows.ps1 -SkipTests
+
+      - name: Ping the sidecar bundled inside the packaged app
+        shell: bash
+        run: |
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            BIN=app/release/win-unpacked/resources/sidecar/ntnxvision-sidecar.exe
+          else
+            BIN="$(ls -d app/release/mac*/NTNXVision.app | head -1)/Contents/Resources/sidecar/ntnxvision-sidecar"
+          fi
+          python scripts/smoke-sidecar.py "$BIN" --ping-only
+
+      - name: List installers
+        shell: bash
+        run: ls -l app/release/
+
+      # Artifact storage on this repo has hit a stuck "quota" error before; never let an
+      # upload hiccup fail an otherwise good build. The fallback below covers that case.
+      - name: Upload installers (workflow artifact)
+        id: upload
+        uses: actions/upload-artifact@v4
+        continue-on-error: true
+        with:
+          name: ${{ matrix.artifact }}
+          path: ${{ matrix.files }}
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 0
+
+      - name: Fallback — attach to a draft CI release
+        if: steps.upload.outcome == 'failure' && !startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ci-build-${{ github.run_number }}
+          name: "CI build ${{ github.run_number }} (${{ github.ref_name }})"
+          draft: true
+          prerelease: true
+          fail_on_unmatched_files: true
+          files: ${{ matrix.files }}
+
+      - name: Attach to draft release (tags)
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: NTNXVision ${{ github.ref_name }}
+          draft: true
+          generate_release_notes: true
+          fail_on_unmatched_files: true
+          files: ${{ matrix.files }}
