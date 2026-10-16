@@ -13,9 +13,14 @@
 // .ntnxsnap → delete → import → open in Inventory → reopen it as the OS would and skip
 // the duplicate) → Multiple PCs with one failing target → Overview. Along the way: a named
 // saved target (and renaming it without a duplicate), report file name prefixes, Inventory
-// opening on Clusters, and click-anywhere rows toggling the detail pane. Screenshots of
-// each step go to <outDir> (default ./screenshots/e2e), plus the UX review set in
-// ./screenshots/UX. Exits non-zero on the first failed step.
+// opening on Clusters, and click-anywhere rows toggling the detail pane. Cluster scope and
+// snapshot names: a required, unique snapshot name gates Start; the PE cluster picker
+// (several clusters: deselect / select all and pick; one cluster: shown greyed out; a
+// failed listing with retry), a scoped snapshot holding only the chosen clusters, the
+// remembered selection, Compare's scope notice and report names carrying one date.
+// Screenshots of each step go to <outDir> (default ./screenshots/e2e), plus the UX review
+// set in ./screenshots/UX and the scope set in ./screenshots/Scope. Exits non-zero on the
+// first failed step.
 
 import { _electron as electron } from 'playwright-core';
 import electronPath from 'electron';
@@ -39,6 +44,8 @@ await mkdir(transferDir, { recursive: true });
 await mkdir(outDir, { recursive: true });
 const uxDir = join(appDir, 'screenshots', 'UX');
 await mkdir(uxDir, { recursive: true });
+const scopeDir = join(appDir, 'screenshots', 'Scope');
+await mkdir(scopeDir, { recursive: true });
 const pad2 = (n) => String(n).padStart(2, '0');
 const now = new Date();
 // The export date in report file names (local YYYY-MM-DD).
@@ -108,6 +115,32 @@ async function fillTarget(host, password, name, targetName = '') {
 const savedOptions = () => page.locator('#saved option').allTextContents();
 
 const uxShot = (name) => page.screenshot({ path: join(uxDir, `${name}.png`), fullPage: true });
+const scopeShot = (name) => page.screenshot({ path: join(scopeDir, `${name}.png`), fullPage: true });
+
+const startButton = () => page.getByTestId('start-collection');
+const clusterBox = (name) => page.getByTestId(`cluster-${name}`);
+
+async function expectDisabled(locator, want, what) {
+  await page.waitForFunction(
+    ([sel, w]) => {
+      const el = document.querySelector(sel);
+      return el && el.disabled === w;
+    },
+    [locator, want],
+    { timeout: 15_000 },
+  ).catch(() => {
+    throw new Error(`${what} is ${want ? 'enabled' : 'disabled'}`);
+  });
+}
+
+/** Wait for the cluster picker to list `n` clusters. */
+async function clustersListed(n) {
+  await page.getByTestId('cluster-list').waitFor({ timeout: 30_000 });
+  await page.waitForFunction((k) => document.querySelectorAll('[data-testid="cluster-list"] input').length === k, n, { timeout: 30_000 });
+}
+
+/** "2 / 4" in the picker header. */
+const clusterCount = () => page.getByTestId('cluster-count').innerText();
 
 /** The Inventory grid row for an object name. */
 const gridRow = (name) => page.getByRole('row').filter({ has: page.getByRole('button', { name, exact: true }) });
@@ -134,12 +167,6 @@ async function testConnection(expectText) {
   await page.getByText(expectText).first().waitFor({ timeout: 30_000 });
 }
 
-async function collect(host, name, targetName = '') {
-  await fillTarget(host, 'demo', name, targetName);
-  await page.getByRole('button', { name: /Start collection/ }).click();
-  await heading('Collection complete', 180_000);
-}
-
 try {
   await page.getByRole('heading', { level: 1 }).first().waitFor({ timeout: 60_000 });
 
@@ -160,17 +187,80 @@ try {
     await testConnection('Connection failed');
   });
   await run('test-ok', async () => {
-    await fillTarget('pc01.demo.local', 'demo', 'pc01-week1', 'Lab PC01');
+    await fillTarget('pc01.demo.local', 'demo', '', 'Lab PC01');
     await testConnection('Connection verified');
   });
 
+  await run('name-required', async () => {
+    // No name, no date prefilled: Start stays disabled and says why.
+    if ((await page.getByLabel('Snapshot name').inputValue()) !== '') throw new Error('snapshot name was prefilled');
+    await expectDisabled('[data-testid="start-collection"]', true, 'Start without a name');
+    await page.getByTestId('start-blockers').getByText('Enter a snapshot name in step 3.').waitFor();
+    await page.getByLabel('Snapshot name').focus();
+    await page.getByLabel('Snapshot name').blur();
+    await page.getByText('Enter a snapshot name.', { exact: true }).first().waitFor();
+    await page.getByTestId('snapshot-name').scrollIntoViewIfNeeded();
+    await scopeShot('name-required');
+  });
+
+  await run('cluster-picker-multi', async () => {
+    // A verified connection lists the registered clusters, all selected.
+    await clustersListed(4);
+    if ((await clusterCount()) !== '4 / 4') throw new Error(`initial selection ${await clusterCount()}`);
+    for (const name of ['AMS-EDGE-02', 'PHX-DR-01', 'PHX-PROD-01', 'PHX-PROD-02']) {
+      if (!(await clusterBox(name).isChecked()) || (await clusterBox(name).isDisabled())) throw new Error(`${name} not selectable`);
+    }
+    await page.getByLabel('Snapshot name').fill('pc01-week1');
+    await expectDisabled('[data-testid="start-collection"]', false, 'Start with a name and 4 clusters');
+    await page.getByTestId('cluster-picker').scrollIntoViewIfNeeded();
+    await scopeShot('step2-multi-cluster');
+    // Deselect all: Start is blocked until a cluster is chosen again.
+    await page.getByTestId('cluster-toggle-all').click();
+    if ((await clusterCount()) !== '0 / 4') throw new Error('Deselect all left clusters selected');
+    await expectDisabled('[data-testid="start-collection"]', true, 'Start with no cluster');
+    await page.getByTestId('cluster-empty-error').waitFor();
+    await page.getByTestId('start-blockers').getByText('Select at least one cluster in step 2.').waitFor();
+    await scopeShot('step2-no-cluster');
+    await page.getByTestId('cluster-toggle-all').click(); // Select all
+    if ((await clusterCount()) !== '4 / 4') throw new Error('Select all did not select every cluster');
+    // Keep the two PHX-PROD clusters.
+    await clusterBox('AMS-EDGE-02').uncheck();
+    await clusterBox('PHX-DR-01').uncheck();
+    if ((await clusterCount()) !== '2 / 4') throw new Error(`picked ${await clusterCount()}`);
+    await page.getByTestId('summary-clusters').getByText('2 / 4').waitFor();
+    await scopeShot('step2-two-of-four');
+  });
+
   await run('collecting', async () => {
-    await page.getByRole('button', { name: /Start collection/ }).click();
+    await startButton().click();
     await page.getByText(/Virtual machines/).first().waitFor({ timeout: 30_000 });
   });
   await run('results', async () => {
     await heading('Collection complete', 180_000);
     await page.getByText('API routing and compatibility').first().waitFor();
+    // The scoped snapshot holds the chosen clusters only.
+    await page.getByTestId('results-scope').getByText('Scope: 2 of 4 clusters (PHX-PROD-01, PHX-PROD-02)').waitFor();
+    // Report files carry the export date once (the snapshot name has none).
+    const files = (await readdir(exportDir)).filter((f) => f.startsWith('pc01-week1'));
+    if (!files.includes(`pc01-week1-${today}.xlsx`)) throw new Error(`report names: ${files.join(', ')}`);
+    for (const f of files) {
+      if ((f.match(/\d{4}-\d{2}-\d{2}/g) ?? []).length !== 1) throw new Error(`${f} has more than one date`);
+    }
+    await scopeShot('results-scoped');
+  });
+
+  await run('scoped-inventory', async () => {
+    await page.getByRole('button', { name: 'Browse inventory' }).click();
+    await page.getByRole('heading', { level: 1, name: 'Clusters' }).waitFor({ timeout: 30_000 });
+    await page.getByRole('button', { name: 'PHX-PROD-01', exact: true }).waitFor({ timeout: 30_000 });
+    await page.getByRole('button', { name: 'PHX-PROD-02', exact: true }).waitFor();
+    for (const gone of ['AMS-EDGE-02', 'PHX-DR-01']) {
+      if (await page.getByRole('button', { name: gone, exact: true }).count()) throw new Error(`${gone} is in the scoped snapshot`);
+    }
+    await page.getByRole('navigation', { name: 'Object types' }).getByRole('button', { name: /^Hosts/ }).click();
+    await page.getByRole('heading', { level: 1, name: /Hosts/ }).waitFor({ timeout: 30_000 });
+    const text = await page.locator('body').innerText();
+    if (/AMS-EDGE-02|PHX-DR-01/.test(text)) throw new Error('hosts of an unselected cluster are in the snapshot');
   });
 
   await run('saved-target-name', async () => {
@@ -191,7 +281,34 @@ try {
     await page.getByRole('table', { name: 'Saved targets' }).getByText(/^Lab PC01/).first().waitFor({ timeout: 30_000 });
   });
 
-  await run('second-collection', async () => collect('pc01.demo.local', 'pc01-week2', 'Lab PC01 renamed'));
+  await run('remembered-selection', async () => {
+    // "Collect" on a saved target opens New collection with the target loaded (keychain
+    // password: the clusters list straight away) and its last selection preselected.
+    await page.getByRole('button', { name: 'Collect pc01.demo.local' }).click();
+    await heading('New collection');
+    await clustersListed(4);
+    if ((await clusterCount()) !== '2 / 4') throw new Error(`remembered selection: ${await clusterCount()}`);
+    if (!(await clusterBox('PHX-PROD-01').isChecked()) || (await clusterBox('AMS-EDGE-02').isChecked())) {
+      throw new Error('the remembered selection is not the last one');
+    }
+    // The name is required again, and a name already used is refused inline.
+    await page.getByLabel('Snapshot name').fill('PC01-WEEK1');
+    await page.getByText(/A snapshot named “PC01-WEEK1” already exists/).first().waitFor();
+    await expectDisabled('[data-testid="start-collection"]', true, 'Start with a duplicate name');
+    await page.getByTestId('snapshot-name').scrollIntoViewIfNeeded();
+    await scopeShot('name-duplicate');
+  });
+
+  await run('second-collection', async () => {
+    await fillTarget('pc01.demo.local', 'demo', 'pc01-week2', 'Lab PC01 renamed');
+    await page.getByLabel('Snapshot name').focus(); // leave the password: the clusters list
+    await clustersListed(4);
+    await page.getByTestId('cluster-toggle-all').click(); // every cluster this time
+    if ((await clusterCount()) !== '4 / 4') throw new Error(`selection ${await clusterCount()}`);
+    await startButton().click();
+    await heading('Collection complete', 180_000);
+    await page.getByTestId('results-scope').getByText('Scope: All 4 clusters').waitFor();
+  });
 
   await run('saved-target-renamed', async () => {
     await rail('New collection');
@@ -200,6 +317,32 @@ try {
     if (pc01 !== 1 || !opts.some((o) => o.startsWith('Lab PC01 renamed · admin')) || opts.some((o) => o.startsWith('Lab PC01 · admin'))) {
       throw new Error(`rename made a duplicate or was lost: ${opts.join(' | ')}`);
     }
+  });
+
+  await run('cluster-picker-single', async () => {
+    // One registered cluster: listed as soon as the password is complete, selected and
+    // greyed out.
+    await fillTarget('tiny.demo.local', 'demo');
+    await page.locator('#pw').press('Tab');
+    await clustersListed(1);
+    if (!(await clusterBox('LAB-01').isChecked()) || !(await clusterBox('LAB-01').isDisabled())) {
+      throw new Error('the single cluster is not selected and disabled');
+    }
+    if (await page.getByTestId('cluster-toggle-all').count()) throw new Error('Select all offered for one cluster');
+    await page.getByTestId('cluster-picker').scrollIntoViewIfNeeded();
+    await scopeShot('step2-single-cluster');
+  });
+
+  await run('cluster-picker-error', async () => {
+    await fillTarget('pc01.demo.local', 'wrong');
+    await page.locator('#pw').press('Tab');
+    await page.getByTestId('cluster-error').getByText('Couldn’t load the clusters.').waitFor({ timeout: 30_000 });
+    await page.getByTestId('cluster-picker').scrollIntoViewIfNeeded();
+    await scopeShot('step2-error');
+    // Retry with the right password lists them.
+    await page.locator('#pw').fill('demo');
+    await page.locator('#pw').press('Tab');
+    await clustersListed(4);
   });
 
   await run('cancel', async () => {
@@ -288,6 +431,12 @@ try {
     await rail('Compare');
     await page.getByText(/What changed/).first().waitFor({ timeout: 30_000 });
     await page.getByText('k8s-worker-').first().waitFor();
+    // week1 covered 2 of 4 clusters, week2 all 4: the other two are not "added".
+    await page.locator('.compare-scope-notice').getByText('These snapshots cover different clusters.').waitFor();
+    await page.locator('.compare-scope-notice').getByText(/AMS-EDGE-02, PHX-DR-01/).waitFor();
+    const added = await page.locator('tbody').innerText();
+    if (/PHX-DR-01|AMS-EDGE-02/.test(added)) throw new Error('objects of out-of-scope clusters are listed as changes');
+    await scopeShot('compare-scope-notice');
   });
 
   await run('compare-export-pdf', async () => {
@@ -398,13 +547,17 @@ try {
     for (const host of ['tiny.demo.local', 'pc03.demo.local', 'down.demo.local']) {
       await page.getByLabel(`Password for ${host}`).fill('demo');
     }
+    // The run's snapshot name is required here too.
+    await expectDisabled('[data-testid="multi-start"]', true, 'Multiple PCs Start without a name');
+    await page.getByTestId('multi-snapshot-name').fill('Q4 multi');
+    await expectDisabled('[data-testid="multi-start"]', false, 'Multiple PCs Start with a name');
     await page.getByRole('button', { name: /Collect from 3 Prism Centrals/ }).click();
     await heading('Collection complete', 180_000);
     await page.getByText(/2 of 3 collected/).first().waitFor({ timeout: 10_000 });
-    // Multi-PC reports follow the remembered prefix too.
+    // Multi-PC reports follow the remembered prefix too: "<prefix>-<name> (<target>)-<date>".
     const files = await readdir(exportDir);
-    for (const stem of ['tiny', 'pc03']) {
-      if (!files.some((f) => f.startsWith(`ACME Q4-${stem}-`) && f.endsWith(`-${today}.xlsx`))) {
+    for (const stem of ['tiny.demo.local', 'pc03.demo.local']) {
+      if (!files.includes(`ACME Q4-Q4 multi (${stem})-${today}.xlsx`)) {
         throw new Error(`no prefixed ${stem} report: ${files.join(', ')}`);
       }
     }

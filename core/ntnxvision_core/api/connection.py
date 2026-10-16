@@ -58,6 +58,8 @@ class PrismConnection:
     negotiated: dict[str, str] = field(default_factory=dict)
     #: Checked before every request, so a cancelled run stops between pages.
     cancel: CancelToken | None = None
+    #: The run's cluster selection (`ntnxvision_core.scope.Scope`); None = every cluster.
+    scope: Any = None
 
     # ─── lifecycle ─────────────────────────────────────────────────
 
@@ -197,12 +199,17 @@ class PrismConnection:
         url = f"{self.creds.base}/api/{path.lstrip('/')}"
         return self.get_json(url, params=params)
 
-    def v4_list(self, path: str, page_size: int = 100) -> list[dict[str, Any]]:
-        """Fetch all pages from a v4 list endpoint (uses $page/$limit query params)."""
+    def v4_list(self, path: str, page_size: int = 100, *,
+                filter: str | None = None) -> list[dict[str, Any]]:  # noqa: A002
+        """Fetch all pages from a v4 list endpoint (uses $page/$limit query params).
+
+        `filter` is passed as the OData ``$filter`` (see `scope.v4_list_scoped`)."""
         results: list[dict[str, Any]] = []
         page = 0
         while True:
-            params = {"$page": page, "$limit": page_size}
+            params: dict[str, Any] = {"$page": page, "$limit": page_size}
+            if filter:
+                params["$filter"] = filter
             payload = self.v4_get(path, params=params)
             data = payload.get("data") or []
             results.extend(data)
@@ -214,7 +221,7 @@ class PrismConnection:
         return results
 
     def v4_list_tolerant(
-        self, path: str, page_size: int = 100
+        self, path: str, page_size: int = 100, *, filter: str | None = None  # noqa: A002
     ) -> tuple[list[dict[str, Any]], int]:
         """Fetch all pages, isolating and skipping records the server cannot serialize.
 
@@ -233,11 +240,13 @@ class PrismConnection:
         results: list[dict[str, Any]] = []
         skipped = 0
         page = 0
+        extra = {"$filter": filter} if filter else {}
         while True:
             try:
-                payload = self.v4_get(path, params={"$page": page, "$limit": page_size})
+                payload = self.v4_get(path, params={"$page": page, "$limit": page_size,
+                                                    **extra})
             except NutanixApiError:
-                good, bad, reached_end = self._salvage_page(path, page, page_size)
+                good, bad, reached_end = self._salvage_page(path, page, page_size, extra)
                 results.extend(good)
                 skipped += bad
                 if reached_end:
@@ -254,7 +263,7 @@ class PrismConnection:
         return results, skipped
 
     def _salvage_page(
-        self, path: str, page: int, page_size: int
+        self, path: str, page: int, page_size: int, extra: dict[str, Any] | None = None
     ) -> tuple[list[dict[str, Any]], int, bool]:
         """Re-read one failed page record by record.
 
@@ -268,7 +277,8 @@ class PrismConnection:
         base = page * page_size
         for offset in range(base, base + page_size):
             try:
-                payload = self.v4_get(path, params={"$page": offset, "$limit": 1})
+                payload = self.v4_get(path, params={"$page": offset, "$limit": 1,
+                                                    **(extra or {})})
             except NutanixApiError:
                 skipped += 1
                 continue

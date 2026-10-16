@@ -29,6 +29,7 @@ from ntnxvision_core.api.errors import NutanixApiError
 from ntnxvision_core.collectors.base import Collector
 from ntnxvision_core.collectors.normalize import AHV, ESXI
 from ntnxvision_core.models import Nic, VirtualDisk, VirtualMachine
+from ntnxvision_core.scope import v4_list_scoped
 
 #: v4 VM endpoints, and the hypervisor each one implies.
 V4_VM_ENDPOINTS = (
@@ -81,7 +82,10 @@ class VmCollector(Collector):
         skipped_total = 0
         for path, hypervisor in V4_VM_ENDPOINTS:
             try:
-                entities, skipped = self.conn.v4_list_tolerant(path)
+                # Scoped run: only the selected clusters' VMs, server-side when the PC
+                # filters on the cluster reference (pruned afterwards either way).
+                entities, skipped = v4_list_scoped(self.conn, path, "cluster/extId",
+                                                   tolerant=True)
             except NutanixApiError:
                 # One hypervisor's endpoint being absent is normal — a cluster of the
                 # other type simply has none.

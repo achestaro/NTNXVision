@@ -53,10 +53,51 @@ def _key(spec: TableSpec, obj: Any, env: Environment) -> str:
     return f"{spec.name(obj)}@{_where(spec, obj, env)}"
 
 
-def raw_changes(base: Environment, cur: Environment) -> list[dict[str, Any]]:
-    """One entry per added / removed object and per changed field (ungrouped)."""
+def _left_out(env: Environment) -> tuple[set[str], set[str]]:
+    """(uuids, lower-cased names) of the registered clusters `env`'s run left out."""
+    scope = env.cluster_scope
+    if scope is None:
+        return set(), set()
+    kept = {(c.name or "").casefold() for c in scope.selected}
+    return ({c.uuid for c in scope.excluded},
+            {(c.name or "").casefold() for c in scope.excluded} - kept - {""})
+
+
+def _on_left_out(spec: TableSpec, obj: Any, left_out: tuple[set[str], set[str]]) -> bool:
+    uuids, names = left_out
+    if not uuids:
+        return False
+    if spec.type == "clusters":
+        uuid, name = getattr(obj, "uuid", None), getattr(obj, "name", None)
+    else:
+        uuid, name = getattr(obj, "cluster_uuid", None), getattr(obj, "cluster_name", None)
+    if uuid:
+        return str(uuid) in uuids
+    if not name:
+        return False
+    return str(name).casefold() in names or str(name) in uuids
+
+
+def _drop_names(value: Any, names: set[str]) -> Any:
+    """A comma-joined cluster list without the (lower-cased) `names`."""
+    if not isinstance(value, str) or not value:
+        return value
+    return ", ".join(p for p in value.split(", ") if p.casefold() not in names)
+
+
+def raw_changes(base: Environment, cur: Environment,
+                stats: dict[str, Any] | None = None) -> list[dict[str, Any]]:
+    """One entry per added / removed object and per changed field (ungrouped).
+
+    Snapshots can cover different clusters (cluster scope). An object on a cluster the
+    *other* run left out is not "added" or "removed": it was simply not looked at. Those
+    are skipped and counted in ``stats["out_of_scope"]`` so the comparison can say so.
+    """
     base_ctx, cur_ctx = Ctx(base), Ctx(cur)
     out: list[dict[str, Any]] = []
+    base_left_out, cur_left_out = _left_out(base), _left_out(cur)
+    gap_names = base_left_out[1] | cur_left_out[1]
+    hidden = 0
     for type_id in COMPARE_TYPES:
         spec = SPECS[type_id]
         # A type one of the two runs did not collect (area unselected, product not
@@ -78,9 +119,15 @@ def raw_changes(base: Environment, cur: Environment) -> list[dict[str, Any]]:
                 before[k] = before.pop(alt)
         for k, obj in after.items():
             if k not in before:
+                if _on_left_out(spec, obj, base_left_out):
+                    hidden += 1
+                    continue
                 out.append(_entry("added", spec, obj, cur, cur_ctx))
         for k, obj in before.items():
             if k not in after:
+                if _on_left_out(spec, obj, cur_left_out):
+                    hidden += 1
+                    continue
                 out.append(_entry("removed", spec, obj, base, base_ctx, cur=cur))
         diff_cols = [c for c in spec.cols if c.diff]
         for k, new in after.items():
@@ -90,6 +137,9 @@ def raw_changes(base: Environment, cur: Environment) -> list[dict[str, Any]]:
             for col in diff_cols:
                 a = display(col, col.get(old, base_ctx))
                 b = display(col, col.get(new, cur_ctx))
+                if col.diff == "placement" and gap_names:
+                    # An image placed on a cluster only one run collected is not a move.
+                    a, b = _drop_names(a, gap_names), _drop_names(b, gap_names)
                 if a != b:
                     out.append({
                         "kind": "changed", "type": type_id, "object_type": spec.singular,
@@ -97,7 +147,46 @@ def raw_changes(base: Environment, cur: Environment) -> list[dict[str, Any]]:
                         "field": col.diff, "before": a or NA, "after": b or NA,
                         "detail": None, "id": k,
                     })
+    if stats is not None:
+        stats["out_of_scope"] = hidden
     return out
+
+
+def scope_notice(base: Environment, cur: Environment, hidden: int = 0
+                 ) -> dict[str, Any] | None:
+    """What to tell the user when the two snapshots cover different clusters.
+
+    None when both cover the same clusters (or neither recorded a scope)."""
+    from ntnxvision_core.scope import describe, names_label
+
+    def selected(env: Environment) -> set[str] | None:
+        return {c.uuid for c in env.cluster_scope.selected} if env.cluster_scope else None
+
+    b, c = selected(base), selected(cur)
+    differs = b is not None and c is not None and b != c
+    partial = any(e.cluster_scope is not None and e.cluster_scope.is_partial
+                  for e in (base, cur))
+    if not (differs or hidden or (partial and (b is None or c is None))):
+        return None
+    gap: list[str] = []
+    for env, other in ((base, cur), (cur, base)):
+        if env.cluster_scope is None:
+            continue
+        other_sel = selected(other)
+        for cl in env.cluster_scope.excluded:
+            if other_sel is None or cl.uuid in other_sel:
+                gap.append(cl.name or cl.uuid)
+    gap = sorted(dict.fromkeys(gap), key=str.casefold)
+    base_label = describe(base.cluster_scope) or "Every cluster (no scope recorded)"
+    cur_label = describe(cur.cluster_scope) or "Every cluster (no scope recorded)"
+    detail = "Their cluster scopes differ."
+    if gap:
+        detail = (f"Objects on {names_label(gap)}, which only one snapshot collected, are left "
+                  "out of the comparison and its totals instead of being reported as added "
+                  "or removed")
+        detail += f" ({fmt_count(hidden)} objects)." if hidden else "."
+    return {"title": "Different cluster scopes", "baseline": base_label, "current": cur_label,
+            "clusters": gap, "out_of_scope": hidden, "detail": detail}
 
 
 def collected(env: Environment, spec: TableSpec) -> bool:
@@ -277,24 +366,22 @@ def _group_row(kind: str, type_id: str, where: str, items: list[dict[str, Any]]
 # ─── figures ───────────────────────────────────────────────────────────
 
 
-def capacity(env: Environment) -> tuple[int, int]:
-    """(capacity, used) bytes across clusters.
+def _pool_capacity(containers: list[Any]) -> int:
+    """Capacity of `containers`: each cluster's storage pool counted once.
 
     Containers on one cluster share its storage pool and each reports the pool as its
-    ceiling, so the pool is counted once per cluster (the largest ceiling) while usage is
-    summed across containers.
-    """
+    ceiling, so the pool is the largest ceiling per cluster."""
     pools: dict[str, int] = {}
-    used = 0
-    for s in env.storage_containers:
+    for s in containers:
         key = f"{s.source_pc or ''}/{s.cluster_uuid or s.cluster_name or s.uuid}"
         pools[key] = max(pools.get(key, 0), s.max_capacity_bytes or 0)
-        used += s.used_bytes or 0
-    return sum(pools.values()), used
+    return sum(pools.values())
 
 
-def _capacity(env: Environment) -> int:
-    return capacity(env)[0]
+def capacity(env: Environment) -> tuple[int, int]:
+    """(capacity, used) bytes across clusters: pools once per cluster, usage summed."""
+    used = sum(s.used_bytes or 0 for s in env.storage_containers)
+    return _pool_capacity(env.storage_containers), used
 
 
 def _tb(value: int) -> str:
@@ -316,7 +403,8 @@ def _delta(added: int, removed: int, was: int) -> str:
 
 
 def compare(base: Environment, cur: Environment) -> dict[str, Any]:
-    raw = raw_changes(base, cur)
+    stats: dict[str, Any] = {}
+    raw = raw_changes(base, cur, stats)
     summary = {
         "added": sum(1 for c in raw if c["kind"] == "added"),
         "removed": sum(1 for c in raw if c["kind"] == "removed"),
@@ -332,15 +420,30 @@ def compare(base: Environment, cur: Environment) -> dict[str, Any]:
     va, vr = counts("vms")
     ha, hr = counts("hosts")
     pa, pr = counts("protection_policies")
-    cap_b, cap_c = _capacity(base), _capacity(cur)
+    # Totals over the clusters both snapshots collected, so a smaller scope does not read
+    # as hundreds of VMs gone (the change rows already leave those clusters out).
+    vm_spec, host_spec = SPECS["vms"], SPECS["hosts"]
+    base_out, cur_out = _left_out(base), _left_out(cur)
+
+    def common(spec: TableSpec, items: list[Any], other_out: tuple[set[str], set[str]]
+               ) -> list[Any]:
+        return [o for o in items if not _on_left_out(spec, o, other_out)]
+
+    base_vms, cur_vms = common(vm_spec, base.vms, cur_out), common(vm_spec, cur.vms, base_out)
+    base_hosts = common(host_spec, base.hosts, cur_out)
+    cur_hosts = common(host_spec, cur.hosts, base_out)
+    ctr_spec = SPECS["storage_containers"]
+    cap_b = _pool_capacity(common(ctr_spec, base.storage_containers, cur_out))
+    cap_c = _pool_capacity(common(ctr_spec, cur.storage_containers, base_out))
     cap_delta = cap_c - cap_b
     figures = [
         {"label": "Changes", "value": summary["total"],
          "qualifier": f"{fmt_count(summary['added'])} added · "
                       f"{fmt_count(summary['removed'])} removed · "
                       f"{fmt_count(summary['changed'])} changed"},
-        {"label": "VMs", "value": len(cur.vms), "qualifier": _delta(va, vr, len(base.vms))},
-        {"label": "Hosts", "value": len(cur.hosts), "qualifier": _delta(ha, hr, len(base.hosts))},
+        {"label": "VMs", "value": len(cur_vms), "qualifier": _delta(va, vr, len(base_vms))},
+        {"label": "Hosts", "value": len(cur_hosts),
+         "qualifier": _delta(ha, hr, len(base_hosts))},
         {"label": "Storage", "value": _tb(cap_c), "unit": "TB",
          "qualifier": (f"{'+' if cap_delta >= 0 else '−'}{_tb(abs(cap_delta))} TB · "
                        if cap_delta else "no change · ") + f"was {_tb(cap_b)} TB"},
@@ -349,7 +452,8 @@ def compare(base: Environment, cur: Environment) -> dict[str, Any]:
          "qualifier_tone": "warn" if pr else None},
     ]
     return {"summary": summary, "figures": figures, "changes": group_changes(raw),
-            "days": _days(base.collected_at, cur.collected_at)}
+            "days": _days(base.collected_at, cur.collected_at),
+            "scope_notice": scope_notice(base, cur, int(stats.get("out_of_scope") or 0))}
 
 
 def _days(a: str | None, b: str | None) -> float:
@@ -470,6 +574,12 @@ def export_comparison(base: Environment, cur: Environment, base_name: str, cur_n
     return out
 
 
+def _scope_label(env: Environment) -> str:
+    from ntnxvision_core.scope import describe
+
+    return describe(env.cluster_scope, limit=None) or "Every cluster (no scope recorded)"
+
+
 def _summary_sheet(ws: Any, base: Environment, cur: Environment, base_name: str,
                    cur_name: str, result: dict[str, Any], raw: list[dict[str, Any]]) -> None:
     """The workbook's cover, laid out like the inventory workbook's Overview sheet."""
@@ -523,12 +633,25 @@ def _summary_sheet(ws: Any, base: Environment, cur: Environment, base_name: str,
         ("Current", cur_name), ("Current collected (UTC)",
                                 TH.fmt_datetime(cur.collected_at) or cur.collected_at),
         ("Current source", source(cur)),
+        ("Baseline scope", (result.get("scope_notice") or {}).get("baseline")
+         or _scope_label(base)),
+        ("Current scope", (result.get("scope_notice") or {}).get("current")
+         or _scope_label(cur)),
         ("Time between", f"{days:,.1f} days"),
         ("Report date", TH.report_date()),
         ("Generated by", f"NTNXVision {cur.tool_version}"),
     ):
         label(row, text)
         value(row, v)
+        row += 1
+
+    notice = result.get("scope_notice")
+    if notice:
+        cell = ws.cell(row=row, column=1, value=notice["detail"])
+        cell.font = XL._STATUS_FONT["warn"]
+        cell.alignment = XL._TOP_LEFT
+        ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=5)
+        ws.row_dimensions[row].height = 40
         row += 1
 
     s = result["summary"]

@@ -15,6 +15,7 @@ import {
   InventoryFilter,
   InventoryPage,
   InventorySort,
+  ListClustersRequest,
   MultiCollectionRequest,
   NtnxApi,
   Platform,
@@ -39,6 +40,7 @@ const api: NtnxApi = {
   getLegalDocuments: () => ipcRenderer.invoke(IPC.getLegalDocuments),
 
   testConnection: (req: TestConnectionRequest) => ipcRenderer.invoke(IPC.testConnection, req),
+  listClusters: (req: ListClustersRequest) => ipcRenderer.invoke(IPC.listClusters, req),
   getCollectionAreas: () => ipcRenderer.invoke(IPC.getCollectionAreas),
   startCollection: (req: CollectionRequest) => ipcRenderer.invoke(IPC.startCollection, req),
   startMultiCollection: (req: MultiCollectionRequest) =>

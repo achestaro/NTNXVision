@@ -62,7 +62,7 @@ from ntnxvision_core.paths import demo_enabled, exports_dir, snapshots_dir
 from ntnxvision_core.runinfo import CombinedTracker, RunTracker, build_run_metadata
 from ntnxvision_core.store import SnapshotStore, transfer
 from ntnxvision_core.store import snapshot as snapstore
-from ntnxvision_core.store.names import safe_name
+from ntnxvision_core.store.names import max_stem_for, safe_name
 
 CANCELLED = -32800
 BUSY = -32002
@@ -73,12 +73,18 @@ INVALID_FILE = -32010
 NEWER_VERSION = -32011
 PASSWORD_ERROR = -32012
 TRANSFER_ERROR = -32013
+#: The snapshot name is missing, unusable or already taken (checked before collecting).
+INVALID_NAME = -32003
 
 _FORMAT_LABELS = {"excel": "Excel workbook", "pdf": "PDF report", "word": "Word ADD"}
 
 
 class Busy(Exception):
     """A collection is already running."""
+
+
+class InvalidName(Exception):
+    """A collection's snapshot name is missing, unusable or already used."""
 
 
 # ─── wire ──────────────────────────────────────────────────────────────
@@ -255,6 +261,8 @@ def _handle(request: dict[str, Any]) -> None:
         _error(req_id, CANCELLED, "Run cancelled")
     except Busy as exc:
         _error(req_id, BUSY, str(exc))
+    except InvalidName as exc:
+        _error(req_id, INVALID_NAME, str(exc))
     except NutanixApiError as exc:
         _error(req_id, API_ERROR, str(exc))
     except transfer.TransferError as exc:
@@ -284,6 +292,12 @@ def _m_test_connection(_req_id: Any, params: dict[str, Any]) -> dict[str, Any]:
     return test_connection(params)
 
 
+def _m_list_clusters(_req_id: Any, params: dict[str, Any]) -> dict[str, Any]:
+    from ntnxvision_core.clusterlist import list_clusters
+
+    return list_clusters(params)
+
+
 def _m_demo_info(_req_id: Any, _params: dict[str, Any]) -> dict[str, Any]:
     if not demo_enabled():
         return {"enabled": False, "hosts": []}
@@ -293,6 +307,33 @@ def _m_demo_info(_req_id: Any, _params: dict[str, Any]) -> dict[str, Any]:
 
 
 # ─── collection ────────────────────────────────────────────────────────
+
+
+def snapshot_name_for(raw: Any, store: SnapshotStore | None = None,
+                      taken: set[str] | None = None, fallback: str | None = None) -> str:
+    """The snapshot name a collection will be saved under, or `InvalidName`.
+
+    The user types the name (no date is added: report files carry the export date).
+    It is sanitized like every snapshot file name (reserved characters, trimmed, capped),
+    and a name another snapshot already uses is refused, ignoring case, before anything
+    is collected. Snapshot ids stay unique regardless (each save gets a fresh UUID).
+    `taken` holds names claimed earlier in the same request (multi-PC targets).
+
+    `fallback` (multi-PC API callers that send no name: the host) is used as given and
+    never refused; the save then appends -2, -3 rather than replace a snapshot.
+    """
+    text = str(raw or "").strip()
+    store = store or _store()
+    if not text and fallback:
+        return safe_name(fallback, max_len=max_stem_for(store.directory))
+    if not text:
+        raise InvalidName("Enter a snapshot name.")
+    safe = safe_name(text, max_len=max_stem_for(store.directory), fallback="")
+    if not safe:
+        raise InvalidName("The snapshot name has no usable characters.")
+    if store.name_taken(safe) or safe.casefold() in (taken or set()):
+        raise InvalidName(f"A snapshot named '{safe}' already exists. Choose another name.")
+    return safe
 
 
 def _export_dir_from(params: dict[str, Any]) -> Path:
@@ -388,7 +429,7 @@ def _finalize(env: Any, name: str, params: dict[str, Any], *,
         tracker.phase("snapshot", "Saving snapshot…")
     snap_path: Path | None = None
     try:
-        snap_path = SnapshotStore(snapshots_dir()).save(env, name)
+        snap_path = SnapshotStore(snapshots_dir()).save(env, name, unique=True)
         result["snapshot_path"] = str(snap_path)
         result["snapshot_name"] = snapstore.snapshot_name(snap_path)
         _cache.invalidate(snap_path)
@@ -419,6 +460,7 @@ def _finalize(env: Any, name: str, params: dict[str, Any], *,
         "figures": run.get("figures") or [],
         "api_routing": run.get("api_routing") or [],
         "compat": run.get("compat"),
+        "scope": run.get("scope"),
     })
     return result
 
@@ -438,6 +480,18 @@ def _advance_demo(host: str) -> None:
         demo.advance(host)
 
 
+def _clusters_param(params: dict[str, Any]) -> list[str] | None:
+    """The selected cluster uuids; None (absent) collects every registered cluster."""
+    raw = params.get("clusters")
+    if raw is None:
+        return None
+    if not isinstance(raw, list) or not all(isinstance(u, str) and u for u in raw):
+        raise NutanixApiError("clusters must be a list of cluster uuids.")
+    if not raw:
+        raise NutanixApiError("Choose at least one cluster to collect.")
+    return list(raw)
+
+
 def _m_inventory(req_id: Any, params: dict[str, Any]) -> dict[str, Any]:
     handle = _runs.begin(params.get("run_id"))
     try:
@@ -449,12 +503,12 @@ def _m_inventory(req_id: Any, params: dict[str, Any]) -> dict[str, Any]:
             port=int(params.get("port", 9440)),
             verify_ssl=not insecure,
         )
-        name = params.get("name") or "environment"
+        name = snapshot_name_for(params.get("name"))
         tracker = RunTracker(_emit_progress, run_id=handle.run_id, mode="prism_central",
                              host=creds.host, name=name, formats=params.get("formats") or [])
         env = collect_environment(creds, ndb_creds=_ndb_from(params.get("ndb"), insecure),
                                   areas=params.get("areas"), cancel=handle.token,
-                                  tracker=tracker)
+                                  tracker=tracker, clusters=_clusters_param(params))
         result = _finalize(env, name, params, tracker=tracker, mode="prism_central",
                            handle=handle)
         _advance_demo(creds.host)
@@ -474,7 +528,7 @@ def _m_inventory_cluster(req_id: Any, params: dict[str, Any]) -> dict[str, Any]:
             port=int(params.get("port", 9440)),
             verify_ssl=not params.get("insecure", False),
         )
-        name = params.get("name") or "cluster"
+        name = snapshot_name_for(params.get("name"))
         tracker = RunTracker(_emit_progress, run_id=handle.run_id, mode="prism_element",
                              host=creds.host, name=name, formats=params.get("formats") or [])
         env = collect_element_environment(creds, areas=params.get("areas"),
@@ -503,6 +557,15 @@ def _m_inventory_multi(req_id: Any, params: dict[str, Any]) -> dict[str, Any]:
         raise NutanixApiError("At least one target is required.")
     handle = _runs.begin(params.get("run_id"))
     try:
+        store = _store()
+        claimed: set[str] = set()
+        for t in targets:
+            t["name"] = snapshot_name_for(t.get("name"), store, claimed,
+                                          fallback=str(t.get("host") or "target"))
+            claimed.add(t["name"].casefold())
+        if params.get("combine") and len(targets) >= 2:
+            params["combined_name"] = snapshot_name_for(params.get("combined_name"), store,
+                                                        claimed, fallback="combined")
         return _multi(handle, targets, params)
     finally:
         _runs.end(handle.run_id)
@@ -580,7 +643,7 @@ def _multi(handle: RunHandle, targets: list[dict[str, Any]], params: dict[str, A
         _emit_progress({"type": "phase", "run_id": handle.run_id, "phase": "combine",
                         "label": f"Combining {len(successful_envs):,} Prism Centrals…"})
         combined_env = combine_environments(successful_envs)
-        combined_name = params.get("combined_name") or "combined-environment"
+        combined_name = params.get("combined_name") or "combined"
         combined_result = _finalize(
             combined_env, combined_name, finalize_params, mode="prism_central",
             tracker=CombinedTracker(successful_trackers, _emit_progress, handle.run_id))
@@ -905,25 +968,24 @@ def _seed_demo(params: dict[str, Any]) -> list[str]:
     * pe01 (Prism Element) three days ago;
     * pc02 + pc03 yesterday, plus their combined multi-PC report;
     * today's pc01 run also writes Excel + Word reports, so Results shows files.
+
+    Names follow the app's convention: typed by the user, no date (the collection time is
+    stored with the snapshot and report files carry the export date).
     """
-    from datetime import date, timedelta
+    from datetime import timedelta
 
     made: list[str] = []
-    today = date.today()
 
-    def stamp(days: int) -> str:
-        return (today - timedelta(days=days)).isoformat()
-
-    _, _, r = _seed_pc("pc01.demo.local", f"pc01-{stamp(14)}", timedelta(days=14), [], params)
+    _, _, r = _seed_pc("pc01.demo.local", "pc01 baseline", timedelta(days=14), [], params)
     made.append(r["snapshot_name"] if r else "")
 
     creds = ElementCredentials(host="pe01.demo.local", username="admin",
                                password=DEMO_PASSWORD, port=9440, verify_ssl=True)
     tracker = RunTracker(None, run_id=uuid.uuid4().hex, mode="prism_element",
-                         host=creds.host, name=f"pe01-{stamp(3)}")
+                         host=creds.host, name="pe01 baseline")
     env = collect_element_environment(creds, tracker=tracker)
     _backdate(env, tracker, timedelta(days=3))
-    r = _finalize(env, f"pe01-{stamp(3)}", {"formats": []}, tracker=tracker,
+    r = _finalize(env, "pe01 baseline", {"formats": []}, tracker=tracker,
                   mode="prism_element")
     _advance_demo(creds.host)
     made.append(r["snapshot_name"])
@@ -931,7 +993,7 @@ def _seed_demo(params: dict[str, Any]) -> list[str]:
     parts = []
     for host in ("pc02.demo.local", "pc03.demo.local"):
         short = host.split(".")[0]
-        env_i, tracker_i, r = _seed_pc(host, f"{short}-{stamp(1)}", timedelta(days=1), [],
+        env_i, tracker_i, r = _seed_pc(host, f"{short} baseline", timedelta(days=1), [],
                                        params)
         made.append(r["snapshot_name"] if r else "")
         parts.append((host, env_i, tracker_i))
@@ -940,11 +1002,11 @@ def _seed_demo(params: dict[str, Any]) -> list[str]:
     combined_tracker = CombinedTracker([(h, t) for h, _, t in parts], None, None)
     combined_tracker.finished_at = max(t.finished_at or "" for _, _, t in parts) or None
     combined_tracker.duration_ms = max(t.duration_ms or 0 for _, _, t in parts)
-    r = _finalize(combined, "combined-pc02-pc03", {"formats": []}, mode="prism_central",
+    r = _finalize(combined, "pc02 and pc03 combined", {"formats": []}, mode="prism_central",
                   tracker=combined_tracker)
     made.append(r["snapshot_name"])
 
-    _, _, r = _seed_pc("pc01.demo.local", f"pc01-{stamp(0)}", timedelta(hours=2),
+    _, _, r = _seed_pc("pc01.demo.local", "pc01 week 2", timedelta(hours=2),
                        ["excel", "word"], params)
     made.append(r["snapshot_name"] if r else "")
     return [m for m in made if m]
@@ -980,6 +1042,7 @@ _METHODS = {
     "ping": _m_ping,
     "list_areas": _m_list_areas,
     "test_connection": _m_test_connection,
+    "list_clusters": _m_list_clusters,
     "cancel_run": _m_cancel_run,
     "demo_info": _m_demo_info,
     "inventory": _m_inventory,
