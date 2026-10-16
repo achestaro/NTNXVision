@@ -546,11 +546,39 @@
       return delay({ deleted: n });
     },
 
+    exportSnapshotFile: (req) => {
+      const s = find(Array.isArray(req.snapshotPath) ? req.snapshotPath[0] : req.snapshotPath);
+      return delay({ path: req.destPath, name: req.destPath.split(sep).pop(), size_bytes: 0.4 * MB, encrypted: !!req.password, snapshots: [{ snapshot_id: 'stub', name: s ? s.name : null }] }, 300);
+    },
+    exportSnapshotFiles: (req) =>
+      delay({ dir: req.destDir, files: req.snapshotPaths.map((p) => ({ path: `${req.destDir}${sep}${(find(p) || {}).name}.ntnxsnap`, name: `${(find(p) || {}).name}.ntnxsnap`, size_bytes: 0.4 * MB, encrypted: !!req.password, snapshots: [] })), errors: [] }, 300),
+    inspectSnapshotFile: (p, password) =>
+      delay({
+        path: p,
+        file_name: p.split(sep).pop(),
+        size_bytes: 0.4 * MB,
+        format_version: 1,
+        schema_version: 1,
+        app_version: '0.4.0',
+        exported_at: snapshots[0] ? snapshots[0].collected_at : null,
+        exporter: { app_version: '0.4.0', platform: 'windows', note: 'Alberto Chestaro' },
+        encrypted: false,
+        locked: false,
+        password_error: password ? null : null,
+        snapshots: snapshots.slice(0, 1).map((s) => ({ snapshot_id: 'stub', name: s.name, collected_at: s.collected_at, kind: s.kind, source: s.source, version: s.version, sources: [], summary: s.summary, size_bytes: s.size_bytes, conflict: { name: s.name, path: s.path }, import_name: `${s.name}-2` })),
+        conflicts: snapshots.length ? 1 : 0,
+      }),
+    importSnapshotFile: () => delay({ imported: [], count: 0, skipped: 0 }, 300),
     revealPath: () => delay(undefined),
     openPath: () => delay({ error: null }),
     openExternal: () => delay(undefined),
     chooseDirectory: () => delay(EXPORT_DIR),
     chooseFile: () => delay(null),
+    chooseSnapshotSavePath: (name) => delay(`${EXPORT_DIR}${sep}${name}.ntnxsnap`),
+    chooseSnapshotFiles: () => delay([]),
+    pathForFile: () => '',
+    takePendingSnapshotFiles: () => delay([]),
+    onOpenSnapshotFiles: () => () => {},
 
     listConnections: () => delay(() => connections.slice()),
     saveConnection: (p) => {
