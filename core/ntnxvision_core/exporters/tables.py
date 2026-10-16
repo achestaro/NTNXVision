@@ -11,6 +11,13 @@ the sheet they hand to a customer show the same columns, computed the same way. 
 workbook keeps its exact historical headers and order — `ExcelExporter` renders every
 sheet below from these specs.
 
+**Column order rule.** In every table the Cluster column comes first (the cluster *name*
+column of the Clusters table is headed "Cluster" for the same reason). `TableSpec` enforces
+it when the spec is built, so a column appended later still lands after Cluster; only the
+VM tables opt out (`cluster_first=False`), where Name, Power and Cluster read better in
+that order. In combined multi-PC tables the "Prism Central" attribution column sits right
+after Cluster (see `sourcing.with_sources`). `core/tests/test_column_order.py` checks it.
+
 `diff` names the field label Compare uses when that column changes between snapshots;
 columns without it (counters that move constantly, timestamps) are not compared.
 """
@@ -122,6 +129,20 @@ class TableSpec:
     #: Prepend the "Prism Central" attribution column in combined Excel exports.
     sources: bool = False
     group: str | None = None
+    #: Move the Cluster column to the front (the house rule); False only for VM tables.
+    cluster_first: bool = True
+
+    def __post_init__(self) -> None:
+        if self.cluster_first:
+            object.__setattr__(self, "cols", cluster_first(self.cols))
+
+    @property
+    def cluster_col(self) -> Col | None:
+        """The column naming each row's cluster (the name column on the Clusters table)."""
+        for c in self.cols:
+            if c.key == CLUSTER_KEY or (self.type == "clusters" and c.key == "name"):
+                return c
+        return None
 
     @property
     def excel_cols(self) -> list[Col]:
@@ -130,6 +151,16 @@ class TableSpec:
     @property
     def ui_cols(self) -> list[Col]:
         return [c for c in self.cols if c.label is not None]
+
+
+#: The key of the per-row cluster column in every spec.
+CLUSTER_KEY = "cluster"
+
+
+def cluster_first(cols: tuple[Col, ...]) -> tuple[Col, ...]:
+    """`cols` with the Cluster column moved to the front, everything else in order."""
+    first = [c for c in cols if c.key == CLUSTER_KEY]
+    return (*first, *(c for c in cols if c.key != CLUSTER_KEY))
 
 
 # ─── value helpers ─────────────────────────────────────────────────────
@@ -216,7 +247,7 @@ GOVERN = "Governance"
 CLUSTERS = TableSpec(
     "clusters", "Clusters", "Clusters", "Cluster", "clusters", lambda e: e.clusters,
     (
-        Col("name", "Name", _a("name"), label="Name", kind="name", search=True),
+        Col("name", "Cluster", _a("name"), label="Cluster", kind="name", search=True),
         Col("uuid", "UUID", _a("uuid")),
         Col("aos", "AOS Version", _a("aos_version"), label="AOS", kind="mono", facet=True,
             diff="AOS"),
@@ -231,6 +262,8 @@ CLUSTERS = TableSpec(
             diff="redundancy factor"),
         Col("external_ip", "External IP", _a("external_ip"), label="External IP", kind="mono",
             search=True),
+        Col("data_services_ip", "Data Services IP", _a("data_services_ip"),
+            label="Data Services IP", kind="mono", search=True, diff="Data Services IP"),
         Col("encryption", "Encryption", _a("encryption_enabled"), excel=yes_no,
             label="Encryption", kind="status", cell=bool_cell("On", "Off"), facet=True,
             diff="encryption"),
@@ -311,13 +344,13 @@ def _vm_cols(include_type: bool) -> tuple[Col, ...]:
 VMS = TableSpec(
     "vms", "VMs", "Virtual machines", "VM", "VMs", lambda e: e.vms, _vm_cols(False),
     id=lambda v: v.uuid, name=lambda v: v.name, where=lambda v: v.cluster_name,
-    note_keys=("vms",), sources=True, group=INFRA,
+    note_keys=("vms",), sources=True, group=INFRA, cluster_first=False,
 )
 SYSTEM_VMS = TableSpec(
     "system_vms", "System VMs", "System VMs", "System VM", "system VMs",
     lambda e: e.system_vms, _vm_cols(True),
     id=lambda v: v.uuid, name=lambda v: v.name, where=lambda v: v.cluster_name,
-    note_keys=("vms",), sources=True, group=INFRA,
+    note_keys=("vms",), sources=True, group=INFRA, cluster_first=False,
 )
 
 STORAGE = TableSpec(

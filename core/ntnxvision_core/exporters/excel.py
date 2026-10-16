@@ -31,6 +31,7 @@ from ntnxvision_core.exporters import tables as T
 from ntnxvision_core.exporters import theme as TH
 from ntnxvision_core.exporters.sourcing import source_hosts as _source_hosts
 from ntnxvision_core.exporters.sourcing import sources as _sources
+from ntnxvision_core.exporters.sourcing import with_sources as _with_sources
 from ntnxvision_core.exporters.tables import Ctx
 from ntnxvision_core.models import Environment
 from ntnxvision_core.numfmt import NA, PLAIN_HEADERS, excel_number_format, fmt_count
@@ -385,15 +386,13 @@ class ExcelExporter:
     ) -> str | None:
         """Write one sheet; returns its name, or None when there are no rows.
 
-        `sources` (combined runs only) prepends a "Prism Central" column naming the PC
-        each row came from: object names are not unique across PCs, so without it two
-        merged rows can be indistinguishable.
+        `sources` (combined runs only) adds a "Prism Central" column naming the PC each
+        row came from, right after Cluster (else first): object names are not unique
+        across PCs, so without it two merged rows can be indistinguishable.
         """
         if not rows:
             return None
-        if sources is not None:
-            headers = ["Prism Central", *headers]
-            rows = [[src, *row] for src, row in zip(sources, rows, strict=True)]
+        headers, rows = _with_sources(headers, rows, sources)
         ws: Worksheet = wb.create_sheet(_safe_title(title))
         ws.append(headers)
         numeric = [h not in PLAIN_HEADERS and _numeric_column(rows, i)

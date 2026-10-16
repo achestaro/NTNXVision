@@ -63,6 +63,7 @@ def _cluster(conn: ElementConnection, env: Any) -> None:
             ),
             num_nodes=data.get("num_nodes"),
             external_ip=data.get("cluster_external_ipaddress"),
+            data_services_ip=data.get("cluster_external_data_services_ipaddress") or None,
             timezone=data.get("timezone"),
             encryption_enabled=data.get("encrypted"),
             operation_mode=data.get("operation_mode"),
