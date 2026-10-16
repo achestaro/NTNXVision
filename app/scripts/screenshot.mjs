@@ -79,6 +79,29 @@ const SHOTS = [
     await p.getByRole('dialog').getByRole('button', { name: 'Test connection' }).click();
     await p.getByRole('dialog').getByText('Connected to Prism Central').waitFor();
   }, 1100],
+  // Test connection outcomes in the Targets editor and as a row-test toast: rejected
+  // credentials, untrusted certificate, unreachable (failed) and an unsupported version (warning).
+  ...['auth_failed', 'untrusted_cert', 'unreachable', 'version_unsupported'].map((t) => [
+    `targets-test-${t.replace('_', '-')}`,
+    { test: t },
+    async (p) => {
+      await rail(p, 'Targets');
+      await p.getByRole('button', { name: 'PC01 Production', exact: true }).click();
+      await p.getByRole('dialog').getByRole('button', { name: 'Test connection' }).click();
+      await p.getByRole('dialog').locator('.callout.error, .callout.warn').first().waitFor();
+    },
+    1100,
+  ]),
+  ['targets-row-test-cert', { test: 'untrusted_cert' }, async (p) => {
+    await rail(p, 'Targets');
+    await p.getByRole('button', { name: 'Test PC01 Production' }).click();
+    await p.getByText(/certificate not trusted/).first().waitFor();
+  }],
+  ['targets-row-test-version', { test: 'version_unsupported' }, async (p) => {
+    await rail(p, 'Targets');
+    await p.getByRole('button', { name: 'Test PC01 Production' }).click();
+    await p.getByText(/version outside the supported range/).first().waitFor();
+  }],
   ['targets-delete', {}, async (p) => {
     await rail(p, 'Targets');
     await p.getByRole('button', { name: 'Actions for PC01 Production' }).click();
@@ -209,6 +232,16 @@ const SHOTS = [
     await dlg.getByText('Prism Central pc.2024.3').waitFor();
     for (const f of [/Excel/, /PDF/, /Word/]) await dlg.getByRole('checkbox', { name: f }).check();
   }, 1180],
+  // "Show in Explorer" on Windows, "Show in folder" on Linux (macOS: "Show in Finder").
+  ...['win32', 'linux'].map((platform) => [
+    `export-${platform}`,
+    { platform },
+    async (p) => {
+      await rail(p, 'Snapshots');
+      await p.getByRole('button', { name: 'Export pc01 Q4 review' }).click();
+      await p.getByRole('dialog').getByText(platform === 'win32' ? 'Show in Explorer when done' : 'Show in folder when done').waitFor();
+    },
+  ]),
   ['inventory-columns', {}, async (p) => {
     await rail(p, 'Inventory');
     await p.getByRole('heading', { level: 1, name: 'Clusters' }).waitFor();
@@ -236,6 +269,11 @@ const SHOTS = [
   ['multi-menu', {}, async (p) => {
     await rail(p, 'Multiple PCs');
     await p.getByRole('button', { name: 'Actions for PC01 Production' }).click();
+  }],
+  ['multi-cert', { test: 'untrusted_cert' }, async (p) => {
+    await rail(p, 'Multiple PCs');
+    await p.getByRole('button', { name: 'Test all' }).click();
+    await p.getByText('isn’t trusted').first().waitFor();
   }],
   ['compare', {}, async (p) => {
     await rail(p, 'Compare');
