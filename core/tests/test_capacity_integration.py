@@ -167,7 +167,8 @@ def test_inventory_grid_and_detail_show_ratios(demo: Any) -> None:
     assert robo["cells"]["cpu_ratio_n1"] is None
     detail = svc.detail(env, "clusters", robo["id"], vcpu_ratio=6)
     fields = {f["label"]: f["value"] for f in detail["fields"]}
-    assert fields["vCPU Total at 6.0 : 1"] == "144 · N-1 N/A"
+    assert fields["Target ratio"] == "6.0 : 1"
+    assert fields["vCPU Total"] == "144 · N-1 N/A"
     assert fields["vCPU:pCore"].endswith(": 1 · N-1 N/A")
     assert "vCPU:pCore N-1" not in fields and "Storage ratio N-1" not in fields
     assert any("N-1 is not applicable" in n["text"] for n in detail["notes"])
@@ -214,8 +215,8 @@ def test_sidecar_passes_the_ratio_through(demo: Any, data_dir: Path) -> None:
     rid = sc._m_query_inventory(None, base)["rows"][0]["id"]
     d4 = sc._m_get_object_detail(None, {**base, "id": rid})
     d8 = sc._m_get_object_detail(None, {**base, "id": rid, "vcpu_ratio": 8})
-    assert any(f["label"] == "vCPU Total at 4.0 : 1" for f in d4["fields"])
-    assert any(f["label"] == "vCPU Total at 8.0 : 1" for f in d8["fields"])
+    assert {"label": "Target ratio", "value": "4.0 : 1", "mono": True} in d4["fields"]
+    assert {"label": "Target ratio", "value": "8.0 : 1", "mono": True} in d8["fields"]
     out = sc._m_export(None, {"snapshot": path, "formats": ["excel"], "vcpu_ratio": 3,
                               "export_dir": str(data_dir / "x")})
     wb = load_workbook(out["paths"]["excel"])

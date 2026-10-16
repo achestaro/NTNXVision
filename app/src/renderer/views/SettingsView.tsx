@@ -174,7 +174,7 @@ export function SettingsView(): JSX.Element {
             <Field
               id="set-vcpu-ratio"
               label="vCPU:pCPU target (vCPUs per physical core)"
-              hint={`Sets the cluster vCPU Total (usable cores x ${fmtRatio(savedRatio)}) in the Inventory and every report, and is recorded in the report. Oversubscription ratios do not depend on it.`}
+              hint={`Each cluster's vCPU Total is its usable cores x ${fmtRatio(savedRatio)}, in the Inventory and in reports (which record the value). Oversubscription ratios do not depend on it.`}
               error={ratioError}
             >
               <input
