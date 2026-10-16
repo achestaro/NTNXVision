@@ -2,8 +2,7 @@
 // saved targets and the latest run's coverage / API routing.
 
 import React from 'react';
-import { CaretRightIcon, DownloadSimpleIcon, HardDrivesIcon, StackIcon, StackSimpleIcon } from '@phosphor-icons/react';
-import type { Icon as PhosphorIcon } from '@phosphor-icons/react';
+import { CaretRightIcon, DownloadSimpleIcon } from '@phosphor-icons/react';
 import type { OverviewResult, SavedConnection, SnapshotInfo } from '@shared/ipc';
 import {
   Badge,
@@ -22,6 +21,8 @@ import {
   Status,
   useToast,
 } from '../components';
+import { NutanixIcon } from '../components/icons';
+import type { NutanixMarkName } from '../components/icons';
 import { useAsync } from '../lib/useAsync';
 import { useRouter } from '../lib/router';
 import { useRun } from '../lib/run';
@@ -48,7 +49,7 @@ export function OverviewView(): JSX.Element {
     return (
       <>
         <PageHeader eyebrow="Overview" title="Your Nutanix estate" />
-        <ErrorState title="Couldn’t load the overview." error={overview.error} onRetry={overview.reload} />
+        <ErrorState title="Couldn’t load the overview." error={overview.error} onRetry={overview.reload} illustration="generic-error" />
       </>
     );
   }
@@ -86,6 +87,7 @@ export function OverviewView(): JSX.Element {
       {!latest ? (
         <Panel>
           <EmptyState
+            illustration="no-recovery-point-created"
             title="No snapshots yet"
             description="Collect a Prism Central or a single cluster once. The inventory, reports and comparisons then work offline."
             action={startButton}
@@ -133,26 +135,26 @@ export function OverviewView(): JSX.Element {
         <Panel aria-labelledby="quick">
           <PanelHeader id="quick" title="Start a collection" />
           <QuickAction
-            icon={StackSimpleIcon}
+            mark="prism"
             title="One Prism Central"
             desc="Every registered cluster and all platform services"
             onClick={() => navigate({ screen: 'new', mode: 'prism_central' })}
           />
           <QuickAction
-            icon={StackIcon}
+            mark="prism-segmented"
             title="Several Prism Centrals"
             desc="Collect in one run, optionally merge into one report"
             onClick={() => navigate({ screen: 'multi' })}
           />
           <QuickAction
-            icon={HardDrivesIcon}
+            mark="cluster"
             title="One cluster (Prism Element)"
             desc="Infrastructure only, over the v2.0 API"
             onClick={() => navigate({ screen: 'new', mode: 'prism_element' })}
           />
         </Panel>
 
-        <SavedTargets state={connections} />
+        <SavedTargets state={connections} illustrated={!!latest} />
 
         {latest && o.coverage && (
           <Panel aria-labelledby="coverage">
@@ -231,10 +233,10 @@ export function sourceLabel(s: SnapshotInfo): string {
   return s.source ?? '—';
 }
 
-function QuickAction({ icon, title, desc, onClick }: { icon: PhosphorIcon; title: string; desc: string; onClick(): void }): JSX.Element {
+function QuickAction({ mark, title, desc, onClick }: { mark: NutanixMarkName; title: string; desc: string; onClick(): void }): JSX.Element {
   return (
     <button type="button" className="qa" onClick={onClick}>
-      <Icon icon={icon} size={20} style={{ color: 'var(--ink-3)' }} />
+      <NutanixIcon name={mark} size={24} />
       <span style={{ flex: 1 }}>
         <span className="qa-title">{title}</span>
         <span className="qa-desc">{desc}</span>
@@ -244,7 +246,14 @@ function QuickAction({ icon, title, desc, onClick }: { icon: PhosphorIcon; title
   );
 }
 
-function SavedTargets({ state }: { state: ReturnType<typeof useAsync<SavedConnection[]>> }): JSX.Element {
+function SavedTargets({
+  state,
+  illustrated,
+}: {
+  state: ReturnType<typeof useAsync<SavedConnection[]>>;
+  /** Show the empty state's illustration (only when the view has no other one). */
+  illustrated: boolean;
+}): JSX.Element {
   const { navigate } = useRouter();
   const { start, isRunning } = useRun();
   const toast = useToast();
@@ -275,6 +284,13 @@ function SavedTargets({ state }: { state: ReturnType<typeof useAsync<SavedConnec
         <InlineEmpty>Saved targets unavailable · {state.error}</InlineEmpty>
       ) : state.loading && !state.data ? (
         <InlineEmpty>Loading…</InlineEmpty>
+      ) : rows.length === 0 && illustrated ? (
+        <EmptyState
+          illustration="no-target"
+          title="No saved targets yet"
+          description="Tick “Remember this target” when you collect, and it appears here to collect again in one click."
+          action={<Button onClick={() => navigate({ screen: 'new' })}>New collection</Button>}
+        />
       ) : rows.length === 0 ? (
         <InlineEmpty>
           No saved targets yet. Tick “Remember this target” in{' '}

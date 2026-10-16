@@ -39,6 +39,7 @@ export function CollectingView(): JSX.Element {
         <PageHeader eyebrow="Collect / Running" title="Nothing is collecting" />
         <Panel>
           <EmptyState
+            illustration="tasks"
             title="No collection running"
             description="Start a collection to see each product area's progress here. You can leave this screen while it runs."
             action={

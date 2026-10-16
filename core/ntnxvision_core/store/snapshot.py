@@ -83,7 +83,7 @@ def describe(env: Environment, path: Path) -> dict[str, Any]:
     source: str | None
     version: str | None
     if kind == "combined":
-        source = f"{len(env.source_environments)} Prism Centrals"
+        source = f"{len(env.source_environments):,} Prism Centrals"
         version = None
     else:
         source = env.prism_central.host

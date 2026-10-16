@@ -129,6 +129,12 @@ p {
   text-align: left;
 }
 
+/* The Nutanix X in the bar: recoloured to the bar tokens (the bar is dark in every theme). */
+.brand .nx-mark {
+  --rule-strong: var(--bar-text-active);
+  --rule: var(--bar-accent);
+}
+
 .cmdk {
   height: 28px;
   flex: 0 1 360px;
@@ -204,7 +210,8 @@ p {
   font-size: 12px;
 }
 .bb:hover,
-.bb[aria-expanded='true'] {
+.bb[aria-expanded='true'],
+.bb[data-state='open'] {
   background: var(--bar-hover);
   color: var(--bar-text-active);
 }
@@ -1171,7 +1178,13 @@ dl {
   font-weight: 500;
   box-shadow: inset 2px 0 0 var(--accent);
 }
-.ot span:last-child {
+.ot-name {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.ot .ot-count {
   font-family: var(--font-mono);
   font-size: 12px;
   color: var(--ink-3);
@@ -1189,6 +1202,43 @@ dl {
   padding-top: 8px;
   border-top: 0;
   margin-top: 0;
+}
+
+/* ── Nutanix icons (Runway rule 13) ────────────────────────────────── */
+
+.nx-mark {
+  display: inline-flex;
+  flex: none;
+  /* At 16–24 px the drawing's hairline edges need one step more contrast than at
+     illustration size. */
+  --rule: var(--rule-strong);
+  --rule-strong: var(--ink-3);
+}
+.nx-mark > svg,
+.nx-illustration > svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+.nx-illustration {
+  flex: none;
+}
+.label-mark {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.error-page {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  padding: 32px 16px;
+}
+.error-page > .callout {
+  width: 100%;
+  max-width: 640px;
 }
 
 /* ── Menus & popovers ──────────────────────────────────────────────── */
@@ -1238,6 +1288,33 @@ dl {
   font-family: var(--font-mono);
   font-size: 12px;
   color: var(--ink-3);
+}
+.menu-label {
+  padding: 6px 12px 4px;
+  font-size: 11px;
+  line-height: 16px;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+.mi.mi-radio {
+  justify-content: flex-start;
+  gap: 8px;
+}
+.mi.mi-radio:focus {
+  background: var(--surface-hover);
+  outline: none;
+}
+.mi-radio .mi-glyph {
+  color: var(--ink-3);
+}
+.mi-radio .mi-text {
+  flex: 1;
+  text-align: left;
+}
+.mi-radio .mi-check {
+  color: var(--accent);
 }
 .menu-sep {
   height: 1px;

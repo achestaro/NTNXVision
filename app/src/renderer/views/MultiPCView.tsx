@@ -20,11 +20,12 @@ import {
   useToast,
 } from '../components';
 import type { MenuItem } from '../components';
+import { Illustration } from '../components/icons';
 import { useSettings } from '../lib/settings';
 import { useRun } from '../lib/run';
 import { useRouter } from '../lib/router';
 import { useConfirmShortcut } from '../lib/keyboard';
-import { defaultSnapshotName, errorMessage, tildify } from '../lib/format';
+import { defaultSnapshotName, errorMessage, fmtCount, tildify } from '../lib/format';
 
 type RowTest =
   | { kind: 'idle' }
@@ -243,7 +244,7 @@ export function MultiPCView(): JSX.Element {
         .filter((c): c is SavedConnection => !!c)
         .map(fromConnection);
       persist([...all, ...newRows]);
-      toast.show({ tone: 'ok', title: `Added ${newRows.length} Prism ${newRows.length === 1 ? 'Central' : 'Centrals'}` });
+      toast.show({ tone: 'ok', title: `Added ${fmtCount(newRows.length)} Prism ${newRows.length === 1 ? 'Central' : 'Centrals'}` });
     } catch (e) {
       toast.show({ tone: 'error', title: 'Couldn’t add the list', detail: errorMessage(e) });
     }
@@ -258,7 +259,7 @@ export function MultiPCView(): JSX.Element {
 
   const cta = useMemo(() => {
     if (!runnable.length) return 'Collect';
-    return `Collect from ${runnable.length} Prism ${runnable.length === 1 ? 'Central' : 'Centrals'}`;
+    return `Collect from ${fmtCount(runnable.length)} Prism ${runnable.length === 1 ? 'Central' : 'Centrals'}`;
   }, [runnable.length]);
 
   if (rows === null) {
@@ -301,7 +302,13 @@ export function MultiPCView(): JSX.Element {
                 rowActions={rowActions}
                 rowActionsLabel={(r) => `Actions for ${r.host}`}
                 kebabAlwaysVisible
-                empty="No Prism Centrals yet. Add one, pick a saved target, or paste a list."
+                empty={
+                  <div className="empty-page" style={{ padding: '24px 16px' }}>
+                    <Illustration name="no-target" size={160} />
+                    <h2>No Prism Centrals yet</h2>
+                    <p>Add one, pick a saved target, or paste a list.</p>
+                  </div>
+                }
                 columns={[
                   { key: 'host', header: 'Address', className: 'nm mono', style: { fontWeight: 400 }, render: (r) => r.host },
                   { key: 'user', header: 'Username', render: (r) => r.username },
@@ -658,7 +665,7 @@ function PasteDialog({ onClose, onAdd }: { onClose(): void; onAdd(p: Parsed[]): 
           <span className="dialog-foot-right">
             {bad.length > 0 && <span className="hint">{bad.length} lines not understood</span>}
             <Button variant="primary" onClick={add} disabled={!ok.length} kbd="⌘↵">
-              {ok.length ? `Add ${ok.length}` : 'Add'}
+              {ok.length ? `Add ${fmtCount(ok.length)}` : 'Add'}
             </Button>
           </span>
         </div>

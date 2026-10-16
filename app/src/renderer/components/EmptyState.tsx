@@ -5,6 +5,7 @@ import React from 'react';
 import { CircleNotchIcon } from '@phosphor-icons/react';
 import { Icon } from './Icon';
 import { Illustration } from './icons/Illustration';
+import type { IllustrationName } from './icons/nutanixManifest';
 import { Callout } from './Callout';
 import { Button } from './Button';
 
@@ -13,17 +14,18 @@ export function EmptyState({
   description,
   action,
   secondary,
-  illustration = 'stack',
+  illustration,
 }: {
   title: string;
   description: string;
   action?: React.ReactNode;
   secondary?: React.ReactNode;
-  illustration?: 'stack' | 'search' | 'compare';
+  /** The view's one Nutanix isometric illustration (nutanixManifest.ts, tier 3). */
+  illustration: IllustrationName;
 }): JSX.Element {
   return (
     <div className="empty-page">
-      <Illustration kind={illustration} size={160} />
+      <Illustration name={illustration} size={160} />
       <h2>{title}</h2>
       <p>{description}</p>
       {(action || secondary) && (
@@ -62,12 +64,15 @@ export function ErrorState({
   title = 'Something went wrong',
   error,
   onRetry,
+  illustration,
 }: {
   title?: string;
   error: string;
   onRetry?: () => void;
+  /** Full-page errors only (the view shows nothing else): one tier-3 illustration above. */
+  illustration?: IllustrationName;
 }): JSX.Element {
-  return (
+  const callout = (
     <Callout
       tone="error"
       title={title}
@@ -83,5 +88,12 @@ export function ErrorState({
         {error}
       </span>
     </Callout>
+  );
+  if (!illustration) return callout;
+  return (
+    <div className="error-page">
+      <Illustration name={illustration} size={160} />
+      {callout}
+    </div>
   );
 }

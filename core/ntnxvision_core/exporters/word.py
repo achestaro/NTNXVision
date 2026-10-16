@@ -34,6 +34,7 @@ from ntnxvision_core.exporters.sourcing import sources as _sources
 from ntnxvision_core.models import Environment
 from ntnxvision_core.notes import clean_error as _clean_error
 from ntnxvision_core.notes import pretty_label as _pretty
+from ntnxvision_core.numfmt import cell_text, fmt_count
 
 GIB = 1024**3
 _NAVY = RGBColor(0x18, 0x3A, 0x5C)
@@ -103,7 +104,7 @@ class WordExporter:
 
     def _properties(self, doc: DocumentObject, env: Environment, opts: Any) -> None:
         props = doc.core_properties
-        target = (f"{len(env.source_environments)} Prism Centrals" if env.is_combined
+        target = (f"{fmt_count(len(env.source_environments))} Prism Centrals" if env.is_combined
                   else env.prism_central.host or "Nutanix environment")
         props.title = f"Architecture Design Document — {target}"
         props.subject = f"Prepared for {opts.prepared_for}" if opts.prepared_for \
@@ -166,10 +167,10 @@ class WordExporter:
 
     def _executive_summary(self, doc: DocumentObject, env: Environment) -> None:
         n = self._h1(doc, "Executive Summary")
-        c = env.summary()
+        c = {k: fmt_count(v) for k, v in env.summary().items()}
         if env.is_combined:
             managed_by = (
-                f"environment spanning {len(env.source_environments)} Prism Centrals "
+                f"environment spanning {fmt_count(len(env.source_environments))} Prism Centrals "
                 f"({', '.join(_source_hosts(env))})"
             )
         else:
@@ -265,10 +266,10 @@ class WordExporter:
             [
                 ["Version", cfg.version or "—"],
                 ["Deployment", deployment],
-                ["PC nodes", str(cfg.node_count or "—")],
-                ["Registered clusters", str(cfg.registered_cluster_count or "—")],
-                ["Total vCPU", str(cfg.num_vcpus or "—")],
-                ["Total memory (GiB)", str(_gib(cfg.memory_bytes) or "—")],
+                ["PC nodes", _qty(cfg.node_count, "—")],
+                ["Registered clusters", _qty(cfg.registered_cluster_count, "—")],
+                ["Total vCPU", _qty(cfg.num_vcpus, "—")],
+                ["Total memory (GiB)", _qty(_gib(cfg.memory_bytes), "—")],
                 ["PC VM(s)", ", ".join(cfg.pc_vm_names) or "—"],
                 ["IP address(es)", ", ".join(cfg.ip_addresses) or "—"],
             ],
@@ -284,7 +285,7 @@ class WordExporter:
         """
         n = self._h1(doc, "Prism Centrals — Management & Sizing")
         doc.add_paragraph(
-            f"This document covers {len(env.source_environments)} independently managed "
+            f"This document covers {fmt_count(len(env.source_environments))} independently managed "
             "Prism Central instances, inventoried in a single run and combined into one "
             "report. Each management plane is recorded below; the remaining sections "
             "present the combined estate, with every table attributing its rows to the "
@@ -301,10 +302,10 @@ class WordExporter:
                 s.prism_central.host or "unknown",
                 s.prism_central.version or cfg.version or "—",
                 deployment,
-                str(cfg.node_count or "—"),
-                str(counts.get("clusters", "—")),
-                str(counts.get("hosts", "—")),
-                str(counts.get("vms", "—")),
+                _qty(cfg.node_count, "—"),
+                fmt_count(counts.get("clusters", "—")),
+                fmt_count(counts.get("hosts", "—")),
+                fmt_count(counts.get("vms", "—")),
             ])
         self._table(
             doc,
@@ -327,8 +328,8 @@ class WordExporter:
         self._heading(doc, f"{n}.1 Clusters Overview", level=2)
         self._table(
             doc, ["Cluster", "AOS", "Hypervisor", "Nodes", "RF", "Encryption"],
-            [[c.name, c.aos_version, ", ".join(c.hypervisor_types), str(c.num_nodes or ""),
-              str(c.redundancy_factor or ""), "Yes" if c.encryption_enabled else "No"]
+            [[c.name, c.aos_version, ", ".join(c.hypervisor_types), _qty(c.num_nodes),
+              _qty(c.redundancy_factor), "Yes" if c.encryption_enabled else "No"]
              for c in env.clusters],
             f"Table {n}-1. Registered clusters.",
             _sources(env, env.clusters),
@@ -339,8 +340,8 @@ class WordExporter:
         self._heading(doc, f"{n}.1 Nodes / Hosts", level=2)
         self._table(
             doc, ["Host", "Cluster", "CPU Model", "Cores", "Memory (GiB)", "GPUs"],
-            [[h.name, h.cluster_name, h.cpu_model, str(h.num_cpu_cores or ""),
-              str(_gib(h.memory_bytes) or ""), ", ".join(h.gpu_list) or "—"]
+            [[h.name, h.cluster_name, h.cpu_model, _qty(h.num_cpu_cores),
+              _qty(_gib(h.memory_bytes)), ", ".join(h.gpu_list) or "—"]
              for h in env.hosts],
             f"Table {n}-1. Physical hosts.",
             _sources(env, env.hosts),
@@ -355,9 +356,9 @@ class WordExporter:
         self._heading(doc, f"{n}.2 Storage Containers", level=2)
         self._table(
             doc, ["Container", "Cluster", "RF", "Compression", "Dedup", "EC-X", "Max (GiB)"],
-            [[s.name, s.cluster_name, str(s.replication_factor or ""),
+            [[s.name, s.cluster_name, _qty(s.replication_factor),
               "On" if s.compression_enabled else "Off", s.deduplication or "None",
-              s.erasure_coding or "Off", str(_gib(s.max_capacity_bytes) or "")]
+              s.erasure_coding or "Off", _qty(_gib(s.max_capacity_bytes))]
              for s in env.storage_containers],
             f"Table {n}-2. Storage containers and data-reduction settings.",
         )
@@ -410,12 +411,13 @@ class WordExporter:
             "currently running, and whether LCM offers a newer one."
         )
         currency = (
-            f"Of the {len(env.lcm_entities)} component(s) inventoried, {pending} "
+            f"Of the {fmt_count(len(env.lcm_entities))} component(s) inventoried, "
+            f"{fmt_count(pending)} "
             f"{'has' if pending == 1 else 'have'} a newer version available"
         )
         if unknown:
             currency += (
-                f"; for {unknown} component(s) LCM did not report an upgrade target, so "
+                f"; for {fmt_count(unknown)} component(s) LCM did not report an upgrade target, so "
                 "their currency is recorded as unknown rather than up to date"
             )
         doc.add_paragraph(f"{currency}.")
@@ -441,7 +443,7 @@ class WordExporter:
             self._heading(doc, f"{n}.{sub} VM Templates", level=2)
             self._table(
                 doc, ["Template", "Guest OS", "vCPU", "Memory (GiB)", "Active Version"],
-                [[t.name, t.guest_os, str(t.num_vcpus or ""), str(_gib(t.memory_bytes) or ""),
+                [[t.name, t.guest_os, _qty(t.num_vcpus), _qty(_gib(t.memory_bytes)),
                   t.active_version or "—"] for t in env.templates],
                 f"Table {n}-{sub}. VM templates.",
             )
@@ -450,7 +452,7 @@ class WordExporter:
             self._heading(doc, f"{n}.{sub} Images", level=2)
             self._table(
                 doc, ["Image", "Type", "Size (GiB)", "Architecture", "Clusters"],
-                [[i.name, i.image_type, str(_gib(i.size_bytes) or ""), i.architecture or "—",
+                [[i.name, i.image_type, _qty(_gib(i.size_bytes)), i.architecture or "—",
                   ", ".join(i.cluster_names) or "—"] for i in env.images],
                 f"Table {n}-{sub}. Images.",
             )
@@ -459,7 +461,7 @@ class WordExporter:
             self._heading(doc, f"{n}.{sub} OVAs", level=2)
             self._table(
                 doc, ["OVA", "Size (GiB)", "Disks", "Cluster"],
-                [[o.name, str(_gib(o.size_bytes) or ""), str(o.disk_count or ""),
+                [[o.name, _qty(_gib(o.size_bytes)), _qty(o.disk_count),
                   o.cluster_name or "—"] for o in env.ovas],
                 f"Table {n}-{sub}. OVAs.",
             )
@@ -478,8 +480,8 @@ class WordExporter:
                 tbl += 1
                 self._table(
                     doc, ["File Server", "Cluster", "Version", "FSVMs", "Shares"],
-                    [[f.name, f.cluster_name, f.version, str(f.num_fsvm or ""),
-                      str(f.share_count or "")] for f in env.file_servers],
+                    [[f.name, f.cluster_name, f.version, _qty(f.num_fsvm),
+                      _qty(f.share_count)] for f in env.file_servers],
                     f"Table {n}-{tbl}. Nutanix Files servers.",
                 )
             if env.file_shares:
@@ -488,7 +490,7 @@ class WordExporter:
                     doc, ["Share", "File Server", "Type", "Protocol", "Max Size (GiB)",
                           "Used (GiB)"],
                     [[s.name, s.file_server_name, s.share_type, s.protocol,
-                      str(_gib(s.max_size_bytes) or ""), str(_gib(s.used_bytes) or "")]
+                      _qty(_gib(s.max_size_bytes)), _qty(_gib(s.used_bytes))]
                      for s in env.file_shares],
                     f"Table {n}-{tbl}. File shares.",
                 )
@@ -499,8 +501,8 @@ class WordExporter:
                 tbl += 1
                 self._table(
                     doc, ["Object Store", "Cluster", "Workers", "Capacity (GiB)", "Buckets"],
-                    [[o.name, o.cluster_name, str(o.num_worker_nodes or ""),
-                      str(_gib(o.total_capacity_bytes) or ""), str(o.bucket_count or "")]
+                    [[o.name, o.cluster_name, _qty(o.num_worker_nodes),
+                      _qty(_gib(o.total_capacity_bytes)), _qty(o.bucket_count)]
                      for o in env.object_stores],
                     f"Table {n}-{tbl}. Nutanix Objects stores.",
                 )
@@ -510,8 +512,8 @@ class WordExporter:
                     doc, ["Bucket", "Object Store", "Versioning", "WORM", "Objects",
                           "Used (GiB)"],
                     [[b.name, b.object_store_name, "Yes" if b.versioning else "No",
-                      "Yes" if b.worm_enabled else "No", str(b.object_count or ""),
-                      str(_gib(b.used_bytes) or "")] for b in env.buckets],
+                      "Yes" if b.worm_enabled else "No", _qty(b.object_count),
+                      _qty(_gib(b.used_bytes))] for b in env.buckets],
                     f"Table {n}-{tbl}. Buckets.",
                 )
         if env.volume_groups:
@@ -520,8 +522,8 @@ class WordExporter:
             self._heading(doc, f"{n}.{sub} Volumes", level=2)
             self._table(
                 doc, ["Volume Group", "Cluster", "Disks", "Capacity (GiB)", "Shared"],
-                [[v.name, v.cluster_name, str(v.disk_count or ""),
-                  str(_gib(v.total_capacity_bytes) or ""), "Yes" if v.is_shared else "No"]
+                [[v.name, v.cluster_name, _qty(v.disk_count),
+                  _qty(_gib(v.total_capacity_bytes)), "Yes" if v.is_shared else "No"]
                  for v in env.volume_groups],
                 f"Table {n}-{tbl}. Volume groups.",
             )
@@ -559,8 +561,8 @@ class WordExporter:
                       "Routing Policies"],
                 [[v.name, ", ".join(v.subnet_names) or "—", ", ".join(v.external_subnets),
                   ", ".join(v.externally_routable_prefixes),
-                  str(v.route_count) if v.route_count is not None else "—",
-                  str(v.routing_policy_count) if v.routing_policy_count is not None else "—"]
+                  fmt_count(v.route_count),
+                  fmt_count(v.routing_policy_count)]
                  for v in env.vpcs],
                 f"Table {n}-{tbl}. Flow virtual networking VPCs.",
             )
@@ -592,7 +594,7 @@ class WordExporter:
             self._heading(doc, f"{n}.{sub} Protection Policies", level=2)
             self._table(
                 doc, ["Policy", "RPO (s)", "Replication", "Source AZ", "Target AZ"],
-                [[p.name, str(p.rpo_seconds or ""), p.replication_type, p.source_az or "—",
+                [[p.name, _qty(p.rpo_seconds), p.replication_type, p.source_az or "—",
                   p.target_az or "—"] for p in env.protection_policies],
                 f"Table {n}-{tbl}. Protection policies.",
             )
@@ -602,7 +604,7 @@ class WordExporter:
             self._heading(doc, f"{n}.{sub} Recovery Plans", level=2)
             self._table(
                 doc, ["Plan", "Stages", "Entities", "Primary", "Recovery"],
-                [[r.name, str(r.stage_count or ""), str(r.entities_count or ""),
+                [[r.name, _qty(r.stage_count), _qty(r.entities_count),
                   r.primary_location or "—", r.recovery_location or "—"]
                  for r in env.recovery_plans],
                 f"Table {n}-{tbl}. Recovery plans.",
@@ -618,8 +620,8 @@ class WordExporter:
             self._heading(doc, f"{n}.{sub} Security Policies", level=2)
             self._table(
                 doc, ["Policy", "Type", "State", "Inbound", "Outbound", "Secured Group"],
-                [[p.name, p.policy_type, p.state, str(p.inbound_rule_count or ""),
-                  str(p.outbound_rule_count or ""), p.secured_group or "—"]
+                [[p.name, p.policy_type, p.state, _qty(p.inbound_rule_count),
+                  _qty(p.outbound_rule_count), p.secured_group or "—"]
                  for p in env.security_policies],
                 f"Table {n}-{sub}. Flow network security policies.",
             )
@@ -652,7 +654,7 @@ class WordExporter:
             self._table(
                 doc, ["Server", "Engine", "Status", "Cluster", "Cores", "Memory (GB)"],
                 [[s.name, s.db_engine, s.status, s.cluster_name or "—",
-                  str(s.vm_cores or ""), str(s.memory_gb or "")]
+                  _qty(s.vm_cores), _qty(s.memory_gb)]
                  for s in env.database_servers],
                 f"Table {n}-{sub}. Database servers.",
             )
@@ -662,7 +664,7 @@ class WordExporter:
             self._table(
                 doc, ["Time Machine", "Database", "SLA", "Status", "Schedule", "Clones"],
                 [[t.name, t.database_name, t.sla_name or "—", t.status, t.schedule or "—",
-                  str(t.clone_count or "")] for t in env.time_machines],
+                  _qty(t.clone_count)] for t in env.time_machines],
                 f"Table {n}-{sub}. Time machines.",
             )
 
@@ -686,7 +688,7 @@ class WordExporter:
             self._table(
                 doc, ["Role", "Description", "System", "Permissions"],
                 [[r.name, r.description or "—", "Yes" if r.is_system else "No",
-                  str(r.permission_count or "")] for r in env.roles],
+                  _qty(r.permission_count)] for r in env.roles],
                 f"Table {n}-{sub}. Roles.",
             )
         if env.playbooks:
@@ -694,8 +696,8 @@ class WordExporter:
             self._heading(doc, f"{n}.{sub} Playbooks (X-Play)", level=2)
             self._table(
                 doc, ["Playbook", "Trigger", "Actions", "Enabled", "Executions"],
-                [[p.name, p.trigger_type, str(p.action_count or ""),
-                  "Yes" if p.is_enabled else "No", str(p.execution_count or "")]
+                [[p.name, p.trigger_type, _qty(p.action_count),
+                  "Yes" if p.is_enabled else "No", _qty(p.execution_count)]
                  for p in env.playbooks],
                 f"Table {n}-{sub}. X-Play playbooks.",
             )
@@ -764,7 +766,7 @@ class WordExporter:
             cells = table.add_row().cells
             for i, value in enumerate(row):
                 cells[i].text = ""
-                run = cells[i].paragraphs[0].add_run("" if value is None else str(value))
+                run = cells[i].paragraphs[0].add_run(cell_text(value, headers[i]))
                 run.font.size = Pt(9)
                 if r_idx % 2 == 1:  # zebra striping
                     _shade_cell(cells[i], _ZEBRA_BG)
@@ -861,3 +863,8 @@ def _gib(value: int | None) -> float | None:
     if not value:
         return None
     return round(value / GIB, 1)
+
+
+def _qty(value: Any, blank: str = "") -> str:
+    """A quantity cell: comma-grouped, `blank` when missing or zero."""
+    return fmt_count(value) if value else blank

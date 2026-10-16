@@ -11,7 +11,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from ntnxvision_core.inventory import fmt_count
+from ntnxvision_core.numfmt import fmt_count
 from ntnxvision_core.runinfo import api_counts, classify, coverage, sunset_areas
 from ntnxvision_core.store.snapshot import EnvironmentCache, info_from_meta, read_meta
 
@@ -82,7 +82,7 @@ def build(metas: list[dict[str, Any]]) -> dict[str, Any]:
     if base is not None:
         delta = hosts - (base.get("summary") or {}).get("hosts", 0)
         when = _short_date(base.get("collected_at"))
-        host_q = (f"{'+' if delta > 0 else '−'}{abs(delta)} since {when}" if delta
+        host_q = (f"{'+' if delta > 0 else '−'}{fmt_count(abs(delta))} since {when}" if delta
                   else f"no change since {when}")
     figures.append({"label": "Hosts", "value": hosts, "qualifier": host_q})
 
@@ -93,7 +93,7 @@ def build(metas: list[dict[str, Any]]) -> dict[str, Any]:
     cap, used = st.get("capacity_bytes") or 0, st.get("used_bytes") or 0
     if cap:
         tb = cap / TIB
-        figures.append({"label": "Storage", "value": f"{tb:.0f}" if tb >= 10 else f"{tb:.1f}",
+        figures.append({"label": "Storage", "value": f"{tb:,.0f}" if tb >= 10 else f"{tb:,.1f}",
                         "unit": "TB", "qualifier": f"{round(100 * used / cap)}% used"})
 
     vms = summary.get("vms", 0)
@@ -109,8 +109,9 @@ def build(metas: list[dict[str, Any]]) -> dict[str, Any]:
     errors = cov["failed"]
     notes_count = cov["skipped"] + cov["with_notes"] + errors
     figures.append({"label": "Run notes", "value": notes_count,
-                    "qualifier": f"{cov['skipped']} skipped · {cov['with_notes']} with notes · "
-                                 f"{errors} error{'s' if errors != 1 else ''}",
+                    "qualifier": f"{fmt_count(cov['skipped'])} skipped · "
+                                 f"{fmt_count(cov['with_notes'])} with notes · "
+                                 f"{fmt_count(errors)} error{'s' if errors != 1 else ''}",
                     "qualifier_tone": "error" if errors else None})
 
     run = latest.get("run") or {}

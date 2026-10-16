@@ -17,7 +17,7 @@ def test_ok_reports_version_counts_and_routing(demo: Any) -> None:
     assert r["status"] == "ok" and r["ok"] is True
     assert r["version"] == "pc.2024.3" and r["version_supported"] is True
     assert r["clusters"] == 4 and r["hosts"] == 28
-    # totalAvailableResults: 1 214 workloads + the PC VM (the 3 ESXi records v4 fails to
+    # totalAvailableResults: 1,214 workloads + the PC VM (the 3 ESXi records v4 fails to
     # serialize still count — they exist, they just cannot be read).
     assert r["vms"] == 1215
     api = r["api"]

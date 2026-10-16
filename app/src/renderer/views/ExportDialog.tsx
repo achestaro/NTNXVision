@@ -3,7 +3,7 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import type { ExportFormat, ExportResult, ExportSection, SnapshotDetail } from '@shared/ipc';
 import { Button, Callout, Checkbox, Dialog, Field, FormatCard, Loading, useToast } from '../components';
-import { errorMessage, fmtAbs, fmtBytes, tildify } from '../lib/format';
+import { errorMessage, fmtAbs, fmtBytes, fmtCount, tildify } from '../lib/format';
 import { revealLabel, useSettings } from '../lib/settings';
 import { useRun } from '../lib/run';
 
@@ -114,7 +114,7 @@ function ExportDialog({
 
   const chosen = FORMATS.filter((f) => fmt[f.id]).map((f) => f.id);
   const n = chosen.length;
-  const name = many ? `${snapshotPaths.length} snapshots` : snap?.name ?? snapName(snapshotPath);
+  const name = many ? `${fmtCount(snapshotPaths.length)} snapshots` : snap?.name ?? snapName(snapshotPath);
 
   const pickTemplate = async (value: string) => {
     if (value === 'custom') {
@@ -168,8 +168,8 @@ function ExportDialog({
       toast.show({
         tone: errs.length ? 'warn' : 'ok',
         title: errs.length
-          ? `Exported ${written.length} of ${n * snapshotPaths.length} files · ${errs.map(([f]) => f).join(', ')} failed`
-          : `Exported ${written.length === 1 ? '1 file' : `${written.length} files`} · ${name}`,
+          ? `Exported ${fmtCount(written.length)} of ${fmtCount(n * snapshotPaths.length)} files · ${errs.map(([f]) => f).join(', ')} failed`
+          : `Exported ${written.length === 1 ? '1 file' : `${fmtCount(written.length)} files`} · ${name}`,
         detail: tildify(dir || (res.path ?? ''), null),
         action: res.path && !reveal ? { label: revealLabel(), onClick: () => void window.ntnx.revealPath(res.path!) } : undefined,
       });
@@ -209,7 +209,7 @@ function ExportDialog({
           <span className="dialog-foot-right">
             <span className="hint">{busy ? 'Exporting…' : n ? 'Takes about 10 s' : 'Choose at least one format'}</span>
             <Button variant="primary" onClick={doExport} disabled={!n || busy} kbd={n ? '⌘↵' : undefined}>
-              {n === 0 ? 'Export' : n * snapshotPaths.length === 1 ? 'Export 1 file' : `Export ${n * snapshotPaths.length} files`}
+              {n === 0 ? 'Export' : n * snapshotPaths.length === 1 ? 'Export 1 file' : `Export ${fmtCount(n * snapshotPaths.length)} files`}
             </Button>
           </span>
         </div>

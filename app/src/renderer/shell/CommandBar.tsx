@@ -1,13 +1,15 @@
 // 40 px command bar, dark in every theme: brand · ⌘K search · run/connection readout ·
-// theme toggle · help.
+// theme menu (System / Light / Dark / High contrast) · help.
 
 import React from 'react';
-import { MagnifyingGlassIcon, MoonIcon, QuestionIcon } from '@phosphor-icons/react';
+import { MagnifyingGlassIcon, QuestionIcon } from '@phosphor-icons/react';
 import { Icon } from '../components/Icon';
-import { Logo } from '../components/icons/Logo';
+import { NutanixIcon } from '../components/icons';
 import { useRouter } from '../lib/router';
 import { modKey, useSettings } from '../lib/settings';
 import { runCounts, useRun } from '../lib/run';
+import { fmtCount } from '../lib/format';
+import { ThemeModeMenu } from './ThemeModeMenu';
 
 export function CommandBar({
   onOpenPalette,
@@ -22,21 +24,20 @@ export function CommandBar({
   readout: string | null;
 }): JSX.Element {
   const { navigate } = useRouter();
-  const { resolvedTheme, update, appInfo } = useSettings();
+  const { appInfo } = useSettings();
   const { run, isRunning } = useRun();
-  const dark = resolvedTheme !== 'light';
 
   let live: string | null = null;
   if (run && isRunning) {
     const c = runCounts(run);
-    const who = run.multi ? `${run.targets.length} PCs` : run.label.split('.')[0];
-    live = c.total ? `Collecting ${who} · ${c.done} / ${c.total}` : `Collecting ${who}…`;
+    const who = run.multi ? `${fmtCount(run.targets.length)} PCs` : run.label.split('.')[0];
+    live = c.total ? `Collecting ${who} · ${fmtCount(c.done)} / ${fmtCount(c.total)}` : `Collecting ${who}…`;
   }
 
   return (
     <header className="cbar">
       <button type="button" className="brand" onClick={() => navigate({ screen: 'overview' })} aria-label="NTNXVision — go to Overview">
-        <Logo size={20} />
+        <NutanixIcon name="nutanix-x" size={20} />
         NTNXVision
       </button>
       <button className="cmdk" type="button" aria-label="Search" aria-keyshortcuts="Meta+K Control+K" onClick={onOpenPalette}>
@@ -63,15 +64,7 @@ export function CommandBar({
       ) : (
         readout && <span className="bar-readout">{readout}</span>
       )}
-      <button
-        className="bb"
-        type="button"
-        aria-label={dark ? 'Switch to light theme' : 'Switch to dark theme'}
-        title={dark ? 'Switch to light theme' : 'Switch to dark theme'}
-        onClick={() => void update({ theme: dark ? 'light' : 'dark' })}
-      >
-        <Icon icon={MoonIcon} size={16} />
-      </button>
+      <ThemeModeMenu />
       <button
         className="bb"
         type="button"

@@ -91,7 +91,7 @@ class VmCollector(Collector):
                 self._add_v4_vm(env, entity, hypervisor, detail)
         if skipped_total:
             return (
-                f"ok: {skipped_total} VM(s) skipped — the v4 endpoint returned an "
+                f"ok: {skipped_total:,} VM(s) skipped — the v4 endpoint returned an "
                 "internal error for those individual records"
             )
         return "ok"

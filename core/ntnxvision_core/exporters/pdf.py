@@ -19,6 +19,7 @@ from ntnxvision_core.exporters.diagrams import Diagram
 from ntnxvision_core.exporters.sourcing import source_hosts as _source_hosts
 from ntnxvision_core.exporters.sourcing import sources as _sources
 from ntnxvision_core.models import Environment
+from ntnxvision_core.numfmt import cell_text, fmt_count
 
 GIB = 1024**3
 # Enterprise palette.
@@ -195,9 +196,9 @@ class PdfExporter:
         self._h1(pdf, "Executive Summary")
         pdf.set_font("Helvetica", "", 11)
         pdf.set_text_color(*_INK)
-        c = env.summary()
+        n = {k: fmt_count(v) for k, v in env.summary().items()}
         managed_by = (
-            f"This environment spans {len(env.source_environments)} Prism Centrals "
+            f"This environment spans {fmt_count(len(env.source_environments))} Prism Centrals "
             f"({', '.join(_source_hosts(env))}) and comprises "
             if env.is_combined else
             f"This environment is managed by Prism Central {env.prism_central.host or ''} "
@@ -205,12 +206,12 @@ class PdfExporter:
         )
         line = (
             f"{managed_by}"
-            f"{c['clusters']} cluster(s), {c['hosts']} host(s), and {c['vms']} user virtual "
-            f"machine(s) ({c['system_vms']} Nutanix system VM(s)). It includes "
-            f"{c['protection_policies']} protection policy(ies) and {c['recovery_plans']} "
-            f"recovery plan(s), {c['security_policies']} Flow security policy(ies), "
-            f"{c['storage_containers']} storage container(s), {c['templates']} template(s), "
-            f"and {c['images']} image(s)."
+            f"{n['clusters']} cluster(s), {n['hosts']} host(s), and {n['vms']} user virtual "
+            f"machine(s) ({n['system_vms']} Nutanix system VM(s)). It includes "
+            f"{n['protection_policies']} protection policy(ies) and {n['recovery_plans']} "
+            f"recovery plan(s), {n['security_policies']} Flow security policy(ies), "
+            f"{n['storage_containers']} storage container(s), {n['templates']} template(s), "
+            f"and {n['images']} image(s)."
         )
         pdf.multi_cell(0, 6, _latin1(line))
         pdf.ln(4)
@@ -232,10 +233,10 @@ class PdfExporter:
             ["Version", cfg.version or "-"],
             ["Deployment", "Scale-out (3-node)" if cfg.is_scale_out else "Single-node"
              if cfg.is_scale_out is not None else "-"],
-            ["PC nodes", str(cfg.node_count or "-")],
-            ["Registered clusters", str(cfg.registered_cluster_count or "-")],
-            ["Total vCPU", str(cfg.num_vcpus or "-")],
-            ["Total memory (GiB)", str(_gib(cfg.memory_bytes) or "-")],
+            ["PC nodes", fmt_count(cfg.node_count or "-")],
+            ["Registered clusters", fmt_count(cfg.registered_cluster_count or "-")],
+            ["Total vCPU", fmt_count(cfg.num_vcpus or "-")],
+            ["Total memory (GiB)", fmt_count(_gib(cfg.memory_bytes) or "-")],
             ["PC VM(s)", ", ".join(cfg.pc_vm_names) or "-"],
             ["IP address(es)", ", ".join(cfg.ip_addresses) or "-"],
         ]
@@ -372,9 +373,9 @@ class PdfExporter:
         pending = sum(1 for e in entities if e.update_available)
         unknown = sum(1 for e in entities if e.update_available is None)
         lead = (
-            f"Life Cycle Manager inventories {len(entities)} component(s) across this "
-            f"environment; {pending} have a newer version available"
-            + (f" and {unknown} could not be determined" if unknown else "")
+            f"Life Cycle Manager inventories {fmt_count(len(entities))} component(s) across this "
+            f"environment; {fmt_count(pending)} have a newer version available"
+            + (f" and {fmt_count(unknown)} could not be determined" if unknown else "")
             + ". Available versions below are trimmed to the two newest LCM offers - the "
             "Excel export lists them in full."
         )
@@ -678,7 +679,7 @@ class PdfExporter:
         pdf.ln(2)
         pdf.set_font("Helvetica", "I", 8)
         pdf.set_text_color(*_GREY)
-        pdf.cell(0, 5, f"{len(rows)} item(s).", new_x="LMARGIN", new_y="NEXT")
+        pdf.cell(0, 5, f"{fmt_count(len(rows))} item(s).", new_x="LMARGIN", new_y="NEXT")
 
     def _table(self, pdf: _Report, headers: list[str], rows: list[list[Any]],
                widths: list[float]) -> None:
@@ -705,8 +706,9 @@ class PdfExporter:
                 pdf.set_font("Helvetica", "", 8)
                 pdf.set_text_color(*_INK)
             pdf.set_fill_color(*_ZEBRA)
-            for value, w in zip(row, widths, strict=False):
-                pdf.cell(w, 6, _truncate(value, w), border=0, fill=fill, align="L")
+            for value, w, h in zip(row, widths, headers, strict=False):
+                pdf.cell(w, 6, _truncate(cell_text(value, h), w), border=0, fill=fill,
+                         align="L")
             pdf.ln()
             fill = not fill
 

@@ -35,7 +35,7 @@ import { useRouter } from '../lib/router';
 import { RunResult, useRun } from '../lib/run';
 import { useAsync } from '../lib/useAsync';
 import { revealLabel } from '../lib/settings';
-import { basename, dirname, errorMessage, fmtBytes, fmtClock, fmtDuration, plural, tildify } from '../lib/format';
+import { basename, dirname, errorMessage, fmtBytes, fmtClock, fmtCount, fmtDuration, plural, tildify } from '../lib/format';
 import { useExportDialog } from './ExportDialog';
 
 const FORMAT_META: Record<ExportFormat, { label: string; icon: typeof FileXlsIcon; create: string }> = {
@@ -82,7 +82,7 @@ export function ResultsView({ snapshot }: { snapshot?: string }): JSX.Element {
       return (
         <>
           <PageHeader eyebrow="Explore / Snapshots" title="Collection results" />
-          <ErrorState title="Couldn’t read the snapshot." error={detail.error} onRetry={detail.reload} />
+          <ErrorState title="Couldn’t read the snapshot." error={detail.error} onRetry={detail.reload} illustration="vm-error" />
         </>
       );
     }
@@ -109,6 +109,7 @@ function ResultsBody({ lastResult, live }: { lastResult: RunResult | null; live:
         <PageHeader eyebrow="Collect / Complete" title="No recent collection" />
         <Panel>
           <EmptyState
+            illustration="no-workloads"
             title="Nothing collected in this session"
             description="Results appear here when a collection finishes. Earlier collections are in Snapshots."
             secondary={<Button onClick={() => navigate({ screen: 'snapshots' })}>Open snapshots</Button>}
@@ -190,7 +191,7 @@ function ResultsBody({ lastResult, live }: { lastResult: RunResult | null; live:
       {!live ? null : r.snapshot_path ? (
         <Callout
           tone="ok"
-          title={`Snapshot ${snapshotName} saved${reports.length ? `, and ${reports.length === 1 ? '1 report is' : `${reports.length} reports are`} ready` : ''}.`}
+          title={`Snapshot ${snapshotName} saved${reports.length ? `, and ${reports.length === 1 ? '1 report is' : `${fmtCount(reports.length)} reports are`} ready` : ''}.`}
         >
           {total
             ? `${plural(counts.collected, 'area')} collected${counts.skipped ? `, ${counts.skipped} skipped because ${counts.skipped === 1 ? 'it isn’t' : 'they aren’t'} deployed` : ''}${counts.notes ? `, ${counts.notes} collected with notes` : ''}${counts.failed ? `, ${counts.failed} failed` : ''}.`
@@ -212,7 +213,7 @@ function ResultsBody({ lastResult, live }: { lastResult: RunResult | null; live:
         </Callout>
       )}
       {r.warnings?.length > 0 && (
-        <Callout tone="warn" title={r.warnings.length === 1 ? 'One warning from the run.' : `${r.warnings.length} warnings from the run.`}>
+        <Callout tone="warn" title={r.warnings.length === 1 ? 'One warning from the run.' : `${fmtCount(r.warnings.length)} warnings from the run.`}>
           {r.warnings.map((w) => (
             <div key={w}>{w}</div>
           ))}
@@ -227,7 +228,7 @@ function ResultsBody({ lastResult, live }: { lastResult: RunResult | null; live:
         <ReportsPanel reports={reports} dir={reportDir} snapshotPath={r.snapshot_path} />
 
         <Panel aria-labelledby="notes">
-          <PanelHeader id="notes" title="Collection notes" meta={total ? `${notesAreas.length} of ${total}` : undefined} />
+          <PanelHeader id="notes" title="Collection notes" meta={total ? `${fmtCount(notesAreas.length)} of ${fmtCount(total)}` : undefined} />
           <NotesTable areas={notesAreas} notesMap={total ? null : r.collection_notes} />
           {total > 0 && (
             <div style={{ padding: '10px 12px', borderTop: '1px solid var(--rule-2)', color: 'var(--ink-3)' }}>
@@ -387,7 +388,7 @@ function TargetsPanel({ targets }: { targets: MultiTargetResult[] }): JSX.Elemen
   const { navigate } = useRouter();
   return (
     <Panel aria-labelledby="targets">
-      <PanelHeader id="targets" title="Prism Centrals" meta={`${targets.filter((t) => t.success).length} of ${targets.length} collected`} />
+      <PanelHeader id="targets" title="Prism Centrals" meta={`${fmtCount(targets.filter((t) => t.success).length)} of ${fmtCount(targets.length)} collected`} />
       <DataTable<MultiTargetResult>
         ariaLabel="Prism Centrals"
         rows={targets}

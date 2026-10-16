@@ -36,7 +36,7 @@ import { useAsync } from '../lib/useAsync';
 import { useSettings, modKey } from '../lib/settings';
 import { useRun } from '../lib/run';
 import { useConfirmShortcut } from '../lib/keyboard';
-import { defaultSnapshotName, errorMessage, tildify } from '../lib/format';
+import { defaultSnapshotName, errorMessage, fmtCount, tildify } from '../lib/format';
 
 const FORMATS: { id: ExportFormat; label: string; desc: string }[] = [
   { id: 'excel', label: 'Excel workbook', desc: 'One sheet per object type — the RVTools-style dump' },
@@ -401,7 +401,7 @@ export function NewCollectionView({
 
           {/* 2 · What to collect */}
           <Panel aria-labelledby="s2">
-            <PanelHeader id="s2" step={2} title="What to collect" meta={catalogue.data ? `${chosenAreas.length} / ${available.length}` : undefined}>
+            <PanelHeader id="s2" step={2} title="What to collect" meta={catalogue.data ? `${fmtCount(chosenAreas.length)} / ${fmtCount(available.length)}` : undefined}>
               <Button variant="ghost" size="sm" onClick={() => setOff(Object.fromEntries(areas.map((a) => [a.id, false])))} disabled={!areas.length}>
                 Select all
               </Button>
@@ -527,7 +527,7 @@ export function NewCollectionView({
               </div>
               <div className="kv">
                 <dt>Areas</dt>
-                <dd className="mono">{catalogue.data ? `${chosenAreas.length} / ${available.length}` : '—'}</dd>
+                <dd className="mono">{catalogue.data ? `${fmtCount(chosenAreas.length)} / ${fmtCount(available.length)}` : '—'}</dd>
               </div>
               <div className="kv">
                 <dt>Reports</dt>

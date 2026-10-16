@@ -322,7 +322,7 @@
       object_type: 'vms',
       label: 'Virtual machines',
       unit_plural: 'VMs',
-      facts: '1 214 VMs · 4 clusters',
+      facts: '1,214 VMs · 4 clusters',
       columns: [
         { key: 'name', label: 'Name', kind: 'name' },
         { key: 'cluster', label: 'Cluster', kind: 'text' },
@@ -459,7 +459,7 @@
               figures: [
                 { label: 'Clusters', value: 4, qualifier: 'AOS 6.10 – 7.0' },
                 { label: 'Hosts', value: 28, qualifier: '+4 since Sep 30' },
-                { label: 'VMs', value: 1214, qualifier: '1 102 powered on' },
+                { label: 'VMs', value: 1214, qualifier: '1,102 powered on' },
                 { label: 'Storage', value: '186', unit: 'TB', qualifier: '41% used' },
                 { label: 'Protected VMs', value: '87%', qualifier: '158 unprotected', qualifier_tone: 'warn' },
                 { label: 'Run notes', value: 3, qualifier: '2 skipped · 1 with notes · 0 errors' },
@@ -505,7 +505,7 @@
         summary: { total: 67, added: 50, removed: 7, changed: 10 },
         figures: [
           { label: 'Changes', value: 67, qualifier: '50 added · 7 removed · 10 changed' },
-          { label: 'VMs', value: 1214, qualifier: '+44 / −6 · was 1 176' },
+          { label: 'VMs', value: 1214, qualifier: '+44 / −6 · was 1,176' },
           { label: 'Hosts', value: 28, qualifier: '+4 · was 24' },
           { label: 'Storage', value: '186', unit: 'TB', qualifier: '+12 TB · was 174 TB' },
           { label: 'Protection policies', value: 12, qualifier: '−1 · was 13' },

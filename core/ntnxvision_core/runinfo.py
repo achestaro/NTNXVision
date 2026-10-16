@@ -20,6 +20,7 @@ from typing import Any
 from ntnxvision_core.areas import AREAS_BY_ID, NDB_AREA, PE_LABELS, TYPICAL_SECONDS, Area
 from ntnxvision_core.compat import check_aos, check_prism_central
 from ntnxvision_core.notes import clean_error
+from ntnxvision_core.numfmt import fmt_count
 
 PC_RANGE = "pc.2024.1 – 7.5.1.6"
 AOS_RANGE = "AOS 6.5 – 7.5"
@@ -247,7 +248,7 @@ def figures(env: Any, areas: list[dict[str, Any]] | None = None) -> list[dict[st
     if vm_area and vm_area.get("status") == "notes" and vm_area.get("detail"):
         detail = str(vm_area["detail"])
         digits = "".join(ch for ch in detail.split(" ")[0] if ch.isdigit())
-        vm_qualifier = f"{digits} skipped" if digits else "with notes"
+        vm_qualifier = f"{fmt_count(int(digits))} skipped" if digits else "with notes"
         vm_tone = "warn"
     out: list[dict[str, Any]] = [
         {"label": "Clusters", "value": len(env.clusters)},
@@ -335,7 +336,7 @@ def _join_labels(labels: list[str], limit: int = 8) -> str:
     seen = list(dict.fromkeys(labels))
     if len(seen) <= limit:
         return ", ".join(seen) if len(seen) > 2 else " · ".join(seen)
-    return ", ".join(seen[:limit]) + f" + {len(seen) - limit} more"
+    return ", ".join(seen[:limit]) + f" + {fmt_count(len(seen) - limit)} more"
 
 
 def sunset_areas(routing: list[dict[str, Any]]) -> list[str]:

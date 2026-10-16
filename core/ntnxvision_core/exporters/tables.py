@@ -420,7 +420,7 @@ CATALOG = TableSpec(
         Col("name", None, lambda i, _x: i.name, label="Name", kind="name", search=True),
         Col("kind", None, lambda i, _x: i.kind, label="Kind", facet=True),
         Col("detail", None, lambda i, _x: getattr(i.obj, "image_type", None)
-            or getattr(i.obj, "guest_os", None) or (f"{i.obj.disk_count} disk(s)"
+            or getattr(i.obj, "guest_os", None) or (f"{i.obj.disk_count:,} disk(s)"
                                                     if getattr(i.obj, "disk_count", None)
                                                     else None),
             label="Type / OS", search=True),

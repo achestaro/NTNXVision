@@ -39,6 +39,7 @@ from ntnxvision_core.api.errors import (
 from ntnxvision_core.api.ndb_client import NdbConnection, NdbCredentials
 from ntnxvision_core.areas import AREAS, TYPICAL_SECONDS
 from ntnxvision_core.compat import check_aos, check_prism_central
+from ntnxvision_core.numfmt import fmt_count
 from ntnxvision_core.runinfo import AOS_RANGE, PC_RANGE
 
 TEST_TIMEOUT = 10
@@ -121,7 +122,7 @@ def _test_pc(host: str, port: int, username: str, password: str, insecure: bool
             else:
                 routing["v3"] += 1
     status = "ok" if compat.in_range else "version_unsupported"
-    parts = [f"{clusters} cluster{'s' if clusters != 1 else ''}" if clusters is not None
+    parts = [f"{fmt_count(clusters)} cluster{'s' if clusters != 1 else ''}" if clusters is not None
              else None]
     api = [f"v4 for {routing['v4']} areas" if routing["v4"] else None,
            f"v3 for {routing['v3']}" + (" areas" if not routing["v4"] else "")
@@ -201,8 +202,8 @@ def _test_pe(host: str, port: int, username: str, password: str, insecure: bool
         vms = _v2_total(conn, "vms")
     compat = check_aos(version)
     detail = " · ".join(p for p in (
-        f"{hosts} hosts" if hosts is not None else None,
-        f"{vms} VMs" if vms is not None else None,
+        f"{fmt_count(hosts)} hosts" if hosts is not None else None,
+        f"{fmt_count(vms)} VMs" if vms is not None else None,
         "v2.0 API",
         "within supported range" if compat.in_range else "outside supported range",
     ) if p)
@@ -239,8 +240,8 @@ def _test_ndb(host: str, username: str, password: str, insecure: bool) -> dict[s
         servers = _len_or_none(conn, "dbservers")
         databases = _len_or_none(conn, "databases")
     detail = " · ".join(p for p in (
-        f"{servers} database servers" if servers is not None else None,
-        f"{databases} databases" if databases is not None else None,
+        f"{fmt_count(servers)} database servers" if servers is not None else None,
+        f"{fmt_count(databases)} databases" if databases is not None else None,
         "Era API",
     ) if p)
     return {"status": "ok", "ok": True,

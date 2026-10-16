@@ -108,6 +108,8 @@
   --on-accent: var(--rw-slate-0);
   --accent: var(--rw-iris-600);
   --accent-tint: var(--rw-iris-100);
+  /* Brand iris: kept when data-accent swaps --accent to Prism blue */
+  --iris: var(--rw-iris-600);
   --accent-prism: var(--rw-prism-600);
   --on-accent-prism: var(--rw-slate-0);
   --accent-prism-tint: var(--rw-prism-100);
@@ -122,8 +124,16 @@
   --chart-1: #3370c7;
   --chart-2: #b38c15;
   --chart-3: #b54879;
+  --chart-4: #8a4700;
   --chart-5: #894b9c;
+  --chart-6: #c65d26;
   --chart-7: #3899c5;
+  --chart-8: #648828;
+  --seq-1: #88b1ef;
+  --seq-2: #5f94e2;
+  --seq-3: #3b77d0;
+  --seq-4: #255dac;
+  --seq-5: #164485;
   --scrim: rgb(15 26 36 / 0.4);
   --shadow-popover: 0 12px 32px rgb(15 26 36 / 0.18);
 }
@@ -144,6 +154,7 @@
   --on-accent: var(--rw-slate-950);
   --accent: var(--rw-iris-400);
   --accent-tint: var(--rw-iris-900);
+  --iris: var(--rw-iris-400);
   --accent-prism: var(--rw-prism-400);
   --on-accent-prism: var(--rw-slate-950);
   --accent-prism-tint: var(--rw-prism-900);
@@ -158,8 +169,16 @@
   --chart-1: #4885df;
   --chart-2: #b38c15;
   --chart-3: #c95a8b;
+  --chart-4: #9a5505;
   --chart-5: #ac6bbf;
+  --chart-6: #d46a34;
   --chart-7: #3e9dca;
+  --chart-8: #759b3d;
+  --seq-1: #204e90;
+  --seq-2: #3169b9;
+  --seq-3: #4d86d9;
+  --seq-4: #73a4ed;
+  --seq-5: #a1c3f5;
   --scrim: rgb(0 0 0 / 0.6);
   --shadow-popover: 0 12px 32px rgb(0 0 0 / 0.5);
 }
@@ -181,9 +200,20 @@
     --on-accent: var(--rw-slate-950);
     --accent: var(--rw-iris-400);
     --accent-tint: var(--rw-iris-900);
+    --iris: var(--rw-iris-400);
     --accent-prism: var(--rw-prism-400);
     --on-accent-prism: var(--rw-slate-950);
     --accent-prism-tint: var(--rw-prism-900);
+    --live: var(--rw-cyan-400);
+    --live-tint: var(--rw-cyan-900);
+    --ok: var(--rw-green-400);
+    --ok-tint: var(--rw-green-900);
+    --warn: var(--rw-amber-400);
+    --warn-tint: var(--rw-amber-900);
+    --error: var(--rw-red-400);
+    --error-tint: var(--rw-red-900);
+    --scrim: rgb(0 0 0 / 0.6);
+    --shadow-popover: 0 12px 32px rgb(0 0 0 / 0.5);
   }
 }
 
@@ -203,6 +233,7 @@
   --on-accent: var(--rw-neutral-1000);
   --accent: var(--rw-iris-300);
   --accent-tint: var(--rw-iris-950);
+  --iris: var(--rw-iris-300);
   --accent-prism: var(--rw-prism-300);
   --on-accent-prism: var(--rw-neutral-1000);
   --accent-prism-tint: var(--rw-prism-950);
@@ -217,8 +248,16 @@
   --chart-1: #4885df;
   --chart-2: #b38c15;
   --chart-3: #c95a8b;
+  --chart-4: #9a5505;
   --chart-5: #ac6bbf;
+  --chart-6: #d46a34;
   --chart-7: #3e9dca;
+  --chart-8: #759b3d;
+  --seq-1: #204e90;
+  --seq-2: #3169b9;
+  --seq-3: #4d86d9;
+  --seq-4: #73a4ed;
+  --seq-5: #a1c3f5;
   --scrim: rgb(0 0 0 / 0.8);
   --shadow-popover: 0 0 #0000;
 }
@@ -241,6 +280,7 @@
   --bar-hover: var(--rw-neutral-850);
   --bar-rule: var(--rw-neutral-400);
   --bar-text: var(--rw-neutral-50);
+  --bar-text-active: var(--rw-neutral-0);
   --bar-accent: var(--rw-iris-300);
   --bar-live: var(--rw-cyan-300);
 }
@@ -254,6 +294,39 @@
 
 :root {
   --focus: var(--accent);
+}
+
+/* Mode swatches: fixed per-mode colours for pickers that draw another mode than the
+   current one, and the iris value of the current mode (--accent turns Prism blue under
+   data-accent="prism"). Swatch accents follow the chosen accent. */
+:root {
+  --swatch-light-surface: var(--rw-slate-25);
+  --swatch-light-bar: var(--rw-slate-920);
+  --swatch-light-rule: var(--rw-slate-200);
+  --swatch-light-ink: var(--rw-slate-550);
+  --swatch-light-accent: var(--rw-iris-600);
+  --swatch-dark-surface: var(--rw-slate-900);
+  --swatch-dark-bar: var(--rw-slate-920);
+  --swatch-dark-rule: var(--rw-slate-750);
+  --swatch-dark-ink: var(--rw-slate-400);
+  --swatch-dark-accent: var(--rw-iris-400);
+  --swatch-hc-surface: var(--rw-neutral-1000);
+  --swatch-hc-bar: var(--rw-neutral-1000);
+  --swatch-hc-rule: var(--rw-neutral-400);
+  --swatch-hc-ink: var(--rw-neutral-150);
+  --swatch-hc-accent: var(--rw-iris-300);
+  --accent-iris: var(--rw-iris-600);
+}
+:root[data-accent='prism'] {
+  --swatch-light-accent: var(--rw-prism-600);
+  --swatch-dark-accent: var(--rw-prism-400);
+  --swatch-hc-accent: var(--rw-prism-300);
+}
+:root[data-theme='dark'] {
+  --accent-iris: var(--rw-iris-400);
+}
+:root[data-theme='hc'] {
+  --accent-iris: var(--rw-iris-300);
 }
 
 /* ── 5. Non-colour tokens ────────────────────────────────────────────── */

@@ -1,17 +1,18 @@
 // Number, size and time formatting (Runway rule 6). Every number shown for comparison
 // goes through here so the whole app uses one format.
 
-const GROUP = '\u00A0'; // non-breaking space, as in the mocks ("1 214")
+// Comma thousands grouping everywhere ("1,214"). en-US is fixed on purpose so every
+// screen, toast and export reads the same regardless of the OS locale.
+const INT = new Intl.NumberFormat('en-US', { maximumFractionDigits: 0 });
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
 export const DASH = '—';
 
-/** Integer with space grouping: 1214 → "1 214". */
+/** Integer with comma grouping: 1214 → "1,214"; negatives use a true minus ("−6"). */
 export function fmtCount(n: number | null | undefined): string {
   if (n === null || n === undefined || Number.isNaN(n)) return DASH;
   const sign = n < 0 ? '−' : '';
-  const s = Math.round(Math.abs(n)).toString();
-  return sign + s.replace(/\B(?=(\d{3})+(?!\d))/g, GROUP);
+  return sign + INT.format(Math.round(Math.abs(n)));
 }
 
 /** Signed delta: +4, −6, 0. */
@@ -32,7 +33,7 @@ export function fmtBytes(bytes: number | null | undefined): string {
     i += 1;
   }
   let num: string;
-  if (i === 0 || v >= 10) num = Math.round(v).toString();
+  if (i === 0 || v >= 10) num = INT.format(Math.round(v));
   else {
     num = v.toFixed(1);
     if (num.endsWith('.0') && i < 4) num = num.slice(0, -2);
