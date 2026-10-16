@@ -211,7 +211,7 @@ def test_export_options_sections_template_and_cover(two_snapshots: Any, data_dir
     text = "\n".join(p.text for p in word.paragraphs)
     assert "Template boilerplate" not in text
     assert word.sections[0].header.paragraphs[0].text == "ACME CONFIDENTIAL"
-    assert "Prism Central — Management & Sizing" in text
+    assert "Prism Central: Management & Sizing" in text
     assert "Executive Summary" not in text and "Data Protection" not in text
     assert word.core_properties.author == "A. Tester"
     assert "Acme Corp" in word.core_properties.subject

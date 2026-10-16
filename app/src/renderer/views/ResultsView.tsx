@@ -360,7 +360,7 @@ function NotesTable({ areas, notesMap }: { areas: AreaProgress[]; notesMap: Reco
         ariaLabel="Collection notes"
         rows={rows}
         rowKey={(x) => x.id}
-        empty="No notes — every area collected cleanly."
+        empty="No notes. Every area collected cleanly."
         columns={[
           { key: 'a', header: 'Area', className: 'nm', render: (x) => x.label },
           { key: 'd', header: 'Detail', className: 'wrap', render: (x) => x.detail },
@@ -374,7 +374,7 @@ function NotesTable({ areas, notesMap }: { areas: AreaProgress[]; notesMap: Reco
       ariaLabel="Collection notes"
       rows={areas}
       rowKey={(a) => a.id}
-      empty="No notes — every area collected cleanly."
+      empty="No notes. Every area collected cleanly."
       columns={[
         { key: 'a', header: 'Area', className: 'nm', render: (a) => a.label },
         { key: 's', header: 'Status', render: (a) => <AreaStatusLabel status={a.status} /> },
@@ -410,7 +410,7 @@ function TargetsPanel({ targets }: { targets: MultiTargetResult[] }): JSX.Elemen
                   {t.snapshot_name ?? basename(t.snapshot_path)}
                 </button>
               ) : (
-                <span className="dash">—</span>
+                <span className="dash">Not saved</span>
               ),
           },
           { key: 'detail', header: 'Detail', className: 'wrap', render: (t) => (t.success ? '' : t.error) },

@@ -196,7 +196,7 @@ try {
 
   await run('settings', async () => {
     await rail('Settings');
-    await page.getByText(/Demo — synthetic estate/).waitFor();
+    await page.getByText(/Demo: synthetic estate/).waitFor();
   });
 } catch {
   /* reported by run() */

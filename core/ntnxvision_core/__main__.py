@@ -33,7 +33,7 @@ from ntnxvision_core.models import Environment
 from ntnxvision_core.paths import exports_dir, snapshots_dir
 from ntnxvision_core.store import SnapshotStore
 
-app = typer.Typer(add_completion=False, help="NTNXVision — Nutanix inventory core.")
+app = typer.Typer(add_completion=False, help="NTNXVision: Nutanix inventory core.")
 console = Console()
 
 
@@ -135,10 +135,10 @@ def inventory_multi(
         "--host", help="Prism Central FQDN or IP; repeat per PC")],
     username: Annotated[list[str], typer.Option(
         "--username",
-        help="PC username — give once to use for every --host, or once per --host")],
+        help="PC username. Give it once to use for every --host, or once per --host")],
     password: Annotated[list[str] | None, typer.Option(
         "--password",
-        help="PC password — same pairing as --username; prompted per host if omitted")] = None,
+        help="PC password, paired like --username; prompted per host if omitted")] = None,
     port: int = typer.Option(9440, help="PC port (applies to every target)"),
     insecure: bool = typer.Option(False, "--insecure", help="Skip TLS verification (lab only)"),
     formats: str = typer.Option("excel", help="Comma-separated: excel,pdf,word"),
@@ -158,7 +158,7 @@ def inventory_multi(
     """Inventory several Prism Centrals in one run, optionally combining them.
 
     Each target is isolated: one unreachable or misconfigured PC is reported and skipped
-    without aborting the others — the same isolation the UI's multi-target mode gives.
+    without aborting the others: the same isolation the UI's multi-target mode gives.
     """
     usernames = _pair("--username", username, len(host))
     passwords = _pair("--password", password, len(host), allow_empty=True)
@@ -196,7 +196,7 @@ def inventory_multi(
         console.print(f"[bold]Combining[/bold] {len(collected)} environments …")
         _finish(combine_environments(collected), combined_name, formats)
     elif combine:
-        console.print("[yellow]⚠ Combine skipped — it needs at least two successful "
+        console.print("[yellow]⚠ Combine skipped: it needs at least two successful "
                       "targets.[/yellow]")
 
     if failures:
@@ -220,8 +220,8 @@ def _pair(option: str, values: list[str] | None, count: int,
         return values * count
     if len(values) != count:
         raise typer.BadParameter(
-            f"{option} given {len(values)} time(s) for {count} --host value(s) — "
-            f"pass it once for all hosts or once per host"
+            f"{option} given {len(values)} time(s) for {count} --host value(s). "
+            f"Pass it once for all hosts or once per host"
         )
     return values
 
@@ -263,7 +263,7 @@ def _parse_formats(formats: str) -> list[str]:
 def mock_server(
     latency_ms: float = typer.Option(0.0, help="Artificial latency per request"),
 ) -> None:
-    """Serve the synthetic estate on 127.0.0.1 (HTTPS) until Ctrl-C — for poking at the
+    """Serve the synthetic estate on 127.0.0.1 (HTTPS) until Ctrl-C, for poking at the
     mock with curl. Send the target hostname in the X-NTNXVision-Demo-Host header."""
     import time
 

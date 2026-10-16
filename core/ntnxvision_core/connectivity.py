@@ -70,7 +70,7 @@ def test_connection(params: dict[str, Any]) -> dict[str, Any]:
         return {**base, "status": "error", "ok": False, "message": "Enter a host name or IP"}
     if not password:
         return {**base, "status": "auth_failed", "ok": False,
-                "message": "No password — type one, or save it to the keychain first"}
+                "message": "No password. Type one, or save it to the keychain first"}
     try:
         if mode == "prism_element":
             return {**base, **_test_pe(host, port, username, password, insecure)}
@@ -83,7 +83,7 @@ def test_connection(params: dict[str, Any]) -> dict[str, Any]:
                 "message": _tls_reason(exc, cert), "certificate": cert}
     except AuthenticationError:
         return {**base, "status": "auth_failed", "ok": False,
-                "message": "HTTP 401 Unauthorized — the credentials were rejected"}
+                "message": "HTTP 401 Unauthorized: the credentials were rejected"}
     except ConnectionFailed as exc:
         return {**base, "status": "unreachable", "ok": False, "message": _network_reason(exc)}
     except NutanixApiError as exc:
@@ -340,11 +340,11 @@ def _network_reason(exc: Exception) -> str:
     text = str(exc)
     lowered = text.lower()
     if "resolve" in lowered or "nodename" in lowered or "name or service" in lowered:
-        return "DNS lookup failed — the host name does not resolve"
+        return "DNS lookup failed: the host name does not resolve"
     if "timed out" in lowered or "timeout" in lowered:
         return f"Connection timed out after {TEST_TIMEOUT} s"
     if "refused" in lowered:
-        return "Connection refused — nothing is listening on that port"
+        return "Connection refused: nothing is listening on that port"
     if "no route" in lowered or "unreachable" in lowered:
         return "No route to host"
     return text.split(" (")[0] if len(text) > 160 else text

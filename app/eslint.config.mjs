@@ -17,6 +17,23 @@ export default tseslint.config(
     },
   },
   {
+    // No em dash (U+2014) in user-visible text: string literals, template literals and
+    // JSX text across the renderer, main process and shared contract. Comments are not
+    // checked. Use a comma, colon, period or parentheses in prose, and `NA` from
+    // lib/format.ts for a missing value. Mirrors core/tests/test_no_em_dash.py.
+    files: ["src/**/*.ts", "src/**/*.tsx"],
+    rules: {
+      "no-restricted-syntax": [
+        "error",
+        ...["Literal[value=/\u2014/]", "TemplateElement[value.raw=/\u2014/]", "JSXText[value=/\u2014/]"]
+          .map((selector) => ({
+            selector,
+            message: "No em dash in user-visible text: use a comma, colon, period, parentheses or NA.",
+          })),
+      ],
+    },
+  },
+  {
     // Dev scripts: the screenshot runner (Node) and the stub window.ntnx (browser).
     files: ["scripts/**/*.{js,mjs}"],
     languageOptions: { globals: { ...globals.browser, ...globals.node } },

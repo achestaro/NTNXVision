@@ -19,7 +19,7 @@ import {
 } from '../components';
 import { useRouter } from '../lib/router';
 import { runCounts, useRun } from '../lib/run';
-import { DASH, fmtClock, fmtCount, fmtDuration, plural } from '../lib/format';
+import { NA, fmtClock, fmtCount, fmtDuration, plural } from '../lib/format';
 
 export function CollectingView(): JSX.Element {
   const { navigate } = useRouter();
@@ -157,7 +157,7 @@ export function CollectingView(): JSX.Element {
       ))}
 
       <Callout>
-        One area failing never stops the run — its note lands in the report. You can leave this screen; progress stays in the top bar and you get a
+        One area failing never stops the run: its note lands in the report. You can leave this screen; progress stays in the top bar and you get a
         notification when it finishes.
       </Callout>
 
@@ -165,7 +165,7 @@ export function CollectingView(): JSX.Element {
         open={confirmCancel}
         onClose={() => setConfirmCancel(false)}
         title={`Cancel the collection of ${run.label}?`}
-        body="The run stops after the current area. Nothing is saved — no snapshot and no reports. Areas collected so far are discarded."
+        body="The run stops after the current area. Nothing is saved: no snapshot and no reports. Areas collected so far are discarded."
         confirmLabel="Cancel run"
         cancelLabel="Keep running"
         destructive
@@ -206,7 +206,7 @@ function AreaTable({ areas, starting }: { areas: AreaProgress[]; starting: boole
           header: 'Objects',
           numeric: true,
           render: (a) =>
-            a.status === 'pending' ? '' : a.objects === null || a.objects === undefined ? (a.status === 'running' ? '' : DASH) : fmtCount(a.objects),
+            a.status === 'pending' ? '' : a.objects === null || a.objects === undefined ? (a.status === 'running' ? '' : NA) : fmtCount(a.objects),
         },
         {
           key: 'time',

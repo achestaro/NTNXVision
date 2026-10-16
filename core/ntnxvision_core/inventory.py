@@ -21,7 +21,7 @@ from ntnxvision_core.exporters.tables import (
     joined,
 )
 from ntnxvision_core.models import Environment
-from ntnxvision_core.numfmt import PLAIN_HEADERS, fmt_count
+from ntnxvision_core.numfmt import NA, PLAIN_HEADERS, fmt_count
 
 GIB = 1024**3
 TIB = 1024**4
@@ -112,7 +112,7 @@ class _Index:
             facets = {}
             for c in facet_cols:
                 label = display(c, raw[c.key])
-                facets[c.key] = label if label is not None else "—"
+                facets[c.key] = label if label is not None else NA
             base = str(spec.id(obj) or spec.name(obj) or len(self.rows))
             n = seen.get(base, 0)
             seen[base] = n + 1
@@ -375,8 +375,8 @@ def _vm_detail(env: Environment, vm: Any, ctx: Ctx) -> dict[str, Any]:
     fields: list[dict[str, Any]] = [
         {"label": "Host", "value": vm.host_name},
         {"label": "Cluster", "value": vm.cluster_name},
-        {"label": "Size", "value": f"{fmt_count(vm.vcpu_total or '—')} vCPU · "
-                                   f"{fmt_bytes(vm.memory_bytes) or '—'}", "mono": True},
+        {"label": "Size", "value": f"{fmt_count(vm.vcpu_total or NA)} vCPU · "
+                                   f"{fmt_bytes(vm.memory_bytes) or NA}", "mono": True},
         {"label": "Storage", "value": f"{fmt_bytes(total) or '0 GB'} · {fmt_count(len(disks))} "
                                       f"disk{'s' if len(disks) != 1 else ''}", "mono": True},
         {"label": "OS", "value": vm.guest_os},
@@ -439,7 +439,7 @@ def _cluster_detail(env: Environment, c: Any, ctx: Ctx) -> dict[str, Any]:
             or (not s.cluster_uuid and s.cluster_name == c.name)]
     cap = sum(s.max_capacity_bytes or 0 for s in ctrs)
     used = sum(s.used_bytes or 0 for s in ctrs)
-    fields.insert(3, {"label": "Storage", "value": f"{fmt_bytes(cap) or '—'} · "
+    fields.insert(3, {"label": "Storage", "value": f"{fmt_bytes(cap) or NA} · "
                                                    f"{round(100 * used / cap) if cap else 0}% used",
                       "mono": True})
     fields.insert(4, {"label": "Containers", "value": fmt_count(len(ctrs)), "mono": True})
