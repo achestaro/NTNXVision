@@ -107,7 +107,9 @@ export function InventoryView({
         : undefined,
     [path, type, debounced, facets, sort, offset, dataVersion],
   );
-  const q = query.data;
+  // While a new type loads, the previous type's rows are still in `query.data`; never
+  // pair their ids with the new type (the detail request would 404).
+  const q = query.data && query.data.object_type === type ? query.data : undefined;
   const rows = q?.rows ?? [];
   const selectedId = selected === undefined ? rows[0]?.id ?? null : selected;
 
@@ -156,7 +158,7 @@ export function InventoryView({
     );
   }
 
-  const typeCounts = q?.type_counts ?? [];
+  const typeCounts = query.data?.type_counts ?? [];
   const groups = groupTypes(typeCounts);
   const label = q?.label ?? typeCounts.find((t) => t.type === type)?.label ?? 'Inventory';
   const unit = q?.unit_plural ?? label.toLowerCase();

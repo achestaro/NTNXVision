@@ -30,12 +30,19 @@ import {
   SavedConnection,
   TestConnectionRequest,
 } from '../shared/ipc';
-import { SidecarClient, SidecarError, CANCELLED_CODE } from './sidecar';
+import { SidecarClient, SidecarError, CANCELLED_CODE, isDemoMode } from './sidecar';
 import { isSmokeRun, runSmoke } from './smoke';
 import * as secrets from './secrets';
 import * as store from './store';
 
 const isDev = !app.isPackaged;
+const demo = isDemoMode();
+// End-to-end tests point the app at an isolated profile and the built renderer.
+if (process.env.NTNXVISION_USER_DATA) app.setPath('userData', process.env.NTNXVISION_USER_DATA);
+const loadBuiltRenderer =
+  !isDev || process.env.NTNXVISION_RENDERER === 'dist' || process.argv.includes('--dist');
+// Automated end-to-end runs: never open Finder/Explorer windows, files or browsers.
+const e2e = process.env.NTNXVISION_E2E === '1';
 const sidecar = new SidecarClient();
 let mainWindow: BrowserWindow | null = null;
 
@@ -50,7 +57,7 @@ function createWindow(): void {
     minWidth: 1024,
     minHeight: 640,
     backgroundColor: '#0B131B',
-    title: 'NTNXVision',
+    title: demo ? 'NTNXVision — demo data' : 'NTNXVision',
     webPreferences: {
       preload: join(__dirname, 'preload.js'),
       contextIsolation: true,
@@ -62,7 +69,7 @@ function createWindow(): void {
     },
   });
 
-  if (isDev) {
+  if (!loadBuiltRenderer) {
     void mainWindow.loadURL('http://localhost:5273');
   } else {
     void mainWindow.loadFile(join(__dirname, '..', 'renderer', 'index.html'));
@@ -134,6 +141,7 @@ ipcMain.handle(IPC.getAppInfo, (): AppInfo => ({
   version: app.getVersion(),
   platform: process.platform as Platform,
   defaultExportDir: join(homedir(), 'Documents', 'NTNXVision'),
+  demo,
 }));
 
 ipcMain.handle(IPC.testConnection, async (_e, req: TestConnectionRequest) => {
@@ -305,10 +313,12 @@ ipcMain.handle(IPC.clearSnapshots, () => sidecar.call('clear_snapshots'));
 // ─── IPC handlers: shell ───────────────────────────────────────────────
 
 ipcMain.handle(IPC.revealPath, (_e, p: string) => {
+  if (e2e) return;
   shell.showItemInFolder(p);
 });
 
 ipcMain.handle(IPC.openPath, async (_e, p: string) => {
+  if (e2e) return { error: null };
   const error = await shell.openPath(p);
   return { error: error || null };
 });
@@ -316,6 +326,7 @@ ipcMain.handle(IPC.openPath, async (_e, p: string) => {
 ipcMain.handle(IPC.openExternal, async (_e, url: string) => {
   // Only web links (Prism Central deep links) — never file:// or custom schemes.
   if (!/^https:\/\//i.test(url)) throw new Error('Only https links can be opened');
+  if (e2e) return;
   await shell.openExternal(url);
 });
 
@@ -355,7 +366,19 @@ ipcMain.handle(IPC.listConnections, () => withKeychainStatus(store.listConnectio
 ipcMain.handle(IPC.saveConnection, (_e, profile: ConnectionProfile) =>
   withKeychainStatus(store.saveConnection(profile)),
 );
-ipcMain.handle(IPC.deleteConnection, (_e, id: string) => withKeychainStatus(store.deleteConnection(id)));
+ipcMain.handle(IPC.deleteConnection, async (_e, id: string) => {
+  const removed = store.listConnections().find((p) => p.id === id);
+  const remaining = store.deleteConnection(id);
+  // Forget the keychain password too — unless another saved target still uses it.
+  if (removed && !remaining.some((p) => p.host === removed.host && p.username === removed.username)) {
+    try {
+      await secrets.deletePassword(removed.host, removed.username);
+    } catch {
+      /* keychain unavailable: nothing stored to remove */
+    }
+  }
+  return withKeychainStatus(remaining);
+});
 ipcMain.handle(IPC.getSettings, () => store.getSettings());
 ipcMain.handle(IPC.setSettings, (_e, settings: AppSettings) => store.setSettings(settings));
 

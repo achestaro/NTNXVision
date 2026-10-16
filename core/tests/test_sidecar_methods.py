@@ -289,7 +289,13 @@ def test_multi_pc_parallel_with_a_failing_target(demo: Any, data_dir: Path) -> N
     })
     ok = {t["host"]: t["success"] for t in res["targets"]}
     assert ok == {"tiny.demo.local": True, "down.demo.local": False, "pc03.demo.local": True}
-    assert res["combined"]["summary"]["source_environments"] == 2
+    combined = res["combined"]
+    assert combined["summary"]["source_environments"] == 2
+    assert combined["duration_ms"] is not None
+    assert combined["areas"][0]["id"] == "tiny.demo.local: clusters"
+    assert combined["areas"][0]["api"] == "v4"
+    assert {a["id"].split(": ")[0] for a in combined["areas"]} == {
+        "tiny.demo.local", "pc03.demo.local"}
     kinds = sorted(s["kind"] for s in sc._m_list_snapshots(None, {})["snapshots"])
     assert kinds == ["combined", "pc", "pc"]
 

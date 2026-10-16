@@ -27,7 +27,10 @@ def app_data_dir() -> Path:
     if override:
         path = Path(override).expanduser()
         path.mkdir(parents=True, exist_ok=True)
-        return path
+        # Resolved, so every snapshot path the core hands out is canonical: the UI
+        # matches results to list entries by path, and /var vs /private/var (macOS
+        # temp dirs) or a symlinked profile would otherwise never compare equal.
+        return path.resolve()
     if os.name == "nt":  # Windows
         base = os.environ.get("APPDATA") or str(Path.home() / "AppData" / "Roaming")
     else:  # macOS / *nix
@@ -35,7 +38,7 @@ def app_data_dir() -> Path:
     name = f"{APP_NAME}-demo" if demo_enabled() else APP_NAME
     path = Path(base) / name
     path.mkdir(parents=True, exist_ok=True)
-    return path
+    return path.resolve()
 
 
 def snapshots_dir() -> Path:

@@ -451,7 +451,9 @@ def _cluster_detail(env: Environment, c: Any, ctx: Ctx) -> dict[str, Any]:
 
 
 def _policy_detail(env: Environment, p: Any, ctx: Ctx) -> dict[str, Any]:
-    fields = _generic_fields(SPECS["protection_policies"], p, ctx)
+    # Categories render as chips below, not as a field as well.
+    fields = [f for f in _generic_fields(SPECS["protection_policies"], p, ctx)
+              if f["label"] != "Categories"]
     cats = set(p.categories)
     members = [v for v in env.vms
                if any(f"{k}:{val}" in cats for k, vals in v.categories.items() for val in vals)]

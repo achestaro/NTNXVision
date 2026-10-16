@@ -71,7 +71,8 @@ export interface SavedConnection extends ConnectionProfile {
 }
 
 export interface TestConnectionRequest {
-  mode: ConnectionMode;
+  /** 'ndb' tests an NDB (Era) endpoint; port is ignored for it (Era listens on 443). */
+  mode: ConnectionMode | 'ndb';
   host: string;
   port: number;
   username: string;
@@ -105,7 +106,7 @@ export interface TestConnectionResult {
   message: string;
   /** Mono detail line, e.g. "4 clusters · v4 for 14 areas, v3 for 5 · within supported range". */
   detail?: string | null;
-  product?: ConnectionMode | null;
+  product?: ConnectionMode | 'ndb' | null;
   /** Display name of what answered — cluster name for PE, PC host otherwise. */
   name?: string | null;
   version?: string | null;
@@ -587,6 +588,12 @@ export interface AppInfo {
   platform: Platform;
   /** Default export directory the sidecar uses when exportDir is unset. */
   defaultExportDir: string;
+  /**
+   * Demo mode (NTNXVISION_DEMO=1 or --demo): the sidecar talks to the built-in synthetic
+   * Nutanix estate (pc01.demo.local, pe01.demo.local, …) instead of the network, and keeps
+   * its snapshots apart from real ones.
+   */
+  demo?: boolean;
 }
 
 export interface FileFilter {
