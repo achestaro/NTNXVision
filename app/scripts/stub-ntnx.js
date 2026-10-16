@@ -15,7 +15,7 @@
 //             'loading' → listClusters never answers (the picker's loading state)
 //             'error'   → listClusters fails (the picker's error state with retry)
 //   scopeNotice: true → compareSnapshots reports different cluster scopes
-//   platform: 'darwin' | 'win32'
+//   platform: 'darwin' | 'win32' | 'linux'  ("Show in Finder" / "Show in Explorer" / "Show in folder")
 (function () {
   const opt = Object.assign({ theme: 'light', accent: 'iris', run: 'hold', test: 'ok', clusters: 'ok', platform: 'darwin' }, window.__STUB__ || {});
   const GB = 1024 ** 3;
