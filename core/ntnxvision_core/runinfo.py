@@ -413,6 +413,8 @@ def build_run_metadata(
     reports: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Everything Results needs, as stored in the snapshot's `run` field."""
+    from ntnxvision_core.scope import scope_dict
+
     areas = tracker.final_areas() if tracker else areas_from_notes(env)
     routing = api_routing(env, areas)
     return {
@@ -428,6 +430,9 @@ def build_run_metadata(
         "compat": compat_info(env),
         "reports": list(reports or []),
         "warnings": list(env.warnings),
+        # Which registered clusters the run collected (None: every cluster, recorded
+        # before cluster selection existed, or a combined run).
+        "scope": scope_dict(env.cluster_scope),
     }
 
 

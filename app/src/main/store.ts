@@ -6,7 +6,7 @@
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { app } from 'electron';
-import { AppSettings, ConnectionProfile } from '../shared/ipc';
+import { AppSettings, ClusterSelection, ConnectionProfile } from '../shared/ipc';
 
 function fileFor(name: string): string {
   const dir = app.getPath('userData');
@@ -63,11 +63,31 @@ export function saveConnection(profile: ConnectionProfile): ConnectionProfile[] 
     name: targetName(profile.name, profile.host),
     ndbHost: profile.ndbHost,
     ndbUser: profile.ndbUser,
+    clusterSelection: cleanSelection(profile.clusterSelection),
   };
+  const previous = listConnections().find((p) => p.id === clean.id);
+  // Saving a target from a screen without a cluster picker keeps its last selection.
+  if (!clean.clusterSelection && previous?.clusterSelection) clean.clusterSelection = previous.clusterSelection;
   const profiles = listConnections().filter((p) => p.id !== clean.id);
   profiles.unshift(clean);
   writeJson(CONNECTIONS_FILE, profiles);
   return profiles;
+}
+
+/** Only uuid strings: a selection never carries anything else (and never credentials). */
+function cleanSelection(sel: ClusterSelection | undefined): ClusterSelection | undefined {
+  if (!sel || !Array.isArray(sel.selected) || !Array.isArray(sel.known)) return undefined;
+  const ids = (xs: unknown[]) => xs.filter((x): x is string => typeof x === 'string' && x.length > 0 && x.length <= 128);
+  return { selected: ids(sel.selected), known: ids(sel.known) };
+}
+
+/** Remember the cluster selection on an existing saved target (no-op when there is none). */
+export function rememberClusterSelection(host: string, port: number, username: string, sel: ClusterSelection): void {
+  const profiles = listConnections();
+  const i = profiles.findIndex((p) => p.host === host && p.port === port && p.username === username);
+  if (i < 0) return;
+  profiles[i] = { ...profiles[i], clusterSelection: cleanSelection(sel) };
+  writeJson(CONNECTIONS_FILE, profiles);
 }
 
 export function deleteConnection(id: string): ConnectionProfile[] {

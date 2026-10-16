@@ -64,6 +64,48 @@ const SHOTS = [
     await rail(p, 'New collection');
     await p.getByRole('button', { name: 'Test connection' }).click();
     await p.getByText('Connection verified').waitFor();
+    await p.getByTestId('cluster-list').waitFor();
+  }, 1180],
+  // Step 2's PE cluster picker: several clusters with one left out, one cluster (greyed
+  // out), loading, error, and the required snapshot name.
+  ['new-clusters', {}, async (p) => {
+    await rail(p, 'New collection'); // the saved target's keychain password lists them
+    await p.getByTestId('cluster-list').waitFor();
+    await p.getByTestId('cluster-AMS-EDGE-02').uncheck();
+    await p.getByLabel('Snapshot name').fill('Q4 baseline');
+    await p.getByTestId('cluster-picker').scrollIntoViewIfNeeded();
+  }, 1180],
+  ['new-clusters-none', {}, async (p) => {
+    await rail(p, 'New collection');
+    await p.getByTestId('cluster-list').waitFor();
+    await p.getByTestId('cluster-toggle-all').click();
+    await p.getByTestId('cluster-empty-error').waitFor();
+  }, 1180],
+  ['new-cluster-single', {}, async (p) => {
+    await rail(p, 'New collection');
+    await p.locator('#saved').selectOption('pc-lab.example.com:9440:admin');
+    await p.getByTestId('cluster-list').waitFor();
+  }, 1180],
+  ['new-clusters-loading', { clusters: 'loading' }, async (p) => {
+    await rail(p, 'New collection');
+    await p.getByTestId('cluster-loading').waitFor();
+  }, 1180],
+  ['new-clusters-error', { clusters: 'error' }, async (p) => {
+    await rail(p, 'New collection');
+    await p.getByTestId('cluster-error').waitFor();
+  }, 1180],
+  ['new-name-required', {}, async (p) => {
+    await rail(p, 'New collection');
+    await p.getByLabel('Snapshot name').focus();
+    await p.getByLabel('Snapshot name').blur();
+    await p.getByTestId('start-blockers').waitFor();
+    await p.getByLabel('Snapshot name').scrollIntoViewIfNeeded();
+  }, 1180],
+  ['new-name-duplicate', {}, async (p) => {
+    await rail(p, 'New collection');
+    await p.getByLabel('Snapshot name').fill('PC01 q4 review');
+    await p.getByText(/already exists/).first().waitFor();
+    await p.getByLabel('Snapshot name').scrollIntoViewIfNeeded();
   }, 1180],
   ['new-pe', {}, async (p) => {
     await rail(p, 'New collection');
@@ -81,17 +123,25 @@ const SHOTS = [
   ]),
   ['collecting', { run: 'hold' }, async (p) => {
     await rail(p, 'New collection');
+    await p.getByLabel('Snapshot name').fill('pc01 week 3');
     await p.getByRole('button', { name: /Start collection/ }).click();
     await p.getByText('Nutanix Objects running').waitFor();
   }],
   ['results', { run: 'finish' }, async (p) => {
     await rail(p, 'New collection');
+    await p.getByTestId('cluster-list').waitFor();
+    await p.getByTestId('cluster-PHX-DR-01').uncheck();
+    await p.getByLabel('Snapshot name').fill('pc01 week 3');
     await p.getByRole('button', { name: /Start collection/ }).click();
     await p.getByRole('heading', { name: 'Collection complete' }).waitFor();
     await p.waitForTimeout(5200); // let the toast auto-dismiss
   }],
   ['inventory', {}, async (p) => {
     await rail(p, 'Inventory');
+    // Inventory opens on Clusters; the VM scene needs Virtual machines first.
+    await p.getByRole('heading', { level: 1, name: 'Clusters' }).waitFor();
+    await p.getByRole('navigation', { name: 'Object types' }).getByRole('button', { name: /^Virtual machines/ }).click();
+    await p.getByRole('heading', { level: 1, name: 'Virtual machines' }).waitFor();
     await p.getByRole('button', { name: 'Protection: All' }).click();
     await p.getByRole('menuitem', { name: /^None/ }).click();
     await p.getByText('VM details').waitFor();
@@ -99,27 +149,30 @@ const SHOTS = [
   ['inventory-empty', { empty: true }, async (p) => rail(p, 'Inventory')],
   ['snapshots', {}, async (p) => {
     await rail(p, 'Snapshots');
-    await p.getByRole('checkbox', { name: 'Select pc01-2026-10-15' }).check();
-    await p.getByRole('checkbox', { name: 'Select environment-sep' }).check();
+    await p.getByRole('checkbox', { name: 'Select pc01 Q4 review' }).check();
+    await p.getByRole('checkbox', { name: 'Select pc01 September' }).check();
   }],
   ['snapshots-menu', {}, async (p) => {
     await rail(p, 'Snapshots');
-    await p.getByRole('button', { name: 'More actions for pc01-2026-10-15' }).click();
+    await p.getByRole('button', { name: 'More actions for pc01 Q4 review' }).click();
   }],
   ['export', {}, async (p) => {
     await rail(p, 'Snapshots');
-    await p.getByRole('button', { name: 'Export pc01-2026-10-15' }).click();
+    await p.getByRole('button', { name: 'Export pc01 Q4 review' }).click();
     await p.getByRole('dialog').getByText('Prism Central pc.2024.3').waitFor();
   }],
   ['export-all', {}, async (p) => {
     await rail(p, 'Snapshots');
-    await p.getByRole('button', { name: 'Export pc01-2026-10-15' }).click();
+    await p.getByRole('button', { name: 'Export pc01 Q4 review' }).click();
     const dlg = p.getByRole('dialog');
     await dlg.getByText('Prism Central pc.2024.3').waitFor();
     for (const f of [/Excel/, /PDF/, /Word/]) await dlg.getByRole('checkbox', { name: f }).check();
   }, 1180],
   ['inventory-columns', {}, async (p) => {
     await rail(p, 'Inventory');
+    await p.getByRole('heading', { level: 1, name: 'Clusters' }).waitFor();
+    await p.getByRole('navigation', { name: 'Object types' }).getByRole('button', { name: /^Virtual machines/ }).click();
+    await p.getByRole('heading', { level: 1, name: 'Virtual machines' }).waitFor();
     await p.getByRole('button', { name: 'Columns' }).click();
   }],
   ['compare-export', {}, async (p) => {
@@ -137,6 +190,7 @@ const SHOTS = [
     await rail(p, 'Multiple PCs');
     await p.getByRole('button', { name: 'Test all' }).click();
     await p.getByText('rejected the credentials').waitFor();
+    await p.getByTestId('multi-snapshot-name').fill('Q4 baseline');
   }],
   ['multi-menu', {}, async (p) => {
     await rail(p, 'Multiple PCs');
@@ -145,6 +199,10 @@ const SHOTS = [
   ['compare', {}, async (p) => {
     await rail(p, 'Compare');
     await p.getByText('What changed in').waitFor();
+  }],
+  ['compare-scope', { scopeNotice: true }, async (p) => {
+    await rail(p, 'Compare');
+    await p.locator('.compare-scope-notice').waitFor();
   }],
   ['compare-empty', { empty: true }, async (p) => rail(p, 'Compare')],
   ['snapshots-empty', { empty: true }, async (p) => rail(p, 'Snapshots')],

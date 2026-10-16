@@ -249,7 +249,7 @@ export function RunProvider({ children }: { children: React.ReactNode }): JSX.El
           status: 'starting',
           label: `${req.targets.length} Prism Centrals`,
           mode: 'prism_central',
-          name: req.combinedName ?? 'combined-environment',
+          name: req.combinedName ?? req.targets[0]?.name ?? '',
           formats: req.formats,
           startedAt: Date.now(),
           finishedAt: null,
