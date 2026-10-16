@@ -78,6 +78,13 @@ def _on_left_out(spec: TableSpec, obj: Any, left_out: tuple[set[str], set[str]])
     return str(name).casefold() in names or str(name) in uuids
 
 
+def _drop_names(value: Any, names: set[str]) -> Any:
+    """A comma-joined cluster list without the (lower-cased) `names`."""
+    if not isinstance(value, str) or not value:
+        return value
+    return ", ".join(p for p in value.split(", ") if p.casefold() not in names)
+
+
 def raw_changes(base: Environment, cur: Environment,
                 stats: dict[str, Any] | None = None) -> list[dict[str, Any]]:
     """One entry per added / removed object and per changed field (ungrouped).
@@ -89,6 +96,7 @@ def raw_changes(base: Environment, cur: Environment,
     base_ctx, cur_ctx = Ctx(base), Ctx(cur)
     out: list[dict[str, Any]] = []
     base_left_out, cur_left_out = _left_out(base), _left_out(cur)
+    gap_names = base_left_out[1] | cur_left_out[1]
     hidden = 0
     for type_id in COMPARE_TYPES:
         spec = SPECS[type_id]
@@ -129,6 +137,9 @@ def raw_changes(base: Environment, cur: Environment,
             for col in diff_cols:
                 a = display(col, col.get(old, base_ctx))
                 b = display(col, col.get(new, cur_ctx))
+                if col.diff == "placement" and gap_names:
+                    # An image placed on a cluster only one run collected is not a move.
+                    a, b = _drop_names(a, gap_names), _drop_names(b, gap_names)
                 if a != b:
                     out.append({
                         "kind": "changed", "type": type_id, "object_type": spec.singular,
@@ -168,10 +179,11 @@ def scope_notice(base: Environment, cur: Environment, hidden: int = 0
     gap = sorted(dict.fromkeys(gap), key=str.casefold)
     base_label = describe(base.cluster_scope) or "Every cluster (no scope recorded)"
     cur_label = describe(cur.cluster_scope) or "Every cluster (no scope recorded)"
-    detail = "The two snapshots cover different clusters."
+    detail = "Their cluster scopes differ."
     if gap:
-        detail += (f" Objects on {names_label(gap)}, which only one snapshot collected, are "
-                   "left out of the comparison instead of being reported as added or removed")
+        detail = (f"Objects on {names_label(gap)}, which only one snapshot collected, are left "
+                  "out of the comparison and its totals instead of being reported as added "
+                  "or removed")
         detail += f" ({fmt_count(hidden)} objects)." if hidden else "."
     return {"title": "Different cluster scopes", "baseline": base_label, "current": cur_label,
             "clusters": gap, "out_of_scope": hidden, "detail": detail}
@@ -354,24 +366,22 @@ def _group_row(kind: str, type_id: str, where: str, items: list[dict[str, Any]]
 # ─── figures ───────────────────────────────────────────────────────────
 
 
-def capacity(env: Environment) -> tuple[int, int]:
-    """(capacity, used) bytes across clusters.
+def _pool_capacity(containers: list[Any]) -> int:
+    """Capacity of `containers`: each cluster's storage pool counted once.
 
     Containers on one cluster share its storage pool and each reports the pool as its
-    ceiling, so the pool is counted once per cluster (the largest ceiling) while usage is
-    summed across containers.
-    """
+    ceiling, so the pool is the largest ceiling per cluster."""
     pools: dict[str, int] = {}
-    used = 0
-    for s in env.storage_containers:
+    for s in containers:
         key = f"{s.source_pc or ''}/{s.cluster_uuid or s.cluster_name or s.uuid}"
         pools[key] = max(pools.get(key, 0), s.max_capacity_bytes or 0)
-        used += s.used_bytes or 0
-    return sum(pools.values()), used
+    return sum(pools.values())
 
 
-def _capacity(env: Environment) -> int:
-    return capacity(env)[0]
+def capacity(env: Environment) -> tuple[int, int]:
+    """(capacity, used) bytes across clusters: pools once per cluster, usage summed."""
+    used = sum(s.used_bytes or 0 for s in env.storage_containers)
+    return _pool_capacity(env.storage_containers), used
 
 
 def _tb(value: int) -> str:
@@ -410,15 +420,30 @@ def compare(base: Environment, cur: Environment) -> dict[str, Any]:
     va, vr = counts("vms")
     ha, hr = counts("hosts")
     pa, pr = counts("protection_policies")
-    cap_b, cap_c = _capacity(base), _capacity(cur)
+    # Totals over the clusters both snapshots collected, so a smaller scope does not read
+    # as hundreds of VMs gone (the change rows already leave those clusters out).
+    vm_spec, host_spec = SPECS["vms"], SPECS["hosts"]
+    base_out, cur_out = _left_out(base), _left_out(cur)
+
+    def common(spec: TableSpec, items: list[Any], other_out: tuple[set[str], set[str]]
+               ) -> list[Any]:
+        return [o for o in items if not _on_left_out(spec, o, other_out)]
+
+    base_vms, cur_vms = common(vm_spec, base.vms, cur_out), common(vm_spec, cur.vms, base_out)
+    base_hosts = common(host_spec, base.hosts, cur_out)
+    cur_hosts = common(host_spec, cur.hosts, base_out)
+    ctr_spec = SPECS["storage_containers"]
+    cap_b = _pool_capacity(common(ctr_spec, base.storage_containers, cur_out))
+    cap_c = _pool_capacity(common(ctr_spec, cur.storage_containers, base_out))
     cap_delta = cap_c - cap_b
     figures = [
         {"label": "Changes", "value": summary["total"],
          "qualifier": f"{fmt_count(summary['added'])} added · "
                       f"{fmt_count(summary['removed'])} removed · "
                       f"{fmt_count(summary['changed'])} changed"},
-        {"label": "VMs", "value": len(cur.vms), "qualifier": _delta(va, vr, len(base.vms))},
-        {"label": "Hosts", "value": len(cur.hosts), "qualifier": _delta(ha, hr, len(base.hosts))},
+        {"label": "VMs", "value": len(cur_vms), "qualifier": _delta(va, vr, len(base_vms))},
+        {"label": "Hosts", "value": len(cur_hosts),
+         "qualifier": _delta(ha, hr, len(base_hosts))},
         {"label": "Storage", "value": _tb(cap_c), "unit": "TB",
          "qualifier": (f"{'+' if cap_delta >= 0 else '−'}{_tb(abs(cap_delta))} TB · "
                        if cap_delta else "no change · ") + f"was {_tb(cap_b)} TB"},

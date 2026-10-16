@@ -195,6 +195,14 @@ export function CompareView({ baseline: baseProp, current: curProp }: { baseline
               Objects that only exist in one environment show up as added or removed.
             </Callout>
           )}
+          {r.scope_notice && (
+            <Callout tone="warn" title="These snapshots cover different clusters." className="compare-scope-notice">
+              <div>{r.scope_notice.detail}</div>
+              <div className="mono t12" style={{ color: 'var(--ink-2)', marginTop: 4 }}>
+                Baseline: {r.scope_notice.baseline} · Current: {r.scope_notice.current}
+              </div>
+            </Callout>
+          )}
           <FigureStrip
             label="Changes summary"
             figures={

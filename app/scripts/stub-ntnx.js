@@ -10,9 +10,13 @@
 //             'finish' → a started collection completes after ~0.5 s (Results screen)
 //             'fail'   → a started collection fails
 //   test:     'ok' | 'auth_failed' | 'untrusted_cert' | 'unreachable' | 'version_unsupported'
+//   clusters: 'ok'      → listClusters answers 4 clusters (1 for a PE or pc-lab.example.com)
+//             'loading' → listClusters never answers (the picker's loading state)
+//             'error'   → listClusters fails (the picker's error state with retry)
+//   scopeNotice: true → compareSnapshots reports different cluster scopes
 //   platform: 'darwin' | 'win32'
 (function () {
-  const opt = Object.assign({ theme: 'light', accent: 'iris', run: 'hold', test: 'ok', platform: 'darwin' }, window.__STUB__ || {});
+  const opt = Object.assign({ theme: 'light', accent: 'iris', run: 'hold', test: 'ok', clusters: 'ok', platform: 'darwin' }, window.__STUB__ || {});
   const GB = 1024 ** 3;
   const MB = 1024 ** 2;
   const year = new Date().getFullYear();
@@ -24,7 +28,7 @@
   const sep = opt.platform === 'win32' ? '\\' : '/';
 
   const summary = (clusters, hosts, vms) => ({ clusters, hosts, vms, storage_containers: 18, subnets: 42, licenses: 8, protection_policies: 12, security_policies: 24 });
-  const snap = (name, kind, source, version, when, c, h, v, sizeMb) => ({
+  const snap = (name, kind, source, version, when, c, h, v, sizeMb, scope = null) => ({
     name,
     path: `${DIR}${sep}${name}.ntnxsnap.json`,
     collected_at: when,
@@ -33,17 +37,38 @@
     source,
     version,
     size_bytes: sizeMb * MB,
+    scope,
   });
+
+  // ── registered clusters (listClusters) and cluster scopes ──
+  const REGISTERED = [
+    { uuid: 'c-ams-edge-02', name: 'AMS-EDGE-02', aos_version: '6.10', num_nodes: 2, hypervisors: ['ESXi'] },
+    { uuid: 'c-phx-dr-01', name: 'PHX-DR-01', aos_version: '7.0', num_nodes: 6, hypervisors: ['AHV'] },
+    { uuid: 'c-phx-prod-01', name: 'PHX-PROD-01', aos_version: '6.10.1', num_nodes: 8, hypervisors: ['AHV'] },
+    { uuid: 'c-phx-prod-02', name: 'PHX-PROD-02', aos_version: '7.0', num_nodes: 12, hypervisors: ['AHV'] },
+  ];
+  const scopeOf = (selected, registered = REGISTERED) => {
+    const pick = registered.filter((c) => selected.includes(c.uuid));
+    const rest = registered.filter((c) => !selected.includes(c.uuid));
+    const ref = (c) => ({ uuid: c.uuid, name: c.name });
+    return {
+      selected: pick.map(ref),
+      excluded: rest.map(ref),
+      registered_count: registered.length,
+      label: rest.length ? `${pick.length} of ${registered.length} clusters (${pick.map((c) => c.name).join(', ')})` : registered.length === 1 ? '1 cluster' : `All ${registered.length} clusters`,
+    };
+  };
+  const SEA = ['SEA-PROD-01', 'SEA-PROD-02', 'SEA-VDI-01'].map((n) => ({ uuid: `c-${n.toLowerCase()}`, name: n }));
   let snapshots = opt.empty
     ? []
     : [
-        snap('pc01-2026-10-15', 'pc', 'pc01.example.com', 'pc.2024.3', at(10, 15, 9, 45), 4, 28, 1214, 18),
-        snap('combined-environment', 'combined', '3 Prism Centrals', null, at(10, 14, 17, 20), 9, 71, 3486, 52),
-        snap('pc02-2026-10-14', 'pc', 'pc02.example.com', 'pc.7.3', at(10, 14, 17, 18), 3, 27, 1590, 21),
-        snap('pc03-2026-10-14', 'pc', 'pc03.example.com', 'pc.2024.1', at(10, 14, 17, 19), 2, 16, 682, 9),
+        snap('pc01 Q4 review', 'pc', 'pc01.example.com', 'pc.2024.3', at(10, 15, 9, 45), 4, 28, 1214, 18, scopeOf(REGISTERED.map((c) => c.uuid))),
+        snap('Estate Q4 (combined)', 'combined', '3 Prism Centrals', null, at(10, 14, 17, 20), 9, 71, 3486, 52),
+        snap('pc02 production', 'pc', 'pc02.example.com', 'pc.7.3', at(10, 14, 17, 18), 2, 20, 1430, 19, scopeOf(['c-sea-prod-01', 'c-sea-prod-02'], SEA)),
+        snap('pc03 baseline', 'pc', 'pc03.example.com', 'pc.2024.1', at(10, 14, 17, 19), 2, 16, 682, 9),
         snap('phx-dr-01', 'pe', 'phx-dr-01.example.com', 'AOS 7.0', at(10, 9, 11, 2), 1, 6, 212, 3),
-        snap('environment-sep', 'pc', 'pc01.example.com', 'pc.2024.3', at(9, 30, 8, 15), 4, 24, 1176, 17),
-        snap('environment-aug', 'pc', 'pc01.example.com', 'pc.2024.2', at(8, 29, 16, 40), 4, 24, 1120, 16),
+        snap('pc01 September', 'pc', 'pc01.example.com', 'pc.2024.3', at(9, 30, 8, 15), 4, 24, 1176, 17),
+        snap('pc01 August', 'pc', 'pc01.example.com', 'pc.2024.2', at(8, 29, 16, 40), 4, 24, 1120, 16),
       ];
 
   let connections = opt.empty
@@ -169,6 +194,7 @@
       { areas: 'X-Play playbooks · IAM projects', api: 'v3', reason: 'No v4 equivalent yet', after_sunset: { tone: 'warn', label: 'Stops collecting' } },
     ],
     compat: { version: 'pc.2024.3', supported: true, range: 'pc.2024.1 – 7.5.1.6' },
+    scope: req.mode === 'prism_element' ? null : scopeOf(req.clusters || REGISTERED.map((c) => c.uuid)),
   });
 
   function runCollection(req, runId) {
@@ -441,6 +467,18 @@
         300,
       );
     },
+    listClusters: (req) => {
+      if (opt.clusters === 'loading') return new Promise(() => {});
+      if (opt.clusters === 'error') return fail('Could not reach Prism Central at pc01.example.com:9440 (connection timed out)', 300);
+      const pe = req.mode === 'prism_element';
+      const single = pe || req.host.startsWith('pc-lab');
+      const clusters = pe
+        ? [{ uuid: 'c-phx-dr-01', name: 'phx-dr-01', aos_version: '7.0', num_nodes: 6, hypervisors: ['AHV'] }]
+        : single
+          ? [{ uuid: 'c-lab-01', name: 'LAB-01', aos_version: '7.0', num_nodes: 3, hypervisors: ['AHV'] }]
+          : REGISTERED;
+      return delay({ mode: req.mode, host: req.host, api: pe ? 'v2' : 'v4', version: pe ? '7.0' : 'pc.2024.3', clusters }, 300);
+    },
     getCollectionAreas: () => delay({ areas: AREAS, typical_seconds: { prism_central: 240, prism_element: 60 } }),
     startCollection: (req) => {
       const runId = 'run-' + Math.random().toString(36).slice(2, 8);
@@ -494,7 +532,7 @@
         export_estimates: { excel: { bytes: 2.4 * MB, detail: '34 sheets' } },
         run:
           s === snapshots[0]
-            ? (({ started_at, finished_at, duration_ms, areas, figures, api_routing, compat, reports, warnings }) => ({ started_at, finished_at, duration_ms, areas, figures, api_routing, compat, reports, warnings }))(
+            ? (({ started_at, finished_at, duration_ms, areas, figures, api_routing, compat, reports, warnings, scope }) => ({ started_at, finished_at, duration_ms, areas, figures, api_routing, compat, reports, warnings, scope }))(
                 result({ name: s.name, host: s.source, formats: ['excel', 'word'] }),
               )
             : null,
@@ -519,6 +557,16 @@
           { label: 'Protection policies', value: 12, qualifier: '−1 · was 13' },
         ],
         changes: CHANGES,
+        scope_notice: opt.scopeNotice
+          ? {
+              title: 'Different cluster scopes',
+              baseline: 'All 4 clusters',
+              current: '2 of 4 clusters (PHX-PROD-01, PHX-PROD-02)',
+              clusters: ['AMS-EDGE-02', 'PHX-DR-01'],
+              out_of_scope: 301,
+              detail: 'Objects on AMS-EDGE-02, PHX-DR-01, which only one snapshot collected, are left out of the comparison and its totals instead of being reported as added or removed (301 objects).',
+            }
+          : null,
       });
     },
     exportComparison: () => delay({ path: `${EXPORT_DIR}${sep}changes.xlsx` }, 300),

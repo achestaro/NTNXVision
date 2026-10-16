@@ -291,7 +291,9 @@ def test_compare_does_not_report_left_out_clusters_as_removed(demo: Any, tmp_pat
     base = _collect("pc01.demo.local")
     cur = _scoped(base, {"PHX-PROD-01", "PHX-DR-01"})
     result = compare(base, cur)
-    assert result["summary"]["removed"] == 0
+    # Same data, smaller scope: nothing added, removed or changed (image placements on
+    # the left-out clusters included).
+    assert result["summary"] == {"added": 0, "removed": 0, "changed": 0, "total": 0}
     notice = result["scope_notice"]
     assert notice is not None
     assert notice["baseline"] == "All 4 clusters"
@@ -299,6 +301,8 @@ def test_compare_does_not_report_left_out_clusters_as_removed(demo: Any, tmp_pat
     assert notice["clusters"] == ["AMS-EDGE-02", "PHX-PROD-02"]
     assert notice["out_of_scope"] > 0
     assert "only one snapshot collected" in notice["detail"]
+    vms = next(f for f in result["figures"] if f["label"] == "VMs")
+    assert vms["value"] == len(cur.vms) and vms["qualifier"].endswith(f"was {len(cur.vms):,}")
 
     # ...nor added, the other way round.
     back = compare(cur, base)
