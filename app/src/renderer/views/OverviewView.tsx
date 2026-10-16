@@ -26,7 +26,7 @@ import type { NutanixMarkName } from '../components/icons';
 import { useAsync } from '../lib/useAsync';
 import { useRouter } from '../lib/router';
 import { useRun } from '../lib/run';
-import { NA, defaultSnapshotName, errorMessage, fmtAbs, fmtCount, fmtRel } from '../lib/format';
+import { NA, defaultSnapshotName, errorMessage, fmtAbs, fmtCount, fmtRel, targetLabel } from '../lib/format';
 import { useExportDialog } from './ExportDialog';
 import { ImportedBadge, useSnapshotTransfer } from './SnapshotTransfer';
 
@@ -318,12 +318,17 @@ function SavedTargets({
               className: 'nm',
               render: (c) => (
                 <>
-                  {c.mode === 'prism_element' ? c.name || c.host : c.host}
+                  {targetLabel(c)}
                   {c.mode === 'prism_element' && (
                     <>
                       {' '}
                       <Badge>PE</Badge>
                     </>
+                  )}
+                  {targetLabel(c) !== c.host && (
+                    <div className="mono t12 muted" style={{ fontWeight: 400 }}>
+                      {c.host}
+                    </div>
                   )}
                 </>
               ),

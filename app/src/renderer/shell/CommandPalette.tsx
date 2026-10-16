@@ -1,5 +1,5 @@
-// ⌘K command palette: jump to a screen, a snapshot, or an object (cluster / VM) in the
-// latest snapshot. Arrow keys move, Enter opens, Esc closes.
+// ⌘K command palette: jump to a screen, a saved target (by its name), a snapshot, or an
+// object (cluster / VM) in the latest snapshot. Arrow keys move, Enter opens, Esc closes.
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
@@ -10,15 +10,16 @@ import {
   MagnifyingGlassIcon,
   MoonIcon,
   PlayIcon,
+  PlugIcon,
 } from '@phosphor-icons/react';
 import type { Icon as PhosphorIcon } from '@phosphor-icons/react';
-import type { SnapshotInfo } from '@shared/ipc';
+import type { SavedConnection, SnapshotInfo } from '@shared/ipc';
 import { Icon } from '../components/Icon';
 import { useFocusTrap } from '../components/Dialog';
 import { Loading } from '../components/EmptyState';
 import { useRouter } from '../lib/router';
 import { useSettings } from '../lib/settings';
-import { errorMessage, fmtAbs } from '../lib/format';
+import { errorMessage, fmtAbs, targetLabel } from '../lib/format';
 import { ALL_NAV } from './nav';
 
 interface Item {
@@ -36,6 +37,7 @@ export function CommandPalette({ onClose }: { onClose(): void }): JSX.Element {
   const [q, setQ] = useState('');
   const [active, setActive] = useState(0);
   const [snapshots, setSnapshots] = useState<SnapshotInfo[]>([]);
+  const [targets, setTargets] = useState<SavedConnection[]>([]);
   const [objects, setObjects] = useState<Item[]>([]);
   const [searching, setSearching] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -48,6 +50,10 @@ export function CommandPalette({ onClose }: { onClose(): void }): JSX.Element {
       .listSnapshots()
       .then((r) => setSnapshots(r.snapshots))
       .catch((e) => setError(errorMessage(e)));
+    window.ntnx
+      .listConnections()
+      .then(setTargets)
+      .catch(() => setTargets([]));
   }, []);
 
   // Object search in the latest snapshot (debounced).
@@ -118,6 +124,14 @@ export function CommandPalette({ onClose }: { onClose(): void }): JSX.Element {
         run: () => void update({ theme: resolvedTheme === 'light' ? 'dark' : 'light' }),
       },
     ];
+    const saved: Item[] = targets.map((c) => ({
+      id: `target:${c.id}`,
+      group: 'Saved targets',
+      label: targetLabel(c),
+      meta: `${targetLabel(c) !== c.host ? `${c.host} · ` : ''}${c.mode === 'prism_element' ? 'Prism Element' : 'Prism Central'}`,
+      icon: PlugIcon,
+      run: () => navigate({ screen: 'new', connectionId: c.id }),
+    }));
     const snaps: Item[] = snapshots.map((s) => ({
       id: `snap:${s.path}`,
       group: 'Snapshots',
@@ -129,10 +143,11 @@ export function CommandPalette({ onClose }: { onClose(): void }): JSX.Element {
     return [
       ...screens.filter((i) => match(i.label)),
       ...actions.filter((i) => match(i.label)),
+      ...saved.filter((i) => match(i.label) || match(i.meta ?? '')).slice(0, text ? 20 : 4),
       ...snaps.filter((i) => match(i.label) || match(i.meta ?? '')).slice(0, text ? 20 : 6),
       ...objects,
     ];
-  }, [q, snapshots, objects, navigate, resolvedTheme, update]);
+  }, [q, snapshots, targets, objects, navigate, resolvedTheme, update]);
 
   useEffect(() => setActive(0), [q]);
   useEffect(() => {

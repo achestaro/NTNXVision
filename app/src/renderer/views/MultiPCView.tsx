@@ -11,6 +11,7 @@ import {
   DataTable,
   Dialog,
   Field,
+  FilePrefixField,
   LoadingPage,
   PageHeader,
   Panel,
@@ -25,7 +26,7 @@ import { useSettings } from '../lib/settings';
 import { useRun } from '../lib/run';
 import { useRouter } from '../lib/router';
 import { useConfirmShortcut } from '../lib/keyboard';
-import { NA, defaultSnapshotName, errorMessage, fmtCount, tildify } from '../lib/format';
+import { NA, REPORT_EXT, defaultSnapshotName, errorMessage, fmtCount, reportFileName, targetLabel, tildify } from '../lib/format';
 
 type RowTest =
   | { kind: 'idle' }
@@ -98,9 +99,11 @@ export function MultiPCView(): JSX.Element {
   const [combinedName, setCombinedName] = useState('combined-environment');
   const [fmt, setFmt] = useState<Record<ExportFormat, boolean>>({ excel: true, pdf: false, word: false });
   const [dir, setDir] = useState('');
+  const [prefix, setPrefix] = useState('');
   const [startError, setStartError] = useState<string | null>(null);
 
   useEffect(() => setDir(settings.exportDir || appInfo?.defaultExportDir || ''), [settings.exportDir, appInfo]);
+  useEffect(() => setPrefix(settings.filePrefix ?? ''), [settings.filePrefix]);
 
   useEffect(() => {
     if (!loaded) return;
@@ -155,7 +158,7 @@ export function MultiPCView(): JSX.Element {
         username: row.username,
         port: row.port,
         insecure: row.insecure,
-        name: row.name || row.host,
+        name: row.name.trim() || row.host,
         ndbHost: row.ndbHost,
         ndbUser: row.ndbUser,
       });
@@ -207,9 +210,11 @@ export function MultiPCView(): JSX.Element {
         formats,
         saveCredentials: typed.length > 0 && typed.every((r) => r.savePassword),
         exportDir: dir || undefined,
+        filePrefix: prefix,
         combine: combine && runnable.length >= 2,
         combinedName: combinedName.trim() || 'combined-environment',
       });
+      if (prefix !== (settings.filePrefix ?? '')) void update({ filePrefix: prefix });
     } catch (e) {
       setStartError(errorMessage(e));
     }
@@ -300,7 +305,7 @@ export function MultiPCView(): JSX.Element {
                 primary
                 rowClassName={(r) => (failed(r) ? 'r-error' : undefined)}
                 rowActions={rowActions}
-                rowActionsLabel={(r) => `Actions for ${r.host}`}
+                rowActionsLabel={(r) => `Actions for ${targetLabel(r)}`}
                 kebabAlwaysVisible
                 empty={
                   <div className="empty-page" style={{ padding: '24px 16px' }}>
@@ -310,7 +315,8 @@ export function MultiPCView(): JSX.Element {
                   </div>
                 }
                 columns={[
-                  { key: 'host', header: 'Address', className: 'nm mono', style: { fontWeight: 400 }, render: (r) => r.host },
+                  { key: 'name', header: 'Name', className: 'nm', render: (r) => targetLabel(r) },
+                  { key: 'host', header: 'Address', className: 'mono', style: { fontSize: 12 }, render: (r) => r.host },
                   { key: 'user', header: 'Username', render: (r) => r.username },
                   {
                     key: 'pw',
@@ -368,8 +374,8 @@ export function MultiPCView(): JSX.Element {
               >
                 <option value="">{available.length ? 'Add a saved target…' : 'No other saved targets'}</option>
                 {available.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.host} · {c.username}
+                  <option key={c.id} value={c.id} title={`${c.host}:${c.port}`}>
+                    {targetLabel(c)} · {c.username}
                   </option>
                 ))}
               </select>
@@ -429,6 +435,17 @@ export function MultiPCView(): JSX.Element {
                 </Button>
               </div>
             </div>
+            {formats.length > 0 && (
+              <FilePrefixField
+                id="mp-prefix"
+                value={prefix}
+                onChange={setPrefix}
+                names={formats.map((f) =>
+                  reportFileName(prefix, runnable[0] || all[0] ? defaultSnapshotName((runnable[0] ?? all[0]).host) : 'pc-name', REPORT_EXT[f]),
+                )}
+                more={formats.length * Math.max(0, runnable.length - 1 + (combine && runnable.length >= 2 ? 1 : 0))}
+              />
+            )}
             <dl style={{ borderTop: '1px solid var(--rule-2)' }}>
               <div className="kv">
                 <dt>Ready</dt>
@@ -538,6 +555,8 @@ function failureBody(r: Row, others: number): string {
 }
 
 function TargetDialog({ row, onClose, onSave }: { row: Row | null; onClose(): void; onSave(r: Row): void }): JSX.Element {
+  // A name equal to the address is the default: show it as the placeholder instead.
+  const [name, setName] = useState(row?.name && row.name !== row.host ? row.name : '');
   const [host, setHost] = useState(row?.host ?? '');
   const [port, setPort] = useState(String(row?.port ?? 9440));
   const [username, setUsername] = useState(row?.username ?? 'admin');
@@ -560,7 +579,7 @@ function TargetDialog({ row, onClose, onSave }: { row: Row | null; onClose(): vo
       username,
       password,
       insecure: !verify,
-      name: row?.name || host.trim(),
+      name: name.trim() || host.trim(),
       ndbHost: ndbHost.trim() || undefined,
       ndbUser: ndbHost.trim() ? ndbUser : undefined,
       ndbPassword: ndbHost.trim() ? ndbPass : undefined,
@@ -575,7 +594,7 @@ function TargetDialog({ row, onClose, onSave }: { row: Row | null; onClose(): vo
       open
       onClose={onClose}
       width={560}
-      title={row ? `Edit ${row.host}` : 'Add Prism Central'}
+      title={row ? `Edit ${targetLabel(row)}` : 'Add Prism Central'}
       onConfirm={save}
       footer={
         <div className="dialog-foot">
@@ -586,7 +605,17 @@ function TargetDialog({ row, onClose, onSave }: { row: Row | null; onClose(): vo
         </div>
       }
     >
-      <div style={{ marginTop: 16, display: 'grid', gridTemplateColumns: '1fr 120px', gap: 16 }}>
+      <div className="connect-grid" style={{ marginTop: 16 }}>
+        <Field id="t-name" label="Name">
+          <input
+            className="input"
+            value={name}
+            placeholder={host.trim() || 'Same as the address'}
+            spellCheck={false}
+            autoComplete="off"
+            onChange={(e) => setName(e.target.value)}
+          />
+        </Field>
         <Field id="t-host" label="Prism Central address (FQDN or IP)" error={err}>
           <input className="input mono" value={host} onChange={(e) => (setHost(e.target.value), setErr(null))} data-autofocus />
         </Field>
@@ -596,8 +625,7 @@ function TargetDialog({ row, onClose, onSave }: { row: Row | null; onClose(): vo
         <Field id="t-user" label="Username">
           <input className="input" value={username} onChange={(e) => setUsername(e.target.value)} />
         </Field>
-        <div />
-        <Field id="t-pw" label="Password" className="span-all" hint={row?.hasPassword ? 'Leave empty to use the password saved in your keychain.' : undefined}>
+        <Field id="t-pw" label="Password" className="connect-pw" hint={row?.hasPassword ? 'Leave empty to use the password saved in your keychain.' : undefined}>
           <input className="input" type="password" value={password} onChange={(e) => setPassword(e.target.value)} />
         </Field>
         <div className="span-all" style={{ display: 'flex', flexWrap: 'wrap', gap: '8px 24px' }}>
@@ -617,7 +645,7 @@ function TargetDialog({ row, onClose, onSave }: { row: Row | null; onClose(): vo
         <Field id="t-ndbu" label="NDB username">
           <input className="input" value={ndbUser} onChange={(e) => setNdbUser(e.target.value)} disabled={!ndbHost} />
         </Field>
-        <Field id="t-ndbp" label="NDB password">
+        <Field id="t-ndbp" label="NDB password" className="connect-pw">
           <input className="input" type="password" value={ndbPass} onChange={(e) => setNdbPass(e.target.value)} disabled={!ndbHost} />
         </Field>
       </div>

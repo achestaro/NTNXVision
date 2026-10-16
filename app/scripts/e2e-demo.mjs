@@ -11,8 +11,11 @@
 // drifted collection → cancel a run → Inventory filter + VM detail → Compare + export →
 // Snapshots + export dialog (PDF/Word with sections) → snapshot file round trip (export a
 // .ntnxsnap → delete → import → open in Inventory → reopen it as the OS would and skip
-// the duplicate) → Multiple PCs with one failing target → Overview. Screenshots of each step go to <outDir> (default
-// ./screenshots/e2e). Exits non-zero on the first failed step.
+// the duplicate) → Multiple PCs with one failing target → Overview. Along the way: a named
+// saved target (and renaming it without a duplicate), report file name prefixes, Inventory
+// opening on Clusters, and click-anywhere rows toggling the detail pane. Screenshots of
+// each step go to <outDir> (default ./screenshots/e2e), plus the UX review set in
+// ./screenshots/UX. Exits non-zero on the first failed step.
 
 import { _electron as electron } from 'playwright-core';
 import electronPath from 'electron';
@@ -34,6 +37,12 @@ const exportDir = join(profile, 'exports');
 const transferDir = join(profile, 'transfer');
 await mkdir(transferDir, { recursive: true });
 await mkdir(outDir, { recursive: true });
+const uxDir = join(appDir, 'screenshots', 'UX');
+await mkdir(uxDir, { recursive: true });
+const pad2 = (n) => String(n).padStart(2, '0');
+const now = new Date();
+// The export date in report file names (local YYYY-MM-DD).
+const today = `${now.getFullYear()}-${pad2(now.getMonth() + 1)}-${pad2(now.getDate())}`;
 // Reports go to the throwaway profile, never the real ~/Documents.
 await mkdir(join(profile, 'userData'), { recursive: true });
 await writeFile(join(profile, 'userData', 'settings.json'), JSON.stringify({ exportDir, author: 'E2E Tester' }));
@@ -86,12 +95,38 @@ async function run(name, fn) {
 const rail = (name) => page.getByRole('navigation', { name: 'Primary' }).getByRole('button', { name, exact: true }).click();
 const heading = (name, timeout = 30_000) => page.getByRole('heading', { name }).first().waitFor({ timeout });
 
-async function fillTarget(host, password, name) {
+async function fillTarget(host, password, name, targetName = '') {
   await rail('New collection');
   await page.locator('#host').fill(host);
+  await page.locator('#tname').fill(targetName);
   await page.getByLabel('Username').fill('admin');
   await page.locator('#pw').fill(password);
   if (name) await page.getByLabel('Snapshot name').fill(name);
+}
+
+/** The saved-target picker's option labels. */
+const savedOptions = () => page.locator('#saved option').allTextContents();
+
+const uxShot = (name) => page.screenshot({ path: join(uxDir, `${name}.png`), fullPage: true });
+
+/** The Inventory grid row for an object name. */
+const gridRow = (name) => page.getByRole('row').filter({ has: page.getByRole('button', { name, exact: true }) });
+
+/** Select an object's row through its name button, unless it is already open. */
+async function openRow(name) {
+  const b = page.getByRole('button', { name, exact: true });
+  if ((await b.getAttribute('aria-pressed')) !== 'true') await b.click();
+}
+
+async function expectExpanded(name, expanded) {
+  await page.waitForFunction(
+    ([n, want]) => {
+      const row = [...document.querySelectorAll('tbody tr')].find((tr) => tr.querySelector('button.lnk')?.textContent === n);
+      return row && row.getAttribute('aria-expanded') === String(want);
+    },
+    [name, expanded],
+    { timeout: 15_000 },
+  );
 }
 
 async function testConnection(expectText) {
@@ -99,8 +134,8 @@ async function testConnection(expectText) {
   await page.getByText(expectText).first().waitFor({ timeout: 30_000 });
 }
 
-async function collect(host, name) {
-  await fillTarget(host, 'demo', name);
+async function collect(host, name, targetName = '') {
+  await fillTarget(host, 'demo', name, targetName);
   await page.getByRole('button', { name: /Start collection/ }).click();
   await heading('Collection complete', 180_000);
 }
@@ -125,7 +160,7 @@ try {
     await testConnection('Connection failed');
   });
   await run('test-ok', async () => {
-    await fillTarget('pc01.demo.local', 'demo', 'pc01-week1');
+    await fillTarget('pc01.demo.local', 'demo', 'pc01-week1', 'Lab PC01');
     await testConnection('Connection verified');
   });
 
@@ -138,7 +173,34 @@ try {
     await page.getByText('API routing and compatibility').first().waitFor();
   });
 
-  await run('second-collection', async () => collect('pc01.demo.local', 'pc01-week2'));
+  await run('saved-target-name', async () => {
+    await rail('New collection');
+    // The first saved target loads on its own: listed and picked by its name.
+    await page.waitForFunction(() => document.querySelector('#tname')?.value === 'Lab PC01', null, { timeout: 15_000 });
+    const opts = await savedOptions();
+    if (!opts.some((o) => o.startsWith('Lab PC01 · admin'))) throw new Error(`saved targets: ${opts.join(' | ')}`);
+    const left = (sel) => page.locator(sel).evaluate((el) => el.getBoundingClientRect());
+    const [n, h, u, pw] = [await left('#tname'), await left('#host'), await left('#user'), await left('#pw')];
+    if (!(n.left < h.left && Math.abs(n.top - h.top) < 2)) throw new Error('Name is not left of the address');
+    if (!(Math.abs(u.top - pw.top) < 2 && u.left < pw.left && u.top > n.top)) throw new Error('Username is not beside Password');
+    await uxShot('connect-prism-central');
+    await page.getByRole('button', { name: 'Prism Element · one cluster' }).click();
+    await page.getByLabel('Cluster address (FQDN or IP)').waitFor();
+    await uxShot('connect-prism-element');
+    await rail('Overview');
+    await page.getByRole('table', { name: 'Saved targets' }).getByText(/^Lab PC01/).first().waitFor({ timeout: 30_000 });
+  });
+
+  await run('second-collection', async () => collect('pc01.demo.local', 'pc01-week2', 'Lab PC01 renamed'));
+
+  await run('saved-target-renamed', async () => {
+    await rail('New collection');
+    const opts = await savedOptions();
+    const pc01 = await page.locator('#saved option[title="pc01.demo.local:9440"]').count();
+    if (pc01 !== 1 || !opts.some((o) => o.startsWith('Lab PC01 renamed · admin')) || opts.some((o) => o.startsWith('Lab PC01 · admin'))) {
+      throw new Error(`rename made a duplicate or was lost: ${opts.join(' | ')}`);
+    }
+  });
 
   await run('cancel', async () => {
     await fillTarget('pc02.demo.local', 'demo', 'pc02-cancelled');
@@ -148,8 +210,63 @@ try {
     await page.getByText(/cancelled/i).first().waitFor({ timeout: 60_000 });
   });
 
-  await run('inventory', async () => {
+  await run('inventory-opens-on-clusters', async () => {
     await rail('Inventory');
+    await page.getByRole('heading', { level: 1, name: 'Clusters' }).waitFor({ timeout: 30_000 });
+    await page.getByRole('navigation', { name: 'Object types' }).locator('[aria-current="page"]', { hasText: 'Clusters' }).waitFor();
+    await page.getByText('Cluster details').waitFor({ timeout: 30_000 });
+    for (const col of ['Data Services IP', 'vCPU:pCore', 'vCPU:pCore N-1', 'Storage ratio', 'Storage ratio N-1']) {
+      if (await page.getByRole('columnheader', { name: col, exact: true }).count()) throw new Error(`${col} is still a grid column`);
+    }
+    // ...and not offered in the Columns menu either.
+    await page.getByRole('button', { name: /^Columns/ }).click();
+    const menu = await page.locator('[role="dialog"], [role="menu"]').last().innerText();
+    if (/Data Services IP|vCPU:pCore|Storage ratio/.test(menu)) throw new Error('Columns menu offers a detail-only column');
+    await page.keyboard.press('Escape');
+  });
+
+  await run('inventory-row-click', async () => {
+    const first = await page.locator('tbody tr button.lnk').first().innerText();
+    const second = await page.locator('tbody tr button.lnk').nth(1).innerText();
+    await expectExpanded(first, true); // the first row opens on its own
+    // A click anywhere on the open row (not the name) closes the pane...
+    await gridRow(first).locator('td').nth(2).click();
+    await expectExpanded(first, false);
+    await page.getByText('Cluster details').waitFor({ state: 'detached' });
+    // ...and opens it again.
+    await gridRow(first).locator('td').nth(3).click();
+    await expectExpanded(first, true);
+    // Another row switches to it.
+    await gridRow(second).locator('td').nth(2).click();
+    await expectExpanded(second, true);
+    await expectExpanded(first, false);
+    // A drag that selects text is not a click.
+    const cell = await gridRow(second).locator('td').nth(1).boundingBox();
+    await page.mouse.move(cell.x + 2, cell.y + cell.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(cell.x + cell.width - 2, cell.y + cell.height / 2, { steps: 5 });
+    await page.mouse.up();
+    await expectExpanded(second, true);
+    // Keyboard: Enter and Space on the focused row toggle it.
+    await gridRow(second).focus();
+    await page.keyboard.press('Enter');
+    await expectExpanded(second, false);
+    await page.keyboard.press(' ');
+    await expectExpanded(second, true);
+    // The pane's own close button still closes it.
+    await page.getByRole('button', { name: 'Close details' }).click();
+    await expectExpanded(second, false);
+    // UX review: the trimmed grid with a cluster's details open (Data Services IP, ratios).
+    const dsRow = page.locator('tbody tr').filter({ hasText: 'PHX-PROD-01' });
+    await (await dsRow.count() ? dsRow.first() : gridRow(first)).locator('td').nth(2).click();
+    await page.getByText('Data Services IP').first().waitFor({ timeout: 15_000 });
+    await page.getByText('Storage ratio').first().waitFor();
+    await uxShot('clusters-grid-detail');
+  });
+
+  await run('inventory', async () => {
+    await page.getByRole('navigation', { name: 'Object types' }).getByRole('button', { name: /^Virtual machines/ }).click();
+    await page.getByRole('heading', { level: 1, name: 'Virtual machines' }).waitFor({ timeout: 30_000 });
     await page.getByRole('button', { name: /^Protection\s*:?\s*All$/ }).click();
     await page.getByRole('menuitem', { name: /^None/ }).click();
     await page.getByText('VM details').waitFor({ timeout: 30_000 });
@@ -157,13 +274,13 @@ try {
 
   await run('inventory-cluster-capacity', async () => {
     await page.getByRole('navigation', { name: 'Object types' }).getByRole('button', { name: /^Clusters/ }).click();
-    await page.getByRole('columnheader', { name: /vCPU:pCore N-1/ }).first().waitFor({ timeout: 30_000 });
+    await page.getByRole('heading', { level: 1, name: 'Clusters' }).waitFor({ timeout: 30_000 });
     // The heterogeneous cluster (two node generations) and the two-node one (N-1 is N/A).
-    await page.getByRole('button', { name: 'PHX-PROD-02', exact: true }).click();
+    await openRow('PHX-PROD-02');
     await page.getByText('Cluster details').waitFor({ timeout: 30_000 });
     await page.getByText('Target ratio').waitFor();
     await page.getByText('4.0 : 1', { exact: true }).first().waitFor();
-    await page.getByRole('button', { name: 'AMS-EDGE-02', exact: true }).click();
+    await openRow('AMS-EDGE-02');
     await page.getByText('N-1 is not applicable to a 2-node cluster.').waitFor({ timeout: 30_000 });
   });
 
@@ -196,12 +313,30 @@ try {
     // Excel and Word start selected; add the PDF and trim the sections.
     await dialog.getByText('PDF report', { exact: true }).first().click();
     await dialog.getByText('Data protection', { exact: true }).click();
+    // File name prefix with a live preview of every file.
+    await dialog.locator('#exp-prefix').fill('ACME Q4');
+    for (const ext of ['xlsx', 'pdf', 'docx']) {
+      await dialog.getByText(`ACME Q4-pc01-week1-${today}.${ext}`, { exact: true }).waitFor();
+    }
+    await uxShot('export-dialog-prefix');
     await dialog.getByRole('button', { name: /^Export 3 files/ }).click();
     await page.getByText(/Exported 3 files/).first().waitFor({ timeout: 120_000 });
     const files = await readdir(exportDir);
     for (const ext of ['.xlsx', '.pdf', '.docx']) {
-      if (!files.some((f) => f.startsWith('pc01-week1') && f.endsWith(ext))) throw new Error(`no ${ext} written`);
+      if (!files.includes(`ACME Q4-pc01-week1-${today}${ext}`)) throw new Error(`no ACME Q4 ${ext} written: ${files.join(', ')}`);
     }
+  });
+
+  await run('export-dialog-remembers-prefix', async () => {
+    // The prefix is remembered, and a second export never overwrites the first.
+    await page.getByRole('button', { name: 'Export pc01-week1' }).click();
+    const dialog = page.getByRole('dialog');
+    await page.waitForFunction(() => document.querySelector('#exp-prefix')?.value === 'ACME Q4', null, { timeout: 15_000 });
+    await dialog.getByText('Word ADD', { exact: true }).first().click(); // Excel only
+    await dialog.getByRole('button', { name: /^Export 1 file/ }).click();
+    await page.getByText(/Exported 1 file/).first().waitFor({ timeout: 120_000 });
+    const files = await readdir(exportDir);
+    if (!files.includes(`ACME Q4-pc01-week1-${today}-2.xlsx`)) throw new Error(`no -2 copy: ${files.join(', ')}`);
   });
 
   await run('snapshot-file-export', async () => {
@@ -266,6 +401,13 @@ try {
     await page.getByRole('button', { name: /Collect from 3 Prism Centrals/ }).click();
     await heading('Collection complete', 180_000);
     await page.getByText(/2 of 3 collected/).first().waitFor({ timeout: 10_000 });
+    // Multi-PC reports follow the remembered prefix too.
+    const files = await readdir(exportDir);
+    for (const stem of ['tiny', 'pc03']) {
+      if (!files.some((f) => f.startsWith(`ACME Q4-${stem}-`) && f.endsWith(`-${today}.xlsx`))) {
+        throw new Error(`no prefixed ${stem} report: ${files.join(', ')}`);
+      }
+    }
   });
 
   await run('overview', async () => {
