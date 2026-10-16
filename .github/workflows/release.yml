@@ -62,6 +62,7 @@ jobs:
     name: Snapshot file export (${{ matrix.os }})
     needs: checks
     strategy:
+      fail-fast: false
       matrix:
         os: [macos-latest, windows-latest]
     runs-on: ${{ matrix.os }}
