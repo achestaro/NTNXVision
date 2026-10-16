@@ -39,7 +39,7 @@ import type { Column, MenuItem } from '../components';
 import { useAsync } from '../lib/useAsync';
 import { useRouter } from '../lib/router';
 import { useRun } from '../lib/run';
-import { NA, errorMessage, fmtAbs, fmtBytes, fmtCount } from '../lib/format';
+import { NA, errorMessage, fmtAbs, fmtBytes, fmtCount, fmtRatio } from '../lib/format';
 import { useSnapshotTransfer } from './SnapshotTransfer';
 
 const PAGE = 25;
@@ -53,6 +53,7 @@ function cellText(v: CellValue, kind: InventoryColumn['kind']): string {
   if (isStatus(v)) return v.label;
   if (kind === 'bytes' && typeof v === 'number') return fmtBytes(v);
   if (kind === 'number' && typeof v === 'number') return fmtCount(v);
+  if (kind === 'ratio' && typeof v === 'number') return fmtRatio(v);
   if (kind === 'datetime') return fmtAbs(String(v));
   if (typeof v === 'boolean') return v ? 'Yes' : 'No';
   return String(v);
@@ -179,7 +180,7 @@ export function InventoryView({
   const tableColumns: Column<InventoryRow>[] = columns.map((c) => ({
     key: c.key,
     header: c.label,
-    numeric: c.kind === 'number' || c.kind === 'bytes',
+    numeric: c.kind === 'number' || c.kind === 'bytes' || c.kind === 'ratio',
     sortable: c.sortable !== false,
     className: c.kind === 'mono' ? 'mono' : c.kind === 'datetime' ? 'ts' : undefined,
     style: c.kind === 'mono' ? { fontSize: 12 } : undefined,

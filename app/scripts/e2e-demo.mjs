@@ -155,6 +155,17 @@ try {
     await page.getByText('VM details').waitFor({ timeout: 30_000 });
   });
 
+  await run('inventory-cluster-capacity', async () => {
+    await page.getByRole('navigation', { name: 'Object types' }).getByRole('button', { name: /^Clusters/ }).click();
+    await page.getByRole('columnheader', { name: /vCPU:pCore N-1/ }).first().waitFor({ timeout: 30_000 });
+    // The heterogeneous cluster (two node generations) and the two-node one (N-1 is N/A).
+    await page.getByRole('button', { name: 'PHX-PROD-02', exact: true }).click();
+    await page.getByText('Cluster details').waitFor({ timeout: 30_000 });
+    await page.getByText('vCPU Total at 4.0 : 1').waitFor();
+    await page.getByRole('button', { name: 'AMS-EDGE-02', exact: true }).click();
+    await page.getByText('N-1 is not applicable to a 2-node cluster.').waitFor({ timeout: 30_000 });
+  });
+
   await run('compare', async () => {
     await rail('Compare');
     await page.getByText(/What changed/).first().waitFor({ timeout: 30_000 });

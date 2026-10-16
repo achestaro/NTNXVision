@@ -112,7 +112,9 @@ the typed channels in `app/src/shared/ipc.ts`, which the main process relays to 
   detail with related objects; `compare.py` — UUID-based diff engine (field-level,
   grouped rows, summary figures) and comparison export; `overview.py` — Overview figures,
   coverage and API routing from the snapshot index; `connectivity.py` — read-only
-  `test_connection` for PC / PE / NDB with outcome classification.
+  `test_connection` for PC / PE / NDB with outcome classification; `capacity.py` — per-cluster
+  CPU / storage capacity and oversubscription (`X.X : 1`, full and N-1), the one place that
+  math lives (see `docs/ARCHITECTURE.md` §6).
 - `synthetic/` — deterministic synthetic estates (`estate.py`), v4/v3/v2.0/Era payload
   renderers (`render.py`), the mock Nutanix API (`mockapi.py`, HTTPS front in `server.py`,
   TLS material minted at runtime by `certgen.py`) and demo mode (`demo.py`, `profiles.py`,
