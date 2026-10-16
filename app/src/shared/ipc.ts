@@ -521,7 +521,8 @@ export interface ObjectTypeCount {
   count: number | null;
 }
 
-export type ColumnKind = 'text' | 'name' | 'number' | 'bytes' | 'mono' | 'status' | 'datetime';
+/** 'ratio' cells are numbers rendered as an oversubscription ratio ("3.5 : 1"). */
+export type ColumnKind = 'text' | 'name' | 'number' | 'bytes' | 'ratio' | 'mono' | 'status' | 'datetime';
 
 export interface InventoryColumn {
   key: string;
@@ -648,6 +649,11 @@ export interface ExportRequest {
     preparedFor?: string;
     author?: string;
   };
+  /**
+   * Target vCPU:pCPU ratio for the cluster capacity figures ("vCPU Total"), recorded in the
+   * report. Omitted = the vcpuRatio setting (DEFAULT_VCPU_RATIO when unset).
+   */
+  vcpuRatio?: number;
 }
 
 export interface ExportResult {
@@ -704,7 +710,15 @@ export interface AppSettings {
   multiTargetIds?: string[];
   /** Default author for the Word ADD. */
   author?: string;
+  /**
+   * Target vCPU:pCPU ratio behind the cluster capacity figures ("vCPU Total") in the
+   * Inventory and every report. Unset = DEFAULT_VCPU_RATIO.
+   */
+  vcpuRatio?: number;
 }
+
+/** The vCPU:pCPU target used when the setting is unset (matches capacity.py). */
+export const DEFAULT_VCPU_RATIO = 4;
 
 export interface AppInfo {
   version: string;

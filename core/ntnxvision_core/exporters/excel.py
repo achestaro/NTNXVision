@@ -34,7 +34,13 @@ from ntnxvision_core.exporters.sourcing import sources as _sources
 from ntnxvision_core.exporters.sourcing import with_sources as _with_sources
 from ntnxvision_core.exporters.tables import Ctx
 from ntnxvision_core.models import Environment
-from ntnxvision_core.numfmt import NA, PLAIN_HEADERS, excel_number_format, fmt_count
+from ntnxvision_core.numfmt import (
+    NA,
+    PLAIN_HEADERS,
+    excel_number_format,
+    fmt_count,
+    fmt_ratio,
+)
 
 GIB = 1024**3
 _FONT = TH.OFFICE_FONT
@@ -56,7 +62,7 @@ _DATE = "yyyy-mm-dd"
 #: Every inventory sheet, in workbook order.
 _SPECS = (
     # Phase 1: core infrastructure
-    T.CLUSTERS, T.HOSTS, T.VMS, T.SYSTEM_VMS, T.STORAGE, T.SUBNETS,
+    T.CLUSTERS, T.CAPACITY, T.HOSTS, T.VMS, T.SYSTEM_VMS, T.STORAGE, T.SUBNETS,
     # PC catalog: templates / images / OVAs
     T.TEMPLATES, T.IMAGES, T.OVAS,
     # Phase 2: data protection / DR
@@ -86,7 +92,7 @@ class ExcelExporter:
 
         opts = ExportOptions.coerce(options)
         wb = Workbook()
-        ctx = Ctx(env)
+        ctx = Ctx(env, opts.vcpu_ratio)
         overview = cast(Worksheet, wb.active)
         overview.title = "Overview"
         self._pc_config_sheet(wb, env)
@@ -118,8 +124,25 @@ class ExcelExporter:
         items = spec.items(env)
         headers = [c.header or "" for c in spec.excel_cols]
         rows = T.table_rows(spec, env, ctx)
+        if spec is T.CAPACITY:
+            return self._capacity_sheet(wb, env, headers, rows, ctx)
         return self._table(wb, spec.sheet, headers, rows,
                            _sources(env, items) if spec.sources else None)
+
+    def _capacity_sheet(self, wb: Workbook, env: Environment, headers: list[str],
+                        rows: list[list[Any]], ctx: Ctx) -> str | None:
+        """Per-cluster capacity inputs and results, with the formulas spelled out below."""
+        title = self._table(wb, T.CAPACITY.sheet, headers, rows,
+                            _sources(env, env.clusters), wrap=("Notes",))
+        if title is None:
+            return None
+        ws = wb[title]
+        row = ws.max_row + 2
+        for text in capacity_legend(ctx.vcpu_ratio):
+            cell = ws.cell(row=row, column=1, value=text)
+            cell.font = Font(name=_FONT, size=9, italic=True, color=TH.INK_3)
+            row += 1
+        return title
 
     # ─── sheets ────────────────────────────────────────────────────
 
@@ -186,6 +209,8 @@ class ExcelExporter:
             ("Prepared For", opts.prepared_for or NA),
             ("Prepared By", opts.author or "NTNXVision"),
             ("Tool Version", f"NTNXVision {env.tool_version}"),
+            ("vCPU:pCPU Target", f"{fmt_ratio(opts.vcpu_ratio)} (cluster capacity figures, "
+                                 "see the Capacity sheet)"),
         ]
         row = self._section(ws, 7, "Report details")
         for label, value in details:
@@ -432,6 +457,23 @@ class ExcelExporter:
             ws.sheet_properties.pageSetUpPr.fitToPage = True
         ws.print_title_rows = "1:1"
         return ws.title
+
+
+def capacity_legend(target: float) -> list[str]:
+    """How the capacity figures are calculated (Excel Capacity sheet footnote)."""
+    return [
+        "Usable cores = sum over nodes of (physical cores - CVM vCPUs); hyperthreads are "
+        "not counted.",
+        f"vCPU Total = usable cores x the {fmt_ratio(target)} vCPU:pCPU target.",
+        "Storage Total = sum of node raw storage x 0.95 (5% reserve) / cluster redundancy "
+        "factor.",
+        "vCPU:pCore = provisioned vCPUs / usable cores. Storage Provisioned:Usable = "
+        "provisioned VM disk / Storage Total.",
+        "Provisioned figures count every VM on the cluster, powered on or off, plus Prism "
+        "Central and other system VMs; CVMs are excluded (already subtracted).",
+        "N-1 removes the node whose loss costs the most (most usable cores for CPU, most raw "
+        "storage for storage). N/A for one- and two-node clusters.",
+    ]
 
 
 def _numeric_column(rows: list[list[Any]], i: int) -> bool:

@@ -143,6 +143,30 @@ class ElementConnection:
                 break
         return results
 
+    def v1_list(self, path: str, page_size: int = 500) -> list[dict[str, Any]]:
+        """Read-only GET of a legacy v1 list (``/PrismGateway/services/rest/v1/``).
+
+        Only for data v2.0 does not expose (the Controller VMs). v1 pages by ``page`` /
+        ``count`` and reports ``metadata.grandTotalEntities``.
+        """
+        base = self.creds.base.rsplit("/v2.0", 1)[0] + "/v1"
+        results: list[dict[str, Any]] = []
+        page = 1
+        while True:
+            if self.cancel is not None:
+                self.cancel.check()
+            resp = self.session.get(f"{base}/{path.lstrip('/')}",
+                                    params={"page": page, "count": page_size},
+                                    timeout=self.timeout)
+            payload = self._json_or_raise(resp)
+            entities = payload.get("entities", []) or []
+            results.extend(e for e in entities if isinstance(e, dict))
+            total = (payload.get("metadata") or {}).get("grandTotalEntities")
+            if not entities or total is None or len(results) >= int(total):
+                break
+            page += 1
+        return results
+
     def _json_or_raise(self, resp: requests.Response) -> dict[str, Any]:
         if resp.status_code in (401, 403):
             raise AuthenticationError("Not authorized for this Prism Element resource.")
