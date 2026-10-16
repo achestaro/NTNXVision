@@ -69,6 +69,7 @@ function fromSnapshot(d: SnapshotDetail): RunResult {
     figures: d.run?.figures,
     api_routing: d.run?.api_routing,
     compat: d.run?.compat ?? null,
+    scope: d.run?.scope ?? d.scope ?? null,
   };
   return { multi: false, result, multiResult: null, label: d.source ?? d.name, mode: d.source_type };
 }
@@ -193,15 +194,21 @@ function ResultsBody({
           )
         }
         facts={
-          imported ? (
-            <>
-              {facts}
-              <br />
-              {provenanceLine(imported)}
-            </>
-          ) : (
-            facts
-          )
+          <>
+            {facts}
+            {r.scope?.label && (
+              <>
+                <br />
+                <span data-testid="results-scope">Scope: {r.scope.label}</span>
+              </>
+            )}
+            {imported && (
+              <>
+                <br />
+                {provenanceLine(imported)}
+              </>
+            )}
+          </>
         }
         actions={
           <>

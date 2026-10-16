@@ -16,6 +16,7 @@ from typing import Any
 
 from ntnxvision_core.api import PrismConnection, PrismCredentials
 from ntnxvision_core.api.element_client import ElementConnection, ElementCredentials
+from ntnxvision_core.api.errors import NutanixApiError
 from ntnxvision_core.api.ndb_client import NdbConnection, NdbCredentials
 from ntnxvision_core.areas import AREAS, NDB_AREA, Area
 from ntnxvision_core.areas import select as select_areas
@@ -25,12 +26,15 @@ from ntnxvision_core.collectors.element import ELEMENT_STEPS
 from ntnxvision_core.collectors.ndb import collect_ndb
 from ntnxvision_core.compat import check_aos, check_prism_central
 from ntnxvision_core.models import (
+    ClusterScope,
     Environment,
     PrismCentral,
+    ScopeCluster,
     SourcedObject,
     SourceEnvironment,
 )
 from ntnxvision_core.runinfo import RunTracker, classify
+from ntnxvision_core.scope import Scope, registered_clusters
 
 # progress(step_index, total_steps, collector_label, status)
 ProgressFn = Callable[[int, int, str, str], None]
@@ -45,6 +49,7 @@ def collect_environment(
     areas: list[str] | None = None,
     cancel: CancelToken | None = None,
     tracker: RunTracker | None = None,
+    clusters: list[str] | None = None,
 ) -> Environment:
     """Connect to Prism Central and run the selected collectors into an Environment.
 
@@ -55,6 +60,10 @@ def collect_environment(
       raises `RunCancelled` and returns nothing — callers must not save partial data.
     * `tracker` receives the per-area progress (status, API, objects, duration).
     * `progress` is the legacy 4-argument callback the CLI uses.
+    * `clusters` limits the run to those registered clusters (uuids); None collects
+      every registered cluster. Objects of the other clusters are filtered server-side
+      where the API allows and pruned after every area, so they never reach the
+      Environment (see `ntnxvision_core.scope`). The scope is recorded on the result.
 
     If `ndb_creds` is provided, an additional NDB step runs against the Era control
     plane after the Prism Central collectors.
@@ -85,6 +94,9 @@ def collect_environment(
         if pc_compat.warning:
             env.warnings.append(pc_compat.warning)
 
+        scope = _resolve_scope(conn, clusters)
+        conn.scope = scope
+
         if tracker is not None:
             tracker.start(planned, conn.pc_version)
 
@@ -96,7 +108,7 @@ def collect_environment(
                 collector = area.collector(conn)
                 _run_area(env, area, idx, total, partial(collector.collect, env),
                           progress, tracker, conn.negotiated, collector.label,
-                          collector.name)
+                          collector.name, scope=scope)
         except RunCancelled:
             if tracker is not None:
                 tracker.cancel_pending()
@@ -115,7 +127,34 @@ def collect_environment(
         _collect_ndb_step(ndb_creds, env, progress, len(run_areas), total, tracker, cancel)
 
     _resolve_cross_references(env)
+    if scope is not None:
+        # Cross-referencing backfills cluster uuids (a VM's from its host): prune once
+        # more so nothing resolved late slips through.
+        scope.prune(env)
+        env.cluster_scope = scope.record()
     return env
+
+
+def _resolve_scope(conn: PrismConnection, clusters: list[str] | None) -> Scope | None:
+    """The run's cluster scope, resolved against the clusters registered right now.
+
+    With no selection the scope is still recorded (every cluster) when the registered
+    list can be read; a scoped run whose selection matches no registered cluster fails
+    before collecting anything.
+    """
+    try:
+        registered, _api = registered_clusters(conn)
+    except NutanixApiError:
+        if clusters is None:
+            return None
+        raise
+    scope = Scope(registered, clusters)
+    if clusters is not None and not scope.selected:
+        raise NutanixApiError(
+            "None of the selected clusters is registered to this Prism Central any more. "
+            "Reload the cluster list and choose again."
+        )
+    return scope
 
 
 def collect_element_environment(
@@ -163,6 +202,10 @@ def collect_element_environment(
             raise
 
     _resolve_cross_references(env)
+    if env.clusters:
+        sole = env.clusters[0]
+        env.cluster_scope = ClusterScope(
+            selected=[ScopeCluster(uuid=sole.uuid, name=sole.name)], registered_count=1)
     return env
 
 
@@ -178,8 +221,13 @@ def _run_area(
     label: str,
     note_key: str,
     api_override: str | None = None,
+    scope: Scope | None = None,
 ) -> None:
-    """Run one area, isolating its failure, and report it to both callbacks."""
+    """Run one area, isolating its failure, and report it to both callbacks.
+
+    With a cluster `scope`, the objects of left-out clusters are pruned as soon as the
+    area finishes (also when it failed half-way), before they are counted.
+    """
     before = {f: len(getattr(env, f)) for f in area.fields}
     _emit(progress, idx, total, label, "running")
     if tracker is not None:
@@ -194,6 +242,10 @@ def _run_area(
         note = f"error: {exc}"
         env.collection_notes[note_key] = note
         _emit(progress, idx, total, label, note)
+    finally:
+        if scope is not None:
+            scope.prune(env)
+            before = {f: min(n, len(getattr(env, f))) for f, n in before.items()}
     if tracker is None:
         return
     status, detail = classify(area.id, note)

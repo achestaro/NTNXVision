@@ -98,11 +98,18 @@ class AlertsCollector(Collector):
         note rather than hidden, because a run that had to back off says something
         about how loaded the PC was.
         """
+        from ntnxvision_core.scope import server_filter
+
         entities: list[dict[str, Any]] = []
         throttled = 0
         page = 0
         # Far enough in the past that the first request is never delayed.
         last = 0.0
+        # A scoped run asks for the selected clusters' alerts only. The filter is probed
+        # once, and that probe spends one request of the rate budget.
+        self._filter = server_filter(self.conn, _V4_PATH, "originatingClusterUUID")
+        if self._filter:
+            last = time.monotonic()
         while True:
             delay = _V4_MIN_INTERVAL - (time.monotonic() - last)
             if delay > 0:
@@ -121,7 +128,9 @@ class AlertsCollector(Collector):
 
     def _v4_page(self, page: int) -> tuple[dict[str, Any], int]:
         """One page, retried with a growing backoff while the answer is 429."""
-        params = {"$page": page, "$limit": _V4_PAGE_SIZE}
+        params: dict[str, Any] = {"$page": page, "$limit": _V4_PAGE_SIZE}
+        if getattr(self, "_filter", None):
+            params["$filter"] = self._filter
         for attempt in range(_V4_RATE_LIMIT_RETRIES):
             try:
                 return self.conn.v4_get(_V4_PATH, params=params), attempt
@@ -287,3 +296,7 @@ def _summarize(alerts: list[Alert]) -> AlertSummary:
         if not alert.resolved:
             summary.unresolved_count += 1
     return summary
+
+
+#: Public name: the cluster scope recomputes the roll-up after pruning alerts.
+summarize = _summarize

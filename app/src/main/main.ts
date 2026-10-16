@@ -24,6 +24,7 @@ import {
   InventoryPage,
   InventoryResult,
   InventorySort,
+  ListClustersRequest,
   MultiCollectionRequest,
   MultiInventoryResult,
   Platform,
@@ -177,11 +178,28 @@ ipcMain.handle(IPC.testConnection, async (_e, req: TestConnectionRequest) => {
   });
 });
 
+ipcMain.handle(IPC.listClusters, async (_e, req: ListClustersRequest) => {
+  const password = await resolvePassword(req.host, req.username, req.password);
+  return sidecar.call('list_clusters', {
+    mode: req.mode,
+    host: req.host,
+    port: req.port,
+    username: req.username,
+    password,
+    insecure: req.insecure,
+  });
+});
+
 ipcMain.handle(IPC.getCollectionAreas, () => sidecar.call('list_areas'));
 
 ipcMain.handle(IPC.startCollection, async (_e, req: CollectionRequest) => {
   const runId = randomUUID();
   const password = await resolvePassword(req.host, req.username, req.password);
+  // The cluster selection is remembered per saved target (uuids only, never credentials).
+  const clusterSelection =
+    req.mode === 'prism_central' && req.clusters && req.knownClusters
+      ? { selected: req.clusters, known: req.knownClusters }
+      : undefined;
   if (req.saveCredentials) {
     store.saveConnection({
       id: '',
@@ -193,7 +211,10 @@ ipcMain.handle(IPC.startCollection, async (_e, req: CollectionRequest) => {
       name: req.targetName ?? '',
       ndbHost: req.ndb?.host,
       ndbUser: req.ndb?.username,
+      clusterSelection,
     });
+  } else if (clusterSelection) {
+    store.rememberClusterSelection(req.host, req.port, req.username, clusterSelection);
   }
   const method = req.mode === 'prism_element' ? 'inventory_cluster' : 'inventory';
   const { id, promise } = sidecar.callWithId<InventoryResult>(method, {
@@ -205,6 +226,7 @@ ipcMain.handle(IPC.startCollection, async (_e, req: CollectionRequest) => {
     insecure: req.insecure,
     name: req.name,
     areas: req.areas,
+    clusters: req.mode === 'prism_central' ? req.clusters : undefined,
     formats: req.formats,
     export_dir: req.exportDir || store.getSettings().exportDir,
     file_prefix: filePrefix(req.filePrefix),
@@ -534,6 +556,7 @@ const DEMO_TARGETS: ConnectionProfile[] = [
   { id: '', mode: 'prism_central', host: 'pc03.demo.local', username: 'admin', port: 9440, insecure: false, name: 'pc03' },
   { id: '', mode: 'prism_element', host: 'pe01.demo.local', username: 'admin', port: 9440, insecure: false, name: 'pe01' },
   { id: '', mode: 'prism_central', host: 'large1.demo.local', username: 'admin', port: 9440, insecure: false, name: 'large1' },
+  { id: '', mode: 'prism_central', host: 'tiny.demo.local', username: 'admin', port: 9440, insecure: false, name: 'tiny' },
   { id: '', mode: 'prism_central', host: 'selfsigned.demo.local', username: 'admin', port: 9440, insecure: false, name: 'selfsigned' },
 ];
 
