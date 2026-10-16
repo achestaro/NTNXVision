@@ -21,6 +21,7 @@ import {
   Checkbox,
   ErrorState,
   Field,
+  FilePrefixField,
   FormatCard,
   Icon,
   InlineEmpty,
@@ -36,7 +37,7 @@ import { useAsync } from '../lib/useAsync';
 import { useSettings, modKey } from '../lib/settings';
 import { useRun } from '../lib/run';
 import { useConfirmShortcut } from '../lib/keyboard';
-import { NA, defaultSnapshotName, errorMessage, fmtCount, tildify } from '../lib/format';
+import { NA, REPORT_EXT, defaultSnapshotName, errorMessage, fmtCount, reportFileName, targetLabel, tildify } from '../lib/format';
 
 const FORMATS: { id: ExportFormat; label: string; desc: string }[] = [
   { id: 'excel', label: 'Excel workbook', desc: 'One sheet per object type, RVTools-style' },
@@ -59,13 +60,15 @@ export function NewCollectionView({
   connectionId?: string;
   mode?: ConnectionMode;
 }): JSX.Element {
-  const { settings, appInfo } = useSettings();
+  const { settings, appInfo, update } = useSettings();
   const { start, isRunning } = useRun();
   const catalogue = useAsync<CollectionAreasResult>(() => window.ntnx.getCollectionAreas(), []);
   const [profiles, setProfiles] = useState<SavedConnection[]>([]);
   const [selected, setSelected] = useState<string>(NEW_TARGET);
 
   const [mode, setMode] = useState<ConnectionMode>(initialMode ?? 'prism_central');
+  /** The saved target's name; empty = the host. */
+  const [targetName, setTargetName] = useState('');
   const [host, setHost] = useState('');
   const [port, setPort] = useState('9440');
   const [username, setUsername] = useState('admin');
@@ -84,6 +87,7 @@ export function NewCollectionView({
   const [name, setName] = useState('');
   const [nameTouched, setNameTouched] = useState(false);
   const [dir, setDir] = useState('');
+  const [prefix, setPrefix] = useState('');
   const [errors, setErrors] = useState<{ host?: string; name?: string; port?: string; areas?: string }>({});
   const [startError, setStartError] = useState<string | null>(null);
   const hostRef = useRef<HTMLInputElement>(null);
@@ -95,6 +99,7 @@ export function NewCollectionView({
   useEffect(() => {
     setDir(settings.exportDir || appInfo?.defaultExportDir || '');
   }, [settings.exportDir, appInfo]);
+  useEffect(() => setPrefix(settings.filePrefix ?? ''), [settings.filePrefix]);
 
   useEffect(() => {
     window.ntnx
@@ -115,6 +120,8 @@ export function NewCollectionView({
   function applyProfile(p: SavedConnection) {
     setSelected(p.id);
     setMode(p.mode);
+    // A name equal to the host is the default: show it as the placeholder instead.
+    setTargetName(p.name && p.name !== p.host ? p.name : '');
     setHost(p.host);
     setPort(String(p.port));
     setUsername(p.username);
@@ -130,6 +137,7 @@ export function NewCollectionView({
   const onPickSaved = (id: string) => {
     if (id === NEW_TARGET) {
       setSelected(NEW_TARGET);
+      setTargetName('');
       setHost('');
       setPassword('');
       setUsername('admin');
@@ -215,12 +223,15 @@ export function NewCollectionView({
         port: portNum,
         insecure: !verifyTls,
         name: name.trim(),
+        targetName: targetName.trim(),
         areas: chosenAreas.map((a) => a.id),
         formats: chosenFormats.map((f) => f.id),
         saveCredentials: remember,
         exportDir: dir || undefined,
+        filePrefix: prefix,
         ndb: !isPe && ndbOn && ndbHost ? { host: ndbHost, username: ndbUser, password: ndbPass } : undefined,
       });
+      if (prefix !== (settings.filePrefix ?? '')) void update({ filePrefix: prefix });
     } catch (err) {
       setStartError(errorMessage(err));
     }
@@ -240,8 +251,8 @@ export function NewCollectionView({
       </label>
       <select id="saved" className="input" style={{ width: 280 }} value={selected} onChange={(e) => onPickSaved(e.target.value)}>
         {profiles.map((p) => (
-          <option key={p.id} value={p.id}>
-            {p.mode === 'prism_element' ? p.name || p.host : p.host} · {p.username}
+          <option key={p.id} value={p.id} title={`${p.host}:${p.port}`}>
+            {targetLabel(p)} · {p.username}
             {p.mode === 'prism_element' ? ' · Prism Element' : ''}
           </option>
         ))}
@@ -295,10 +306,19 @@ export function NewCollectionView({
                     : 'Recommended. Covers every registered cluster plus DR, Flow, Files, IAM and more.'}
                 </div>
               </div>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 200px), 1fr))', gap: 16 }}>
+              <div className="connect-grid">
+                <Field id="tname" label="Name">
+                  <input
+                    className="input"
+                    value={targetName}
+                    placeholder={host.trim() || 'Same as the address'}
+                    spellCheck={false}
+                    autoComplete="off"
+                    onChange={(e) => setTargetName(e.target.value)}
+                  />
+                </Field>
                 <Field
                   id="host"
-                  className="span-2"
                   label={isPe ? 'Cluster address (FQDN or IP)' : 'Prism Central address (FQDN or IP)'}
                   error={errors.host}
                 >
@@ -310,6 +330,10 @@ export function NewCollectionView({
                     spellCheck={false}
                     autoCapitalize="off"
                     onChange={(e) => {
+                      // A loaded target's name doesn't follow the user to another address.
+                      if (profile && e.target.value.trim() !== profile.host && targetName === (profile.name !== profile.host ? profile.name : '')) {
+                        setTargetName('');
+                      }
                       setHost(e.target.value);
                       setErrors((x) => ({ ...x, host: undefined }));
                       resetTest();
@@ -340,7 +364,7 @@ export function NewCollectionView({
                     }}
                   />
                 </Field>
-                <div className="span-2">
+                <div className="connect-pw">
                   <label className="lbl" htmlFor="pw">
                     Password
                   </label>
@@ -523,6 +547,17 @@ export function NewCollectionView({
                     <Button onClick={() => void browse()}>Browse…</Button>
                   </div>
                 </div>
+                {chosenFormats.length > 0 && (
+                  <FilePrefixField
+                    id="nc-prefix"
+                    className="span-all"
+                    value={prefix}
+                    onChange={setPrefix}
+                    names={chosenFormats.map((f) =>
+                      reportFileName(prefix, name.trim() || (host ? defaultSnapshotName(host) : 'snapshot'), REPORT_EXT[f.id]),
+                    )}
+                  />
+                )}
               </div>
             </div>
           </Panel>
@@ -536,6 +571,12 @@ export function NewCollectionView({
                 <dt>Target</dt>
                 <dd className="mono">{host || NA}</dd>
               </div>
+              {targetName.trim() && (
+                <div className="kv">
+                  <dt>Name</dt>
+                  <dd className="strong">{targetName.trim()}</dd>
+                </div>
+              )}
               <div className="kv">
                 <dt>Mode</dt>
                 <dd className="strong">{isPe ? 'Prism Element' : 'Prism Central'}</dd>

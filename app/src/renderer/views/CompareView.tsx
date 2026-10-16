@@ -13,6 +13,7 @@ import {
   EmptyState,
   ErrorState,
   FigureStrip,
+  FilePrefixField,
   InlineEmpty,
   Loading,
   LoadingPage,
@@ -26,7 +27,7 @@ import { useAsync } from '../lib/useAsync';
 import { useRouter } from '../lib/router';
 import { useRun } from '../lib/run';
 import { revealLabel, useSettings } from '../lib/settings';
-import { NA, errorMessage, fmtAbs, fmtCount, plural, tildify } from '../lib/format';
+import { NA, REPORT_EXT, errorMessage, fmtAbs, fmtCount, plural, reportFileName, tildify } from '../lib/format';
 import { useSnapshotTransfer } from './SnapshotTransfer';
 
 type Tab = 'all' | ChangeKind;
@@ -296,10 +297,11 @@ function CompareExportDialog({
   summary: CompareResult['summary'];
   onClose(): void;
 }): JSX.Element {
-  const { settings, appInfo } = useSettings();
+  const { settings, appInfo, update } = useSettings();
   const toast = useToast();
   const [format, setFormat] = useState<CompareFormat>('excel');
   const [dir, setDir] = useState(settings.exportDir || appInfo?.defaultExportDir || '');
+  const [prefix, setPrefix] = useState(settings.filePrefix ?? '');
   const [reveal, setReveal] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -314,7 +316,8 @@ function CompareExportDialog({
     setBusy(true);
     setError(null);
     try {
-      const res = await window.ntnx.exportComparison({ baseline, current, format, exportDir: dir || undefined });
+      const res = await window.ntnx.exportComparison({ baseline, current, format, exportDir: dir || undefined, filePrefix: prefix });
+      if (prefix !== (settings.filePrefix ?? '')) void update({ filePrefix: prefix });
       if (reveal) void window.ntnx.revealPath(res.path);
       toast.show({
         tone: 'ok',
@@ -365,6 +368,12 @@ function CompareExportDialog({
           />
           <div className="hint below">{FORMATS[format].hint}</div>
         </div>
+        <FilePrefixField
+          id="cmp-prefix"
+          value={prefix}
+          onChange={setPrefix}
+          names={[reportFileName(prefix, `changes-${baseName}-to-${curName}`, REPORT_EXT[format])]}
+        />
         <div>
           <label className="lbl" htmlFor="cmp-dest">
             Save to folder

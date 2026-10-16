@@ -155,21 +155,23 @@ def test_demo_prism_element_mode(demo: Any) -> None:
 # ─── grid, detail, reports ────────────────────────────────────────────
 
 
-def test_inventory_grid_and_detail_show_ratios(demo: Any) -> None:
+def test_ratios_live_in_the_detail_pane_not_the_grid(demo: Any) -> None:
     env = collect_environment(PrismCredentials(host="pc02.demo.local", username="admin",
                                                password="demo"))
     svc = InventoryService()
     result = svc.query(env, "clusters", page={"limit": 50})
-    cols = {c["key"]: c for c in result["columns"]}
-    assert cols["cpu_ratio"]["kind"] == "ratio" and cols["storage_ratio_n1"]["kind"] == "ratio"
+    cols = {c["key"] for c in result["columns"]}
+    # The four ratios are detail-pane figures (grid=False); the grid and its Columns menu
+    # (built from the same column list) never offer them.
+    assert not cols & {"cpu_ratio", "cpu_ratio_n1", "storage_ratio", "storage_ratio_n1"}
     robo = next(r for r in result["rows"] if r["cells"]["name"] == "SEA-ROBO-01")
-    assert isinstance(robo["cells"]["cpu_ratio"], float)
-    assert robo["cells"]["cpu_ratio_n1"] is None
+    assert "cpu_ratio" not in robo["cells"]
     detail = svc.detail(env, "clusters", robo["id"], vcpu_ratio=6)
     fields = {f["label"]: f["value"] for f in detail["fields"]}
     assert fields["Target ratio"] == "6.0 : 1"
     assert fields["vCPU Total"] == "144 · N-1 N/A"
     assert fields["vCPU:pCore"].endswith(": 1 · N-1 N/A")
+    assert fields["Storage ratio"].endswith(" · N-1 N/A")
     assert "vCPU:pCore N-1" not in fields and "Storage ratio N-1" not in fields
     assert any("N-1 is not applicable" in n["text"] for n in detail["notes"])
 
@@ -192,7 +194,8 @@ def test_reports_render_the_capacity_figures(demo: Any, tmp_path: Path) -> None:
     assert any("5.0 : 1 vCPU:pCPU target" in str(t) for t in legend)
     clusters = wb["Clusters"]
     cheads = [c.value for c in clusters[1]]
-    assert "vCPU:pCore (all VMs)" in cheads and "Storage Total N-1 (GiB)" in cheads
+    # Capacity figures are on the Capacity sheet only (test_grid_columns.py).
+    assert "vCPU:pCore (all VMs)" not in cheads and "Storage Total N-1 (GiB)" not in cheads
     overview = [str(c.value) for row in wb["Overview"].iter_rows() for c in row if c.value]
     assert any(v.startswith("5.0 : 1") for v in overview)
 

@@ -2,8 +2,20 @@
 
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import type { ExportFormat, ExportResult, ExportSection, SnapshotDetail } from '@shared/ipc';
-import { Button, Callout, Checkbox, ChecklistHeader, Dialog, Field, FormatCard, Loading, SelectAllLink, useToast } from '../components';
-import { errorMessage, fmtAbs, fmtBytes, fmtCount, tildify } from '../lib/format';
+import {
+  Button,
+  Callout,
+  Checkbox,
+  ChecklistHeader,
+  Dialog,
+  Field,
+  FilePrefixField,
+  FormatCard,
+  Loading,
+  SelectAllLink,
+  useToast,
+} from '../components';
+import { REPORT_EXT, errorMessage, fmtAbs, fmtBytes, fmtCount, reportFileName, tildify } from '../lib/format';
 import { revealLabel, useSettings } from '../lib/settings';
 import { useRun } from '../lib/run';
 
@@ -101,6 +113,7 @@ function ExportDialog({
   const [preparedFor, setPreparedFor] = useState('');
   const [author, setAuthor] = useState(settings.author ?? '');
   const [dir, setDir] = useState(settings.exportDir || appInfo?.defaultExportDir || '');
+  const [prefix, setPrefix] = useState(settings.filePrefix ?? '');
   const [reveal, setReveal] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -115,6 +128,9 @@ function ExportDialog({
   const chosen = FORMATS.filter((f) => fmt[f.id]).map((f) => f.id);
   const n = chosen.length;
   const name = many ? `${fmtCount(snapshotPaths.length)} snapshots` : snap?.name ?? snapName(snapshotPath);
+  // Live preview: the first snapshot's files (the sidecar names them the same way).
+  const previewNames = chosen.map((f) => reportFileName(prefix, snapName(snapshotPath), REPORT_EXT[f]));
+  const previewMore = chosen.length * (snapshotPaths.length - 1);
 
   const pickTemplate = async (value: string) => {
     if (value === 'custom') {
@@ -144,6 +160,7 @@ function ExportDialog({
           snapshotPath: p,
           formats: chosen,
           exportDir: dir || undefined,
+          filePrefix: prefix,
           sections: SECTIONS.filter((s) => sections[s.id]).map((s) => s.id),
           word: fmt.word
             ? { template: template === 'custom' && templatePath ? templatePath : 'standard', preparedFor, author }
@@ -156,6 +173,7 @@ function ExportDialog({
       }
       const res = merged;
       if (author && author !== settings.author) void update({ author });
+      if (prefix !== (settings.filePrefix ?? '')) void update({ filePrefix: prefix });
       const errs = Object.entries(res.errors ?? {});
       const written = Object.values(res.paths ?? {});
       if (errs.length && !written.length) {
@@ -272,6 +290,8 @@ function ExportDialog({
             ))}
           </div>
         </div>
+
+        <FilePrefixField id="exp-prefix" value={prefix} onChange={setPrefix} names={previewNames} more={previewMore} />
 
         <div>
           <label className="lbl" htmlFor="exp-dest">

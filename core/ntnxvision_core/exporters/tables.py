@@ -5,6 +5,16 @@ one `Col` per column. A column says where its value comes from (`get`), how Exce
 it (`header` + `excel`), and how the Inventory grid renders it (`label` + `kind` +
 `cell`). A column with ``header=None`` is grid-only (e.g. a VM's resolved protection
 policy); one with ``label=None`` is Excel-only (e.g. the long tail of identifiers).
+``grid=False`` keeps a labelled column out of the Inventory grid (and so out of its
+Columns menu) while the detail pane and the reports still show it: the cluster's Data
+Services IP reads better as a detail than as a grid column.
+
+**Capacity lives in one place.** The cluster capacity and oversubscription figures (vCPU
+Total, vCPU:pCore, Storage Total, Provisioned:Usable, each with N-1) are not Clusters
+columns: the Excel workbook has them on the Capacity sheet (`CAPACITY`), the PDF and Word
+reports in their "Capacity & Oversubscription" section, and the app in the cluster detail
+pane (`inventory.capacity_fields`). `core/tests/test_grid_columns.py` checks that nothing
+is lost.
 
 Keeping both views on one definition is the point: the grid a user filters on screen and
 the sheet they hand to a customer show the same columns, computed the same way. The Excel
@@ -121,6 +131,8 @@ class Col:
     facet: bool = False
     diff: str | None = None
     sortable: bool = True
+    #: False = a column of the detail pane and the reports, never a grid column.
+    grid: bool = True
 
 
 @dataclass(frozen=True)
@@ -161,7 +173,8 @@ class TableSpec:
 
     @property
     def ui_cols(self) -> list[Col]:
-        return [c for c in self.cols if c.label is not None]
+        """The Inventory grid's columns: labelled and not excluded with ``grid=False``."""
+        return [c for c in self.cols if c.label is not None and c.grid]
 
 
 #: The key of the per-row cluster column in every spec.
@@ -291,7 +304,8 @@ CLUSTERS = TableSpec(
         Col("external_ip", "External IP", _a("external_ip"), label="External IP", kind="mono",
             search=True),
         Col("data_services_ip", "Data Services IP", _a("data_services_ip"),
-            label="Data Services IP", kind="mono", search=True, diff="Data Services IP"),
+            label="Data Services IP", kind="mono", search=True, diff="Data Services IP",
+            grid=False),
         Col("encryption", "Encryption", _a("encryption_enabled"), excel=yes_no,
             label="Encryption", kind="status", cell=bool_cell("On", "Off"), facet=True,
             diff="encryption"),
@@ -299,29 +313,17 @@ CLUSTERS = TableSpec(
             label="Model", search=True),
         Col("timezone", "Timezone", _a("timezone")),
         Col("api", "API", _a("api_source")),
-        # Capacity and oversubscription (capacity.py). Provisioned figures count every VM,
-        # powered on or off; N-1 drops the largest node and is N/A below three nodes.
-        Col("cpu_ratio", "vCPU:pCore (all VMs)", _cap("cpu_ratio"), excel=ratio_text,
-            label="vCPU:pCore", kind="ratio"),
-        Col("cpu_ratio_n1", "vCPU:pCore N-1", _cap("cpu_ratio_n1"), excel=ratio_text,
-            label="vCPU:pCore N-1", kind="ratio"),
-        Col("vcpu_total", "vCPU Total", lambda c, x: _int_or_none(_cap("vcpu_total")(c, x))),
-        Col("vcpu_total_n1", "vCPU Total N-1",
-            lambda c, x: _int_or_none(_cap("vcpu_total_n1")(c, x))),
-        Col("storage_ratio", "Storage Provisioned:Usable", _cap("storage_ratio"),
-            excel=ratio_text, label="Storage ratio", kind="ratio"),
-        Col("storage_ratio_n1", "Storage Provisioned:Usable N-1", _cap("storage_ratio_n1"),
-            excel=ratio_text, label="Storage ratio N-1", kind="ratio"),
-        Col("storage_total", "Storage Total (GiB)", _cap("storage_total_bytes"), excel=gib),
-        Col("storage_total_n1", "Storage Total N-1 (GiB)", _cap("storage_total_n1_bytes"),
-            excel=gib),
+        # Capacity and oversubscription figures live on the Capacity sheet (CAPACITY below),
+        # the reports' capacity section and the detail pane, not here (see module docs).
     ),
     id=lambda c: c.uuid, name=lambda c: c.name or c.uuid, where=lambda c: c.source_pc,
     note_keys=("clusters",), sources=True, group=INFRA,
 )
 
 #: The Excel "Capacity" sheet: every input and result of the capacity math, per cluster.
-#: Not an Inventory type (the clusters grid and detail pane show these figures).
+#: The only workbook home of these figures. Not an Inventory type (the cluster detail pane
+#: shows them). Provisioned figures count every VM, powered on or off; N-1 drops the
+#: costliest node and is N/A below three nodes.
 CAPACITY = TableSpec(
     "capacity", "Capacity", "Capacity", "Cluster", "clusters", lambda e: e.clusters,
     (
