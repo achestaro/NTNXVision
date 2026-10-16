@@ -7,6 +7,8 @@ upgrade targets than the constrained formats can show.
 
 from __future__ import annotations
 
+from datetime import datetime
+
 from docx import Document
 from openpyxl import load_workbook
 
@@ -14,7 +16,7 @@ from ntnxvision_core.engine import combine_environments
 from ntnxvision_core.exporters import export_environment
 from ntnxvision_core.exporters.excel import ExcelExporter
 from ntnxvision_core.exporters.pdf import PdfExporter
-from ntnxvision_core.exporters.word import WordExporter
+from ntnxvision_core.exporters.word import GLYPH, WordExporter
 from ntnxvision_core.models import Cluster, Environment, LcmEntity, PrismCentral
 
 _SHEET = "LCM (Life Cycle Manager)"
@@ -98,7 +100,8 @@ def test_excel_lcm_sheet_headers_and_rows(tmp_path) -> None:
     assert rows["AHV"][:4] == ("AHV", "Hypervisor", "cluster-01", "10.0")
     assert rows["AHV"][col["Update Available"]] == "Yes"
     assert rows["AHV"][col["Available Versions"]] == "10.1, 10.0.1"
-    assert rows["AHV"][col["Last Updated"]] == "2026-09-01T10:00:00Z"
+    # A real Excel timestamp (UTC), shown as yyyy-mm-dd hh:mm, so it sorts and filters.
+    assert rows["AHV"][col["Last Updated"]] == datetime(2026, 9, 1, 10, 0)
     assert rows["AHV"][col["API"]] == "v4"
     assert rows["Foundation"][col["Update Available"]] == "No"
     # Excel is the full-fidelity format: no trimming of the version list here.
@@ -114,8 +117,8 @@ def test_excel_unknown_update_flag_is_not_no(tmp_path) -> None:
     col = {name: i for i, name in enumerate(c.value for c in ws[1])}
     row = next(r for r in ws.iter_rows(min_row=2, values_only=True) if r[0] == "SATADOM SL 3ME4")
     assert row[col["Update Available"]] == "Unknown"
-    # empty available_versions renders as a blank cell
-    assert row[col["Available Versions"]] is None
+    # empty available_versions renders as the N/A placeholder, never a blank cell
+    assert row[col["Available Versions"]] == "N/A"
 
 
 def test_excel_omits_lcm_sheet_when_not_collected(tmp_path) -> None:
@@ -181,7 +184,7 @@ def test_pdf_version_trimming() -> None:
     assert _versions([], 2) == "N/A"
     assert _versions(["7.1"], 2) == "7.1"
     assert _versions(["7.1", "7.0"], 2) == "7.1, 7.0"
-    assert _versions(_MANY_VERSIONS, 2) == "7.0.10, 7.0.9 (+8)"
+    assert _versions(_MANY_VERSIONS, 2) == "7.0.10, 7.0.9 (+8 more)"
 
 
 # ─── Word (Architecture Design Document) ───────────────────────────────
@@ -206,7 +209,8 @@ def test_word_lifecycle_section_and_counts(tmp_path) -> None:
     by_component = {r.cells[0].text: [c.text for c in r.cells] for r in table.rows[1:]}
     assert by_component["SATADOM SL 3ME4"][4] == "Unknown"
     assert by_component["SATADOM SL 3ME4"][5] == "N/A"
-    assert by_component["Foundation"][4] == "No"
+    # "No update" is a healthy status: an ok glyph precedes the ink label.
+    assert by_component["Foundation"][4] == f"{GLYPH}\u00a0No"
     assert by_component["AOS"][5] == "7.0.10, 7.0.9, 7.0.8 (+7 more)"
 
 
