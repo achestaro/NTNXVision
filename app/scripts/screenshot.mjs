@@ -51,12 +51,53 @@ const stub = await readFile(join(here, 'stub-ntnx.js'), 'utf-8');
 const rail = async (page, name) => {
   await page.getByRole('navigation', { name: 'Primary' }).getByRole('button', { name, exact: true }).click();
   // New collection pre-fills the first saved target asynchronously.
-  if (name === 'New collection') await page.waitForFunction(() => document.querySelector('#host')?.value);
+  if (name === 'New collection') await page.waitForFunction(() => document.querySelector('[data-testid="target-details"]'));
 };
 const settle = (page) => page.waitForTimeout(350);
 
 // name, stub options, steps, viewport height
 const SHOTS = [
+  // Targets page (CRUD) and how New collection / Multiple PCs pick targets.
+  ['targets', {}, async (p) => rail(p, 'Targets')],
+  ['targets-empty', { empty: true }, async (p) => rail(p, 'Targets')],
+  ['targets-create', {}, async (p) => {
+    await rail(p, 'Targets');
+    await p.getByRole('button', { name: 'Add a target' }).first().click();
+    await p.getByRole('dialog').waitFor();
+  }, 1100],
+  ['targets-create-errors', {}, async (p) => {
+    await rail(p, 'Targets');
+    await p.getByRole('button', { name: 'Add a target' }).first().click();
+    const dlg = p.getByRole('dialog');
+    await dlg.locator('#t-name').fill('pc01 production');
+    await dlg.getByRole('button', { name: 'Add target' }).click();
+    await dlg.getByText('Enter an address.').waitFor();
+  }, 1100],
+  ['targets-edit', {}, async (p) => {
+    await rail(p, 'Targets');
+    await p.getByRole('button', { name: 'PC01 Production', exact: true }).click();
+    await p.getByRole('dialog').getByRole('button', { name: 'Test connection' }).click();
+    await p.getByRole('dialog').getByText('Connected to Prism Central').waitFor();
+  }, 1100],
+  ['targets-delete', {}, async (p) => {
+    await rail(p, 'Targets');
+    await p.getByRole('button', { name: 'Actions for PC01 Production' }).click();
+    await p.getByRole('menuitem', { name: 'Delete…' }).click();
+    await p.getByRole('dialog').waitFor();
+  }],
+  ['targets-new-picker', {}, async (p) => rail(p, 'New collection'), 1180],
+  ['targets-new-empty', { noTargets: true }, async (p) => {
+    await p.getByRole('navigation', { name: 'Primary' }).getByRole('button', { name: 'New collection', exact: true }).click();
+    await p.getByRole('heading', { name: 'Add a target first' }).waitFor();
+  }],
+  ['targets-multi-picker', {}, async (p) => {
+    await rail(p, 'Multiple PCs');
+    await p.getByLabel('Add a target', { exact: true }).waitFor();
+  }],
+  ['targets-multi-empty', { noTargets: true }, async (p) => {
+    await rail(p, 'Multiple PCs');
+    await p.getByRole('heading', { name: 'Add a Prism Central target first' }).waitFor();
+  }],
   ['overview', {}, async () => {}],
   ['overview-empty', { empty: true }, async () => {}],
   ['new', {}, async (p) => rail(p, 'New collection'), 1180],
@@ -83,7 +124,7 @@ const SHOTS = [
   }, 1180],
   ['new-cluster-single', {}, async (p) => {
     await rail(p, 'New collection');
-    await p.locator('#saved').selectOption('pc-lab.example.com:9440:admin');
+    await p.locator('#saved').selectOption('t-lab');
     await p.getByTestId('cluster-list').waitFor();
   }, 1180],
   ['new-clusters-loading', { clusters: 'loading' }, async (p) => {
@@ -109,7 +150,7 @@ const SHOTS = [
   }, 1180],
   ['new-pe', {}, async (p) => {
     await rail(p, 'New collection');
-    await p.getByRole('button', { name: 'Prism Element · one cluster' }).click();
+    await p.locator('#saved').selectOption('t-phx');
   }, 1180],
   ...['auth_failed', 'untrusted_cert', 'unreachable', 'version_unsupported'].map((t) => [
     `new-${t.replace('_', '-')}`,
@@ -194,7 +235,7 @@ const SHOTS = [
   }],
   ['multi-menu', {}, async (p) => {
     await rail(p, 'Multiple PCs');
-    await p.getByRole('button', { name: 'Actions for pc01.example.com' }).click();
+    await p.getByRole('button', { name: 'Actions for PC01 Production' }).click();
   }],
   ['compare', {}, async (p) => {
     await rail(p, 'Compare');

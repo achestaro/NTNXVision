@@ -44,7 +44,7 @@ export default tseslint.config(
   },
   {
     // Dev scripts: the screenshot runner (Node) and the stub window.ntnx (browser).
-    files: ["scripts/**/*.{js,mjs}"],
+    files: ["scripts/**/*.{js,mjs}", "tests/**/*.mjs"],
     languageOptions: { globals: { ...globals.browser, ...globals.node } },
   },
   {
