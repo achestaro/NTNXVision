@@ -6,6 +6,7 @@
 //   theme:    'light' | 'dark' | 'hc' | 'system'   (initial settings.theme)
 //   accent:   'iris' | 'prism'
 //   empty:    true → no snapshots, no saved targets (empty states)
+//   noTargets: true → snapshots but no saved targets (New collection / Multiple PCs empty states)
 //   run:      'hold'   → a started collection freezes mid-run (Collecting screen)
 //             'finish' → a started collection completes after ~0.5 s (Results screen)
 //             'fail'   → a started collection fails
@@ -71,14 +72,16 @@
         snap('pc01 August', 'pc', 'pc01.example.com', 'pc.2024.2', at(8, 29, 16, 40), 4, 24, 1120, 16),
       ];
 
-  let connections = opt.empty
+  // Saved targets (Targets page). Ids are stable UUID-like strings, as in the real app.
+  const tested = (status, ok, message, version, when) => ({ status, ok, message, version, at: when });
+  let connections = opt.empty || opt.noTargets
     ? []
     : [
-        { id: 'pc01.example.com:9440:admin', mode: 'prism_central', host: 'pc01.example.com', username: 'admin', port: 9440, insecure: false, name: 'pc01.example.com', ndbHost: 'ndb01.example.com', ndbUser: 'admin', hasPassword: true },
-        { id: 'pc02.example.com:9440:admin', mode: 'prism_central', host: 'pc02.example.com', username: 'admin', port: 9440, insecure: false, name: 'pc02.example.com', hasPassword: true },
-        { id: 'pc03.example.com:9440:svc-inventory', mode: 'prism_central', host: 'pc03.example.com', username: 'svc-inventory', port: 9440, insecure: false, name: 'pc03.example.com', hasPassword: false },
-        { id: 'phx-dr-01.example.com:9440:admin', mode: 'prism_element', host: 'phx-dr-01.example.com', username: 'admin', port: 9440, insecure: false, name: 'phx-dr-01', hasPassword: true },
-        { id: 'pc-lab.example.com:9440:admin', mode: 'prism_central', host: 'pc-lab.example.com', username: 'admin', port: 9440, insecure: true, name: 'pc-lab.example.com', hasPassword: true },
+        { id: 't-pc01', mode: 'prism_central', host: 'pc01.example.com', username: 'admin', port: 9440, insecure: false, name: 'PC01 Production', ndbHost: 'ndb01.example.com', ndbUser: 'admin', hasPassword: true, ndbHasPassword: true, lastTest: tested('ok', true, 'Connected to Prism Central pc.2024.3', 'pc.2024.3', at(10, 15, 9, 40)) },
+        { id: 't-pc02', mode: 'prism_central', host: 'pc02.example.com', username: 'admin', port: 9440, insecure: false, name: 'PC02 DR site', hasPassword: true, lastTest: tested('ok', true, 'Connected to Prism Central pc.7.3', 'pc.7.3', at(10, 14, 17, 10)) },
+        { id: 't-pc03', mode: 'prism_central', host: 'pc03.example.com', username: 'svc-inventory', port: 9440, insecure: false, name: 'PC03 Labs', hasPassword: false, lastTest: tested('auth_failed', false, 'HTTP 401 Unauthorized', null, at(10, 12, 11, 5)) },
+        { id: 't-phx', mode: 'prism_element', host: 'phx-dr-01.example.com', username: 'admin', port: 9440, insecure: false, name: 'phx-dr-01', hasPassword: true, lastTest: null },
+        { id: 't-lab', mode: 'prism_central', host: 'pc-lab.example.com', username: 'admin', port: 9440, insecure: true, name: 'Lab PC', hasPassword: true, lastTest: tested('version_unsupported', true, 'Connected to Prism Central pc.2023.4', 'pc.2023.4', at(10, 1, 15, 30)) },
       ];
 
   let settings = {
@@ -87,7 +90,7 @@
     density: 'comfortable',
     exportDir: '',
     author: 'Alberto Chestaro',
-    multiTargetIds: ['pc01.example.com:9440:admin', 'pc02.example.com:9440:admin', 'pc03.example.com:9440:svc-inventory'],
+    multiTargetIds: ['t-pc01', 't-pc02', 't-pc03'],
   };
 
   // ── collection areas ──
@@ -429,7 +432,13 @@
         source: opt.platform === 'win32' ? 'C:\\Program Files\\NTNXVision\\resources' : '/Applications/NTNXVision.app/Contents/Resources',
       }),
 
-    testConnection: (req) => {
+    testConnection: (req) =>
+      window.ntnx.testRaw(req).then((r) => {
+        const t = req.targetId && connections.find((c) => c.id === req.targetId);
+        if (t) t.lastTest = { status: r.status, ok: r.ok, message: r.message, version: r.version || null, at: new Date().toISOString() };
+        return r;
+      }),
+    testRaw: (req) => {
       const host = req.host;
       const scenario = host.startsWith('pc03') && !req.password ? 'auth_failed' : opt.test;
       const base = { product: req.mode, name: host, supported_range: 'pc.2024.1 – 7.5.1.6', typical_seconds: req.mode === 'prism_element' ? 60 : 240 };
@@ -629,13 +638,27 @@
     onOpenSnapshotFiles: () => () => {},
 
     listConnections: () => delay(() => connections.slice()),
-    saveConnection: (p) => {
-      const id = p.id || `${p.host}:${p.port}:${p.username}`;
+    saveTarget: (req) => {
+      const errors = {};
+      if (!req.name.trim()) errors.name = 'Enter a name.';
+      else if (connections.some((c) => c.id !== req.id && c.name.toLowerCase() === req.name.trim().toLowerCase())) errors.name = 'Another target already uses this name.';
+      if (!req.host.trim()) errors.host = 'Enter an address.';
+      if (Object.keys(errors).length) return delay({ ok: false, errors, targets: connections.slice() });
+      const id = req.id || 't-' + Math.random().toString(36).slice(2, 10);
       const prev = connections.find((c) => c.id === id);
-      connections = [{ ...p, id, hasPassword: prev ? prev.hasPassword : false }, ...connections.filter((c) => c.id !== id)];
-      return delay(() => connections.slice());
+      const { password, ndbPassword, ...rest } = req;
+      const target = {
+        ...rest,
+        id,
+        ndbHost: req.ndbHost || undefined,
+        hasPassword: !!password || (prev ? prev.hasPassword : false),
+        ndbHasPassword: !!req.ndbHost && (!!ndbPassword || (prev ? !!prev.ndbHasPassword : false)),
+        lastTest: prev ? prev.lastTest : null,
+      };
+      connections = prev ? connections.map((c) => (c.id === id ? target : c)) : [target, ...connections];
+      return delay(() => ({ ok: true, target, targets: connections.slice() }));
     },
-    deleteConnection: (id) => {
+    deleteTarget: (id) => {
       connections = connections.filter((c) => c.id !== id);
       return delay(() => connections.slice());
     },
