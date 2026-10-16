@@ -7,6 +7,7 @@ import type { SnapshotInfo, SnapshotKind, SnapshotList } from '@shared/ipc';
 import {
   Badge,
   Button,
+  Checkbox,
   ConfirmDialog,
   DataTable,
   Dialog,
@@ -157,6 +158,7 @@ export function SnapshotsView(): JSX.Element {
   }
 
   const allVisibleSelected = rows.length > 0 && rows.every((r) => sel[r.path]);
+  const someVisibleSelected = !allVisibleSelected && rows.some((r) => sel[r.path]);
 
   return (
     <>
@@ -263,24 +265,22 @@ export function SnapshotsView(): JSX.Element {
               {
                 key: 'sel',
                 header: (
-                  <input
-                    className="chk"
-                    type="checkbox"
-                    aria-label="Select all"
+                  <Checkbox
+                    aria-label="Select all snapshots"
                     checked={allVisibleSelected}
-                    onChange={(e) => setSel(e.target.checked ? Object.fromEntries(rows.map((r) => [r.path, true])) : {})}
-                    style={{ verticalAlign: 'middle' }}
+                    indeterminate={someVisibleSelected}
+                    disabled={!rows.length}
+                    onChange={(v) => setSel(v ? Object.fromEntries(rows.map((r) => [r.path, true])) : {})}
+                    className="cbx-cell"
                   />
                 ),
                 width: 40,
                 render: (s) => (
-                  <input
-                    className="chk"
-                    type="checkbox"
+                  <Checkbox
                     aria-label={`Select ${s.name}`}
                     checked={!!sel[s.path]}
-                    onChange={(e) => setSel((p) => ({ ...p, [s.path]: e.target.checked }))}
-                    style={{ verticalAlign: 'middle' }}
+                    onChange={(v) => setSel((p) => ({ ...p, [s.path]: v }))}
+                    className="cbx-cell"
                   />
                 ),
               },

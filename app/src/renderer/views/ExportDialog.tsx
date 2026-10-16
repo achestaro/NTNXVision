@@ -2,7 +2,7 @@
 
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import type { ExportFormat, ExportResult, ExportSection, SnapshotDetail } from '@shared/ipc';
-import { Button, Callout, Checkbox, Dialog, Field, FormatCard, Loading, useToast } from '../components';
+import { Button, Callout, Checkbox, ChecklistHeader, Dialog, Field, FormatCard, Loading, SelectAllLink, useToast } from '../components';
 import { errorMessage, fmtAbs, fmtBytes, fmtCount, tildify } from '../lib/format';
 import { revealLabel, useSettings } from '../lib/settings';
 import { useRun } from '../lib/run';
@@ -254,8 +254,16 @@ function ExportDialog({
           </div>
         )}
 
-        <fieldset className="plain">
-          <legend className="lbl">Sections in PDF and Word</legend>
+        <div role="group" aria-labelledby="exp-sections">
+          <ChecklistHeader label="Sections in PDF and Word" id="exp-sections" variant="lbl">
+            <SelectAllLink
+              selected={SECTIONS.filter((s) => sections[s.id]).length}
+              total={SECTIONS.length}
+              noun="sections"
+              disabled={!fmt.pdf && !fmt.word}
+              onSelectAll={() => setSections(Object.fromEntries(SECTIONS.map((s) => [s.id, true])) as Record<ExportSection, boolean>)}
+            />
+          </ChecklistHeader>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 200px), 1fr))', gap: '0 16px' }}>
             {SECTIONS.map((s) => (
               <Checkbox key={s.id} checked={sections[s.id]} onChange={(v) => setSections((p) => ({ ...p, [s.id]: v }))} disabled={!fmt.pdf && !fmt.word}>
@@ -263,7 +271,7 @@ function ExportDialog({
               </Checkbox>
             ))}
           </div>
-        </fieldset>
+        </div>
 
         <div>
           <label className="lbl" htmlFor="exp-dest">
