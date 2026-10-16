@@ -454,7 +454,7 @@ export interface InventoryQueryResult {
   limit: number;
   type_counts: ObjectTypeCount[];
   facets: InventoryFacet[];
-  /** Mono facts line under the title ("1 214 VMs · 4 clusters"). */
+  /** Mono facts line under the title ("1,214 VMs · 4 clusters"). */
   facts?: string | null;
 }
 

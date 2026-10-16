@@ -34,6 +34,7 @@ import {
   StatusGlyph,
   useToast,
 } from '../components';
+import { NutanixIcon, OBJECT_TYPE_MARK } from '../components/icons';
 import type { Column, MenuItem } from '../components';
 import { useAsync } from '../lib/useAsync';
 import { useRouter } from '../lib/router';
@@ -134,7 +135,7 @@ export function InventoryView({
     return (
       <>
         <PageHeader eyebrow="Explore / Inventory" title="Inventory" />
-        <ErrorState title="Couldn’t list snapshots." error={list.error} onRetry={list.reload} />
+        <ErrorState title="Couldn’t list snapshots." error={list.error} onRetry={list.reload} illustration="storage-error" />
       </>
     );
   }
@@ -144,7 +145,7 @@ export function InventoryView({
         <PageHeader eyebrow="Explore / Inventory" title="Inventory" />
         <Panel>
           <EmptyState
-            illustration="search"
+            illustration="no-files"
             title="No snapshots to browse"
             description="Inventory reads saved snapshots, so it works offline. Collect once to fill it."
             action={
@@ -279,8 +280,11 @@ export function InventoryView({
                     setDebounced('');
                   }}
                 >
-                  <span>{t.label}</span>
-                  <span>{t.count === null ? DASH : fmtCount(t.count)}</span>
+                  <span className="ot-name">
+                    {OBJECT_TYPE_MARK[t.type] && <NutanixIcon name={OBJECT_TYPE_MARK[t.type]} size={20} />}
+                    <span>{t.label}</span>
+                  </span>
+                  <span className="ot-count">{t.count === null ? DASH : fmtCount(t.count)}</span>
                 </button>
               ))}
             </div>

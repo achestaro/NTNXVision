@@ -73,7 +73,7 @@ export function CompareView({ baseline: baseProp, current: curProp }: { baseline
     return (
       <>
         <PageHeader eyebrow="Explore / Compare" title="Compare snapshots" />
-        <ErrorState title="Couldn’t list snapshots." error={list.error} onRetry={list.reload} />
+        <ErrorState title="Couldn’t list snapshots." error={list.error} onRetry={list.reload} illustration="storage-error" />
       </>
     );
   }
@@ -83,7 +83,7 @@ export function CompareView({ baseline: baseProp, current: curProp }: { baseline
         <PageHeader eyebrow="Explore / Compare" title="Compare snapshots" />
         <Panel>
           <EmptyState
-            illustration="compare"
+            illustration="no-comparison-created"
             title="Compare needs two snapshots"
             description={
               snaps.length

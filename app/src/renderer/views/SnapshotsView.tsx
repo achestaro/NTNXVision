@@ -21,6 +21,7 @@ import {
   useToast,
 } from '../components';
 import type { MenuItem } from '../components';
+import { NutanixIcon, SOURCE_KIND_MARK } from '../components/icons';
 import { useAsync } from '../lib/useAsync';
 import { useRouter } from '../lib/router';
 import { useRun } from '../lib/run';
@@ -77,7 +78,7 @@ export function SnapshotsView(): JSX.Element {
     setDeleting(null);
     setSel({});
     invalidate();
-    if (failed.length) toast.show({ tone: 'error', title: `Deleted ${ok} of ${deleting.length}`, detail: failed.join(' · ') });
+    if (failed.length) toast.show({ tone: 'error', title: `Deleted ${fmtCount(ok)} of ${fmtCount(deleting.length)}`, detail: failed.join(' · ') });
     else toast.show({ tone: 'ok', title: ok === 1 ? `Deleted ${deleting[0].name}` : `Deleted ${ok} snapshots` });
   };
 
@@ -121,7 +122,7 @@ export function SnapshotsView(): JSX.Element {
     return (
       <>
         {header}
-        <ErrorState title="Couldn’t list snapshots." error={list.error} onRetry={list.reload} />
+        <ErrorState title="Couldn’t list snapshots." error={list.error} onRetry={list.reload} illustration="storage-error" />
       </>
     );
   }
@@ -136,6 +137,7 @@ export function SnapshotsView(): JSX.Element {
         />
         <Panel>
           <EmptyState
+            illustration="no-recovery-point-created"
             title="No snapshots yet"
             description="Each collection saves a snapshot here first, so reports and comparisons work offline."
             action={
@@ -288,7 +290,8 @@ export function SnapshotsView(): JSX.Element {
                 key: 'source',
                 header: 'Source',
                 render: (s) => (
-                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                  <span className="label-mark">
+                    <NutanixIcon name={SOURCE_KIND_MARK[s.kind ?? 'pc']} size={20} />
                     <Badge strong>{KIND_LABEL[s.kind ?? 'pc']}</Badge>
                     {s.source ?? '—'}
                   </span>
@@ -335,9 +338,9 @@ export function SnapshotsView(): JSX.Element {
       <ConfirmDialog
         open={!!deleting}
         onClose={() => setDeleting(null)}
-        title={deleting && deleting.length === 1 ? `Delete ${deleting[0].name}?` : `Delete ${deleting?.length ?? 0} snapshots?`}
+        title={deleting && deleting.length === 1 ? `Delete ${deleting[0].name}?` : `Delete ${fmtCount(deleting?.length ?? 0)} snapshots?`}
         body="The snapshot files are removed from this computer. Reports already exported stay where they are. This can’t be undone."
-        confirmLabel={deleting && deleting.length > 1 ? `Delete ${deleting.length} snapshots` : 'Delete snapshot'}
+        confirmLabel={deleting && deleting.length > 1 ? `Delete ${fmtCount(deleting.length)} snapshots` : 'Delete snapshot'}
         destructive
         busy={busy}
         onConfirm={() => void doDelete()}

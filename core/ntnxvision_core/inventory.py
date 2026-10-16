@@ -3,7 +3,7 @@
 Columns come from `exporters.tables` — the same definitions the Excel workbook uses — so
 the grid and the report agree. Each (snapshot, mtime, type) is indexed once: every row's
 cells, sort keys, lower-cased search text and facet labels are precomputed, which keeps a
-query on a 20 000-VM snapshot to a filtered list comprehension plus one sort.
+query on a 20,000-VM snapshot to a filtered list comprehension plus one sort.
 """
 
 from __future__ import annotations
@@ -21,6 +21,7 @@ from ntnxvision_core.exporters.tables import (
     joined,
 )
 from ntnxvision_core.models import Environment
+from ntnxvision_core.numfmt import PLAIN_HEADERS, fmt_count
 
 GIB = 1024**3
 TIB = 1024**4
@@ -37,12 +38,8 @@ def fmt_bytes(value: int | float | None) -> str | None:
     for unit, size in (("PB", 1024**5), ("TB", TIB), ("GB", GIB), ("MB", 1024**2)):
         if abs(v) >= size:
             n = v / size
-            return f"{n:.1f} {unit}".replace(".0 ", " ") if n < 100 else f"{n:.0f} {unit}"
-    return f"{int(v)} B"
-
-
-def fmt_count(n: int) -> str:
-    return f"{n:,}".replace(",", " ")
+            return f"{n:.1f} {unit}".replace(".0 ", " ") if n < 100 else f"{n:,.0f} {unit}"
+    return f"{int(v):,} B"
 
 
 def display(col: Col, raw: Any) -> str | None:
@@ -60,6 +57,9 @@ def display(col: Col, raw: Any) -> str | None:
         return "Yes" if raw else "No"
     if isinstance(raw, list):
         return joined(raw) or None
+    if isinstance(raw, (int, float)) and col.header not in PLAIN_HEADERS \
+            and col.label not in PLAIN_HEADERS:
+        return fmt_count(raw)
     return str(raw)
 
 
@@ -276,7 +276,7 @@ def _facts(spec: TableSpec, env: Environment, total: int) -> str:
     if spec.type == "clusters":
         parts.append(f"{fmt_count(len(env.hosts))} hosts")
     if env.is_combined:
-        parts.append(f"{len(env.source_environments)} Prism Centrals")
+        parts.append(f"{fmt_count(len(env.source_environments))} Prism Centrals")
     return " · ".join(parts)
 
 
@@ -375,9 +375,9 @@ def _vm_detail(env: Environment, vm: Any, ctx: Ctx) -> dict[str, Any]:
     fields: list[dict[str, Any]] = [
         {"label": "Host", "value": vm.host_name},
         {"label": "Cluster", "value": vm.cluster_name},
-        {"label": "Size", "value": f"{vm.vcpu_total or '—'} vCPU · "
+        {"label": "Size", "value": f"{fmt_count(vm.vcpu_total or '—')} vCPU · "
                                    f"{fmt_bytes(vm.memory_bytes) or '—'}", "mono": True},
-        {"label": "Storage", "value": f"{fmt_bytes(total) or '0 GB'} · {len(disks)} "
+        {"label": "Storage", "value": f"{fmt_bytes(total) or '0 GB'} · {fmt_count(len(disks))} "
                                       f"disk{'s' if len(disks) != 1 else ''}", "mono": True},
         {"label": "OS", "value": vm.guest_os},
         {"label": "IP", "value": ", ".join(ips) or None, "mono": True},
@@ -423,7 +423,8 @@ def _host_detail(env: Environment, h: Any, ctx: Ctx) -> dict[str, Any]:
     vms = [v for v in env.vms if (v.host_uuid and v.host_uuid == h.uuid)
            or (v.host_name and v.host_name == h.name)]
     on = sum(1 for v in vms if (v.power_state or "").upper() == "ON")
-    out["fields"].insert(1, {"label": "VMs on host", "value": f"{len(vms)} ({on} on)",
+    out["fields"].insert(1, {"label": "VMs on host",
+                             "value": f"{fmt_count(len(vms))} ({fmt_count(on)} on)",
                              "mono": True})
     normal = str(h.maintenance_state or "NORMAL").upper() == "NORMAL"
     out["status"] = {"tone": "ok" if normal else "warn",
@@ -441,7 +442,7 @@ def _cluster_detail(env: Environment, c: Any, ctx: Ctx) -> dict[str, Any]:
     fields.insert(3, {"label": "Storage", "value": f"{fmt_bytes(cap) or '—'} · "
                                                    f"{round(100 * used / cap) if cap else 0}% used",
                       "mono": True})
-    fields.insert(4, {"label": "Containers", "value": str(len(ctrs)), "mono": True})
+    fields.insert(4, {"label": "Containers", "value": fmt_count(len(ctrs)), "mono": True})
     notes = []
     if c.encryption_enabled is False:
         notes.append({"tone": "warn", "text": "Data-at-rest encryption is off."})

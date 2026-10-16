@@ -3,7 +3,8 @@
 // sidecar). Usage, from app/:
 //
 //   npm run build:renderer
-//   node scripts/screenshot.mjs [outDir] [--only=name1,name2] [--dark-only] [--light-only]
+//   node scripts/screenshot.mjs [outDir] [--only=name1,name2] [--themes=light,dark,hc]
+//                               [--dark-only] [--light-only]
 //
 // Serves dist/renderer over a throwaway localhost HTTP server (ES modules don't load from
 // file:// in Chromium), injects scripts/stub-ntnx.js, drives each screen with Playwright
@@ -22,7 +23,9 @@ const root = resolve(here, '..', 'dist', 'renderer');
 const args = process.argv.slice(2);
 const outDir = resolve(args.find((a) => !a.startsWith('--')) ?? join(here, '..', 'screenshots'));
 const only = args.find((a) => a.startsWith('--only='))?.slice(7).split(',');
-const themes = args.includes('--dark-only') ? ['dark'] : args.includes('--light-only') ? ['light'] : ['light', 'dark'];
+const themesArg = args.find((a) => a.startsWith('--themes='))?.slice(9).split(',');
+const themes =
+  themesArg ?? (args.includes('--dark-only') ? ['dark'] : args.includes('--light-only') ? ['light'] : ['light', 'dark', 'hc']);
 
 if (!existsSync(join(root, 'index.html'))) {
   console.error('dist/renderer/index.html not found — run `npm run build:renderer` first.');
@@ -122,7 +125,46 @@ const SHOTS = [
     await p.getByText('What changed in').waitFor();
   }],
   ['compare-empty', { empty: true }, async (p) => rail(p, 'Compare')],
+  ['snapshots-empty', { empty: true }, async (p) => rail(p, 'Snapshots')],
   ['settings', {}, async (p) => rail(p, 'Settings')],
+  ['theme-menu', {}, async (p) => {
+    // Opens from the keyboard like Radix: focus lands on the first item.
+    await p.getByTestId('theme-mode-menu').focus();
+    await p.keyboard.press('Enter');
+    const menu = p.getByRole('menu', { name: 'Theme' });
+    await menu.waitFor();
+    const radios = menu.getByRole('menuitemradio');
+    if ((await radios.count()) !== 4) throw new Error('theme menu should list 4 modes');
+    const checked = await menu.locator('[aria-checked="true"]').innerText();
+    const want = { light: 'Light', dark: 'Dark', hc: 'High contrast', system: 'System' }[p.__theme];
+    if (checked.trim() !== want) throw new Error(`checked mode is "${checked}", expected "${want}"`);
+  }],
+  ['theme-sync', { theme: 'system' }, async (p) => {
+    // System follows the OS live; the menu and Settings → Theme stay in sync.
+    const html = () => p.evaluate(() => document.documentElement.dataset.theme);
+    await p.emulateMedia({ colorScheme: 'dark' });
+    await p.waitForFunction(() => document.documentElement.dataset.theme === 'dark');
+    await p.emulateMedia({ colorScheme: 'light' });
+    await p.waitForFunction(() => document.documentElement.dataset.theme === 'light');
+    const trigger = p.getByTestId('theme-mode-menu');
+    if ((await trigger.getAttribute('aria-label')) !== 'Theme: System') throw new Error('trigger should say System');
+    await trigger.focus();
+    await p.keyboard.press('ArrowDown'); // opens on System
+    await p.keyboard.press('End'); // Appearance settings…
+    await p.keyboard.press('ArrowUp'); // High contrast
+    await p.keyboard.press('Enter');
+    await p.waitForFunction(() => document.documentElement.dataset.theme === 'hc');
+    if (await p.getByRole('menu', { name: 'Theme' }).count()) throw new Error('menu should close after choosing');
+    if (!(await trigger.evaluate((el) => el === document.activeElement))) throw new Error('focus should return to the trigger');
+    await rail(p, 'Settings');
+    const seg = p.getByRole('group', { name: /theme/i });
+    const on = await seg.locator('[aria-pressed="true"]').innerText();
+    if (on.trim() !== 'High contrast') throw new Error(`Settings shows "${on}"`);
+    await seg.getByRole('button', { name: 'Light', exact: true }).click();
+    await p.waitForFunction(() => document.documentElement.dataset.theme === 'light');
+    if ((await trigger.getAttribute('aria-label')) !== 'Theme: Light') throw new Error('trigger did not follow Settings');
+    if ((await html()) !== 'light') throw new Error('theme not applied');
+  }],
   ['palette', {}, async (p) => {
     await p.keyboard.press('Meta+k');
     await p.keyboard.type('pc0');
@@ -152,6 +194,7 @@ for (const theme of themes) {
       await page.goto(url);
       await page.getByRole('heading', { level: 1 }).first().waitFor();
       await settle(page);
+      page.__theme = theme;
       await steps(page);
       await settle(page);
       const file = join(outDir, `${name}-${theme}.png`);

@@ -555,7 +555,7 @@ def _multi(handle: RunHandle, targets: list[dict[str, Any]], params: dict[str, A
     combined_result = None
     if params.get("combine") and len(successful_envs) >= 2:
         _emit_progress({"type": "phase", "run_id": handle.run_id, "phase": "combine",
-                        "label": f"Combining {len(successful_envs)} Prism Centrals…"})
+                        "label": f"Combining {len(successful_envs):,} Prism Centrals…"})
         combined_env = combine_environments(successful_envs)
         combined_name = params.get("combined_name") or "combined-environment"
         combined_result = _finalize(
@@ -624,9 +624,9 @@ def _estimates(summary: dict[str, Any], kind: Any) -> dict[str, Any]:
     # The PDF and the ADD carry no per-VM table, so VMs barely move their length.
     doc_rows = max(0, rows - vms)
     return {
-        "excel": {"bytes": 12_000 + rows * 190, "detail": f"{sheets} sheets"},
-        "pdf": {"bytes": 650_000 + doc_rows * 1_100, "detail": f"≈ {10 + doc_rows // 30} pages"},
-        "word": {"bytes": 800_000 + doc_rows * 900, "detail": f"≈ {16 + doc_rows // 25} pages"},
+        "excel": {"bytes": 12_000 + rows * 190, "detail": f"{sheets:,} sheets"},
+        "pdf": {"bytes": 650_000 + doc_rows * 1_100, "detail": f"≈ {10 + doc_rows // 30:,} pages"},
+        "word": {"bytes": 800_000 + doc_rows * 900, "detail": f"≈ {16 + doc_rows // 25:,} pages"},
     }
 
 

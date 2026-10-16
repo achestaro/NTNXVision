@@ -246,7 +246,7 @@ def combine_environments(envs: list[Environment]) -> Environment:
 
     combined = Environment(
         collected_at=datetime.now(timezone.utc).isoformat(),
-        prism_central=PrismCentral(host=f"{len(envs)} Prism Centrals (combined)"),
+        prism_central=PrismCentral(host=f"{len(envs):,} Prism Centrals (combined)"),
     )
 
     list_fields = [
