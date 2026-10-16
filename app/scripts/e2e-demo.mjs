@@ -9,8 +9,9 @@
 // snapshot dir and in-memory keychain), then walks: empty Overview → connection tests
 // (ok, bad password, self-signed, unreachable) → collect pc01 → Results → a second,
 // drifted collection → cancel a run → Inventory filter + VM detail → Compare + export →
-// Snapshots + export dialog (PDF/Word with sections) → Multiple PCs with one failing
-// target → Overview. Screenshots of each step go to <outDir> (default
+// Snapshots + export dialog (PDF/Word with sections) → snapshot file round trip (export a
+// .ntnxsnap → delete → import → open in Inventory → reopen it as the OS would and skip
+// the duplicate) → Multiple PCs with one failing target → Overview. Screenshots of each step go to <outDir> (default
 // ./screenshots/e2e). Exits non-zero on the first failed step.
 
 import { _electron as electron } from 'playwright-core';
@@ -29,6 +30,9 @@ const keepOpen = args.includes('--keep-open');
 const profile = await mkdtemp(join(tmpdir(), 'ntnxvision-e2e-'));
 const dataDir = join(profile, 'data');
 const exportDir = join(profile, 'exports');
+// The native save/open dialogs answer from this folder in e2e runs (main.ts e2eDialogDir).
+const transferDir = join(profile, 'transfer');
+await mkdir(transferDir, { recursive: true });
 await mkdir(outDir, { recursive: true });
 // Reports go to the throwaway profile, never the real ~/Documents.
 await mkdir(join(profile, 'userData'), { recursive: true });
@@ -45,6 +49,7 @@ const app = await electron.launch({
     NTNXVISION_USER_DATA: join(profile, 'userData'),
     NTNXVISION_DATA_DIR: dataDir,
     NTNXVISION_KEYCHAIN: 'memory',
+    NTNXVISION_E2E_DIALOG_DIR: transferDir,
     NTNXVISION_DEMO_LATENCY_MS: process.env.NTNXVISION_DEMO_LATENCY_MS ?? '15',
   },
   timeout: 60_000,
@@ -174,6 +179,57 @@ try {
     for (const ext of ['.xlsx', '.pdf', '.docx']) {
       if (!files.some((f) => f.startsWith('pc01-week1') && f.endsWith(ext))) throw new Error(`no ${ext} written`);
     }
+  });
+
+  await run('snapshot-file-export', async () => {
+    await rail('Snapshots');
+    await page.getByRole('button', { name: 'More actions for pc01-week1' }).click();
+    await page.getByRole('menuitem', { name: 'Export snapshot file…' }).click();
+    const dialog = page.getByRole('dialog');
+    await dialog.getByLabel('Exported by (optional)').fill('E2E Tester on the design team');
+    await page.screenshot({ path: join(outDir, `${String(step).padStart(2, '0')}-snapshot-file-export-dialog.png`) });
+    await dialog.getByRole('button', { name: 'Choose location…' }).click();
+    await page.getByText('Exported pc01-week1.ntnxsnap').first().waitFor({ timeout: 60_000 });
+    if (!(await readdir(transferDir)).includes('pc01-week1.ntnxsnap')) throw new Error('no .ntnxsnap written');
+  });
+
+  await run('snapshot-file-delete', async () => {
+    await page.getByRole('button', { name: 'More actions for pc01-week1' }).click();
+    await page.getByRole('menuitem', { name: 'Delete…' }).click();
+    await page.getByRole('dialog').getByRole('button', { name: 'Delete snapshot' }).click();
+    await page.getByText('Deleted pc01-week1').first().waitFor({ timeout: 30_000 });
+    await page.getByRole('button', { name: 'More actions for pc01-week1' }).waitFor({ state: 'detached' });
+  });
+
+  await run('snapshot-file-import', async () => {
+    await page.getByRole('button', { name: 'Import…', exact: true }).click();
+    const dialog = page.getByRole('dialog');
+    await dialog.getByRole('heading', { name: 'Import snapshot?' }).waitFor({ timeout: 30_000 });
+    await dialog.getByText('pc01.demo.local').first().waitFor();
+    await dialog.getByText('E2E Tester on the design team').waitFor();
+    await page.screenshot({ path: join(outDir, `${String(step).padStart(2, '0')}-snapshot-file-import-preview.png`) });
+    await dialog.getByRole('button', { name: 'Import snapshot' }).click();
+    await page.getByText('Imported pc01-week1').first().waitFor({ timeout: 60_000 });
+  });
+
+  await run('snapshot-file-open-in-inventory', async () => {
+    await page.getByRole('button', { name: 'Open in Inventory' }).click();
+    await page.waitForFunction(() => /pc01-week1\.ntnxsnap\.json$/.test(document.querySelector('#snap')?.value ?? ''), null, { timeout: 30_000 });
+    await page.getByRole('heading', { level: 1 }).first().waitFor();
+    await rail('Snapshots');
+    await page.getByText('Imported', { exact: true }).first().waitFor({ timeout: 30_000 });
+  });
+
+  await run('snapshot-file-open-from-os', async () => {
+    // What Finder does on a double-click (Windows goes through second-instance argv).
+    const file = join(transferDir, 'pc01-week1.ntnxsnap');
+    await app.evaluate(({ app: electronApp }, p) => electronApp.emit('open-file', { preventDefault() {} }, p), file);
+    const dialog = page.getByRole('dialog');
+    await dialog.getByText(/You already have this snapshot as pc01-week1/).waitFor({ timeout: 30_000 });
+    await page.screenshot({ path: join(outDir, `${String(step).padStart(2, '0')}-snapshot-file-duplicate.png`) });
+    await dialog.getByRole('button', { name: 'Skip', exact: true }).click();
+    await dialog.getByRole('button', { name: 'Skip file' }).click();
+    await page.getByText('Skipped pc01-week1.ntnxsnap').first().waitFor({ timeout: 30_000 });
   });
 
   await run('multi-pc', async () => {

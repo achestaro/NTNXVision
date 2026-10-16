@@ -24,6 +24,7 @@ import { useRouter } from '../lib/router';
 import { useRun } from '../lib/run';
 import { revealLabel } from '../lib/settings';
 import { NA, errorMessage, fmtAbs, plural } from '../lib/format';
+import { useSnapshotTransfer } from './SnapshotTransfer';
 
 type Tab = 'all' | ChangeKind;
 const KIND: Record<ChangeKind, string> = { added: '+ Added', removed: '− Removed', changed: '~ Changed' };
@@ -38,6 +39,7 @@ export function CompareView({ baseline: baseProp, current: curProp }: { baseline
   const { navigate } = useRouter();
   const { dataVersion } = useRun();
   const toast = useToast();
+  const transfer = useSnapshotTransfer();
   const list = useAsync<SnapshotList>(() => window.ntnx.listSnapshots(), [dataVersion]);
   const snaps = list.data?.snapshots ?? [];
   const [current, setCurrent] = useState<string | undefined>(curProp);
@@ -90,6 +92,7 @@ export function CompareView({ baseline: baseProp, current: curProp }: { baseline
                 ? 'Collect the same Prism Central again later, then see what was added, removed or changed in between.'
                 : 'Collect a Prism Central twice, then see what was added, removed or changed in between.'
             }
+            secondary={<Button onClick={() => transfer.importFiles()}>Import a snapshot file</Button>}
             action={
               <Button variant="primary" onClick={() => navigate({ screen: 'new' })}>
                 Start collection

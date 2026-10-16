@@ -47,6 +47,18 @@ cd ../app && npm ci && npm run package:mac      # or: npm run package:win (Windo
   was lost, the console window is hidden on Windows, and `NTNXVISION_SIDECAR=<path>`
   overrides the path for debugging.
 
+## File association (`.ntnxsnap`)
+
+`build.fileAssociations` in `app/package.json` registers portable snapshot files
+(`.ntnxsnap`): electron-builder writes `CFBundleDocumentTypes` into the macOS
+`Info.plist` and a ProgId with an `open` verb (`"%1"`) into the MSI. Both use the app
+icon. Double-clicking a file starts NTNXVision, or hands the file to the running copy,
+and shows the import preview: macOS delivers `open-file`, Windows passes the path on the
+command line (first launch) or through `second-instance` (the app holds a single-instance
+lock per profile). The optional NSIS build is per-user (`nsis.perMachine: false`), where
+electron-builder doesn't register associations: users pick NTNXVision under "Open with"
+once, or use Import or drag and drop.
+
 ## Windows MSI behaviour
 
 * **Per-machine install by default** (`msi.perMachine: true`). It goes to

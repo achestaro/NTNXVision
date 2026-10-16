@@ -1,5 +1,5 @@
 // Snapshots (mock: Snapshots.dc.html) — every saved collection: filter, select two to
-// compare, export, rename, delete.
+// compare, export, rename, delete, and move snapshots between machines as .ntnxsnap files.
 
 import React, { useMemo, useRef, useState } from 'react';
 import { MagnifyingGlassIcon } from '@phosphor-icons/react';
@@ -28,6 +28,7 @@ import { useRun } from '../lib/run';
 import { revealLabel } from '../lib/settings';
 import { NA, errorMessage, fmtAbs, fmtBytes, fmtCount, tildify } from '../lib/format';
 import { useExportDialog } from './ExportDialog';
+import { ImportedBadge, useSnapshotTransfer } from './SnapshotTransfer';
 
 type Filter = 'all' | SnapshotKind;
 const KIND_LABEL: Record<SnapshotKind, string> = { pc: 'PC', pe: 'PE', combined: 'Combined' };
@@ -36,6 +37,7 @@ export function SnapshotsView(): JSX.Element {
   const { navigate } = useRouter();
   const { dataVersion, invalidate } = useRun();
   const exportDialog = useExportDialog();
+  const transfer = useSnapshotTransfer();
   const toast = useToast();
   const list = useAsync<SnapshotList>(() => window.ntnx.listSnapshots(), [dataVersion]);
   const [text, setText] = useState('');
@@ -85,6 +87,7 @@ export function SnapshotsView(): JSX.Element {
   const actions = (s: SnapshotInfo): MenuItem[] => [
     { label: 'Browse inventory', onSelect: () => navigate({ screen: 'inventory', snapshot: s.path }) },
     { label: 'Compare with…', onSelect: () => navigate({ screen: 'compare', current: s.path }), disabled: all.length < 2 },
+    { label: 'Export snapshot file…', onSelect: () => transfer.exportFile(s) },
     { label: 'Rename', shortcut: 'F2', onSelect: () => setRenaming(s) },
     { label: revealLabel(), onSelect: () => void window.ntnx.revealPath(s.path) },
     'separator',
@@ -110,6 +113,7 @@ export function SnapshotsView(): JSX.Element {
           <Button onClick={reveal} disabled={!list.data?.dir}>
             {revealLabel()}
           </Button>
+          <Button onClick={() => transfer.importFiles()}>Import…</Button>
           <Button variant="primary" onClick={() => navigate({ screen: 'new' })}>
             Start collection
           </Button>
@@ -140,6 +144,7 @@ export function SnapshotsView(): JSX.Element {
             illustration="no-recovery-point-created"
             title="No snapshots yet"
             description="Each collection saves a snapshot here first, so reports and comparisons work offline."
+            secondary={<Button onClick={() => transfer.importFiles()}>Import a snapshot file</Button>}
             action={
               <Button variant="primary" onClick={() => navigate({ screen: 'new' })}>
                 Start collection
@@ -199,6 +204,9 @@ export function SnapshotsView(): JSX.Element {
           )}
           <Button size="sm" onClick={() => exportDialog.open(selected.map((x) => x.path))}>
             Export…
+          </Button>
+          <Button size="sm" onClick={() => transfer.exportFiles(selected)}>
+            Export files…
           </Button>
           <Button size="sm" variant="destructive" onClick={() => setDeleting(selected)}>
             Delete…
@@ -281,9 +289,12 @@ export function SnapshotsView(): JSX.Element {
                 header: 'Name',
                 className: 'nm',
                 render: (s) => (
-                  <button type="button" className="lnk" onClick={() => navigate({ screen: 'inventory', snapshot: s.path })}>
-                    {s.name}
-                  </button>
+                  <>
+                    <button type="button" className="lnk" onClick={() => navigate({ screen: 'inventory', snapshot: s.path })}>
+                      {s.name}
+                    </button>
+                    <ImportedBadge provenance={s.imported} />
+                  </>
                 ),
               },
               {
