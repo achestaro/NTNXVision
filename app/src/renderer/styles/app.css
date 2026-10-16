@@ -590,6 +590,65 @@ p {
     opacity: 1;
   }
 }
+/* Targets table: fits its panel down to a ~1,100 px window. Name stays first and sticky;
+   long names and addresses truncate (full text in the tooltip). As the panel narrows,
+   Username folds away, then Last collected, Snapshots and the last-test time (a tooltip
+   on the status); the editor shows all of them. */
+.targets-panel {
+  container-type: inline-size;
+}
+.tbl .clip {
+  display: inline-block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  vertical-align: bottom;
+}
+.tbl-targets td:first-child,
+.tbl-targets th:first-child {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  background: var(--surface);
+}
+.tbl-targets tbody tr:hover td:first-child {
+  background: var(--surface-hover);
+}
+.tbl-targets .t-name {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 220px;
+}
+.tbl-targets .t-name .lnk {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.tbl-targets .t-addr {
+  max-width: 230px;
+}
+.tbl-targets .t-user {
+  max-width: 140px;
+}
+@container (max-width: 1250px) {
+  .tbl-targets .col-user {
+    display: none;
+  }
+}
+@container (max-width: 1000px) {
+  .tbl-targets .col-collected,
+  .tbl-targets .col-snaps,
+  .tbl-targets .t-when {
+    display: none;
+  }
+  .tbl-targets .t-name {
+    max-width: 180px;
+  }
+  .tbl-targets .t-addr {
+    max-width: 180px;
+  }
+}
 .tbl-empty {
   padding: 16px 12px;
   color: var(--ink-3);
@@ -1741,6 +1800,11 @@ dl {
   font-size: 12px;
   color: var(--ink-3);
   overflow-wrap: anywhere;
+}
+.toast-hint {
+  font-size: 12px;
+  color: var(--ink-2);
+  margin-top: 2px;
 }
 
 /* ── Empty / loading / error states ────────────────────────────────── */

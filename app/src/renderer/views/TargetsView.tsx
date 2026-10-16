@@ -138,23 +138,20 @@ export function TargetsView({ edit, returnTo }: { edit?: string; returnTo?: 'new
         insecure: t.insecure,
         targetId: t.id,
       });
+      // Short: "<name>: <reason>" and one plain next step. The sidecar's technical message
+      // is the tooltip (and the editor's test shows it in full).
       const o = testOutcome(r.status);
-      const title =
+      const reason =
         r.status === 'ok'
-          ? `${targetLabel(t)}: connection verified`
+          ? `connection verified${r.version ? ` (${r.version})` : ''}`
           : r.status === 'version_unsupported'
-            ? `${targetLabel(t)}: connected, version outside the supported range`
-            : `${targetLabel(t)}: connection failed, ${o.label.toLowerCase()}`;
-      const detail =
-        r.status === 'ok'
-          ? r.version ?? undefined
-          : r.status === 'version_unsupported'
-            ? [r.version, r.supported_range && `supported ${r.supported_range}`, 'you can still collect'].filter(Boolean).join(' · ')
-            : [r.message, o.hint].filter(Boolean).join('. ');
+            ? `${r.version ?? 'version'} is outside the supported range`
+            : o.label.toLowerCase();
       toast.show({
         tone: o.tone,
-        title,
-        detail,
+        title: `${targetLabel(t)}: ${reason}`,
+        hint: r.status === 'ok' ? undefined : r.status === 'version_unsupported' ? 'You can still collect.' : o.hint,
+        tooltip: r.status === 'ok' ? undefined : r.message,
         // A failure is fixed in the editor: a new password, or TLS verification off for a self-signed certificate.
         action: r.ok ? undefined : { label: 'Edit…', onClick: () => setEditing(t) },
       });
@@ -292,7 +289,7 @@ export function TargetsView({ edit, returnTo }: { edit?: string; returnTo?: 'new
     <>
       {header}
       {loadError && <ErrorState title="Couldn’t refresh the targets." error={loadError} onRetry={() => void load()} />}
-      <Panel aria-label="Targets table" style={{ minWidth: 0 }}>
+      <Panel aria-label="Targets table" className="targets-panel" style={{ minWidth: 0 }}>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, padding: '8px 12px', borderBottom: '1px solid var(--rule)', alignItems: 'center' }}>
           <div className="input-wrap" style={{ flex: '1 1 220px', maxWidth: 320 }}>
             <Icon icon={MagnifyingGlassIcon} size={16} className="input-icon" />
@@ -323,6 +320,7 @@ export function TargetsView({ edit, returnTo }: { edit?: string; returnTo?: 'new
             rowActionsLabel={(t) => `Actions for ${targetLabel(t)}`}
             kebabAlwaysVisible
             empty={<div className="empty-inline">No target matches “{q}”.</div>}
+            className="tbl-targets"
             columns={[
               {
                 key: 'name',
@@ -330,32 +328,46 @@ export function TargetsView({ edit, returnTo }: { edit?: string; returnTo?: 'new
                 sortable: true,
                 className: 'nm',
                 render: (t) => (
-                  <button type="button" className="lnk" onClick={() => setEditing(t)}>
-                    {targetLabel(t)}
-                  </button>
+                  <span className="t-name">
+                    <button type="button" className="lnk" onClick={() => setEditing(t)} title={targetLabel(t)}>
+                      {targetLabel(t)}
+                    </button>
+                    <Badge title={t.mode === 'prism_element' ? 'Prism Element' : 'Prism Central'}>{t.mode === 'prism_element' ? 'PE' : 'PC'}</Badge>
+                  </span>
                 ),
               },
-              { key: 'type', header: 'Type', sortable: true, render: (t) => <Badge>{t.mode === 'prism_element' ? 'PE' : 'PC'}</Badge> },
               {
                 key: 'host',
                 header: 'Address and port',
                 sortable: true,
                 className: 'mono',
                 style: { fontSize: 12 },
-                render: (t) => `${t.host}:${t.port}`,
+                render: (t) => {
+                  const full = `${t.host}:${t.port}${t.ndbHost ? ` · NDB ${t.ndbHost}` : ''}${t.insecure ? ' · TLS verification off' : ''}`;
+                  return (
+                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8, maxWidth: '100%' }}>
+                      <span className="clip t-addr" title={full}>
+                        {t.host}:{t.port}
+                      </span>
+                      {t.insecure && (
+                        <span title="TLS certificate verification is off for this target" style={{ fontFamily: 'var(--font-sans)' }}>
+                          <Status tone="warn">TLS off</Status>
+                        </span>
+                      )}
+                    </span>
+                  );
+                },
               },
-              { key: 'user', header: 'Username', sortable: true, render: (t) => t.username },
               {
-                key: 'ndb',
-                header: 'NDB',
-                className: (t) => (t.ndbHost ? 'mono' : 'dash'),
-                style: { fontSize: 12 },
-                render: (t) => t.ndbHost || NA,
-              },
-              {
-                key: 'tls',
-                header: 'Verify TLS',
-                render: (t) => (t.insecure ? <Status tone="warn">Off</Status> : <Status tone="ok">On</Status>),
+                key: 'user',
+                header: 'Username',
+                sortable: true,
+                colClassName: 'col-user',
+                render: (t) => (
+                  <span className="clip t-user" title={t.username}>
+                    {t.username}
+                  </span>
+                ),
               },
               {
                 key: 'pw',
@@ -374,13 +386,14 @@ export function TargetsView({ edit, returnTo }: { edit?: string; returnTo?: 'new
                 key: 'collected',
                 header: 'Last collected',
                 sortable: true,
+                colClassName: 'col-collected',
                 className: (t) => (statsFor(t).last ? undefined : 'dash'),
                 render: (t) => {
                   const last = statsFor(t).last;
                   return last ? <span title={fmtAbs(last)}>{fmtRel(last)}</span> : NA;
                 },
               },
-              { key: 'snaps', header: 'Snapshots', sortable: true, numeric: true, render: (t) => fmtCount(statsFor(t).count) },
+              { key: 'snaps', header: 'Snapshots', sortable: true, numeric: true, colClassName: 'col-snaps', render: (t) => fmtCount(statsFor(t).count) },
             ]}
             rowInlineActions={(t) => (
               <Button size="sm" icon={PlugIcon} onClick={() => void testRow(t)} disabled={testing.has(t.id)} aria-label={`Test ${targetLabel(t)}`} style={{ marginRight: 4 }}>
@@ -406,19 +419,19 @@ function LastTest({ target: t, testing }: { target: SavedConnection; testing: bo
     );
   }
   const when = (
-    <span className="mono t12 muted" title={fmtAbs(r.at)}>
+    <span className="mono t12 muted t-when" title={fmtAbs(r.at)}>
       {' '}
       · {fmtRel(r.at)}
     </span>
   );
-  if (r.status === 'ok') return <Status tone="ok">Verified{when}</Status>;
-  if (r.status === 'version_unsupported') return <Status tone="warn">Version warning{when}</Status>;
   const o = testOutcome(r.status);
   return (
-    <Status tone={o.tone}>
-      {o.label}
-      {when}
-    </Status>
+    <span title={`${o.label}, ${fmtAbs(r.at)}`}>
+      <Status tone={o.tone}>
+        {o.label}
+        {when}
+      </Status>
+    </span>
   );
 }
 
