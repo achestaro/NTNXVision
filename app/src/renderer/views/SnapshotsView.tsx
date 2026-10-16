@@ -310,7 +310,20 @@ export function SnapshotsView(): JSX.Element {
               },
               { key: 'version', header: 'Version', className: 'mono', style: { fontSize: 12 }, render: (s) => s.version ?? NA },
               { key: 'when', header: 'Collected', className: 'ts', render: (s) => fmtAbs(s.collected_at) },
-              { key: 'clusters', header: 'Clusters', numeric: true, render: (s) => fmtCount(s.summary.clusters) },
+              {
+                key: 'clusters',
+                header: 'Clusters',
+                numeric: true,
+                // A scoped snapshot reads "3 of 4": only some registered clusters were collected.
+                render: (s) =>
+                  s.scope && s.scope.excluded.length > 0 ? (
+                    <span title={s.scope.label ? `Scope: ${s.scope.label}` : undefined} data-testid="snapshot-scope">
+                      {fmtCount(s.scope.selected.length)} of {fmtCount(s.scope.registered_count)}
+                    </span>
+                  ) : (
+                    fmtCount(s.summary.clusters)
+                  ),
+              },
               { key: 'hosts', header: 'Hosts', numeric: true, render: (s) => fmtCount(s.summary.hosts) },
               { key: 'vms', header: 'VMs', numeric: true, render: (s) => fmtCount(s.summary.vms) },
               { key: 'size', header: 'Size', numeric: true, style: { color: 'var(--ink-3)' }, render: (s) => fmtBytes(s.size_bytes) },
