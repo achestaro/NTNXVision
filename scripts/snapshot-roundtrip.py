@@ -127,9 +127,10 @@ def main() -> int:
     parser.add_argument("dir", type=Path)
     parser.add_argument("--expect-platform", choices=["macos", "windows", "linux"])
     args = parser.parse_args()
+    folder = args.dir.resolve()  # the sidecar takes absolute paths only
     if args.mode == "export":
-        return do_export(args.dir)
-    return do_import(args.dir, args.expect_platform)
+        return do_export(folder)
+    return do_import(folder, args.expect_platform)
 
 
 if __name__ == "__main__":
