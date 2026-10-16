@@ -16,6 +16,7 @@ from openpyxl import load_workbook
 
 from ntnxvision_core.compare import export_comparison
 from ntnxvision_core.exporters import theme as TH
+from ntnxvision_core.exporters.naming import export_date
 from ntnxvision_core.numfmt import NA
 
 
@@ -74,7 +75,7 @@ def test_pdf_report(pair: Any, tmp_path: Path) -> None:
 
     base, cur = pair
     out = export_comparison(base, cur, "week1", "week2", "pdf", tmp_path)
-    assert out.name == "changes-week1-to-week2.pdf"
+    assert out.name == f"changes-week1-to-week2-{export_date()}.pdf"
     assert out.read_bytes().startswith(b"%PDF") and out.stat().st_size > 10_000
 
     report = build_comparison_report(base, cur, "week1", "week2")
