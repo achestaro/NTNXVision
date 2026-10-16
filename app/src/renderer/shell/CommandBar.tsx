@@ -22,7 +22,7 @@ export function CommandBar({
   readout: string | null;
 }): JSX.Element {
   const { navigate } = useRouter();
-  const { resolvedTheme, update } = useSettings();
+  const { resolvedTheme, update, appInfo } = useSettings();
   const { run, isRunning } = useRun();
   const dark = resolvedTheme !== 'light';
 
@@ -45,6 +45,11 @@ export function CommandBar({
         <span className="kbd">{modKey()}K</span>
       </button>
       <div style={{ flex: 1 }} />
+      {appInfo?.demo && (
+        <span className="bar-readout" title="Demo mode: collections run against the built-in synthetic Nutanix estate, not your network">
+          Demo data
+        </span>
+      )}
       {live ? (
         <button
           type="button"

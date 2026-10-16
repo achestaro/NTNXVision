@@ -11,10 +11,13 @@
     "dev:renderer": "npx vite",
     "dev:main": "npx tsc -p tsconfig.main.json -w",
     "dev:electron": "npx wait-on http://localhost:5273 dist/main/main.js && npx electron .",
+    "dev:demo": "npm run build:main && npx concurrently -k -n vite,tsc,electron -c cyan,yellow,green \"npm:dev:renderer\" \"npm:dev:main\" \"npm:dev:electron:demo\"",
+    "dev:electron:demo": "npx wait-on http://localhost:5273 dist/main/main.js && npx electron . --demo",
     "build": "npm run build:renderer && npm run build:main",
     "build:renderer": "npx vite build",
     "build:main": "npx tsc -p tsconfig.main.json",
     "start": "npx electron .",
+    "demo": "npm run build && npx electron . --demo --dist",
     "lint": "npx eslint . --ext .ts,.tsx",
     "package": "npm run build && npx electron-builder --publish never",
     "package:mac": "npm run build && npx electron-builder --mac --publish never",
@@ -22,7 +25,8 @@
     "package:win:nsis": "npm run build && npx electron-builder --win nsis --publish never",
     "rebuild:native": "npx electron-builder install-app-deps",
     "smoke": "npx electron . --smoke",
-    "screenshots": "npm run build:renderer && node scripts/screenshot.mjs"
+    "screenshots": "npm run build:renderer && node scripts/screenshot.mjs",
+    "e2e": "npm run build && node scripts/e2e-demo.mjs"
   },
   "dependencies": {
     "keytar": "^7.9.0"

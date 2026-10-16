@@ -47,6 +47,12 @@ export function packagedSidecarPath(): string {
 
 export type ProgressListener = (params: Record<string, unknown>) => void;
 
+/** Demo mode: `NTNXVISION_DEMO=1` in the environment or `--demo` on the command line. */
+export function isDemoMode(): boolean {
+  const flag = (process.env.NTNXVISION_DEMO ?? '').trim().toLowerCase();
+  return ['1', 'true', 'yes', 'on'].includes(flag) || process.argv.includes('--demo');
+}
+
 /** JSON-RPC error code the sidecar uses when a run was cancelled via `cancel_run`. */
 export const CANCELLED_CODE = -32800;
 
@@ -69,7 +75,10 @@ export class SidecarClient extends EventEmitter {
     const { command, args } = this.resolveExecutable();
     // windowsHide: the frozen sidecar is a console-subsystem .exe; without it Windows pops
     // a console window next to the app.
-    this.proc = spawn(command, args, { stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true });
+    // Demo mode reaches the sidecar through its environment (both the dev `python -m`
+    // entry and the frozen binary read NTNXVISION_DEMO).
+    const env = isDemoMode() ? { ...process.env, NTNXVISION_DEMO: '1' } : process.env;
+    this.proc = spawn(command, args, { stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true, env });
     // Spawn failures (ENOENT/EACCES) arrive as 'error', not 'exit' — unhandled, they would
     // crash the main process.
     this.proc.on('error', (err) => {

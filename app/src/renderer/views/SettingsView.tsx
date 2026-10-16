@@ -166,8 +166,14 @@ export function SettingsView(): JSX.Element {
               </div>
               <div className="kv">
                 <dt>Credentials</dt>
-                <dd>OS keychain only — never written to disk</dd>
+                <dd>{appInfo?.demo ? 'Demo mode — kept in memory for this session only' : 'OS keychain only — never written to disk'}</dd>
               </div>
+              {appInfo?.demo && (
+                <div className="kv">
+                  <dt>Mode</dt>
+                  <dd>Demo — synthetic estate (pc01.demo.local, pc02, pc03, pe01, ndb …); snapshots kept apart from real ones</dd>
+                </div>
+              )}
             </dl>
           </div>
         </Panel>
