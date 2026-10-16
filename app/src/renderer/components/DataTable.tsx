@@ -1,8 +1,10 @@
 // The one table anatomy (Runway rule 5): 11 px uppercase column labels, mono right-aligned
 // numbers, hover/selected = surface-hover, optional row rails, kebab last with the same
-// actions on right-click, and j/k/Enter keyboard navigation.
+// actions on right-click, and j/k/Enter keyboard navigation. With `onRowClick`, a click
+// anywhere on a row (or Enter / Space on the focused row) acts on it, except clicks on a
+// control inside a cell and drags that select text.
 
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import { CaretDownIcon, CaretUpIcon } from '@phosphor-icons/react';
 import { Icon } from './Icon';
 import { KebabMenu, MenuAnchor, MenuItem, MenuPopup } from './Menu';
@@ -22,6 +24,9 @@ export interface Column<T> {
   render(row: T, index: number): React.ReactNode;
 }
 
+/** Elements inside a row that keep their own click (onRowClick ignores clicks on them). */
+const INTERACTIVE = 'a, button, input, select, textarea, label, summary, [role="button"], [role="link"], [role="menuitem"], [role="checkbox"], [contenteditable="true"]';
+
 export interface SortState {
   key: string;
   dir: 'asc' | 'desc';
@@ -35,6 +40,14 @@ export interface DataTableProps<T> {
   rowClassName?(row: T): string | undefined;
   /** Enter / double-click on a row. */
   onRowOpen?(row: T): void;
+  /**
+   * Click anywhere on the row, or Enter / Space on the focused row (e.g. toggle a detail
+   * pane). Clicks on links, buttons and fields inside a cell keep their own action, and a
+   * drag that selects text is not a click.
+   */
+  onRowClick?(row: T): void;
+  /** Extra ARIA state per row (aria-selected, aria-expanded, aria-controls). */
+  rowAria?(row: T): React.AriaAttributes;
   /** Kebab + right-click actions. */
   rowActions?(row: T): MenuItem[];
   rowActionsLabel?(row: T): string;
@@ -70,9 +83,31 @@ export function DataTable<T>({
   kebabAlwaysVisible,
   onRowKey: onRowKeyExtra,
   rowInlineActions,
+  onRowClick,
+  rowAria,
 }: DataTableProps<T>): JSX.Element {
   const [ctx, setCtx] = useState<{ row: T; anchor: MenuAnchor } | null>(null);
-  const focusable = primary || !!onRowOpen || !!onRowKeyExtra;
+  const focusable = primary || !!onRowOpen || !!onRowKeyExtra || !!onRowClick;
+  const down = useRef<{ x: number; y: number } | null>(null);
+
+  const onRowMouseDown = (e: React.MouseEvent<HTMLTableRowElement>) => {
+    down.current = e.button === 0 ? { x: e.clientX, y: e.clientY } : null;
+  };
+
+  const onRowClickEvent = (e: React.MouseEvent<HTMLTableRowElement>, row: T) => {
+    if (!onRowClick || e.button !== 0 || e.defaultPrevented) return;
+    if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+    // A control inside a cell keeps its own action.
+    const control = (e.target as Element).closest(INTERACTIVE);
+    if (control && e.currentTarget.contains(control)) return;
+    // A drag (or a double-click word selection) selects text; it is not a click.
+    const start = down.current;
+    down.current = null;
+    if (start && Math.hypot(e.clientX - start.x, e.clientY - start.y) > 4) return;
+    const sel = window.getSelection();
+    if (sel && !sel.isCollapsed && sel.toString().trim() && sel.anchorNode && e.currentTarget.contains(sel.anchorNode)) return;
+    onRowClick(row);
+  };
 
   const onRowKey = (e: React.KeyboardEvent<HTMLTableRowElement>, row: T) => {
     if (e.target !== e.currentTarget || isTyping(e.target)) return;
@@ -87,6 +122,9 @@ export function DataTable<T>({
     } else if (e.key === 'k' || e.key === 'ArrowUp') {
       e.preventDefault();
       (tr.previousElementSibling as HTMLElement | null)?.focus();
+    } else if (onRowClick && (e.key === 'Enter' || e.key === ' ')) {
+      e.preventDefault();
+      onRowClick(row);
     } else if (e.key === 'Enter' && onRowOpen) {
       e.preventDefault();
       onRowOpen(row);
@@ -140,9 +178,12 @@ export function DataTable<T>({
           {rows.map((row, i) => (
             <tr
               key={rowKey(row)}
-              className={rowClassName?.(row)}
+              className={[rowClassName?.(row), onRowClick && 'clickable'].filter(Boolean).join(' ') || undefined}
               tabIndex={focusable ? 0 : undefined}
+              {...rowAria?.(row)}
               onKeyDown={focusable ? (e) => onRowKey(e, row) : undefined}
+              onMouseDown={onRowClick ? onRowMouseDown : undefined}
+              onClick={onRowClick ? (e) => onRowClickEvent(e, row) : undefined}
               onDoubleClick={onRowOpen ? () => onRowOpen(row) : undefined}
               onContextMenu={
                 rowActions

@@ -75,7 +75,8 @@ export function InventoryView({
   const transfer = useSnapshotTransfer();
   const list = useAsync<SnapshotList>(() => window.ntnx.listSnapshots(), [dataVersion]);
   const [path, setPath] = useState<string | undefined>(snapshotProp);
-  const [type, setType] = useState(typeProp ?? 'vms');
+  // Inventory opens on Clusters; a deep link (⌘K object search) can name another type.
+  const [type, setType] = useState(typeProp ?? 'clusters');
   const [text, setText] = useState(filterText ?? '');
   const [debounced, setDebounced] = useState(filterText ?? '');
   const [facets, setFacets] = useState<Record<string, string>>({});
@@ -118,6 +119,8 @@ export function InventoryView({
   const q = query.data && query.data.object_type === type ? query.data : undefined;
   const rows = q?.rows ?? [];
   const selectedId = selected === undefined ? rows[0]?.id ?? null : selected;
+  /** Open a row's details, or close them when that row is already open. */
+  const toggleRow = (id: string) => setSelected(id === selectedId ? null : id);
 
   const detail = useAsync<ObjectDetail>(
     () => (path && selectedId ? window.ntnx.getObjectDetail(path, type, selectedId) : undefined),
@@ -191,7 +194,15 @@ export function InventoryView({
       const v = row.cells[c.key];
       if (c.kind === 'name') {
         return (
-          <button type="button" className="lnk" aria-pressed={row.id === selectedId} onClick={() => setSelected(row.id)}>
+          <button
+            type="button"
+            className="lnk"
+            aria-pressed={row.id === selectedId}
+            onClick={(e) => {
+              e.stopPropagation();
+              toggleRow(row.id);
+            }}
+          >
             {cellText(v, c.kind)}
           </button>
         );
@@ -255,7 +266,11 @@ export function InventoryView({
             <label className="lbl" htmlFor="snap" style={{ margin: 0 }}>
               Snapshot
             </label>
-            <select id="snap" className="input" style={{ width: 280 }} value={path ?? ''} onChange={(e) => setPath(e.target.value)}>
+            <select id="snap" className="input" style={{ width: 280 }} value={path ?? ''} onChange={(e) => {
+                setPath(e.target.value);
+                setSelected(undefined);
+              }}
+            >
               {snapshots.map((s) => (
                 <option key={s.path} value={s.path}>
                   {s.name} · {fmtAbs(s.collected_at)}
@@ -283,6 +298,8 @@ export function InventoryView({
                   aria-current={t.type === type ? 'page' : undefined}
                   onClick={() => {
                     setType(t.type);
+                    // Same update as the type: never pair the old type's id with the new one.
+                    setSelected(undefined);
                     setText('');
                     setDebounced('');
                   }}
@@ -384,7 +401,12 @@ export function InventoryView({
                 rows={rows}
                 rowKey={(r) => r.id}
                 primary
-                onRowOpen={(r) => setSelected(r.id)}
+                onRowClick={(r) => toggleRow(r.id)}
+                rowAria={(r) => ({
+                  'aria-selected': r.id === selectedId,
+                  'aria-expanded': r.id === selectedId,
+                  'aria-controls': r.id === selectedId ? 'inv-detail' : undefined,
+                })}
                 rowClassName={(r) =>
                   [r.id === selectedId && 'sel sel-rail', r.tone && r.tone !== 'idle' && r.tone !== 'ok' && `r-${r.tone}`].filter(Boolean).join(' ') ||
                   undefined
@@ -530,7 +552,7 @@ function DetailPanel({
   const typeLabel = d?.type_label ?? 'Object';
   const notes = useMemo(() => d?.notes ?? [], [d]);
   return (
-    <Panel as="aside" style={{ flex: '1 1 280px', maxWidth: 340 }} aria-labelledby="det">
+    <Panel as="aside" id="inv-detail" style={{ flex: '1 1 280px', maxWidth: 340 }} aria-labelledby="det">
       <PanelHeader id="det" title={`${typeLabel} details`}>
         <Button ref={closeRef} variant="ghost" size="sm" iconOnly icon={XIcon} aria-label="Close details" onClick={onClose} />
       </PanelHeader>

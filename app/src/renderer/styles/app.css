@@ -520,6 +520,10 @@ p {
   outline: 2px solid var(--focus);
   outline-offset: -2px;
 }
+/* Rows that open a detail pane on click (DataTable onRowClick). Text stays selectable. */
+.tbl tbody tr.clickable {
+  cursor: pointer;
+}
 .tbl .n {
   text-align: right;
   font-family: var(--font-mono);
@@ -1866,6 +1870,24 @@ dl {
 }
 .span-all {
   grid-column: 1 / -1;
+}
+/* New collection, Connect: Name · Address · Port, then Username · Password (under Address
+   and Port). Stacks to one column when the panel is narrow. */
+.connect-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.6fr) minmax(88px, 0.5fr);
+  gap: 16px;
+}
+.connect-pw {
+  grid-column: 2 / -1;
+}
+@media (max-width: 760px) {
+  .connect-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .connect-pw {
+    grid-column: auto;
+  }
 }
 .row {
   display: flex;

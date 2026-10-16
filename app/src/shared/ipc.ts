@@ -59,6 +59,7 @@ export interface ConnectionProfile {
   username: string;
   port: number;
   insecure: boolean;
+  /** Display name the saved target is listed and picked by. Empty when saved = the host. */
   name: string;
   ndbHost?: string;
   ndbUser?: string;
@@ -159,13 +160,18 @@ export interface CollectionRequest {
   password: string;
   port: number;
   insecure: boolean;
+  /** Snapshot name. */
   name: string;
+  /** Saved target's display name (saveCredentials only); empty or omitted = the host. */
+  targetName?: string;
   /** Area ids from getCollectionAreas; empty or omitted = all available. */
   areas?: string[];
   formats: ExportFormat[];
   /** Save the target profile and (if typed) the password to the keychain. */
   saveCredentials: boolean;
   exportDir?: string;
+  /** Report file name prefix (see ExportRequest.filePrefix). */
+  filePrefix?: string;
   ndb?: NdbRequest;
 }
 
@@ -184,6 +190,8 @@ export interface MultiCollectionRequest {
   formats: ExportFormat[];
   saveCredentials: boolean;
   exportDir?: string;
+  /** Report file name prefix (see ExportRequest.filePrefix). */
+  filePrefix?: string;
   combine: boolean;
   combinedName?: string;
 }
@@ -641,6 +649,12 @@ export interface ExportRequest {
   snapshotPath: string;
   formats: ExportFormat[];
   exportDir?: string;
+  /**
+   * Report file name prefix: files are named `<prefix>-<snapshot>-<YYYY-MM-DD>.<ext>`
+   * (`<snapshot>-<YYYY-MM-DD>.<ext>` when empty), sanitized by the sidecar, with -2, -3
+   * appended instead of overwriting. Omitted = the filePrefix setting.
+   */
+  filePrefix?: string;
   /** Sections included in PDF and Word; omitted = all. */
   sections?: ExportSection[];
   word?: {
@@ -669,6 +683,8 @@ export interface CompareExportRequest {
   /** Excel: Summary + every change row. CSV: the same rows. PDF: summary + grouped rows. */
   format: 'excel' | 'csv' | 'pdf';
   exportDir?: string;
+  /** File name prefix: `<prefix>-changes-<baseline>-to-<current>-<YYYY-MM-DD>.<ext>`. */
+  filePrefix?: string;
 }
 
 // ─── overview ───────────────────────────────────────────────────────────
@@ -710,6 +726,8 @@ export interface AppSettings {
   multiTargetIds?: string[];
   /** Default author for the Word ADD. */
   author?: string;
+  /** The last report file name prefix used (Export dialog, New collection, Multiple PCs). */
+  filePrefix?: string;
   /**
    * Target vCPU:pCPU ratio behind the cluster capacity figures ("vCPU Total") in the
    * Inventory and every report. Unset = DEFAULT_VCPU_RATIO.

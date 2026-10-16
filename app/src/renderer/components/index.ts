@@ -8,6 +8,7 @@ export type { Column, SortState } from './DataTable';
 export { ConfirmDialog, Dialog, DialogFooter } from './Dialog';
 export { EmptyState, ErrorState, InlineEmpty, Loading, LoadingPage } from './EmptyState';
 export { Field } from './Field';
+export { FilePrefixField } from './FilePrefixField';
 export { FigureCell, FigureStrip } from './FigureStrip';
 export { Icon } from './Icon';
 export { KebabMenu, MenuPopup, useAnchoredPopup } from './Menu';
