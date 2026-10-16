@@ -20,5 +20,15 @@ export default tseslint.config(
     // Dev scripts: the screenshot runner (Node) and the stub window.ntnx (browser).
     files: ["scripts/**/*.{js,mjs}"],
     languageOptions: { globals: { ...globals.browser, ...globals.node } },
+  },
+  {
+    // electron-builder hooks (build/notarize.js) are plain CommonJS run by Node.
+    files: ["build/**/*.js"],
+    languageOptions: {
+      sourceType: "commonjs",
+      globals: { require: "readonly", exports: "writable", module: "writable",
+                 process: "readonly", console: "readonly", __dirname: "readonly" },
+    },
+    rules: { "@typescript-eslint/no-require-imports": "off" },
   }
 );
