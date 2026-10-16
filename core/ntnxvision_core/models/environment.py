@@ -710,9 +710,21 @@ class SourceEnvironment(_Base):
         return data
 
 
+#: Version of the serialized `Environment` schema. Bump it when a change needs a
+#: migration for snapshot files written by older versions (`store.transfer` migrates
+#: older payloads forward and refuses newer ones). Payloads written before the field
+#: existed count as version 0.
+ENVIRONMENT_SCHEMA_VERSION = 1
+
+
 class Environment(_Base):
     """A full collection run — the unit persisted and exported."""
 
+    schema_version: int = ENVIRONMENT_SCHEMA_VERSION
+    #: Stable identity of the snapshot (a UUID), kept across export and import so a
+    #: snapshot file imported twice is recognised. Assigned when the snapshot is first
+    #: saved; snapshots written before it existed get one on their first export.
+    snapshot_id: str | None = None
     collected_at: str | None = None
     tool_version: str = "0.3.0"
     #: "prism_central" (collected via PC) or "prism_element" (direct cluster, v2.0).
