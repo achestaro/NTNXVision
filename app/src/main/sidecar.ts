@@ -6,13 +6,43 @@
 
 import { ChildProcessWithoutNullStreams, spawn } from 'node:child_process';
 import { EventEmitter } from 'node:events';
-import { existsSync } from 'node:fs';
+import { accessSync, chmodSync, constants as fsConstants, existsSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { app } from 'electron';
 
 interface Pending {
   resolve: (value: unknown) => void;
   reject: (err: Error) => void;
+}
+
+/**
+ * Path of the PyInstaller one-folder sidecar inside a packaged app:
+ *   macOS   NTNXVision.app/Contents/Resources/sidecar/ntnxvision-sidecar
+ *   Windows <install dir>\resources\sidecar\ntnxvision-sidecar.exe
+ * `NTNXVISION_SIDECAR` overrides it (debugging a locally frozen build against a packaged
+ * shell). On macOS/Linux the execute bit is restored if an archive/copy step dropped it.
+ */
+export function packagedSidecarPath(): string {
+  const override = process.env.NTNXVISION_SIDECAR;
+  if (override) return override;
+  const exe = process.platform === 'win32' ? 'ntnxvision-sidecar.exe' : 'ntnxvision-sidecar';
+  const path = join(process.resourcesPath, 'sidecar', exe);
+  if (!existsSync(path)) {
+    throw new Error(`Bundled Python core not found at ${path} — the package is incomplete.`);
+  }
+  if (process.platform !== 'win32') {
+    try {
+      accessSync(path, fsConstants.X_OK);
+    } catch {
+      try {
+        chmodSync(path, statSync(path).mode | 0o755);
+      } catch (err) {
+        // Read-only install location (e.g. a mounted DMG) — spawn will report EACCES.
+        console.error('[sidecar] could not restore execute permission:', err);
+      }
+    }
+  }
+  return path;
 }
 
 export type ProgressListener = (params: Record<string, unknown>) => void;
@@ -26,7 +56,17 @@ export class SidecarClient extends EventEmitter {
   start(): void {
     if (this.proc) return;
     const { command, args } = this.resolveExecutable();
-    this.proc = spawn(command, args, { stdio: ['pipe', 'pipe', 'pipe'] });
+    // windowsHide: the frozen sidecar is a console-subsystem .exe; without it Windows pops
+    // a console window next to the app.
+    this.proc = spawn(command, args, { stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true });
+    // Spawn failures (ENOENT/EACCES) arrive as 'error', not 'exit' — unhandled, they would
+    // crash the main process.
+    this.proc.on('error', (err) => {
+      console.error('[sidecar] failed to start:', err);
+      this.failAll(new Error(`Python core failed to start: ${err.message}`));
+      this.proc = null;
+    });
+    this.proc.stdin.on('error', (err) => console.error('[sidecar] stdin error:', err));
 
     this.proc.stdout.setEncoding('utf-8');
     this.proc.stdout.on('data', (chunk: string) => this.onData(chunk));
@@ -92,9 +132,7 @@ export class SidecarClient extends EventEmitter {
 
   private resolveExecutable(): { command: string; args: string[] } {
     if (app.isPackaged) {
-      const exe =
-        process.platform === 'win32' ? 'ntnxvision-sidecar.exe' : 'ntnxvision-sidecar';
-      return { command: join(process.resourcesPath, 'sidecar', exe), args: [] };
+      return { command: packagedSidecarPath(), args: [] };
     }
     // Dev: prefer the core venv, fall back to PATH python.
     const venvPy =

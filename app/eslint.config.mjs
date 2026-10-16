@@ -14,5 +14,15 @@ export default tseslint.config(
         { argsIgnorePattern: "^_", varsIgnorePattern: "^_" },
       ],
     },
+  },
+  {
+    // electron-builder hooks (build/notarize.js) are plain CommonJS run by Node.
+    files: ["build/**/*.js"],
+    languageOptions: {
+      sourceType: "commonjs",
+      globals: { require: "readonly", exports: "writable", module: "writable",
+                 process: "readonly", console: "readonly", __dirname: "readonly" },
+    },
+    rules: { "@typescript-eslint/no-require-imports": "off" },
   }
 );
