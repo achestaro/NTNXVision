@@ -22,8 +22,8 @@ installer is regenerated at package time from that build’s exact dependency se
 
 The application runs on **Electron 30.5.1** (MIT, <https://www.electronjs.org/>),
 which embeds Chromium, Node.js, V8 and their many third-party components. Their full
-license texts are in the `LICENSES.chromium.html` file that electron-builder ships with the
-app (macOS: `NTNXVision.app/Contents/Resources/` or next to the app bundle; Windows: the
+license texts are in the `LICENSES.chromium.html` file shipped with the app (macOS:
+`NTNXVision.app/Contents/Resources/`; Windows: the
 installation folder next to `NTNXVision.exe`).
 
 #### electron 30.5.1
@@ -5831,7 +5831,52 @@ Nutanix, Inc. They are not covered by the MIT License of this project and are us
 to identify the corresponding Nutanix products. NTNXVision is an independent project and
 is not affiliated with, endorsed by, or sponsored by Nutanix, Inc.
 
-_No Nutanix icon files are bundled in this build._
+The drawings are minified and recolored to follow the app’s light, dark and
+high-contrast themes. Files (`app/src/renderer/assets/nutanix-icons/`), compiled into the
+renderer bundle:
+
+- `2-node.svg`
+- `acropolis-file-services.svg`
+- `ai-powered-automation.svg`
+- `alerts.svg`
+- `categories.svg`
+- `cluster.svg`
+- `cvm.svg`
+- `disaster-recovery.svg`
+- `enterprise-storage.svg`
+- `era-database.svg`
+- `flow.svg`
+- `generic-error.svg`
+- `generic-storage.svg`
+- `licenses.svg`
+- `multi-cloud.svg`
+- `network.svg`
+- `no-comparison-created.svg`
+- `no-files.svg`
+- `no-recovery-point-created.svg`
+- `no-target.svg`
+- `no-workloads.svg`
+- `nutanix-x.svg`
+- `objects.svg`
+- `person.svg`
+- `policies.svg`
+- `prism-segmented.svg`
+- `prism.svg`
+- `projects.svg`
+- `protection-policies.svg`
+- `report.svg`
+- `roles.svg`
+- `router.svg`
+- `sdn.svg`
+- `ssd.svg`
+- `stopwatch.svg`
+- `storage-error.svg`
+- `tasks.svg`
+- `update.svg`
+- `vm-blue.svg`
+- `vm-database-blue.svg`
+- `vm-error.svg`
+- `vm-template.svg`
 
 ## GNU General Public License v3.0
 
