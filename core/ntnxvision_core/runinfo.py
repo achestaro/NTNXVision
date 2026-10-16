@@ -188,6 +188,38 @@ class RunTracker:
             return [dict(a) for a in self.areas]
 
 
+class CombinedTracker:
+    """The run of a combined multi-PC snapshot: every target's areas, host-prefixed,
+    timed from the first target's start to the moment the combined result is written."""
+
+    def __init__(self, parts: list[tuple[str, RunTracker]], emit: Emit | None = None,
+                 run_id: str | None = None) -> None:
+        self.parts = parts
+        self._emit = emit
+        self.run_id = run_id
+        self.started_at = min((t.started_at for _, t in parts), default=now_iso())
+        self._t0 = min((t._t0 for _, t in parts), default=time.monotonic())
+        self.finished_at: str | None = None
+        self.duration_ms: int | None = None
+
+    def finish(self) -> None:
+        self.finished_at = now_iso()
+        self.duration_ms = int((time.monotonic() - self._t0) * 1000)
+
+    def phase(self, phase: str, label: str) -> None:
+        if self._emit is not None:
+            self._emit({"type": "phase", "phase": phase, "label": label,
+                        "run_id": self.run_id})
+
+    def final_areas(self) -> list[dict[str, Any]]:
+        out: list[dict[str, Any]] = []
+        for host, tracker in self.parts:
+            for area in tracker.final_areas():
+                out.append({**area, "id": f"{host}: {area['id']}",
+                            "label": f"{host} · {area['label']}", "index": len(out) + 1})
+        return out
+
+
 # ─── derived run metadata ──────────────────────────────────────────────
 
 
@@ -346,7 +378,7 @@ def coverage(areas: list[dict[str, Any]]) -> dict[str, int]:
 
 def build_run_metadata(
     env: Any,
-    tracker: RunTracker | None,
+    tracker: RunTracker | CombinedTracker | None,
     *,
     mode: str | None = None,
     reports: list[dict[str, Any]] | None = None,

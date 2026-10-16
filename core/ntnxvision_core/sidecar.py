@@ -58,7 +58,7 @@ from ntnxvision_core.engine import (
 )
 from ntnxvision_core.exporters import export_environment
 from ntnxvision_core.paths import demo_enabled, exports_dir, snapshots_dir
-from ntnxvision_core.runinfo import RunTracker, build_run_metadata
+from ntnxvision_core.runinfo import CombinedTracker, RunTracker, build_run_metadata
 from ntnxvision_core.store import SnapshotStore
 from ntnxvision_core.store import snapshot as snapstore
 
@@ -313,7 +313,7 @@ def _export_options(params: dict[str, Any]) -> dict[str, Any]:
 
 
 def _write_reports(env: Any, name: str, formats: list[str], out_dir: Path,
-                   options: dict[str, Any], tracker: RunTracker | None = None,
+                   options: dict[str, Any], tracker: RunTracker | CombinedTracker | None = None,
                    ) -> tuple[list[dict[str, Any]], dict[str, str]]:
     files: list[dict[str, Any]] = []
     errors: dict[str, str] = {}
@@ -339,7 +339,7 @@ def _report_file(fmt: str, path: Path, detail: str | None) -> dict[str, Any]:
 
 
 def _finalize(env: Any, name: str, params: dict[str, Any], *,
-              tracker: RunTracker | None = None, mode: str | None = None,
+              tracker: RunTracker | CombinedTracker | None = None, mode: str | None = None,
               handle: RunHandle | None = None) -> dict[str, Any]:
     """Snapshot, export requested formats, and assemble the JSON-RPC result.
 
@@ -534,6 +534,7 @@ def _multi(handle: RunHandle, targets: list[dict[str, Any]], params: dict[str, A
 
     target_results: list[dict[str, Any]] = []
     successful_envs = []
+    successful_trackers: list[tuple[str, RunTracker]] = []
     for i, (env, tracker, exc) in enumerate(outcomes):
         t = targets[i]
         host = t.get("host", "")
@@ -547,6 +548,8 @@ def _multi(handle: RunHandle, targets: list[dict[str, Any]], params: dict[str, A
         result = _finalize(env, name, finalize_params, tracker=tracker, mode="prism_central")
         target_results.append({"host": host, "success": True, **result})
         successful_envs.append(env)
+        if tracker is not None:
+            successful_trackers.append((host, tracker))
         _advance_demo(host)
 
     combined_result = None
@@ -555,7 +558,9 @@ def _multi(handle: RunHandle, targets: list[dict[str, Any]], params: dict[str, A
                         "label": f"Combining {len(successful_envs)} Prism Centrals…"})
         combined_env = combine_environments(successful_envs)
         combined_name = params.get("combined_name") or "combined-environment"
-        combined_result = _finalize(combined_env, combined_name, finalize_params)
+        combined_result = _finalize(
+            combined_env, combined_name, finalize_params, mode="prism_central",
+            tracker=CombinedTracker(successful_trackers, _emit_progress, handle.run_id))
 
     return {"targets": target_results, "combined": combined_result}
 
@@ -611,15 +616,17 @@ def _m_get_snapshot(_req_id: Any, params: dict[str, Any]) -> dict[str, Any]:
 
 
 def _estimates(summary: dict[str, Any], kind: Any) -> dict[str, Any]:
+    """Rough sizes for the export dialog's format cards (calibrated on synthetic runs)."""
     rows = sum(int(v or 0) for k, v in summary.items() if k != "source_environments")
     sheets = 4 + sum(1 for k, v in summary.items()
                      if v and k not in ("source_environments", "system_vms"))
     vms = int(summary.get("vms") or 0)
+    # The PDF and the ADD carry no per-VM table, so VMs barely move their length.
+    doc_rows = max(0, rows - vms)
     return {
         "excel": {"bytes": 12_000 + rows * 190, "detail": f"{sheets} sheets"},
-        "pdf": {"bytes": 450_000 + rows * 260, "detail": f"≈ {12 + rows // 32} pages"},
-        "word": {"bytes": 700_000 + min(vms, 500) * 120 + rows * 60,
-                 "detail": f"≈ {18 + min(rows, 4000) // 45} pages"},
+        "pdf": {"bytes": 650_000 + doc_rows * 1_100, "detail": f"≈ {10 + doc_rows // 30} pages"},
+        "word": {"bytes": 800_000 + doc_rows * 900, "detail": f"≈ {16 + doc_rows // 25} pages"},
     }
 
 
