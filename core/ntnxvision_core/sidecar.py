@@ -56,7 +56,8 @@ from ntnxvision_core.engine import (
     collect_environment,
     combine_environments,
 )
-from ntnxvision_core.exporters import export_environment
+from ntnxvision_core.exporters import export_environment, extension_for
+from ntnxvision_core.exporters.naming import report_path
 from ntnxvision_core.paths import demo_enabled, exports_dir, snapshots_dir
 from ntnxvision_core.runinfo import CombinedTracker, RunTracker, build_run_metadata
 from ntnxvision_core.store import SnapshotStore, transfer
@@ -321,16 +322,26 @@ def _export_options(params: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _file_prefix(params: dict[str, Any]) -> str:
+    """The user's report file name prefix (sanitized when the name is built)."""
+    raw = params.get("file_prefix")
+    return raw if isinstance(raw, str) else ""
+
+
 def _write_reports(env: Any, name: str, formats: list[str], out_dir: Path,
                    options: dict[str, Any], tracker: RunTracker | CombinedTracker | None = None,
-                   ) -> tuple[list[dict[str, Any]], dict[str, str]]:
+                   prefix: str = "") -> tuple[list[dict[str, Any]], dict[str, str]]:
+    """Write each format as ``<prefix>-<name>-<YYYY-MM-DD>.<ext>`` (see exporters.naming),
+    never overwriting an existing file."""
     files: list[dict[str, Any]] = []
     errors: dict[str, str] = {}
     for fmt in formats:
         if tracker is not None:
             tracker.phase("export", f"Writing {_FORMAT_LABELS.get(fmt, fmt)}…")
         try:
-            path, detail = export_environment(env, fmt, out_dir, name, options=options,
+            ext = extension_for(fmt)
+            stem = report_path(out_dir, name, ext, prefix).stem if ext else name
+            path, detail = export_environment(env, fmt, out_dir, stem, options=options,
                                               with_detail=True)
             files.append(_report_file(fmt, Path(path), detail))
         except Exception as exc:  # noqa: BLE001 — one failed format shouldn't lose the run
@@ -388,7 +399,8 @@ def _finalize(env: Any, name: str, params: dict[str, Any], *,
     if formats is None:
         formats = ["excel"] if params.get("export", True) else []
     files, errors = _write_reports(env, result["snapshot_name"] or name, list(formats),
-                                   _export_dir_from(params), _export_options(params), tracker)
+                                   _export_dir_from(params), _export_options(params), tracker,
+                                   prefix=_file_prefix(params))
     result["exports"] = {f["format"]: f["path"] for f in files}
     result["export_errors"] = errors
     if "excel" in result["exports"]:
@@ -500,7 +512,8 @@ def _multi(handle: RunHandle, targets: list[dict[str, Any]], params: dict[str, A
            ) -> dict[str, Any]:
     finalize_params = {"formats": params.get("formats"), "export_dir": params.get("export_dir"),
                        "sections": params.get("sections"), "word": params.get("word"),
-                       "vcpu_ratio": params.get("vcpu_ratio")}
+                       "vcpu_ratio": params.get("vcpu_ratio"),
+                       "file_prefix": params.get("file_prefix")}
     formats = params.get("formats") or []
     outcomes: list[tuple[Any, RunTracker | None, Exception | None]] = [
         (None, None, None)] * len(targets)
@@ -652,7 +665,7 @@ def _m_export(_req_id: Any, params: dict[str, Any]) -> dict[str, Any]:
     name = params.get("name") or snapstore.snapshot_name(snap_path)
     formats = params.get("formats") or [params.get("format", "excel")]
     files, errors = _write_reports(env, name, list(formats), _export_dir_from(params),
-                                   _export_options(params))
+                                   _export_options(params), prefix=_file_prefix(params))
     if files:
         snapstore.record_exports(snap_path, files)
     paths = {f["format"]: f["path"] for f in files}
@@ -836,7 +849,7 @@ def _m_export_comparison(_req_id: Any, params: dict[str, Any]) -> dict[str, Any]
     fmt = str(params.get("format")) if params.get("format") in ("csv", "pdf") else "excel"
     out = export_comparison(_cache.get(base_path), _cache.get(cur_path),
                             snapstore.snapshot_name(base_path), snapstore.snapshot_name(cur_path),
-                            fmt, _export_dir_from(params))
+                            fmt, _export_dir_from(params), prefix=_file_prefix(params))
     return {"path": str(out)}
 
 
