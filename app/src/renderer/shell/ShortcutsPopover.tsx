@@ -2,10 +2,12 @@
 
 import React, { useEffect, useRef } from 'react';
 import { modKey } from '../lib/settings';
+import { useRouter } from '../lib/router';
 
 export function ShortcutsPopover({ onClose }: { onClose(): void }): JSX.Element {
   const ref = useRef<HTMLDivElement>(null);
   const mod = modKey();
+  const { navigate } = useRouter();
   useEffect(() => {
     ref.current?.focus();
     const onKey = (e: KeyboardEvent) => {
@@ -65,6 +67,18 @@ export function ShortcutsPopover({ onClose }: { onClose(): void }): JSX.Element 
       ))}
       <p className="hint" style={{ marginTop: 8 }}>
         Single-key shortcuts are off while you type in a field.
+      </p>
+      <p className="hint" style={{ marginTop: 8 }}>
+        <button
+          type="button"
+          className="btn ghost sm"
+          onClick={() => {
+            navigate({ screen: 'legal' });
+            onClose();
+          }}
+        >
+          About &amp; legal notices
+        </button>
       </p>
     </div>
   );

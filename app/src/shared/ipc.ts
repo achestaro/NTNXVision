@@ -596,6 +596,16 @@ export interface AppInfo {
   demo?: boolean;
 }
 
+/** The bundled legal documents (LICENSE, NOTICE, THIRD_PARTY_NOTICES.md), read by main. */
+export interface LegalDocuments {
+  version: string;
+  license: string | null;
+  notice: string | null;
+  thirdPartyNotices: string | null;
+  /** Folder the files were read from (resources when packaged, the repo root in dev). */
+  source: string;
+}
+
 export interface FileFilter {
   name: string;
   extensions: string[];
@@ -624,6 +634,7 @@ export const IPC = {
   clearSnapshots: 'core:clearSnapshots',
   // main-process only
   getAppInfo: 'app:getAppInfo',
+  getLegalDocuments: 'app:getLegalDocuments',
   revealPath: 'shell:revealPath',
   openPath: 'shell:openPath',
   openExternal: 'shell:openExternal',
@@ -646,6 +657,7 @@ export interface NtnxApi {
 
   ping(): Promise<{ pong: boolean; version: string }>;
   getAppInfo(): Promise<AppInfo>;
+  getLegalDocuments(): Promise<LegalDocuments>;
 
   testConnection(req: TestConnectionRequest): Promise<TestConnectionResult>;
   getCollectionAreas(): Promise<CollectionAreasResult>;

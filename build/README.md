@@ -126,3 +126,10 @@ pip, npm, and the Electron and electron-builder (WiX) download caches are cached
 * No auto-update channel is configured (`--publish never`). Releases are draft-only.
 * Icons in `app/build/` are placeholder art from `scripts/generate-icons.py`. Re-run it
   after changing the mark.
+
+## Legal notices
+
+`LICENSE`, `NOTICE` and `THIRD_PARTY_NOTICES.md` ship in `resources/` (electron-builder
+`extraResources`) and in the sidecar under `_internal/legal/`; the build scripts regenerate
+`THIRD_PARTY_NOTICES.md` (`npm run notices`) right before electron-builder runs. fpdf2 is
+collected as plain `.py` files (LGPL-3.0 replaceability). See `docs/LICENSING.md`.

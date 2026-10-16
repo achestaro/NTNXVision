@@ -33,6 +33,7 @@ const api: NtnxApi = {
 
   ping: () => ipcRenderer.invoke(IPC.ping),
   getAppInfo: () => ipcRenderer.invoke(IPC.getAppInfo),
+  getLegalDocuments: () => ipcRenderer.invoke(IPC.getLegalDocuments),
 
   testConnection: (req: TestConnectionRequest) => ipcRenderer.invoke(IPC.testConnection, req),
   getCollectionAreas: () => ipcRenderer.invoke(IPC.getCollectionAreas),

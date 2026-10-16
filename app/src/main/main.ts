@@ -34,6 +34,7 @@ import { SidecarClient, SidecarError, CANCELLED_CODE, isDemoMode } from './sidec
 import { isSmokeRun, runSmoke } from './smoke';
 import * as secrets from './secrets';
 import * as store from './store';
+import { registerLegalHandlers } from './legal';
 
 const isDev = !app.isPackaged;
 const demo = isDemoMode();
@@ -143,6 +144,8 @@ ipcMain.handle(IPC.getAppInfo, (): AppInfo => ({
   defaultExportDir: join(homedir(), 'Documents', 'NTNXVision'),
   demo,
 }));
+
+registerLegalHandlers();
 
 ipcMain.handle(IPC.testConnection, async (_e, req: TestConnectionRequest) => {
   const password = await resolvePassword(req.host, req.username, req.password);

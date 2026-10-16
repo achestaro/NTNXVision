@@ -13,12 +13,13 @@
 # -*- mode: python ; coding: utf-8 -*-
 import os
 
-from PyInstaller.utils.hooks import collect_data_files, collect_submodules
+from PyInstaller.utils.hooks import collect_data_files, collect_submodules, copy_metadata
 
 # Anchor to the spec file so the build works from any cwd. The package is installed
 # editable (PEP 660 finder) which PyInstaller can't trace — putting the real source
 # tree on pathex lets Analysis resolve ntnxvision_core directly.
 CORE_DIR = os.path.abspath(os.path.join(SPECPATH, ".."))  # noqa: F821
+REPO_DIR = os.path.dirname(CORE_DIR)
 
 hiddenimports = (
     collect_submodules("ntnxvision_core")
@@ -36,6 +37,13 @@ datas = (
     + collect_data_files("fpdf")
     # openpyxl ships a few non-.py resources (e.g. VBA/theme XML).
     + collect_data_files("openpyxl")
+    # Licensing: every runtime dependency's *.dist-info (METADATA + its LICENSE/NOTICE
+    # files), plus the project's LICENSE / NOTICE / THIRD_PARTY_NOTICES.md under legal/.
+    + copy_metadata("ntnxvision-core", recursive=True)
+    + [
+        (os.path.join(REPO_DIR, name), "legal")
+        for name in ("LICENSE", "NOTICE", "THIRD_PARTY_NOTICES.md")
+    ]
 )
 
 a = Analysis(
@@ -48,6 +56,10 @@ a = Analysis(
     runtime_hooks=[],
     excludes=["tkinter", "matplotlib", "pytest", "mypy", "ruff", "IPython"],
     noarchive=False,
+    # fpdf2 is LGPL-3.0: keep it as plain .py files in the bundle folder (not inside the
+    # PYZ archive) so a user can swap in a modified fpdf2 without rebuilding the sidecar.
+    # See docs/LICENSING.md.
+    module_collection_mode={"fpdf": "py"},
 )
 pyz = PYZ(a.pure)
 

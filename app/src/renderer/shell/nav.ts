@@ -41,6 +41,6 @@ export const NAV_GROUPS: { label: string; items: NavItem[] }[] = [
   },
 ];
 
-export const SETTINGS_ITEM: NavItem = { screen: 'settings', label: 'Settings', icon: GearSixIcon, key: ',' };
+export const SETTINGS_ITEM: NavItem = { screen: 'settings', label: 'Settings', icon: GearSixIcon, key: ',', also: ['legal'] };
 
 export const ALL_NAV: NavItem[] = [...NAV_GROUPS.flatMap((g) => g.items), SETTINGS_ITEM];
