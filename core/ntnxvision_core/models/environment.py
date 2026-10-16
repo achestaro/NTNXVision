@@ -195,6 +195,10 @@ class Host(SourcedObject):
     num_vms: int | None = None
     gpu_list: list[str] = Field(default_factory=list)
     disk_count: int | None = None
+    #: The node's raw storage: the sum of its physical disk sizes (v4 host `disk` list),
+    #: or, where the API gives no per-disk sizes, the node's `storage.capacity_bytes`
+    #: (v3 groups / v2.0 usage stats). Feeds the cluster capacity figures (`capacity.py`).
+    storage_capacity_bytes: int | None = None
     api_source: str = "v4"
 
 
