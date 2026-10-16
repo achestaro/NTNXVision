@@ -36,10 +36,10 @@ import { useAsync } from '../lib/useAsync';
 import { useSettings, modKey } from '../lib/settings';
 import { useRun } from '../lib/run';
 import { useConfirmShortcut } from '../lib/keyboard';
-import { defaultSnapshotName, errorMessage, fmtCount, tildify } from '../lib/format';
+import { NA, defaultSnapshotName, errorMessage, fmtCount, tildify } from '../lib/format';
 
 const FORMATS: { id: ExportFormat; label: string; desc: string }[] = [
-  { id: 'excel', label: 'Excel workbook', desc: 'One sheet per object type — the RVTools-style dump' },
+  { id: 'excel', label: 'Excel workbook', desc: 'One sheet per object type, RVTools-style' },
   { id: 'pdf', label: 'PDF report', desc: 'Executive summary plus per-area sections' },
   { id: 'word', label: 'Word ADD', desc: 'Editable Architecture Design Document' },
 ];
@@ -80,7 +80,7 @@ export function NewCollectionView({
   const [ndbUser, setNdbUser] = useState('admin');
   const [ndbPass, setNdbPass] = useState('');
 
-  const [fmt, setFmt] = useState<Record<ExportFormat, boolean>>({ excel: true, pdf: false, word: true });
+  const [fmt, setFmt] = useState<Record<ExportFormat, boolean>>({ excel: true, pdf: false, word: false });
   const [name, setName] = useState('');
   const [nameTouched, setNameTouched] = useState(false);
   const [dir, setDir] = useState('');
@@ -254,7 +254,7 @@ export function NewCollectionView({
       <PageHeader
         eyebrow="Collect / New collection"
         title="New collection"
-        description="Connect, choose what to collect, and pick your reports. Collection is read-only — nothing on the cluster changes."
+        description="Connect, choose what to collect, and pick your reports. Collection is read-only: nothing on the cluster changes."
         actions={savedSelect}
       />
 
@@ -367,7 +367,7 @@ export function NewCollectionView({
                   <div className="hint below" id="pw-hint">
                     {profile?.hasPassword
                       ? 'Leave empty to use the saved password. Type one to replace it for this run.'
-                      : 'Saved to your OS keychain when “Remember this target” is on — never to disk.'}
+                      : 'Saved to your OS keychain when “Remember this target” is on, never to disk.'}
                   </div>
                 </div>
               </div>
@@ -441,7 +441,7 @@ export function NewCollectionView({
             {isPe && (
               <div style={{ padding: '0 16px 16px' }}>
                 <Callout>
-                  Prism Element collects infrastructure only. Data protection, Flow, Files, IAM and NDB live in Prism Central — connect there to include them.
+                  Prism Element collects infrastructure only. Data protection, Flow, Files, IAM and NDB live in Prism Central. Connect there to include them.
                 </Callout>
               </div>
             )}
@@ -511,7 +511,7 @@ export function NewCollectionView({
             <dl>
               <div className="kv">
                 <dt>Target</dt>
-                <dd className="mono">{host || '—'}</dd>
+                <dd className="mono">{host || NA}</dd>
               </div>
               <div className="kv">
                 <dt>Mode</dt>
@@ -527,7 +527,7 @@ export function NewCollectionView({
               </div>
               <div className="kv">
                 <dt>Areas</dt>
-                <dd className="mono">{catalogue.data ? `${fmtCount(chosenAreas.length)} / ${fmtCount(available.length)}` : '—'}</dd>
+                <dd className="mono">{catalogue.data ? `${fmtCount(chosenAreas.length)} / ${fmtCount(available.length)}` : NA}</dd>
               </div>
               <div className="kv">
                 <dt>Reports</dt>
@@ -535,7 +535,7 @@ export function NewCollectionView({
               </div>
               <div className="kv">
                 <dt>Typical time</dt>
-                <dd className="mono">{typical ? `≈ ${Math.max(1, Math.round(typical / 60))} min` : '—'}</dd>
+                <dd className="mono">{typical ? `≈ ${Math.max(1, Math.round(typical / 60))} min` : NA}</dd>
               </div>
             </dl>
             <Button variant="primary" size="lg" block style={{ marginTop: 16 }} onClick={() => void doStart()} disabled={isRunning} kbd={`${modKey()}↵`}>
@@ -617,14 +617,14 @@ function TestOutcome({
     case 'version_unsupported':
       return (
         <Callout tone="warn" title={`Connected, but ${r.version ?? 'this version'} is outside the supported range${r.supported_range ? ` (${r.supported_range})` : ''}.`}>
-          You can still collect — areas that behave differently on this version come back with notes instead of failing the run.
+          You can still collect. Areas that behave differently on this version come back with notes instead of failing the run.
           {detail}
         </Callout>
       );
     case 'auth_failed':
       return (
         <Callout tone="error" title={`${host} rejected the credentials.`}>
-          Check the username and password, then test again. A saved keychain password may be out of date — type the current one to replace it.
+          Check the username and password, then test again. A saved keychain password may be out of date. Type the current one to replace it.
           {detail}
         </Callout>
       );

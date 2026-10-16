@@ -36,7 +36,7 @@ exports.default = async function notarizeHook(context) {
   }
 
   const { notarize } = require('@electron/notarize');
-  console.log(`  • notarizing ${appPath} (team ${APPLE_TEAM_ID}) — this can take several minutes`);
+  console.log(`  • notarizing ${appPath} (team ${APPLE_TEAM_ID}); this can take several minutes`);
   await notarize({
     tool: 'notarytool',
     appPath,

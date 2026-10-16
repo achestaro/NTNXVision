@@ -28,7 +28,7 @@ export function packagedSidecarPath(): string {
   const exe = process.platform === 'win32' ? 'ntnxvision-sidecar.exe' : 'ntnxvision-sidecar';
   const path = join(process.resourcesPath, 'sidecar', exe);
   if (!existsSync(path)) {
-    throw new Error(`Bundled Python core not found at ${path} — the package is incomplete.`);
+    throw new Error(`Bundled Python core not found at ${path}. The package is incomplete.`);
   }
   if (process.platform !== 'win32') {
     try {

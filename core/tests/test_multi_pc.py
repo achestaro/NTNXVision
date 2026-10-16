@@ -274,7 +274,7 @@ def test_combined_word_names_the_sources_and_attributes_clusters(tmp_path) -> No
     text = "\n".join(p.text for p in doc.paragraphs)
 
     assert "spanning 2 Prism Centrals (pc-emea.local, pc-amer.local)" in text
-    assert "Prism Centrals — Management & Sizing" in text
+    assert "Prism Centrals: Management & Sizing" in text
     # The misleading single-PC sizing table must be gone, not merely supplemented.
     assert "Prism Central management-plane configuration" not in text
 

@@ -7,7 +7,7 @@ import { Button, Callout, ConfirmDialog, Field, PageHeader, Panel, PanelHeader, 
 import { useSettings } from '../lib/settings';
 import { useRun } from '../lib/run';
 import { useAsync } from '../lib/useAsync';
-import { errorMessage, fmtBytes, plural, tildify } from '../lib/format';
+import { NA, errorMessage, fmtBytes, plural, tildify } from '../lib/format';
 
 export function SettingsView(): JSX.Element {
   const { settings, theme, accent, density, appInfo, update, error } = useSettings();
@@ -156,7 +156,7 @@ export function SettingsView(): JSX.Element {
             <dl>
               <div className="kv">
                 <dt>Version</dt>
-                <dd className="mono">{appInfo?.version ?? '—'}</dd>
+                <dd className="mono">{appInfo?.version ?? NA}</dd>
               </div>
               <div className="kv">
                 <dt>Snapshots</dt>
@@ -166,12 +166,12 @@ export function SettingsView(): JSX.Element {
               </div>
               <div className="kv">
                 <dt>Credentials</dt>
-                <dd>{appInfo?.demo ? 'Demo mode — kept in memory for this session only' : 'OS keychain only — never written to disk'}</dd>
+                <dd>{appInfo?.demo ? 'Demo mode: kept in memory for this session only' : 'OS keychain only, never written to disk'}</dd>
               </div>
               {appInfo?.demo && (
                 <div className="kv">
                   <dt>Mode</dt>
-                  <dd>Demo — synthetic estate (pc01.demo.local, pc02, pc03, pe01, ndb …); snapshots kept apart from real ones</dd>
+                  <dd>Demo: synthetic estate (pc01.demo.local, pc02, pc03, pe01, ndb …); snapshots kept apart from real ones</dd>
                 </div>
               )}
             </dl>

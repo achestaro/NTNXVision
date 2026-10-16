@@ -395,7 +395,7 @@ export interface ObjectTypeCount {
   label: string;
   /** Sidebar group: "Infrastructure", "Protection and security", "Services", "Governance". */
   group: string;
-  /** null = area not collected / not deployed (shown as —). */
+  /** null = area not collected / not deployed (shown as N/A). */
   count: number | null;
 }
 

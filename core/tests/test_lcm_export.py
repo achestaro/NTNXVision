@@ -178,7 +178,7 @@ def test_pdf_version_trimming() -> None:
     """
     from ntnxvision_core.exporters.pdf import _versions
 
-    assert _versions([], 2) == "-"
+    assert _versions([], 2) == "N/A"
     assert _versions(["7.1"], 2) == "7.1"
     assert _versions(["7.1", "7.0"], 2) == "7.1, 7.0"
     assert _versions(_MANY_VERSIONS, 2) == "7.0.10, 7.0.9 (+8)"
@@ -205,7 +205,7 @@ def test_word_lifecycle_section_and_counts(tmp_path) -> None:
     ]
     by_component = {r.cells[0].text: [c.text for c in r.cells] for r in table.rows[1:]}
     assert by_component["SATADOM SL 3ME4"][4] == "Unknown"
-    assert by_component["SATADOM SL 3ME4"][5] == "—"
+    assert by_component["SATADOM SL 3ME4"][5] == "N/A"
     assert by_component["Foundation"][4] == "No"
     assert by_component["AOS"][5] == "7.0.10, 7.0.9, 7.0.8 (+7 more)"
 

@@ -36,7 +36,7 @@ export function CommandBar({
 
   return (
     <header className="cbar">
-      <button type="button" className="brand" onClick={() => navigate({ screen: 'overview' })} aria-label="NTNXVision — go to Overview">
+      <button type="button" className="brand" onClick={() => navigate({ screen: 'overview' })} aria-label="NTNXVision: go to Overview">
         <NutanixIcon name="nutanix-x" size={20} />
         NTNXVision
       </button>
@@ -56,7 +56,7 @@ export function CommandBar({
           type="button"
           className="bar-readout live"
           onClick={() => navigate({ screen: 'collecting' })}
-          aria-label={`${live} — show progress`}
+          aria-label={`${live}. Show progress`}
         >
           <span className="g" style={{ background: 'var(--bar-live)' }} aria-hidden="true" />
           {live}

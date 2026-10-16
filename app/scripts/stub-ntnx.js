@@ -83,8 +83,8 @@
     ['vg', 'Volume groups', 'Platform services', false],
     ['lic', 'Licensing', 'Operations and governance', false],
     ['alerts', 'Health alerts', 'Operations and governance', false],
-    ['iam', 'IAM — users, roles, projects', 'Operations and governance', false],
-    ['lcm', 'LCM — firmware and software', 'Operations and governance', false],
+    ['iam', 'IAM (users, roles, projects)', 'Operations and governance', false],
+    ['lcm', 'LCM firmware and software', 'Operations and governance', false],
     ['xplay', 'X-Play playbooks', 'Operations and governance', false],
     ['ncm', 'NCM reports', 'Operations and governance', false],
     ['pcconf', 'Prism Central configuration', 'Operations and governance', false],
@@ -96,9 +96,9 @@
     ['hosts', 'collected', 'v4', 28, 5, ''],
     ['storage', 'collected', 'v4', 18, 2, ''],
     ['subnets', 'collected', 'v4', 42, 2, ''],
-    ['vms', 'notes', 'v4', 1214, 72, '3 VMs skipped — the v4 endpoint returned an error for them'],
+    ['vms', 'notes', 'v4', 1214, 72, '3 VMs skipped: the v4 endpoint returned an error for them'],
     ['lic', 'collected', 'v4', 8, 4, ''],
-    ['dr', 'collected', 'v3', 18, 9, 'Recovery plans use v3 — retires Q4 2026'],
+    ['dr', 'collected', 'v3', 18, 9, 'Recovery plans use v3, which retires Q4 2026'],
     ['alerts', 'collected', 'v3', 126, 6, 'v4 alerts endpoint not served, collected over v3'],
     ['flow', 'collected', 'v4', 24, 3, ''],
     ['fvn', 'skipped', null, null, 1, 'Not enabled on this Prism Central'],
@@ -202,14 +202,14 @@
   // ── inventory ──
   const VMS = [
     ['k8s-worker-07', 'PHX-PROD-02', 1, 16, 64, 500, 'Rocky Linux 9', 'None', '10.20.4.17', 'phx-prod-02-n3', '2 disks', 'Prod', 'Kubernetes', '6f1c…a93e'],
-    ['vdi-gold-image', 'PHX-PROD-02', 0, 2, 8, 80, 'Windows 11 Enterprise', 'None', '—', 'phx-prod-02-n1', '1 disk', 'Dev', 'VDI', '1b77…02cd'],
+    ['vdi-gold-image', 'PHX-PROD-02', 0, 2, 8, 80, 'Windows 11 Enterprise', 'None', null, 'phx-prod-02-n1', '1 disk', 'Dev', 'VDI', '1b77…02cd'],
     ['backup-proxy-01', 'PHX-DR-01', 1, 4, 8, 60, 'Ubuntu 22.04', 'None', '10.30.0.12', 'phx-dr-01-n2', '1 disk', 'Prod', 'Backup', '93ad…7710'],
-    ['jump-01', 'AMS-EDGE-02', 0, 2, 4, 40, 'Windows Server 2019', 'None', '—', 'ams-edge-02-n1', '1 disk', 'Ops', 'Access', 'c402…e18b'],
+    ['jump-01', 'AMS-EDGE-02', 0, 2, 4, 40, 'Windows Server 2019', 'None', null, 'ams-edge-02-n1', '1 disk', 'Ops', 'Access', 'c402…e18b'],
     ['test-runner-12', 'PHX-PROD-02', 1, 8, 16, 200, 'Ubuntu 24.04', 'None', '10.20.4.62', 'phx-prod-02-n4', '2 disks', 'Dev', 'CI', '58e0…bb41'],
     ['grafana-02', 'PHX-PROD-01', 1, 2, 8, 100, 'Debian 12', 'None', '10.20.1.77', 'phx-prod-01-n2', '1 disk', 'Ops', 'Monitoring', '0c9d…4f12'],
     ['lab-dc-01', 'AMS-EDGE-02', 1, 2, 8, 80, 'Windows Server 2022', 'None', '10.40.0.10', 'ams-edge-02-n2', '1 disk', 'Lab', 'Directory', 'e7a5…9c03'],
     ['build-cache', 'PHX-PROD-02', 1, 4, 16, 1024, 'Rocky Linux 9', 'None', '10.20.4.90', 'phx-prod-02-n2', '3 disks', 'Dev', 'CI', '2df8…6a7e'],
-    ['legacy-ftp', 'PHX-PROD-01', 0, 1, 2, 250, 'CentOS 7', 'None', '—', 'phx-prod-01-n4', '2 disks', 'Prod', 'Legacy', 'aa31…d205'],
+    ['legacy-ftp', 'PHX-PROD-01', 0, 1, 2, 250, 'CentOS 7', 'None', null, 'phx-prod-01-n4', '2 disks', 'Prod', 'Legacy', 'aa31…d205'],
     ['sandbox-ml-03', 'PHX-PROD-02', 1, 12, 96, 800, 'Ubuntu 22.04', 'None', '10.20.4.33', 'phx-prod-02-n3', '2 disks', 'Dev', 'ML', '7be2…1c58'],
   ];
   const TYPE_COUNTS = [
@@ -301,7 +301,7 @@
         storage: v[5] * GB,
         os: v[6],
         protection: v[7],
-        ip: v[8] === '—' ? null : v[8],
+        ip: v[8],
       },
     }));
     if (text) rows = rows.filter((r) => [r.cells.name, r.cells.os, r.cells.ip || ''].join(' ').toLowerCase().includes(text));

@@ -26,7 +26,7 @@ import { useAsync } from '../lib/useAsync';
 import { useRouter } from '../lib/router';
 import { useRun } from '../lib/run';
 import { revealLabel } from '../lib/settings';
-import { errorMessage, fmtAbs, fmtBytes, fmtCount, tildify } from '../lib/format';
+import { NA, errorMessage, fmtAbs, fmtBytes, fmtCount, tildify } from '../lib/format';
 import { useExportDialog } from './ExportDialog';
 
 type Filter = 'all' | SnapshotKind;
@@ -293,11 +293,11 @@ export function SnapshotsView(): JSX.Element {
                   <span className="label-mark">
                     <NutanixIcon name={SOURCE_KIND_MARK[s.kind ?? 'pc']} size={20} />
                     <Badge strong>{KIND_LABEL[s.kind ?? 'pc']}</Badge>
-                    {s.source ?? '—'}
+                    {s.source ?? NA}
                   </span>
                 ),
               },
-              { key: 'version', header: 'Version', className: 'mono', style: { fontSize: 12 }, render: (s) => s.version ?? '—' },
+              { key: 'version', header: 'Version', className: 'mono', style: { fontSize: 12 }, render: (s) => s.version ?? NA },
               { key: 'when', header: 'Collected', className: 'ts', render: (s) => fmtAbs(s.collected_at) },
               { key: 'clusters', header: 'Clusters', numeric: true, render: (s) => fmtCount(s.summary.clusters) },
               { key: 'hosts', header: 'Hosts', numeric: true, render: (s) => fmtCount(s.summary.hosts) },

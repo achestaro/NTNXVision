@@ -34,7 +34,7 @@ from ntnxvision_core.exporters.sourcing import sources as _sources
 from ntnxvision_core.models import Environment
 from ntnxvision_core.notes import clean_error as _clean_error
 from ntnxvision_core.notes import pretty_label as _pretty
-from ntnxvision_core.numfmt import cell_text, fmt_count
+from ntnxvision_core.numfmt import NA, cell_text, fmt_count
 
 GIB = 1024**3
 _NAVY = RGBColor(0x18, 0x3A, 0x5C)
@@ -106,7 +106,7 @@ class WordExporter:
         props = doc.core_properties
         target = (f"{fmt_count(len(env.source_environments))} Prism Centrals" if env.is_combined
                   else env.prism_central.host or "Nutanix environment")
-        props.title = f"Architecture Design Document — {target}"
+        props.title = f"Architecture Design Document: {target}"
         props.subject = f"Prepared for {opts.prepared_for}" if opts.prepared_for \
             else "Nutanix Architecture Design Document"
         props.author = opts.author or "NTNXVision"
@@ -194,7 +194,7 @@ class WordExporter:
         )
         self._figure(
             doc, diagrams.executive_dashboard(env),
-            f"Figure {n}-1. Executive summary dashboard — clusters, hosts, VMs, storage "
+            f"Figure {n}-1. Executive summary dashboard: clusters, hosts, VMs, storage "
             "capacity, active alerts, and projects at a glance.",
         )
         highlights = [
@@ -240,11 +240,11 @@ class WordExporter:
             doc.add_paragraph("Areas not present / not deployed in this environment:")
             for name, status in skipped.items():
                 reason = status.split(":", 1)[1].strip() if ":" in status else status
-                doc.add_paragraph(f"{_pretty(name)} — {reason}", style="List Bullet")
+                doc.add_paragraph(f"{_pretty(name)}: {reason}", style="List Bullet")
         if errored:
             doc.add_paragraph("Areas that could not be fully collected:")
             for name, status in errored.items():
-                doc.add_paragraph(f"{_pretty(name)} — {_clean_error(status)}", style="List Bullet")
+                doc.add_paragraph(f"{_pretty(name)}: {_clean_error(status)}", style="List Bullet")
         doc.add_page_break()
 
     def _pc_management(self, doc: DocumentObject, env: Environment) -> None:
@@ -252,7 +252,7 @@ class WordExporter:
             self._source_pcs(doc, env)
             return
         cfg = env.pc_config
-        n = self._h1(doc, "Prism Central — Management & Sizing")
+        n = self._h1(doc, "Prism Central: Management & Sizing")
         doc.add_paragraph(
             "Prism Central is the management plane for this environment. The table below "
             "records its version, sizing, and the number of clusters it manages."
@@ -264,14 +264,14 @@ class WordExporter:
         self._table(
             doc, ["Property", "Value"],
             [
-                ["Version", cfg.version or "—"],
+                ["Version", cfg.version or NA],
                 ["Deployment", deployment],
-                ["PC nodes", _qty(cfg.node_count, "—")],
-                ["Registered clusters", _qty(cfg.registered_cluster_count, "—")],
-                ["Total vCPU", _qty(cfg.num_vcpus, "—")],
-                ["Total memory (GiB)", _qty(_gib(cfg.memory_bytes), "—")],
-                ["PC VM(s)", ", ".join(cfg.pc_vm_names) or "—"],
-                ["IP address(es)", ", ".join(cfg.ip_addresses) or "—"],
+                ["PC nodes", _qty(cfg.node_count, NA)],
+                ["Registered clusters", _qty(cfg.registered_cluster_count, NA)],
+                ["Total vCPU", _qty(cfg.num_vcpus, NA)],
+                ["Total memory (GiB)", _qty(_gib(cfg.memory_bytes), NA)],
+                ["PC VM(s)", ", ".join(cfg.pc_vm_names) or NA],
+                ["IP address(es)", ", ".join(cfg.ip_addresses) or NA],
             ],
             f"Table {n}-1. Prism Central management-plane configuration.",
         )
@@ -283,7 +283,7 @@ class WordExporter:
         documented on its own row; collapsing them into one sizing table would state one
         PC's node count as the whole estate's.
         """
-        n = self._h1(doc, "Prism Centrals — Management & Sizing")
+        n = self._h1(doc, "Prism Centrals: Management & Sizing")
         doc.add_paragraph(
             f"This document covers {fmt_count(len(env.source_environments))} independently managed "
             "Prism Central instances, inventoried in a single run and combined into one "
@@ -300,12 +300,12 @@ class WordExporter:
             )
             rows.append([
                 s.prism_central.host or "unknown",
-                s.prism_central.version or cfg.version or "—",
+                s.prism_central.version or cfg.version or NA,
                 deployment,
-                _qty(cfg.node_count, "—"),
-                fmt_count(counts.get("clusters", "—")),
-                fmt_count(counts.get("hosts", "—")),
-                fmt_count(counts.get("vms", "—")),
+                _qty(cfg.node_count, NA),
+                fmt_count(counts.get("clusters", NA)),
+                fmt_count(counts.get("hosts", NA)),
+                fmt_count(counts.get("vms", NA)),
             ])
         self._table(
             doc,
@@ -323,7 +323,7 @@ class WordExporter:
         )
         self._figure(
             doc, diagrams.management_topology(env),
-            f"Figure {n}-1. Management topology — Prism Central and its registered clusters.",
+            f"Figure {n}-1. Management topology: Prism Central and its registered clusters.",
         )
         self._heading(doc, f"{n}.1 Clusters Overview", level=2)
         self._table(
@@ -341,7 +341,7 @@ class WordExporter:
         self._table(
             doc, ["Host", "Cluster", "CPU Model", "Cores", "Memory (GiB)", "GPUs"],
             [[h.name, h.cluster_name, h.cpu_model, _qty(h.num_cpu_cores),
-              _qty(_gib(h.memory_bytes)), ", ".join(h.gpu_list) or "—"]
+              _qty(_gib(h.memory_bytes)), ", ".join(h.gpu_list) or "None"]
              for h in env.hosts],
             f"Table {n}-1. Physical hosts.",
             _sources(env, env.hosts),
@@ -351,7 +351,7 @@ class WordExporter:
             d = diagrams.cluster_compute(env, cluster)
             if d:
                 fig += 1
-                self._figure(doc, d, f"Figure {n}-{fig}. Cluster {cluster.name} — "
+                self._figure(doc, d, f"Figure {n}-{fig}. Cluster {cluster.name}: "
                                      "node composition and capacity.")
         self._heading(doc, f"{n}.2 Storage Containers", level=2)
         self._table(
@@ -364,7 +364,7 @@ class WordExporter:
         )
         self._figure(
             doc, diagrams.storage_capacity_chart(env),
-            f"Figure {n}-{fig + 1}. Storage container capacity — used vs. free per container.",
+            f"Figure {n}-{fig + 1}. Storage container capacity: used vs. free per container.",
         )
         self._heading(doc, f"{n}.3 Virtual Machine Distribution", level=2)
         self._figure(
@@ -405,8 +405,8 @@ class WordExporter:
         unknown = sum(1 for e in env.lcm_entities if e.update_available is None)
         doc.add_paragraph(
             "Life Cycle Manager (LCM) inventories the firmware and software running on "
-            "this platform — AOS, the hypervisor, Prism Central services and the "
-            "component firmware beneath them — and is the mechanism by which they are "
+            "this platform (AOS, the hypervisor, Prism Central services and the "
+            "component firmware beneath them) and is the mechanism by which they are "
             "upgraded. The table below records each managed component, the version "
             "currently running, and whether LCM offers a newer one."
         )
@@ -424,8 +424,8 @@ class WordExporter:
         self._table(
             doc, ["Component", "Class", "Cluster", "Current Version", "Update Available",
                   "Available Versions"],
-            [[e.name or "—", e.entity_class or "—", e.cluster_name or "—",
-              e.current_version or "—", _update_flag(e.update_available),
+            [[e.name or NA, e.entity_class or NA, e.cluster_name or NA,
+              e.current_version or NA, _update_flag(e.update_available),
               _versions(e.available_versions, 3)] for e in env.lcm_entities],
             f"Table {n}-1. LCM component inventory and available updates (upgrade targets "
             "beyond the three newest are summarised as a count; the Excel export lists "
@@ -436,7 +436,7 @@ class WordExporter:
     def _catalog(self, doc: DocumentObject, env: Environment) -> None:
         if not (env.templates or env.images or env.ovas):
             return
-        n = self._h1(doc, "Catalog — Templates, Images & OVAs")
+        n = self._h1(doc, "Catalog: Templates, Images & OVAs")
         sub = 0
         if env.templates:
             sub += 1
@@ -444,7 +444,7 @@ class WordExporter:
             self._table(
                 doc, ["Template", "Guest OS", "vCPU", "Memory (GiB)", "Active Version"],
                 [[t.name, t.guest_os, _qty(t.num_vcpus), _qty(_gib(t.memory_bytes)),
-                  t.active_version or "—"] for t in env.templates],
+                  t.active_version or NA] for t in env.templates],
                 f"Table {n}-{sub}. VM templates.",
             )
         if env.images:
@@ -452,8 +452,8 @@ class WordExporter:
             self._heading(doc, f"{n}.{sub} Images", level=2)
             self._table(
                 doc, ["Image", "Type", "Size (GiB)", "Architecture", "Clusters"],
-                [[i.name, i.image_type, _qty(_gib(i.size_bytes)), i.architecture or "—",
-                  ", ".join(i.cluster_names) or "—"] for i in env.images],
+                [[i.name, i.image_type, _qty(_gib(i.size_bytes)), i.architecture or NA,
+                  ", ".join(i.cluster_names) or NA] for i in env.images],
                 f"Table {n}-{sub}. Images.",
             )
         if env.ovas:
@@ -462,7 +462,7 @@ class WordExporter:
             self._table(
                 doc, ["OVA", "Size (GiB)", "Disks", "Cluster"],
                 [[o.name, _qty(_gib(o.size_bytes)), _qty(o.disk_count),
-                  o.cluster_name or "—"] for o in env.ovas],
+                  o.cluster_name or NA] for o in env.ovas],
                 f"Table {n}-{sub}. OVAs.",
             )
 
@@ -542,7 +542,7 @@ class WordExporter:
             self._table(
                 doc, ["Subnet", "Cluster", "Type", "VLAN", "vSwitch", "VPC"],
                 [[s.name, s.cluster_name, s.subnet_type, str(s.vlan_id or ""),
-                  s.virtual_switch or "—", s.vpc_name or "—"]
+                  s.virtual_switch or NA, s.vpc_name or NA]
                  for s in env.subnets],
                 f"Table {n}-{tbl}. Subnets.",
             )
@@ -550,7 +550,7 @@ class WordExporter:
                 d = diagrams.network_topology(env, cluster)
                 if d:
                     fig += 1
-                    self._figure(doc, d, f"Figure {n}-{fig}. Cluster {cluster.name} — "
+                    self._figure(doc, d, f"Figure {n}-{fig}. Cluster {cluster.name}: "
                                          "virtual switch and VLAN layout.")
         if env.vpcs:
             sub += 1
@@ -559,7 +559,7 @@ class WordExporter:
             self._table(
                 doc, ["VPC", "Subnets", "External Subnets", "Routable Prefixes", "Routes",
                       "Routing Policies"],
-                [[v.name, ", ".join(v.subnet_names) or "—", ", ".join(v.external_subnets),
+                [[v.name, ", ".join(v.subnet_names) or NA, ", ".join(v.external_subnets),
                   ", ".join(v.externally_routable_prefixes),
                   fmt_count(v.route_count),
                   fmt_count(v.routing_policy_count)]
@@ -568,7 +568,7 @@ class WordExporter:
             )
             self._figure(
                 doc, diagrams.vpc_topology(env),
-                f"Figure {n}-{fig + 1}. Flow Virtual Networking — VPCs with overlay and "
+                f"Figure {n}-{fig + 1}. Flow Virtual Networking: VPCs with overlay and "
                 "external subnets.",
             )
 
@@ -583,7 +583,7 @@ class WordExporter:
         )
         self._figure(
             doc, diagrams.replication_topology(env),
-            f"Figure {n}-1. Replication topology — protection policy flows between "
+            f"Figure {n}-1. Replication topology: protection policy flows between "
             "availability zones.",
         )
         sub = 0
@@ -594,8 +594,8 @@ class WordExporter:
             self._heading(doc, f"{n}.{sub} Protection Policies", level=2)
             self._table(
                 doc, ["Policy", "RPO (s)", "Replication", "Source AZ", "Target AZ"],
-                [[p.name, _qty(p.rpo_seconds), p.replication_type, p.source_az or "—",
-                  p.target_az or "—"] for p in env.protection_policies],
+                [[p.name, _qty(p.rpo_seconds), p.replication_type, p.source_az or NA,
+                  p.target_az or NA] for p in env.protection_policies],
                 f"Table {n}-{tbl}. Protection policies.",
             )
         if env.recovery_plans:
@@ -605,7 +605,7 @@ class WordExporter:
             self._table(
                 doc, ["Plan", "Stages", "Entities", "Primary", "Recovery"],
                 [[r.name, _qty(r.stage_count), _qty(r.entities_count),
-                  r.primary_location or "—", r.recovery_location or "—"]
+                  r.primary_location or NA, r.recovery_location or NA]
                  for r in env.recovery_plans],
                 f"Table {n}-{tbl}. Recovery plans.",
             )
@@ -621,7 +621,7 @@ class WordExporter:
             self._table(
                 doc, ["Policy", "Type", "State", "Inbound", "Outbound", "Secured Group"],
                 [[p.name, p.policy_type, p.state, _qty(p.inbound_rule_count),
-                  _qty(p.outbound_rule_count), p.secured_group or "—"]
+                  _qty(p.outbound_rule_count), p.secured_group or NA]
                  for p in env.security_policies],
                 f"Table {n}-{sub}. Flow network security policies.",
             )
@@ -630,7 +630,7 @@ class WordExporter:
             self._heading(doc, f"{n}.{sub} Categories", level=2)
             self._table(
                 doc, ["Category", "Value", "Description"],
-                [[c.name, c.value or "—", c.description or "—"] for c in env.categories],
+                [[c.name, c.value or NA, c.description or NA] for c in env.categories],
                 f"Table {n}-{sub}. Categories.",
             )
 
@@ -644,7 +644,7 @@ class WordExporter:
             self._heading(doc, f"{n}.{sub} Databases", level=2)
             self._table(
                 doc, ["Database", "Engine", "Type", "Status", "SLA"],
-                [[d.name, d.db_engine, d.db_type, d.status, d.sla_name or "—"]
+                [[d.name, d.db_engine, d.db_type, d.status, d.sla_name or NA]
                  for d in env.databases],
                 f"Table {n}-{sub}. NDB-managed databases.",
             )
@@ -653,7 +653,7 @@ class WordExporter:
             self._heading(doc, f"{n}.{sub} Database Servers", level=2)
             self._table(
                 doc, ["Server", "Engine", "Status", "Cluster", "Cores", "Memory (GB)"],
-                [[s.name, s.db_engine, s.status, s.cluster_name or "—",
+                [[s.name, s.db_engine, s.status, s.cluster_name or NA,
                   _qty(s.vm_cores), _qty(s.memory_gb)]
                  for s in env.database_servers],
                 f"Table {n}-{sub}. Database servers.",
@@ -663,7 +663,7 @@ class WordExporter:
             self._heading(doc, f"{n}.{sub} Time Machines", level=2)
             self._table(
                 doc, ["Time Machine", "Database", "SLA", "Status", "Schedule", "Clones"],
-                [[t.name, t.database_name, t.sla_name or "—", t.status, t.schedule or "—",
+                [[t.name, t.database_name, t.sla_name or NA, t.status, t.schedule or NA,
                   _qty(t.clone_count)] for t in env.time_machines],
                 f"Table {n}-{sub}. Time machines.",
             )
@@ -678,7 +678,7 @@ class WordExporter:
             self._heading(doc, f"{n}.{sub} Users", level=2)
             self._table(
                 doc, ["User", "Display Name", "Type", "Directory", "State"],
-                [[u.username, u.display_name or "—", u.user_type, u.directory or "—", u.state]
+                [[u.username, u.display_name or NA, u.user_type, u.directory or NA, u.state]
                  for u in env.users],
                 f"Table {n}-{sub}. Users.",
             )
@@ -687,7 +687,7 @@ class WordExporter:
             self._heading(doc, f"{n}.{sub} Roles", level=2)
             self._table(
                 doc, ["Role", "Description", "System", "Permissions"],
-                [[r.name, r.description or "—", "Yes" if r.is_system else "No",
+                [[r.name, r.description or NA, "Yes" if r.is_system else "No",
                   _qty(r.permission_count)] for r in env.roles],
                 f"Table {n}-{sub}. Roles.",
             )
@@ -706,7 +706,7 @@ class WordExporter:
             self._heading(doc, f"{n}.{sub} NCM Reports", level=2)
             self._table(
                 doc, ["Report", "Type", "Schedule", "Last Run"],
-                [[r.name, r.report_type or "—", r.schedule or "—", r.last_run or "—"]
+                [[r.name, r.report_type or NA, r.schedule or NA, r.last_run or NA]
                  for r in env.ncm_reports],
                 f"Table {n}-{sub}. NCM reports.",
             )
@@ -853,7 +853,7 @@ def _versions(values: list[str], limit: int) -> str:
     version strings in one cell would push the table past the page width.
     """
     if not values:
-        return "—"
+        return NA
     extra = len(values) - limit
     head = ", ".join(values[:limit])
     return head if extra <= 0 else f"{head} (+{extra} more)"

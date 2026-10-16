@@ -28,7 +28,7 @@ const themes =
   themesArg ?? (args.includes('--dark-only') ? ['dark'] : args.includes('--light-only') ? ['light'] : ['light', 'dark', 'hc']);
 
 if (!existsSync(join(root, 'index.html'))) {
-  console.error('dist/renderer/index.html not found — run `npm run build:renderer` first.');
+  console.error('dist/renderer/index.html not found. Run `npm run build:renderer` first.');
   process.exit(1);
 }
 

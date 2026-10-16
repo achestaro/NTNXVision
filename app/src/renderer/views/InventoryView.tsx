@@ -39,7 +39,7 @@ import type { Column, MenuItem } from '../components';
 import { useAsync } from '../lib/useAsync';
 import { useRouter } from '../lib/router';
 import { useRun } from '../lib/run';
-import { DASH, errorMessage, fmtAbs, fmtBytes, fmtCount } from '../lib/format';
+import { NA, errorMessage, fmtAbs, fmtBytes, fmtCount } from '../lib/format';
 
 const PAGE = 25;
 
@@ -48,7 +48,7 @@ function isStatus(v: CellValue): v is StatusValue {
 }
 
 function cellText(v: CellValue, kind: InventoryColumn['kind']): string {
-  if (v === null || v === undefined || v === '') return DASH;
+  if (v === null || v === undefined || v === '') return NA;
   if (isStatus(v)) return v.label;
   if (kind === 'bytes' && typeof v === 'number') return fmtBytes(v);
   if (kind === 'number' && typeof v === 'number') return fmtCount(v);
@@ -191,7 +191,7 @@ export function InventoryView({
       }
       if (c.kind === 'status' && isStatus(v)) return <StatusFromValue value={v} />;
       const t = cellText(v, c.kind);
-      return t === DASH ? <span className="dash">{DASH}</span> : t;
+      return t === NA ? <span className="dash">{NA}</span> : t;
     },
   }));
 
@@ -284,7 +284,7 @@ export function InventoryView({
                     {OBJECT_TYPE_MARK[t.type] && <NutanixIcon name={OBJECT_TYPE_MARK[t.type]} size={20} />}
                     <span>{t.label}</span>
                   </span>
-                  <span className="ot-count">{t.count === null ? DASH : fmtCount(t.count)}</span>
+                  <span className="ot-count">{t.count === null ? NA : fmtCount(t.count)}</span>
                 </button>
               ))}
             </div>
@@ -398,7 +398,7 @@ export function InventoryView({
                       </button>
                     </>
                   ) : typeCounts.find((t) => t.type === type)?.count === null ? (
-                    'Not collected in this snapshot — the area was skipped or isn’t deployed.'
+                    'Not collected in this snapshot. The area was skipped or isn’t deployed.'
                   ) : (
                     `No ${unit} in this snapshot.`
                   )
@@ -549,7 +549,7 @@ function DetailPanel({
                 <div className="kv">
                   <dt>{f.label}</dt>
                   <dd className={f.mono ? 'mono' : undefined} style={f.label === 'UUID' ? { fontSize: 12, color: 'var(--ink-2)' } : undefined}>
-                    {f.value ?? <span className="dash">{DASH}</span>}
+                    {f.value ?? <span className="dash">{NA}</span>}
                   </dd>
                 </div>
               </React.Fragment>

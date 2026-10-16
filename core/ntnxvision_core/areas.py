@@ -107,14 +107,14 @@ AREAS: tuple[Area, ...] = (
          legacy_only=(("Nutanix Objects", "Collected over v3 in this release"),)),
     Area("volume_groups", "Volume groups", PLATFORM, VolumesCollector, "volume_groups",
          ("volume_groups",), v4_area="volumes"),
-    Area("iam", "IAM — users, roles, projects", OPS, IamCollector, "iam",
+    Area("iam", "IAM (users, roles, projects)", OPS, IamCollector, "iam",
          ("users", "roles", "projects"), v4_area="iam",
          legacy_only=(("IAM projects", "No v4 equivalent yet"),)),
     Area("xplay", "X-Play playbooks", OPS, XPlayCollector, "xplay", ("playbooks",),
          v4_area=None, legacy_only=(("X-Play playbooks", "No v4 equivalent yet"),)),
     Area("ncm_reports", "NCM reports", OPS, NcmCollector, "ncm_reports", ("ncm_reports",),
          v4_area="ncm_reports"),
-    Area("lcm", "LCM — firmware and software", OPS, LcmCollector, "lcm_entities",
+    Area("lcm", "LCM firmware and software", OPS, LcmCollector, "lcm_entities",
          ("lcm_entities",), v4_area="lifecycle"),
     Area("images", "Images", INFRA, ImageCollector, "images", ("images",), v4_area="vms"),
     Area("templates", "VM templates", INFRA, TemplateCollector, "templates", ("templates",),
@@ -125,7 +125,7 @@ AREAS: tuple[Area, ...] = (
 )
 
 #: NDB runs only when an NDB endpoint is given; it is not a checkbox in the area list.
-NDB_AREA = Area("ndb", "NDB — databases", PLATFORM, None, "ndb",
+NDB_AREA = Area("ndb", "NDB databases", PLATFORM, None, "ndb",
                 ("database_servers", "databases", "time_machines"), legacy_api="era")
 
 AREAS_BY_ID: dict[str, Area] = {a.id: a for a in (*AREAS, NDB_AREA)}
