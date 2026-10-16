@@ -260,9 +260,27 @@ export function CompareView({ baseline: baseProp, current: curProp }: { baseline
   );
 }
 
-type CompareFormat = 'excel' | 'csv';
+type CompareFormat = 'excel' | 'pdf' | 'csv';
 
-/** "Export changes…": every change between the two snapshots, one row per object and field. */
+const FORMATS: Record<CompareFormat, { label: string; action: string; hint: string }> = {
+  excel: {
+    label: 'Excel workbook',
+    action: 'Export workbook',
+    hint: 'A summary sheet plus every change, one row per object and field, ready to filter.',
+  },
+  pdf: {
+    label: 'PDF report',
+    action: 'Export PDF',
+    hint: 'A report to share or file: headline figures, counts per object type, then the changes grouped as on this page.',
+  },
+  csv: {
+    label: 'CSV',
+    action: 'Export CSV',
+    hint: 'Every change as plain comma-separated text, for scripts and other tools.',
+  },
+};
+
+/** "Export changes…": the changes between the two snapshots as Excel, PDF or CSV. */
 function CompareExportDialog({
   baseline,
   current,
@@ -325,7 +343,7 @@ function CompareExportDialog({
           <span className="dialog-foot-right">
             <span className="hint">{busy ? 'Exporting…' : plural(summary.total, 'change')}</span>
             <Button variant="primary" onClick={doExport} disabled={busy} kbd="⌘↵">
-              {busy ? 'Exporting…' : format === 'excel' ? 'Export workbook' : 'Export CSV'}
+              {busy ? 'Exporting…' : FORMATS[format].action}
             </Button>
           </span>
         </div>
@@ -333,7 +351,7 @@ function CompareExportDialog({
     >
       <div style={{ marginTop: 20, display: 'flex', flexDirection: 'column', gap: 20 }}>
         <p className="dialog-body" style={{ margin: 0 }}>
-          {`${fmtCount(summary.added)} added, ${fmtCount(summary.removed)} removed and ${fmtCount(summary.changed)} changed. The file lists every change, not only the tab you are on, with one row per object and field.`}
+          {`${fmtCount(summary.added)} added, ${fmtCount(summary.removed)} removed and ${fmtCount(summary.changed)} changed. The export covers every change, not only the tab you are on.`}
         </p>
         <div>
           <span className="lbl" id="cmp-fmt">
@@ -343,16 +361,9 @@ function CompareExportDialog({
             aria-labelledby="cmp-fmt"
             value={format}
             onChange={setFormat}
-            options={[
-              { value: 'excel', label: 'Excel workbook' },
-              { value: 'csv', label: 'CSV' },
-            ]}
+            options={(Object.keys(FORMATS) as CompareFormat[]).map((value) => ({ value, label: FORMATS[value].label }))}
           />
-          <div className="hint below">
-            {format === 'excel'
-              ? 'A summary sheet plus the full list of changes, ready to filter.'
-              : 'The list of changes only, as plain comma-separated text for scripts and other tools.'}
-          </div>
+          <div className="hint below">{FORMATS[format].hint}</div>
         </div>
         <div>
           <label className="lbl" htmlFor="cmp-dest">

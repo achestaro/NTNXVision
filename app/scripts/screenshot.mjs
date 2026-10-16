@@ -127,6 +127,12 @@ const SHOTS = [
     await p.getByText('What changed in').waitFor();
     await p.getByRole('button', { name: 'Export changes…' }).click();
   }],
+  ['compare-export-pdf', {}, async (p) => {
+    await rail(p, 'Compare');
+    await p.getByText('What changed in').waitFor();
+    await p.getByRole('button', { name: 'Export changes…' }).click();
+    await p.getByRole('dialog').getByRole('button', { name: 'PDF report' }).click();
+  }],
   ['multi', {}, async (p) => {
     await rail(p, 'Multiple PCs');
     await p.getByRole('button', { name: 'Test all' }).click();

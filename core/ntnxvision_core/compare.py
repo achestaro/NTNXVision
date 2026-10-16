@@ -14,7 +14,8 @@ Raw changes are then **grouped** for the screen:
   collapses likewise.
 
 Summary counts are per object, never per row. `export_comparison` writes the ungrouped
-list (one row per object and field) plus a summary sheet.
+list (one row per object and field) plus a summary sheet, styled like the inventory
+workbook (Runway report theme), or the same rows as CSV.
 """
 
 from __future__ import annotations
@@ -31,7 +32,7 @@ from openpyxl.styles import Font, PatternFill
 from ntnxvision_core.exporters.tables import COMPARE_TYPES, SPECS, Ctx, TableSpec
 from ntnxvision_core.inventory import display, fmt_bytes
 from ntnxvision_core.models import Environment
-from ntnxvision_core.numfmt import NA, excel_number_format, fmt_count
+from ntnxvision_core.numfmt import NA, fmt_count
 
 _TRAILING_NUM = re.compile(r"^(.*?)(\d+)$")
 _KIND_ORDER = {"changed": 0, "added": 1, "removed": 2}
@@ -152,7 +153,8 @@ def _describe(spec: TableSpec, obj: Any, ctx: Ctx, kind: str, cur: Environment |
     if t == "clusters":
         return f"AOS {obj.aos_version}" if obj.aos_version else None
     parts = []
-    for col in spec.ui_cols[1:3]:
+    # The first two columns after the name (the Cluster column now leads most tables).
+    for col in [c for c in spec.ui_cols if c.kind != "name"][:2]:
         value = display(col, col.get(obj, ctx))
         if value:
             parts.append(value)
@@ -360,65 +362,233 @@ def _days(a: str | None, b: str | None) -> float:
 
 
 # ─── export ────────────────────────────────────────────────────────────
+#
+# The comparison workbook follows the inventory workbook's Runway treatment (see
+# `exporters.excel`): the same Overview-style cover (iris band, eyebrow, title, ruled
+# sections), and a Changes sheet written by the very table helper the inventory sheets use
+# (light header fill, iris rule, frozen header, auto-filter, comma grouping, N/A in
+# ink-3, landscape fit-to-width printing). Only the change kind carries colour: Added in
+# the ok colour, Removed in the error colour, Changed in the warn colour.
 
-_HEADERS = ["Change", "Object type", "Object", "Where", "Field", "Before", "After", "Detail",
-            "Id"]
+_HEADERS = ["Change", "Object type", "Object", "Location", "Field", "Before", "After",
+            "Detail", "ID"]
+_KIND_LABEL = {"added": "Added", "removed": "Removed", "changed": "Changed"}
+_KIND_TONE = {"added": "ok", "removed": "error", "changed": "warn"}
+
+
+def _export_rows(raw: list[dict[str, Any]]) -> list[list[Any]]:
+    """One row per added / removed object and per changed field, changed first, then
+    added, then removed, each in report (object type) order. Missing values stay None so
+    every format renders them as N/A."""
+    type_rank = {t: i for i, t in enumerate(COMPARE_TYPES)}
+    ordered = sorted(raw, key=lambda c: (_KIND_ORDER[c["kind"]], type_rank.get(c["type"], 99),
+                                         c["where"] or "", c["object"], c["field"] or ""))
+
+    def value(v: Any) -> Any:
+        return None if v in (None, "", NA) else v
+
+    return [[_KIND_LABEL[c["kind"]], c["object_type"], c["object"], value(c["where"]),
+             value(c["field"]), value(c["before"]), value(c["after"]), value(c["detail"]),
+             c["id"]] for c in ordered]
+
+
+def _by_type(raw: list[dict[str, Any]]) -> list[list[Any]]:
+    """Objects added / removed / changed per object type (per object, not per field)."""
+    out = []
+    for type_id in COMPARE_TYPES:
+        items = [c for c in raw if c["type"] == type_id]
+        if not items:
+            continue
+        changed = len({c["id"] for c in items if c["kind"] == "changed"})
+        added = sum(1 for c in items if c["kind"] == "added")
+        removed = sum(1 for c in items if c["kind"] == "removed")
+        out.append([SPECS[type_id].label, added, removed, changed, added + removed + changed])
+    return out
 
 
 def export_comparison(base: Environment, cur: Environment, base_name: str, cur_name: str,
                       fmt: str, directory: Path) -> Path:
+    """Write the comparison as an Excel workbook (Summary + Changes, every object and
+    field), a CSV of the same Changes rows, or a PDF report (summary figures and the
+    grouped change rows, see `exporters.compare_pdf`); returns the written path."""
     raw = raw_changes(base, cur)
-    result = compare(base, cur)
     directory.mkdir(parents=True, exist_ok=True)
     stem = f"changes-{base_name}-to-{cur_name}"
-    rows = [[c["kind"], c["object_type"], c["object"], c["where"], c["field"], c["before"],
-             c["after"], c["detail"], c["id"]] for c in raw]
+    rows = _export_rows(raw)
+    if fmt == "pdf":
+        from ntnxvision_core.exporters.compare_pdf import ComparisonPdfExporter
+
+        return ComparisonPdfExporter().export(base, cur, base_name, cur_name,
+                                              directory / f"{stem}.pdf")
     if fmt == "csv":
         out = directory / f"{stem}.csv"
         with out.open("w", newline="", encoding="utf-8") as fh:
             writer = csv.writer(fh)
             writer.writerow(_HEADERS)
-            writer.writerows(rows)
+            writer.writerows([[NA if v is None else v for v in row] for row in rows])
         return out
+
+    from ntnxvision_core.exporters import excel as XL
+    from ntnxvision_core.exporters import theme as TH
+
+    result = compare(base, cur)
     wb = Workbook()
     ws = wb.active
     assert ws is not None
     ws.title = "Summary"
-    ws.append(["NTNXVision · What changed"])
-    ws["A1"].font = Font(size=14, bold=True, color="1F4E78")
-    ws.append([])
-    meta = [
-        ("Baseline", base_name), ("Baseline collected", base.collected_at),
-        ("Current", cur_name), ("Current collected", cur.collected_at),
-        ("Days between", result["days"]), ("", ""),
-        ("Total changes", result["summary"]["total"]),
-        ("Added", result["summary"]["added"]), ("Removed", result["summary"]["removed"]),
-        ("Changed", result["summary"]["changed"]), ("", ""),
-    ]
-    for label, value in meta:
-        ws.append([label, value])
-        number_format = excel_number_format(value)
-        if number_format:
-            ws.cell(row=ws.max_row, column=2).number_format = number_format
-    for fig in result["figures"][1:]:
-        ws.append([fig["label"],
-                   f"{fmt_count(fig['value'])}{' ' + fig['unit'] if fig.get('unit') else ''}",
-                   fig.get("qualifier")])
-    ws.column_dimensions["A"].width = 24
-    ws.column_dimensions["B"].width = 36
-    ws.column_dimensions["C"].width = 36
-    sheet = wb.create_sheet("Changes")
-    sheet.append(_HEADERS)
-    fill = PatternFill("solid", fgColor="1F4E78")
-    for cell in sheet[1]:
-        cell.fill = fill
-        cell.font = Font(color="FFFFFF", bold=True)
-    for row in rows:
-        sheet.append(row)
-    sheet.freeze_panes = "A2"
-    sheet.auto_filter.ref = f"A1:I{max(len(rows) + 1, 1)}"
-    for col, width in zip("ABCDEFGHI", (10, 18, 32, 18, 20, 22, 22, 44, 38), strict=True):
-        sheet.column_dimensions[col].width = width
+    _summary_sheet(ws, base, cur, base_name, cur_name, result, raw)
+    exporter = XL.ExcelExporter()
+    title = exporter._table(wb, "Changes", list(_HEADERS), rows,
+                            wrap=("Detail", "Before", "After"))
+    if title is None:  # nothing changed: keep the sheet, say so
+        sheet = wb.create_sheet("Changes")
+        sheet.append(_HEADERS)
+        for cell in sheet[1]:
+            cell.fill, cell.font, cell.border = XL._HEADER_FILL, XL._HEADER_FONT, \
+                XL._HEADER_BORDER
+        note = sheet.cell(row=2, column=1, value="No changes between the two snapshots.")
+        note.font = XL._NA_FONT
+    else:
+        sheet = wb[title]
+        for r_idx, row in enumerate(rows, start=2):
+            kind = next(k for k, v in _KIND_LABEL.items() if v == row[0])
+            sheet.cell(row=r_idx, column=1).font = XL._STATUS_FONT[_KIND_TONE[kind]]
+    props = wb.properties
+    props.title = f"Snapshot comparison: {base_name} to {cur_name}"
+    props.subject = "What changed between two NTNXVision inventory snapshots"
+    props.creator = props.lastModifiedBy = "NTNXVision"
+    props.keywords = "Nutanix; inventory; comparison; NTNXVision"
+    props.category = "Comparison"
+    props.description = (f"Generated by NTNXVision from snapshots collected "
+                         f"{TH.collected_label(base)} and {TH.collected_label(cur)}.")
     out = directory / f"{stem}.xlsx"
     wb.save(out)
     return out
+
+
+def _summary_sheet(ws: Any, base: Environment, cur: Environment, base_name: str,
+                   cur_name: str, result: dict[str, Any], raw: list[dict[str, Any]]) -> None:
+    """The workbook's cover, laid out like the inventory workbook's Overview sheet."""
+    
+    from ntnxvision_core.exporters import excel as XL
+    from ntnxvision_core.exporters import theme as TH
+
+    font = TH.OFFICE_FONT
+    ws.sheet_view.showGridLines = False
+    ws.sheet_properties.tabColor = TH.IRIS
+    for col, width in zip("ABCDE", (30, 14, 14, 14, 30), strict=True):
+        ws.column_dimensions[col].width = width
+    band = PatternFill("solid", fgColor=TH.IRIS)
+    for col in "ABCDE":
+        ws[f"{col}1"].fill = band
+    ws.row_dimensions[1].height = 6
+    ws["A3"] = "COMPARISON WORKBOOK"
+    ws["A3"].font = Font(name=font, size=8.5, bold=True, color=TH.INK_3)
+    ws["A4"] = "What changed"
+    ws["A4"].font = Font(name=font, size=18, color=TH.INK)
+    ws.row_dimensions[4].height = 28
+    ws["A5"] = f"{base_name} to {cur_name}"
+    ws["A5"].font = Font(name=font, size=11, color=TH.INK_2)
+
+    def label(row: int, text: str) -> None:
+        ws.cell(row=row, column=1, value=text).font = Font(name=font, size=10,
+                                                           color=TH.INK_3)
+
+    def value(row: int, v: Any, tone: str | None = None, number: bool = False) -> None:
+        cell = ws.cell(row=row, column=2, value=NA if TH.is_missing(v) else v)
+        cell.font = (XL._NA_FONT if TH.is_missing(v)
+                     else XL._STATUS_FONT[tone] if tone else XL._BODY_FONT)
+        if number:
+            cell.number_format = "#,##0"
+            cell.alignment = XL._LEFT
+        else:
+            ws.merge_cells(start_row=row, start_column=2, end_row=row, end_column=5)
+            cell.alignment = XL._LEFT
+
+    def source(env: Environment) -> str:
+        if env.is_combined:
+            return f"{fmt_count(len(env.source_environments))} Prism Centrals (combined)"
+        return env.prism_central.host or NA
+
+    row = XL.ExcelExporter._section(ws, 7, "Snapshots")
+    days = result["days"]
+    for text, v in (
+        ("Baseline", base_name), ("Baseline collected (UTC)",
+                                  TH.fmt_datetime(base.collected_at) or base.collected_at),
+        ("Baseline source", source(base)),
+        ("Current", cur_name), ("Current collected (UTC)",
+                                TH.fmt_datetime(cur.collected_at) or cur.collected_at),
+        ("Current source", source(cur)),
+        ("Time between", f"{days:,.1f} days"),
+        ("Report date", TH.report_date()),
+        ("Generated by", f"NTNXVision {cur.tool_version}"),
+    ):
+        label(row, text)
+        value(row, v)
+        row += 1
+
+    s = result["summary"]
+    row = XL.ExcelExporter._section(ws, row + 1, "Changes")
+    for text, v, tone in (("Total", s["total"], None), ("Added", s["added"], "ok"),
+                          ("Removed", s["removed"], "error"),
+                          ("Changed", s["changed"], "warn")):
+        label(row, text)
+        value(row, v, tone if v else None, number=True)
+        row += 1
+    note = ws.cell(row=row, column=1, value=(
+        "Objects, not fields: an object with two changed fields counts once. The Changes "
+        "sheet lists one row per object and changed field."))
+    note.font = Font(name=font, size=9, italic=True, color=TH.INK_3)
+    note.alignment = XL._TOP_LEFT
+    ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=5)
+    ws.row_dimensions[row].height = 26
+    row += 1
+
+    row = XL.ExcelExporter._section(ws, row + 1, "Headline figures")
+    for fig in result["figures"][1:]:
+        label(row, fig["label"])
+        unit = f" {fig['unit']}" if fig.get("unit") else ""
+        shown = fig["value"] if isinstance(fig["value"], str) else fmt_count(fig["value"])
+        cell = ws.cell(row=row, column=2, value=f"{shown}{unit}")
+        cell.font, cell.alignment = XL._BODY_FONT, XL._LEFT
+        q = ws.cell(row=row, column=3, value=TH.clean(fig.get("qualifier")) or None)
+        tone = fig.get("qualifier_tone")
+        q.font = XL._STATUS_FONT.get(tone or "", XL._NA_FONT)
+        ws.merge_cells(start_row=row, start_column=3, end_row=row, end_column=5)
+        row += 1
+
+    by_type = _by_type(raw)
+    row = XL.ExcelExporter._section(ws, row + 1, "By object type")
+    headers = ("Object type", "Added", "Removed", "Changed", "Total")
+    for ci, header in enumerate(headers, start=1):
+        cell = ws.cell(row=row, column=ci, value=header)
+        cell.font, cell.fill, cell.border = XL._HEADER_FONT, XL._HEADER_FILL, XL._HEADER_BORDER
+        cell.alignment = XL._LEFT if ci == 1 else XL._RIGHT
+    row += 1
+    if not by_type:
+        cell = ws.cell(row=row, column=1, value="No changes between the two snapshots.")
+        cell.font = XL._NA_FONT
+        row += 1
+    for line in by_type:
+        for ci, v in enumerate(line, start=1):
+            cell = ws.cell(row=row, column=ci, value=v)
+            cell.font = XL._BODY_FONT
+            if ci > 1:
+                cell.number_format, cell.alignment = "#,##0", XL._RIGHT
+        row += 1
+
+    row += 1
+    note = ws.cell(row=row, column=1, value=(
+        "Timestamps are UTC. Objects are matched by their Nutanix ID, then by name and "
+        "location. Areas either run did not collect are not compared. Generated from "
+        "read-only inventory snapshots; no configuration was changed."))
+    note.font = Font(name=font, size=9, italic=True, color=TH.INK_3)
+    note.alignment = XL._TOP_LEFT
+    ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=5)
+    ws.row_dimensions[row].height = 30
+    ws.page_setup.orientation = "portrait"
+    ws.page_setup.fitToWidth = 1
+    ws.page_setup.fitToHeight = 0
+    if ws.sheet_properties.pageSetUpPr is not None:
+        ws.sheet_properties.pageSetUpPr.fitToPage = True
+    ws.print_area = f"A1:E{row}"

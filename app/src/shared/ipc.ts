@@ -660,7 +660,8 @@ export interface ExportResult {
 export interface CompareExportRequest {
   baseline: string;
   current: string;
-  format: 'excel' | 'csv';
+  /** Excel: Summary + every change row. CSV: the same rows. PDF: summary + grouped rows. */
+  format: 'excel' | 'csv' | 'pdf';
   exportDir?: string;
 }
 
