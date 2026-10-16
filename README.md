@@ -1,5 +1,7 @@
 # NTNXVision
 
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
 > A modern, cross-platform (Windows + macOS) inventory & documentation tool for
 > **Nutanix Prism Central** and its clusters — the *"RVTools for Nutanix,"* extended to
 > cover the full Nutanix Cloud Platform.
@@ -78,4 +80,17 @@ npm run dev          # compiles main, starts Vite, launches Electron
 
 ## License
 
-Proprietary — © Alberto Chestaro. Not affiliated with or endorsed by Nutanix, Inc.
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
+NTNXVision is released under the [MIT License](LICENSE), © 2026 Alberto Chestaro.
+
+- [`NOTICE`](NOTICE): legal notice, covering no warranty, read-only operation, and the Nutanix
+  trademark disclaimer.
+- [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md): every third-party component shipped
+  in the installers, with its license text. Generated: `cd app && npm run notices`.
+- [`docs/LICENSING.md`](docs/LICENSING.md): license-compatibility review (fpdf2 / LGPL,
+  certifi / MPL, the Nutanix icon assets) and how the notices are shipped.
+
+Nutanix, Prism, AHV, AOS, Era/NDB, Flow, Files, Objects and related names and logos are
+trademarks of Nutanix, Inc. NTNXVision is an independent project and is not affiliated
+with, endorsed by, or sponsored by Nutanix, Inc.

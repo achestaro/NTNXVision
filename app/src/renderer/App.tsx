@@ -19,6 +19,7 @@ import { SnapshotsView } from './views/SnapshotsView';
 import { MultiPCView } from './views/MultiPCView';
 import { CompareView } from './views/CompareView';
 import { SettingsView } from './views/SettingsView';
+import { LegalView } from './views/LegalView';
 
 export function App(): JSX.Element {
   return (
@@ -155,6 +156,8 @@ function Shell(): JSX.Element {
         return <CompareView baseline={route.baseline} current={route.current} />;
       case 'settings':
         return <SettingsView />;
+      case 'legal':
+        return <LegalView />;
     }
   }
 }

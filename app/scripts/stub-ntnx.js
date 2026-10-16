@@ -394,6 +394,14 @@
     platform: opt.platform,
     ping: () => delay({ pong: true, version: '0.4.0' }),
     getAppInfo: () => delay({ version: '0.4.0', platform: opt.platform, defaultExportDir: EXPORT_DIR }),
+    getLegalDocuments: () =>
+      delay({
+        version: '0.4.0',
+        license: 'MIT License\n\nCopyright (c) 2026 Alberto Chestaro\n\n(Stub: the real app shows the bundled LICENSE file.)',
+        notice: 'NTNXVision\n(Stub: the real app shows the bundled NOTICE file.)',
+        thirdPartyNotices: '# Third-party notices\n\n#### react 18.3.1\n\nLicense: **MIT**\n\n#### fpdf2 2.8.9\n\nLicense: **LGPL-3.0-only**',
+        source: opt.platform === 'win32' ? 'C:\\Program Files\\NTNXVision\\resources' : '/Applications/NTNXVision.app/Contents/Resources',
+      }),
 
     testConnection: (req) => {
       const host = req.host;
