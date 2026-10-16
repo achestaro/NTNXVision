@@ -12,6 +12,13 @@ v4's `cpuCapacityHz` is **not** v3's `cpu_capacity_hz`. v3 reports the per-core
 frequency (2.5 GHz); v4's same-sounding field is the aggregate across cores
 (2.5 GHz x 24) and its `cpuFrequencyHz` is the per-core figure. Mapping by name would
 silently inflate the value by the core count.
+
+**Raw storage per node** (for the cluster capacity figures in `capacity.py`): v4 lists the
+node's physical disks under `disk[]` with a `sizeInBytes` each, and their sum is the raw
+size. v3 `hosts/list` carries no disk sizes, so the v3 path (and a v4 host without a disk
+list) reads the node's `storage.capacity_bytes` from the groups API instead, the same
+attribute the Prism hosts table shows as disk capacity. Best-effort: a PC that rejects the
+query just leaves the field empty and the storage figures read N/A.
 """
 
 from __future__ import annotations
@@ -45,7 +52,31 @@ class HostCollector(Collector):
             self._collect_v4(env)
         else:
             self._collect_v3(env)
+        self._backfill_storage_capacity(env)
         env.collection_notes[self.name] = "ok"
+
+    def _backfill_storage_capacity(self, env: Any) -> None:
+        """Fill `storage_capacity_bytes` from the groups API where the list gave none."""
+        missing = [h for h in env.hosts if h.storage_capacity_bytes is None]
+        if not missing:
+            return
+        try:
+            rows = self.conn.v3_groups("host", ["host_name", "storage.capacity_bytes"])
+        except Exception:  # noqa: BLE001 - groups schema differs or the API is gone
+            return
+        by_uuid: dict[str, int] = {}
+        by_name: dict[str, int] = {}
+        for row in rows:
+            value = _int_or_none(row.get("storage.capacity_bytes"))
+            if not value:
+                continue
+            if row.get("entity_id"):
+                by_uuid[str(row["entity_id"])] = value
+            if row.get("host_name"):
+                by_name[str(row["host_name"])] = value
+        for host in missing:
+            host.storage_capacity_bytes = by_uuid.get(host.uuid) or (
+                by_name.get(host.name) if host.name else None)
 
     # ─── v4 ────────────────────────────────────────────────────────
 
@@ -54,6 +85,8 @@ class HostCollector(Collector):
             hypervisor = entity.get("hypervisor") or {}
             cluster = entity.get("cluster") or {}
             memory = entity.get("memorySizeBytes")
+            disks = [d for d in (entity.get("disk") or entity.get("disks") or [])
+                     if isinstance(d, dict)]
             env.hosts.append(
                 Host(
                     uuid=entity.get("extId", ""),
@@ -81,6 +114,8 @@ class HostCollector(Collector):
                     num_vms=hypervisor.get("numberOfVms"),
                     # v4 pads this with an empty string when a host has no GPU.
                     gpu_list=[g for g in (entity.get("gpuList") or []) if g],
+                    disk_count=len(disks) if disks else None,
+                    storage_capacity_bytes=_v4_raw_bytes(disks),
                     api_source="v4",
                 )
             )
@@ -130,6 +165,20 @@ class HostCollector(Collector):
                     api_source="v3",
                 )
             )
+
+
+def _v4_raw_bytes(disks: list[dict[str, Any]]) -> int | None:
+    """Sum of a v4 host's physical disk sizes, or None when no size is reported."""
+    sizes = [_int_or_none(d.get("sizeInBytes")) for d in disks]
+    known = [s for s in sizes if s]
+    return sum(known) if known else None
+
+
+def _int_or_none(value: Any) -> int | None:
+    try:
+        return int(value) if value not in (None, "") else None
+    except (TypeError, ValueError):
+        return None
 
 
 def _v4_ipv4(address: Any) -> str | None:

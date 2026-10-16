@@ -1,688 +1,590 @@
 """PDF exporter (fpdf2).
 
-Produces a branded, enterprise-styled report: a full-bleed cover, a section per feature
-area with accent-underlined headings, zebra tables, and a ruled header/footer. fpdf2 is
-pure-Python (no native GTK/Pango), so it bundles cleanly with PyInstaller on Win + macOS.
+Renders the shared report content (`content.build_report`) as a landscape A4 document in
+the light Runway theme: a white cover with an iris band, a linked table of contents,
+chapters that each open on a new page with an iris heading marker, and ruled tables whose
+text wraps instead of being cut. Figtree, Montserrat Light and JetBrains Mono are embedded
+(subset) from the vendored OFL fonts, so any Unicode text renders and the output looks the
+same on every machine.
+
+Accessibility and navigation: every chapter and section is a PDF bookmark (the viewer
+opens with the bookmarks pane), the contents rows are links, figures carry alt text, and
+the document title, language, author and subject are set. Page numbers are physical page
+numbers (the unnumbered cover is page 1), so the contents, the footer and the viewer's
+own page counter always agree. fpdf2 is pure Python (no native GTK/Pango), so it bundles
+cleanly with PyInstaller on Windows and macOS.
 """
 
 from __future__ import annotations
 
 import io
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from fpdf import FPDF
+from fpdf.enums import PageMode
 from fpdf.outline import OutlineSection
+from fpdf.prefs import ViewerPreferences
 
-from ntnxvision_core.exporters import diagrams
-from ntnxvision_core.exporters.diagrams import Diagram
-from ntnxvision_core.exporters.sourcing import source_hosts as _source_hosts
-from ntnxvision_core.exporters.sourcing import sources as _sources
+from ntnxvision_core.exporters import theme as T
+from ntnxvision_core.exporters.content import (
+    Bullets,
+    Chapter,
+    Figure,
+    FigureRow,
+    FigureStrip,
+    Paragraph,
+    Report,
+    Status,
+    Table,
+    build_report,
+    cell_text,
+)
+from ntnxvision_core.exporters.content import versions as _shared_versions
 from ntnxvision_core.models import Environment
+from ntnxvision_core.numfmt import NA
 
-GIB = 1024**3
-# Enterprise palette.
-_NAVY = (24, 58, 92)
-_ACCENT = (0, 122, 204)
-_HEADER = (31, 78, 120)
-_ZEBRA = (241, 245, 250)
-_GREY = (120, 130, 142)
-_INK = (40, 46, 54)
-# Exact brand hex from the coworker's script's spec (#024DA1 / #00A3E0), used only
-# where we're explicitly matching it (cover, TOC) — the rest of the report keeps
-# its own established navy/accent pair above.
-_TOC_BLUE = (2, 77, 161)
-_TOC_CYAN = (0, 163, 224)
+SANS, LIGHT, MONO = "Figtree", "Montserrat", "JetBrainsMono"
+
+MARGIN_X = 16.0
+TOP = 21.0
+BOTTOM = 17.0
+
+# Table metrics (mm / pt).
+PAD_X, PAD_Y = 1.7, 1.45
+BODY_PT, MONO_PT, HEAD_PT = 8.0, 7.4, 7.8
+LINE_H = 3.75
+MAX_LINES = 4
+
+# Table of contents row heights (mm).
+TOC_H0, TOC_H1 = 7.4, 5.5
+TOC_TITLE_BLOCK = 22.0
 
 
-class _Report(FPDF):
-    title_text = "Nutanix Environment Report"
+class _Pdf(FPDF):
+    def __init__(self, report: Report) -> None:
+        super().__init__(orientation="L", unit="mm", format="A4")
+        self.report = report
+        self.fresh_page = False  # the current page is blank and may host the next chapter
+        self.set_margins(MARGIN_X, TOP, MARGIN_X)
+        self.set_auto_page_break(auto=True, margin=BOTTOM)
+        # Padding is applied explicitly (table cells, strip); fpdf2's implicit cell margin
+        # would shift text off the grid and shrink wrap widths.
+        self.c_margin = 0
+        self.add_font(SANS, "", str(T.FIGTREE))
+        self.add_font(SANS, "I", str(T.FIGTREE_ITALIC))
+        self.add_font(SANS, "B", str(T.FIGTREE_SEMIBOLD))
+        self.add_font(LIGHT, "", str(T.MONTSERRAT_LIGHT))
+        self.add_font(MONO, "", str(T.JETBRAINS_MONO))
+        # Characters Figtree lacks (box drawing, check marks, rare symbols) come from
+        # JetBrains Mono rather than rendering as missing-glyph boxes.
+        self.set_fallback_fonts([MONO], exact_match=False)
 
+    # ─ running header / footer ─
     def header(self) -> None:
         if self.page_no() == 1:
             return
-        self.set_font("Helvetica", "B", 8)
-        self.set_text_color(*_NAVY)
-        self.cell(0, 6, "NTNXVision", align="L")
-        self.set_font("Helvetica", "", 8)
-        self.set_text_color(*_GREY)
-        self.cell(0, 6, self.title_text, align="R")
-        self.ln(7)
-        # Thin rule under the header.
-        self.set_draw_color(*_ACCENT)
-        self.set_line_width(0.4)
-        self.line(self.l_margin, self.get_y(), self.w - self.r_margin, self.get_y())
-        self.ln(4)
+        y = 9.0
+        self.set_xy(self.l_margin, y)
+        self.set_font(SANS, "B", 7.8)
+        self.set_text_color(*T.INK_RGB)
+        word = "NTNXVision"
+        self.cell(self.get_string_width(word), 5, word)
+        self.set_font(SANS, "", 7.8)
+        self.set_text_color(*T.INK_3_RGB)
+        self.cell(0, 5, f"  ·  {self.report.running_title}")
+        self.set_xy(self.l_margin, y)
+        self.cell(0, 5, T.clean(self.report.scope), align="R")
+        self.set_draw_color(*T.RULE_2_RGB)
+        self.set_line_width(0.2)
+        self.line(self.l_margin, y + 6.2, self.w - self.r_margin, y + 6.2)
+        self.set_xy(self.l_margin, TOP)
 
     def footer(self) -> None:
         if self.page_no() == 1:
             return
-        self.set_y(-12)
-        self.set_draw_color(220, 226, 232)
+        y = self.h - 11.5
+        self.set_draw_color(*T.RULE_2_RGB)
         self.set_line_width(0.2)
-        self.line(self.l_margin, self.get_y(), self.w - self.r_margin, self.get_y())
-        self.ln(1)
-        self.set_font("Helvetica", "", 7.5)
-        self.set_text_color(*_GREY)
-        self.cell(0, 6, "NTNXVision - Nutanix Environment Report", align="L")
-        # Pages added mid-render during the deferred ToC pass (in_toc_rendering) — and
-        # the last such page, whose footer fpdf2 flushes just *after* that flag resets
-        # (see _toc_inserted_pages) — report a bogus page_no() until fpdf2 re-splices
-        # them into place, so skip the number rather than show it wrong.
-        in_toc_overflow = self.in_toc_rendering or getattr(self, "_toc_inserted_pages", 0) > 0
-        page_label = "" if in_toc_overflow else f"Page {self.page_no() - 1}"
-        self.cell(0, 6, page_label, align="R")
+        self.line(self.l_margin, y, self.w - self.r_margin, y)
+        self.set_xy(self.l_margin, y + 1.6)
+        self.set_font(SANS, "", 7.3)
+        self.set_text_color(*T.INK_3_RGB)
+        left = "Confidential"
+        if self.report.prepared_for:
+            left += f" · Prepared for {T.clean(self.report.prepared_for)}"
+        self.cell(0, 5, left)
+        self.set_xy(self.l_margin, y + 1.6)
+        self.cell(0, 5, f"Page {self.page_no()} of {{nb}}", align="R")
 
 
 class PdfExporter:
-    def export(self, env: Environment, path: str | Path) -> Path:
-        pdf = _Report(orientation="L", unit="mm", format="A4")
-        pdf.set_auto_page_break(auto=True, margin=16)
-        pdf.set_title("NTNXVision Environment Report")
+    #: Pages in the last export (for the "48 pages" report detail).
+    page_count: int = 0
 
-        self._cover(pdf, env)
-        pdf.add_page()  # dedicated blank page: insert_toc_placeholder reserves *this* one
-        pdf.insert_toc_placeholder(self._render_toc, pages=1, allow_extra_pages=True)
-        self._summary(pdf, env)
-        self._feature_usage(pdf, env)
-        self._topology(pdf, env)
-        self._pc_config(pdf, env)
-        self._infra_sections(pdf, env)
-        self._system_vms(pdf, env)
-        self._health(pdf, env)
-        self._lcm_section(pdf, env)
-        self._catalog(pdf, env)
-        self._dr_section(pdf, env)
-        self._flow_section(pdf, env)
-        self._nus_section(pdf, env)
-        self._ndb_section(pdf, env)
-        self._iam_section(pdf, env)
+    def export(self, env: Environment, path: str | Path, options: Any = None) -> Path:
+        from ntnxvision_core.exporters import ExportOptions
+
+        opts = ExportOptions.coerce(options)
+        report = build_report(env, opts, eyebrow="Environment report")
+        pdf = _Pdf(report)
+        pdf.set_title(report.title)
+        pdf.set_subject(report.subject)
+        pdf.set_keywords(report.keywords)
+        pdf.set_creator(f"NTNXVision {env.tool_version}")
+        pdf.set_author(opts.author or "NTNXVision")
+        pdf.set_lang("en-US")
+        pdf.page_mode = PageMode.USE_OUTLINES
+        pdf.viewer_preferences = ViewerPreferences(display_doc_title=True)
+
+        self._cover(pdf, report)
+        pdf.add_page()
+        pdf.start_section("Contents", level=0)
+        pdf.insert_toc_placeholder(self._render_toc, pages=self._toc_pages(pdf, report))
+        pdf.fresh_page = True
+        for chapter in report.chapters:
+            self._chapter(pdf, chapter)
 
         out = Path(path)
         out.parent.mkdir(parents=True, exist_ok=True)
         pdf.output(str(out))
+        self.page_count = len(pdf.pages)
         return out
 
-    # ─── cover & summary ───────────────────────────────────────────
+    # ─── cover ─────────────────────────────────────────────────────
 
-    def _cover(self, pdf: _Report, env: Environment) -> None:
-        """Report cover — full-bleed, edge-to-edge (matching the coworker script's
-        cover), embedding the shared diagrams.cover_page() raster so the PDF and
-        Word covers are otherwise pixel-identical.
-        """
+    def _cover(self, pdf: _Pdf, report: Report) -> None:
+        cover = report.cover
         pdf.add_page()
-        diag = diagrams.cover_page(env)
-        pdf.image(io.BytesIO(diag.png), x=0, y=0, w=pdf.w, h=pdf.h)
+        pdf.set_auto_page_break(False)
+        # Iris band across the top edge: the cover's one accent.
+        pdf.set_fill_color(*T.IRIS_RGB)
+        pdf.rect(0, 0, pdf.w, 4.2, style="F")
+        x = 24.0
+        pdf.set_xy(x, 20)
+        pdf.set_font(SANS, "B", 10.5)
+        pdf.set_text_color(*T.INK_RGB)
+        pdf.cell(0, 6, "NTNXVision")
 
-    def _summary(self, pdf: _Report, env: Environment) -> None:
-        # No pdf.add_page() here: insert_toc_placeholder() already advances to a
-        # fresh page right before this runs.
-        self._h1(pdf, "Executive Summary")
-        pdf.set_font("Helvetica", "", 11)
-        pdf.set_text_color(*_INK)
-        c = env.summary()
-        managed_by = (
-            f"This environment spans {len(env.source_environments)} Prism Centrals "
-            f"({', '.join(_source_hosts(env))}) and comprises "
-            if env.is_combined else
-            f"This environment is managed by Prism Central {env.prism_central.host or ''} "
-            f"(version {env.prism_central.version or 'unknown'}) and comprises "
-        )
-        line = (
-            f"{managed_by}"
-            f"{c['clusters']} cluster(s), {c['hosts']} host(s), and {c['vms']} user virtual "
-            f"machine(s) ({c['system_vms']} Nutanix system VM(s)). It includes "
-            f"{c['protection_policies']} protection policy(ies) and {c['recovery_plans']} "
-            f"recovery plan(s), {c['security_policies']} Flow security policy(ies), "
-            f"{c['storage_containers']} storage container(s), {c['templates']} template(s), "
-            f"and {c['images']} image(s)."
-        )
-        pdf.multi_cell(0, 6, _latin1(line))
-        pdf.ln(4)
-        self._inline_figure(pdf, diagrams.executive_dashboard(env),
-                            "Figure 1. Executive summary dashboard.")
+        pdf.set_xy(x, 52)
+        pdf.set_font(SANS, "B", 8.5)
+        pdf.set_text_color(*T.INK_3_RGB)
+        pdf.set_char_spacing(0.8)
+        pdf.cell(0, 5, cover.eyebrow.upper())
+        pdf.set_char_spacing(0)
+        pdf.set_xy(x, 60)
+        pdf.set_font(LIGHT, "", 30)
+        pdf.set_text_color(*T.INK_RGB)
+        pdf.multi_cell(180, 12.5, T.clean(cover.title), align="L", new_x="LEFT", new_y="NEXT")
+        pdf.set_x(x)
+        pdf.ln(2)
+        pdf.set_x(x)
+        pdf.set_font(SANS, "", 13)
+        pdf.set_text_color(*T.INK_2_RGB)
+        pdf.multi_cell(230, 6.5, T.clean(cover.subtitle), align="L", new_x="LEFT", new_y="NEXT")
+        y = pdf.get_y() + 5
+        pdf.set_fill_color(*T.IRIS_RGB)
+        pdf.rect(x, y, 22, 0.9, style="F")
 
-    def _topology(self, pdf: _Report, env: Environment) -> None:
-        self._diagram_page(pdf, "Environment Topology", [
-            ("Management topology - Prism Central and registered clusters.",
-             diagrams.management_topology(env)),
-        ])
+        # Report facts: a quiet two-column list.
+        y = max(y + 12, 122.0)
+        label_w = 40.0
+        for label, value in cover.meta:
+            pdf.set_xy(x, y)
+            pdf.set_font(SANS, "", 8.8)
+            pdf.set_text_color(*T.INK_3_RGB)
+            pdf.cell(label_w, 5.2, label)
+            pdf.set_font(SANS, "", 9.4)
+            pdf.set_text_color(*T.INK_RGB)
+            pdf.set_xy(x + label_w, y)
+            pdf.multi_cell(pdf.w - x - label_w - 24, 5.2, T.clean(value) or NA,
+                           align="L", new_x="LMARGIN", new_y="NEXT")
+            y = pdf.get_y() + 0.9
+        pdf.set_draw_color(*T.RULE_2_RGB)
+        pdf.set_line_width(0.2)
+        pdf.line(x, pdf.h - 18, pdf.w - 24, pdf.h - 18)
+        pdf.set_xy(x, pdf.h - 16)
+        pdf.set_font(SANS, "I", 8)
+        pdf.set_text_color(*T.INK_3_RGB)
+        pdf.cell(0, 5, T.clean(cover.note))
+        pdf.set_auto_page_break(True, margin=BOTTOM)
 
-    def _pc_config(self, pdf: _Report, env: Environment) -> None:
-        if env.is_combined:
-            self._source_pcs(pdf, env)
-            return
-        cfg = env.pc_config
-        rows = [
-            ["Version", cfg.version or "-"],
-            ["Deployment", "Scale-out (3-node)" if cfg.is_scale_out else "Single-node"
-             if cfg.is_scale_out is not None else "-"],
-            ["PC nodes", str(cfg.node_count or "-")],
-            ["Registered clusters", str(cfg.registered_cluster_count or "-")],
-            ["Total vCPU", str(cfg.num_vcpus or "-")],
-            ["Total memory (GiB)", str(_gib(cfg.memory_bytes) or "-")],
-            ["PC VM(s)", ", ".join(cfg.pc_vm_names) or "-"],
-            ["IP address(es)", ", ".join(cfg.ip_addresses) or "-"],
-        ]
-        pdf.add_page()
-        self._h1(pdf, "Prism Central - Management & Sizing")
-        self._kv_table(pdf, [(k, v) for k, v in rows])
+    # ─── table of contents ─────────────────────────────────────────
 
-    def _source_pcs(self, pdf: _Report, env: Environment) -> None:
-        """One row per contributing Prism Central. A combined run has several management
-        planes, so there is no single sizing to report — presenting one PC's would be
-        wrong rather than merely incomplete.
-        """
-        rows = []
-        for s in env.source_environments:
-            cfg, counts = s.pc_config, s.summary
-            rows.append([
-                s.prism_central.host or "unknown",
-                s.prism_central.version or cfg.version or "-",
-                "Scale-out" if cfg.is_scale_out else "Single-node"
-                if cfg.is_scale_out is not None else "-",
-                cfg.node_count or "-",
-                counts.get("clusters", "-"),
-                counts.get("hosts", "-"),
-                counts.get("vms", "-"),
-            ])
-        self._section_table(
-            pdf, "Prism Centrals - Management & Sizing",
-            ["Prism Central", "Version", "Deployment", "PC nodes", "Clusters", "Hosts", "VMs"],
-            rows, [55, 35, 30, 25, 25, 20, 20],
-        )
+    @staticmethod
+    def _toc_rows(report: Report) -> list[tuple[int, str, str]]:
+        rows: list[tuple[int, str, str]] = []
+        for ch in report.chapters:
+            title = f"Appendix: {ch.title}" if ch.appendix else ch.title
+            rows.append((0, ch.number, title))
+            rows.extend((1, s.number, s.title) for s in ch.sections)
+        return rows
 
-    def _infra_sections(self, pdf: _Report, env: Environment) -> None:
-        self._section_table(
-            pdf, "Clusters", ["Name", "AOS", "Hyp.", "Nodes", "RF", "Encryption"],
-            [[c.name, c.aos_version, ",".join(c.hypervisor_types), c.num_nodes,
-              c.redundancy_factor, "Yes" if c.encryption_enabled else "No"]
-             for c in env.clusters],
-            [55, 30, 35, 25, 20, 35],
-            sources=_sources(env, env.clusters),
-        )
-        self._section_table(
-            pdf, "Hosts", ["Name", "Cluster", "Hypervisor", "Cores", "Mem GiB", "VMs"],
-            [[h.name, h.cluster_name, h.hypervisor_type, h.num_cpu_cores,
-              _gib(h.memory_bytes), h.num_vms] for h in env.hosts],
-            [55, 45, 45, 25, 30, 20],
-            sources=_sources(env, env.hosts),
-        )
-        self._diagram_page(pdf, "Cluster Compute Topology", [
-            (f"Cluster {c.name} - node composition and capacity.",
-             diagrams.cluster_compute(env, c)) for c in env.clusters[:8]
-        ])
-        self._section_table(
-            pdf, "Storage Containers",
-            ["Name", "Cluster", "RF", "Compression", "Max GiB", "Used GiB"],
-            [[s.name, s.cluster_name, s.replication_factor,
-              "On" if s.compression_enabled else "Off", _gib(s.max_capacity_bytes),
-              _gib(s.used_bytes)] for s in env.storage_containers],
-            [55, 45, 20, 40, 35, 35],
-        )
-        self._storage_vm_distribution(pdf, env)
-
-    def _storage_vm_distribution(self, pdf: _Report, env: Environment) -> None:
-        """Storage capacity full-width, then power-state + per-cluster charts side
-        by side — three stacked figures didn't fit one page, spilling the third
-        onto a page of its own; two columns for the smaller pair does.
-        """
-        cap = diagrams.storage_capacity_chart(env)
-        power = diagrams.vm_power_state_chart(env)
-        per_cluster = diagrams.vms_per_cluster_chart(env)
-        if not (cap or power or per_cluster):
-            return
-        pdf.add_page()
-        self._h1(pdf, "Storage & VM Distribution")
-
-        if cap:
-            w_mm = pdf.epw
-            pdf.image(io.BytesIO(cap.png), x=pdf.l_margin, w=w_mm)  # advances pdf.y itself
-            pdf.set_font("Helvetica", "I", 8)
-            pdf.set_text_color(*_GREY)
-            pdf.cell(0, 5, "Storage container capacity - used vs. free per container.",
-                     new_x="LMARGIN", new_y="NEXT")
-            pdf.ln(6)
-
-        row_y = pdf.get_y()
-        gap = 10.0
-        col_w = (pdf.epw - gap) / 2
-        max_bottom = row_y
-        for diag, caption, col_x in (
-            (power, "VM power state distribution.", pdf.l_margin),
-            (per_cluster, "Virtual machines per cluster.", pdf.l_margin + col_w + gap),
-        ):
-            if not diag:
-                continue
-            w_mm = min(col_w, diag.width_in * 25.4)
-            h_mm = w_mm * diag.height / diag.width
-            img_x = col_x + (col_w - w_mm) / 2  # center within its column
-            pdf.image(io.BytesIO(diag.png), x=img_x, y=row_y, w=w_mm)
-            pdf.set_xy(col_x, row_y + h_mm + 1)
-            pdf.set_font("Helvetica", "I", 8)
-            pdf.set_text_color(*_GREY)
-            pdf.multi_cell(col_w, 5, caption)
-            max_bottom = max(max_bottom, pdf.get_y())
-        pdf.set_y(max_bottom + 4)
-
-    def _system_vms(self, pdf: _Report, env: Environment) -> None:
-        self._section_table(
-            pdf, "Nutanix System VMs (CVMs / Prism Central)",
-            ["Name", "Type", "Power", "Cluster", "vCPU", "Mem GiB"],
-            [[v.name, v.vm_type, v.power_state, v.cluster_name, v.vcpu_total,
-              _gib(v.memory_bytes)] for v in env.system_vms],
-            [70, 40, 25, 55, 20, 30],
-        )
-
-    def _health(self, pdf: _Report, env: Environment) -> None:
-        self._section_table(
-            pdf, "Health Alerts", ["Severity", "Title", "Entity", "Cluster", "Resolved"],
-            [[a.severity, a.title, a.entity_name, a.cluster_name, "Yes" if a.resolved else "No"]
-             for a in env.alerts],
-            [25, 90, 55, 55, 25],
-        )
-        self._inline_figure(pdf, diagrams.alert_severity_chart(env),
-                            "Alert severity breakdown.")
-
-    def _lcm_section(self, pdf: _Report, env: Environment) -> None:
-        """Life Cycle Manager inventory — what is running, and what LCM offers instead.
-
-        The lead-in carries the number the reader is actually after (how many components
-        are behind); the table itself is deliberately narrower than the Excel sheet, so
-        the version list is trimmed rather than truncated mid-string by the cell width.
-        """
-        entities = env.lcm_entities
-        if not entities:
-            return  # skipped like every other optional section, not an empty table
-        pending = sum(1 for e in entities if e.update_available)
-        unknown = sum(1 for e in entities if e.update_available is None)
-        lead = (
-            f"Life Cycle Manager inventories {len(entities)} component(s) across this "
-            f"environment; {pending} have a newer version available"
-            + (f" and {unknown} could not be determined" if unknown else "")
-            + ". Available versions below are trimmed to the two newest LCM offers - the "
-            "Excel export lists them in full."
-        )
-        self._section_table(
-            pdf, "Life Cycle Manager (LCM)",
-            ["Component", "Class", "Cluster", "Current", "Update", "Available Versions"],
-            [[e.name, e.entity_class, e.cluster_name, e.current_version,
-              _update_flag(e.update_available), _versions(e.available_versions, 2)]
-             for e in entities],
-            [58, 40, 45, 32, 25, 60],
-            sources=_sources(env, entities),
-            lead=lead,
-        )
-
-    def _catalog(self, pdf: _Report, env: Environment) -> None:
-        self._section_table(
-            pdf, "VM Templates", ["Name", "Guest OS", "vCPU", "Mem GiB", "Version", "Versions"],
-            [[t.name, t.guest_os, t.num_vcpus, _gib(t.memory_bytes), t.active_version,
-              t.version_count] for t in env.templates],
-            [70, 55, 20, 30, 40, 25],
-        )
-        self._section_table(
-            pdf, "Images", ["Name", "Type", "Size GiB", "Arch", "Clusters", "State"],
-            [[i.name, i.image_type, _gib(i.size_bytes), i.architecture,
-              ", ".join(i.cluster_names), i.state] for i in env.images],
-            [70, 35, 30, 30, 55, 30],
-        )
-        self._section_table(
-            pdf, "OVAs", ["Name", "Size GiB", "Disks", "Cluster"],
-            [[o.name, _gib(o.size_bytes), o.disk_count, o.cluster_name] for o in env.ovas],
-            [80, 35, 25, 60],
-        )
-
-    def _dr_section(self, pdf: _Report, env: Environment) -> None:
-        self._section_table(
-            pdf, "Protection Policies",
-            ["Name", "RPO (s)", "Replication", "Source AZ", "Target AZ"],
-            [[p.name, p.rpo_seconds, p.replication_type, p.source_az, p.target_az]
-             for p in env.protection_policies],
-            [65, 28, 42, 65, 65],
-        )
-        self._section_table(
-            pdf, "Recovery Plans", ["Name", "Stages", "Entities", "Primary", "Recovery"],
-            [[r.name, r.stage_count, r.entities_count, r.primary_location, r.recovery_location]
-             for r in env.recovery_plans],
-            [70, 25, 30, 65, 65],
-        )
-        self._diagram_page(pdf, "Replication Topology", [
-            ("Protection policy flows between availability zones.",
-             diagrams.replication_topology(env)),
-        ])
-
-    def _flow_section(self, pdf: _Report, env: Environment) -> None:
-        self._section_table(
-            pdf, "Subnets", ["Name", "Cluster", "Type", "VLAN", "vSwitch", "VPC"],
-            [[s.name, s.cluster_name, s.subnet_type, s.vlan_id, s.virtual_switch, s.vpc_name]
-             for s in env.subnets],
-            [55, 45, 25, 20, 40, 45],
-        )
-        self._section_table(
-            pdf, "Flow Security Policies", ["Name", "Type", "State", "In", "Out", "Secured Group"],
-            [[p.name, p.policy_type, p.state, p.inbound_rule_count, p.outbound_rule_count,
-              p.secured_group] for p in env.security_policies],
-            [55, 40, 30, 15, 15, 90],
-        )
-        self._section_table(
-            pdf, "VPCs", ["Name", "Subnets", "External Subnets", "Routes", "Policies"],
-            [[v.name, ", ".join(v.subnet_names), ", ".join(v.external_subnets),
-              v.route_count, v.routing_policy_count]
-             for v in env.vpcs],
-            [55, 80, 75, 20, 20],
-        )
-        self._section_table(
-            pdf, "Categories", ["Name", "Value", "Description"],
-            [[c.name, c.value, c.description] for c in env.categories],
-            [55, 55, 130],
-        )
-        self._diagram_page(pdf, "Network Topology", [
-            (f"Cluster {c.name} - virtual switch and VLAN layout.",
-             diagrams.network_topology(env, c)) for c in env.clusters[:8]
-        ] + [
-            ("Flow Virtual Networking - VPCs with overlay and external subnets.",
-             diagrams.vpc_topology(env)),
-        ])
-
-    def _nus_section(self, pdf: _Report, env: Environment) -> None:
-        self._section_table(
-            pdf, "File Servers", ["Name", "Cluster", "Version", "FSVMs", "Size GiB", "Shares"],
-            [[f.name, f.cluster_name, f.version, f.num_fsvm, _gib(f.size_bytes), f.share_count]
-             for f in env.file_servers],
-            [55, 45, 35, 25, 35, 25],
-        )
-        self._section_table(
-            pdf, "File Shares",
-            ["Name", "File Server", "Type", "Protocol", "Max GiB", "Used GiB"],
-            [[s.name, s.file_server_name, s.share_type, s.protocol,
-              _gib(s.max_size_bytes), _gib(s.used_bytes)] for s in env.file_shares],
-            [55, 55, 30, 30, 30, 30],
-        )
-        self._section_table(
-            pdf, "Object Stores",
-            ["Name", "Cluster", "Workers", "Capacity GiB", "Buckets", "State"],
-            [[o.name, o.cluster_name, o.num_worker_nodes, _gib(o.total_capacity_bytes),
-              o.bucket_count, o.state] for o in env.object_stores],
-            [55, 45, 25, 40, 25, 30],
-        )
-        self._section_table(
-            pdf, "Buckets",
-            ["Name", "Object Store", "Versioning", "WORM", "Objects", "Used GiB"],
-            [[b.name, b.object_store_name, "Yes" if b.versioning else "No",
-              "Yes" if b.worm_enabled else "No", b.object_count, _gib(b.used_bytes)]
-             for b in env.buckets],
-            [55, 55, 30, 25, 30, 30],
-        )
-        self._section_table(
-            pdf, "Volume Groups", ["Name", "Cluster", "Disks", "Capacity GiB", "Shared"],
-            [[v.name, v.cluster_name, v.disk_count, _gib(v.total_capacity_bytes),
-              "Yes" if v.is_shared else "No"] for v in env.volume_groups],
-            [70, 55, 25, 40, 30],
-        )
-
-    def _ndb_section(self, pdf: _Report, env: Environment) -> None:
-        self._section_table(
-            pdf, "Databases (NDB)", ["Name", "Engine", "Type", "Status", "Time Machine", "SLA"],
-            [[d.name, d.db_engine, d.db_type, d.status, d.time_machine_name, d.sla_name]
-             for d in env.databases],
-            [55, 40, 40, 35, 55, 40],
-        )
-        self._section_table(
-            pdf, "Database Servers",
-            ["Name", "Engine", "Status", "Cluster", "Cores", "Memory GB"],
-            [[s.name, s.db_engine, s.status, s.cluster_name, s.vm_cores, s.memory_gb]
-             for s in env.database_servers],
-            [55, 40, 30, 55, 25, 30],
-        )
-        self._section_table(
-            pdf, "Time Machines", ["Name", "Database", "SLA", "Status", "Schedule", "Clones"],
-            [[t.name, t.database_name, t.sla_name, t.status, t.schedule, t.clone_count]
-             for t in env.time_machines],
-            [55, 55, 30, 30, 45, 25],
-        )
-
-    def _iam_section(self, pdf: _Report, env: Environment) -> None:
-        self._section_table(
-            pdf, "Users", ["Username", "Display Name", "Type", "Directory", "State"],
-            [[u.username, u.display_name, u.user_type, u.directory, u.state]
-             for u in env.users],
-            [65, 55, 30, 55, 30],
-        )
-        self._section_table(
-            pdf, "Roles", ["Name", "Description", "System", "Permissions"],
-            [[r.name, r.description, "Yes" if r.is_system else "No", r.permission_count]
-             for r in env.roles],
-            [55, 100, 25, 30],
-        )
-        self._section_table(
-            pdf, "Playbooks (X-Play)",
-            ["Name", "Trigger", "Actions", "Enabled", "Executions"],
-            [[p.name, p.trigger_type, p.action_count, "Yes" if p.is_enabled else "No",
-              p.execution_count] for p in env.playbooks],
-            [55, 40, 25, 25, 30],
-        )
-        self._section_table(
-            pdf, "NCM Reports", ["Name", "Type", "Schedule", "Last Run"],
-            [[r.name, r.report_type, r.schedule, r.last_run] for r in env.ncm_reports],
-            [65, 45, 45, 55],
-        )
-
-    def _feature_usage(self, pdf: _Report, env: Environment) -> None:
-        from ntnxvision_core.analysis import analyze_feature_usage
-
-        rows = [[fu.product, fu.feature, "Yes" if fu.in_use else "No", fu.detail]
-                for fu in analyze_feature_usage(env)]
-        self._section_table(
-            pdf, "Feature Usage & Licensing", ["Product", "Feature", "In Use", "Detail"],
-            rows, [55, 80, 25, 80], force=True,
-        )
-
-    # ─── styling helpers ───────────────────────────────────────────
-
-    def _h1(self, pdf: _Report, text: str) -> None:
-        pdf.start_section(text, level=0)
-        pdf.set_font("Helvetica", "B", 17)
-        pdf.set_text_color(*_NAVY)
-        pdf.cell(0, 11, _latin1(text), new_x="LMARGIN", new_y="NEXT")
-        # Accent underline.
-        y = pdf.get_y() + 0.5
-        pdf.set_draw_color(*_ACCENT)
-        pdf.set_line_width(0.8)
-        pdf.line(pdf.l_margin, y, pdf.l_margin + 60, y)
-        pdf.ln(4)
-
-    def _diagram_page(self, pdf: _Report, title: str,
-                      items: list[tuple[str, Diagram | None]]) -> None:
-        """One section of stacked topology diagrams; skipped entirely if none rendered."""
-        drawn = [(caption, d) for caption, d in items if d is not None]
-        if not drawn:
-            return
-        pdf.add_page()
-        self._h1(pdf, title)
-        for caption, diag in drawn:
-            # Landscape pages afford a bit more room than the logical size.
-            w_mm = min(pdf.epw, diag.width_in * 25.4 * 1.15)
-            h_mm = w_mm * diag.height / diag.width
-            max_h = pdf.h - 70  # keep one diagram within a single page
-            if h_mm > max_h:
-                w_mm, h_mm = w_mm * max_h / h_mm, max_h
-            if pdf.get_y() + h_mm + 10 > pdf.h - 18:
-                pdf.add_page()
-            pdf.image(io.BytesIO(diag.png), x=pdf.l_margin, w=w_mm)
-            pdf.ln(1)
-            pdf.set_font("Helvetica", "I", 8)
-            pdf.set_text_color(*_GREY)
-            pdf.cell(0, 5, _latin1(caption), new_x="LMARGIN", new_y="NEXT")
-            pdf.ln(4)
+    def _toc_pages(self, pdf: _Pdf, report: Report) -> int:
+        """Pages the contents need, reserved up front so no page number moves after the
+        footers are drawn (an overflowing contents shifted every later page by one)."""
+        usable = pdf.h - BOTTOM - TOP - 4
+        pages, y = 1, TOC_TITLE_BLOCK
+        for level, _num, _title in self._toc_rows(report):
+            h = TOC_H0 if level == 0 else TOC_H1
+            if y + h > usable:
+                pages, y = pages + 1, 0.0
+            y += h
+        return pages
 
     def _render_toc(self, pdf: FPDF, outline: list[OutlineSection]) -> None:
-        """Render the reserved Table of Contents page(s) from the recorded H1
-        sections — numbered rows on a dotted underline, matching the evaluation
-        mockup's .toc-list styling (Nutanix Blue #024DA1 numbers/title, a
-        Nutanix Cyan #00A3E0 rule) rather than a classic dot-leader TOC.
-        """
-        pdf.set_y(20)
-        pdf.set_font("Helvetica", "B", 17)
-        pdf.set_text_color(*_TOC_BLUE)
-        pdf.cell(0, 11, "Table of Contents", new_x="LMARGIN", new_y="NEXT")
-        y = pdf.get_y() + 0.5
-        pdf.set_draw_color(*_TOC_CYAN)
-        pdf.set_line_width(0.8)
-        pdf.line(pdf.l_margin, y, pdf.l_margin + 60, y)
-        pdf.ln(9)
-        num_w, page_w, row_h = 10.0, 14.0, 8.0
-        for i, entry in enumerate(outline, start=1):
-            if pdf.get_y() + row_h > pdf.h - 18:
+        assert isinstance(pdf, _Pdf)
+        entries = [e for e in outline if e.name != "Contents"]
+        rows = self._toc_rows(pdf.report)
+        pdf.set_y(TOP)
+        self._marker_heading(pdf, "Contents", size=18)
+        pdf.ln(3)
+        usable_bottom = pdf.h - BOTTOM - 4
+        num_w, page_w = 11.0, 16.0
+        for (level, num, title), entry in zip(rows, entries, strict=False):
+            h = TOC_H0 if level == 0 else TOC_H1
+            if pdf.get_y() + h > usable_bottom:
                 pdf.add_page()
-                pdf.set_y(20)
-            row_x0, row_y0 = pdf.l_margin, pdf.get_y()
-            pdf.set_font("Helvetica", "B", 11)
-            pdf.set_text_color(*_TOC_BLUE)
-            pdf.cell(num_w, row_h, str(i))
-            pdf.set_font("Helvetica", "", 11)
-            pdf.set_text_color(*_INK)
-            pdf.cell(pdf.epw - num_w - page_w, row_h, _latin1(entry.name))
-            pdf.set_font("Helvetica", "B", 11)
-            pdf.set_text_color(*_TOC_BLUE)
-            pdf.cell(page_w, row_h, str(entry.page_number), align="R",
-                     new_x="LMARGIN", new_y="NEXT")
-            pdf.set_draw_color(215, 226, 236)
-            pdf.set_dash_pattern(dash=0.4, gap=0.8)
-            pdf.line(row_x0, row_y0 + row_h, row_x0 + pdf.epw, row_y0 + row_h)
-            pdf.set_dash_pattern()  # reset to solid for whatever draws next
+                pdf.set_y(TOP)
+            x0, y0 = pdf.l_margin, pdf.get_y()
+            indent = 0.0 if level == 0 else num_w
+            pdf.set_x(x0 + indent)
+            if level == 0:
+                pdf.set_font(SANS, "B", 10.3)
+                pdf.set_text_color(*T.IRIS_RGB)
+                pdf.cell(num_w, h, num)
+                pdf.set_text_color(*T.INK_RGB)
+                pdf.cell(pdf.epw - num_w - page_w, h, T.clean(title))
+                pdf.set_font(MONO, "", 9)
+                pdf.set_text_color(*T.INK_2_RGB)
+            else:
+                pdf.set_font(SANS, "", 9)
+                pdf.set_text_color(*T.INK_3_RGB)
+                pdf.cell(num_w + 1, h, num)
+                pdf.set_text_color(*T.INK_2_RGB)
+                pdf.cell(pdf.epw - indent - num_w - 1 - page_w, h, T.clean(title))
+                pdf.set_font(MONO, "", 8.2)
+                pdf.set_text_color(*T.INK_3_RGB)
+            pdf.cell(page_w, h, str(entry.page_number), align="R", new_x="LMARGIN",
+                     new_y="NEXT")
+            pdf.link(x0, y0, pdf.epw, h, pdf.add_link(page=entry.page_number))
+            if level == 0:
+                pdf.set_draw_color(*T.RULE_2_RGB)
+                pdf.set_line_width(0.18)
+                pdf.line(x0, y0 + h, x0 + pdf.epw, y0 + h)
 
-    def _inline_figure(self, pdf: _Report, diag: Diagram | None, caption: str) -> None:
-        """Embed a diagram at the current cursor position, no page break forced."""
-        if diag is None:
-            return
-        w_mm = min(pdf.epw, diag.width_in * 25.4)
-        h_mm = w_mm * diag.height / diag.width
-        if pdf.get_y() + h_mm + 10 > pdf.h - 18:
+    # ─── chapters ──────────────────────────────────────────────────
+
+    def _chapter(self, pdf: _Pdf, ch: Chapter) -> None:
+        if pdf.fresh_page:
+            pdf.fresh_page = False
+            pdf.set_y(TOP)
+        else:
             pdf.add_page()
-        pdf.image(io.BytesIO(diag.png), x=pdf.l_margin, w=w_mm)
-        pdf.ln(1)
-        pdf.set_font("Helvetica", "I", 8)
-        pdf.set_text_color(*_GREY)
-        pdf.cell(0, 5, _latin1(caption), new_x="LMARGIN", new_y="NEXT")
-        pdf.ln(4)
+        pdf.start_section(T.clean(ch.heading), level=0)
+        self._marker_heading(pdf, ch.heading)
+        pdf.ln(3)
+        self._blocks(pdf, ch.blocks)
+        for section in ch.sections:
+            self._h2(pdf, section.heading, self._need(pdf, section.blocks[0]))
+            self._blocks(pdf, section.blocks)
 
-    def _section_table(
-        self, pdf: _Report, title: str, headers: list[str],
-        rows: list[list[Any]], widths: list[float], force: bool = False,
-        sources: list[str] | None = None, lead: str | None = None,
-    ) -> None:
-        """`sources` (combined multi-PC runs only) prepends a "Prism Central" column;
-        the remaining columns are scaled down to keep the table's overall width, which
-        is tuned to the landscape page.
+    def _need(self, pdf: _Pdf, blk: Any) -> float:
+        """Height (mm) the first block under a heading needs on the same page, so the
+        heading is never stranded at the foot of a page."""
+        if isinstance(blk, Table):
+            return 26.0
+        if isinstance(blk, Figure):
+            d = blk.diagram
+            w = min(pdf.epw, d.width_in * 25.4)
+            return min(w * d.height / d.width, pdf.h - TOP - BOTTOM - 16) + 10
+        if isinstance(blk, FigureRow) and blk.figures:
+            return max(min(80.0, f.diagram.width_in * 25.4) * f.diagram.height
+                       / f.diagram.width for f in blk.figures) + 12
+        return 18.0
 
-        `lead` is a sentence rendered between the heading and the table, for sections
-        whose point is a figure the table itself only implies.
-        """
-        if not rows and not force:
-            return
-        if sources is not None:
-            headers = ["Prism Central", *headers]
-            rows = [[src, *row] for src, row in zip(sources, rows, strict=True)]
-            total = sum(widths)
-            pc_width = min(45.0, total * 0.22)
-            widths = [pc_width, *(w * (total - pc_width) / total for w in widths)]
-        pdf.add_page()
-        self._h1(pdf, title)
-        if lead:
-            pdf.set_font("Helvetica", "", 10)
-            pdf.set_text_color(*_INK)
-            pdf.multi_cell(0, 6, _latin1(lead))
-            pdf.ln(3)
-        if not rows:
-            pdf.set_font("Helvetica", "I", 10)
-            pdf.set_text_color(*_GREY)
-            pdf.cell(0, 8, "None configured / not detected.", new_x="LMARGIN", new_y="NEXT")
-            return
-        self._table(pdf, headers, rows, widths)
-        pdf.ln(2)
-        pdf.set_font("Helvetica", "I", 8)
-        pdf.set_text_color(*_GREY)
-        pdf.cell(0, 5, f"{len(rows)} item(s).", new_x="LMARGIN", new_y="NEXT")
+    def _marker_heading(self, pdf: _Pdf, text: str, size: float = 18) -> None:
+        """Heading 1: an iris marker bar beside ink text (the heading accent)."""
+        y = pdf.get_y()
+        pdf.set_fill_color(*T.IRIS_RGB)
+        pdf.rect(pdf.l_margin, y + 1.6, 1.3, 7.2, style="F")
+        pdf.set_xy(pdf.l_margin + 5, y)
+        pdf.set_font(SANS, "B", size)
+        pdf.set_text_color(*T.INK_RGB)
+        pdf.cell(0, 10.4, T.clean(text), align="L", new_x="LMARGIN", new_y="NEXT")
 
-    def _table(self, pdf: _Report, headers: list[str], rows: list[list[Any]],
-               widths: list[float]) -> None:
-        pdf.set_font("Helvetica", "B", 9)
-        pdf.set_fill_color(*_HEADER)
-        pdf.set_text_color(255, 255, 255)
-        pdf.set_draw_color(*_HEADER)
-        for h, w in zip(headers, widths, strict=False):
-            pdf.cell(w, 8, _latin1(str(h)), border=0, fill=True, align="L")
-        pdf.ln()
-        pdf.set_font("Helvetica", "", 8)
-        pdf.set_text_color(*_INK)
-        fill = False
-        for row in rows:
-            if pdf.get_y() > pdf.h - 22:
+    def _h2(self, pdf: _Pdf, text: str, need: float = 26.0) -> None:
+        # Keep the heading with what follows: never strand it at the foot of a page.
+        if pdf.get_y() + 13 + need > pdf.page_break_trigger:
+            pdf.add_page()
+        else:
+            pdf.ln(2)
+        pdf.start_section(T.clean(text), level=1)
+        pdf.set_font(SANS, "B", 12.5)
+        pdf.set_text_color(*T.INK_RGB)
+        pdf.cell(0, 8, T.clean(text), align="L", new_x="LMARGIN", new_y="NEXT")
+        pdf.ln(1.5)
+
+    def _blocks(self, pdf: _Pdf, blocks: list[Any]) -> None:
+        for blk in blocks:
+            if isinstance(blk, Paragraph):
+                self._paragraph(pdf, blk)
+            elif isinstance(blk, Bullets):
+                self._bullets(pdf, blk)
+            elif isinstance(blk, FigureStrip):
+                self._strip(pdf, blk)
+            elif isinstance(blk, Table):
+                self._table(pdf, blk)
+            elif isinstance(blk, Figure):
+                self._figure(pdf, blk)
+            elif isinstance(blk, FigureRow):
+                self._figure_row(pdf, blk)
+
+    def _paragraph(self, pdf: _Pdf, p: Paragraph) -> None:
+        if p.style == "note":
+            pdf.set_font(SANS, "I", 9)
+            pdf.set_text_color(*T.INK_3_RGB)
+        else:
+            pdf.set_font(SANS, "", 10)
+            pdf.set_text_color(*T.INK_RGB)
+        pdf.multi_cell(min(pdf.epw, 235), 5.3, T.clean(p.text), align="L", new_x="LMARGIN",
+                       new_y="NEXT")
+        pdf.ln(2.6)
+
+    def _bullets(self, pdf: _Pdf, b: Bullets) -> None:
+        if b.intro:
+            if pdf.get_y() + 14 > pdf.page_break_trigger:
                 pdf.add_page()
-                # Re-draw header on the continuation page.
-                pdf.set_font("Helvetica", "B", 9)
-                pdf.set_fill_color(*_HEADER)
-                pdf.set_text_color(255, 255, 255)
-                for h, w in zip(headers, widths, strict=False):
-                    pdf.cell(w, 8, _latin1(str(h)), border=0, fill=True, align="L")
-                pdf.ln()
-                pdf.set_font("Helvetica", "", 8)
-                pdf.set_text_color(*_INK)
-            pdf.set_fill_color(*_ZEBRA)
-            for value, w in zip(row, widths, strict=False):
-                pdf.cell(w, 6, _truncate(value, w), border=0, fill=fill, align="L")
-            pdf.ln()
-            fill = not fill
+            pdf.set_font(SANS, "B", 10)
+            pdf.set_text_color(*T.INK_RGB)
+            pdf.cell(0, 6, T.clean(b.intro), align="L", new_x="LMARGIN", new_y="NEXT")
+            pdf.ln(0.6)
+        width = min(pdf.epw, 235) - 7
+        for item in b.items:
+            pdf.set_font(SANS, "", 10)
+            lines = cast(list[str], pdf.multi_cell(width, 5.2, T.clean(item), align="L",
+                                                   dry_run=True, output="LINES"))
+            if pdf.get_y() + 5.2 * len(lines) > pdf.page_break_trigger:
+                pdf.add_page()
+            y = pdf.get_y()
+            pdf.set_fill_color(*T.INK_3_RGB)
+            pdf.rect(pdf.l_margin + 1.6, y + 2.1, 1.1, 1.1, style="F")
+            pdf.set_xy(pdf.l_margin + 7, y)
+            pdf.set_text_color(*T.INK_RGB)
+            pdf.multi_cell(width, 5.2, T.clean(item), align="L", new_x="LMARGIN", new_y="NEXT")
+            pdf.ln(0.8)
+        pdf.ln(2.2)
 
-    def _kv_table(self, pdf: _Report, pairs: list[tuple[str, str]]) -> None:
-        pdf.set_font("Helvetica", "", 10)
-        for label, value in pairs:
-            pdf.set_fill_color(*_ZEBRA)
-            pdf.set_text_color(*_NAVY)
-            pdf.set_font("Helvetica", "B", 10)
-            pdf.cell(70, 8, _latin1(label), border=0, fill=True)
-            pdf.set_text_color(*_INK)
-            pdf.set_font("Helvetica", "", 10)
-            pdf.cell(120, 8, _truncate(value, 120), border=0, fill=True,
-                     new_x="LMARGIN", new_y="NEXT")
+    def _strip(self, pdf: _Pdf, strip: FigureStrip) -> None:
+        """Headline figures in one ruled row: small label, light numeral, qualifier."""
+        if not strip.items:
+            return
+        n = len(strip.items)
+        cell_w = min(pdf.epw / n, 48.0)
+        has_q = any(i.qualifier for i in strip.items)
+        h = 29.0 if has_q else 24.0
+        if pdf.get_y() + h + 6 > pdf.page_break_trigger:
+            pdf.add_page()
+        pdf.ln(1)
+        y0, x0 = pdf.get_y(), pdf.l_margin
+        pdf.set_draw_color(*T.RULE_RGB)
+        pdf.set_line_width(0.2)
+        pdf.line(x0, y0, x0 + cell_w * n, y0)
+        pdf.line(x0, y0 + h, x0 + cell_w * n, y0 + h)
+        for i, item in enumerate(strip.items):
+            x = x0 + i * cell_w
+            if i:
+                pdf.set_draw_color(*T.RULE_2_RGB)
+                pdf.line(x, y0 + 3.5, x, y0 + h - 3.5)
+            pdf.set_xy(x + 4, y0 + 3.5)
+            pdf.set_font(SANS, "", 8.4)
+            pdf.set_text_color(*T.INK_3_RGB)
+            pdf.cell(cell_w - 6, 4.5, T.clean(item.label))
+            pdf.set_xy(x + 4, y0 + 9.5)
+            pdf.set_font(LIGHT, "", 23)
+            pdf.set_text_color(*T.INK_RGB)
+            pdf.cell(cell_w - 6, 10, T.clean(item.value))
+            if item.qualifier:
+                pdf.set_xy(x + 4, y0 + 21)
+                pdf.set_font(MONO, "", 7.6)
+                rgb = T.STATUS_RGB.get(item.tone or "", T.INK_3_RGB)
+                pdf.set_text_color(*rgb)
+                pdf.cell(cell_w - 6, 4.5, T.clean(item.qualifier))
+        pdf.set_xy(pdf.l_margin, y0 + h + 6)
 
+    # ─── tables ────────────────────────────────────────────────────
 
-def _truncate(value: Any, width: float) -> str:
-    text = _latin1("" if value is None else str(value))
-    max_chars = max(4, int(width / 1.8))
-    return text if len(text) <= max_chars else text[: max_chars - 1] + "."
+    def _widths(self, pdf: _Pdf, t: Table) -> list[float]:
+        """Column widths (mm): natural content width when it fits the page, otherwise
+        shrunk toward each column's minimum so wide columns wrap rather than overflow."""
+        natural, minimum = [], []
+        sample = t.rows[:250]
+        for i, header in enumerate(t.headers):
+            pdf.set_font(SANS, "B", HEAD_PT)
+            head_w = pdf.get_string_width(header) + 2 * PAD_X
+            longest_word = max((pdf.get_string_width(w) for w in header.split()), default=0)
+            if t.mono[i]:
+                pdf.set_font(MONO, "", MONO_PT)
+            else:
+                pdf.set_font(SANS, "", BODY_PT)
+            texts = [cell_text(r[i], header) for r in sample]
+            widest = max((pdf.get_string_width(x) for x in texts), default=0.0)
+            # The longest unbreakable run (a status word, a timestamp joined by a no-break
+            # space) sets the floor, so shrinking wraps between words, never inside one.
+            token = max((pdf.get_string_width(w) for x in texts for w in x.split(" ")),
+                        default=0.0)
+            glyph = 3.0 if any(isinstance(r[i], Status) for r in sample) else 0.0
+            natural.append(min(max(head_w, widest + 2 * PAD_X + glyph + 0.6), 95.0))
+            pdf.set_font(SANS, "", BODY_PT)
+            na_w = pdf.get_string_width(NA) + 2 * PAD_X + 0.6
+            minimum.append(max(longest_word + 2 * PAD_X, na_w,
+                               min(token + 2 * PAD_X + glyph + 0.6, 40.0),
+                               min(natural[-1], 16.0)))
+        total = sum(natural)
+        if total <= pdf.epw:
+            # Fill the line when the table is already most of the way there.
+            if total > pdf.epw * 0.62:
+                return [w * pdf.epw / total for w in natural]
+            return natural
+        floor = sum(minimum)
+        if floor >= pdf.epw:
+            return [w * pdf.epw / floor for w in minimum]
+        spare = pdf.epw - floor
+        flex = total - floor
+        return [m + (n - m) * spare / flex for n, m in zip(natural, minimum, strict=True)]
 
+    def _lines(self, pdf: _Pdf, text: str, width: float) -> list[str]:
+        lines = cast(list[str], pdf.multi_cell(max(width, 1.0), LINE_H, text, align="L",
+                                               dry_run=True, output="LINES"))
+        lines = [str(x) for x in lines] or [""]
+        if len(lines) > MAX_LINES:
+            lines = lines[:MAX_LINES]
+            lines[-1] = lines[-1].rstrip()[:-1] + "…"
+        return lines
 
-def _update_flag(value: bool | None) -> str:
-    """Yes / No / Unknown for an LCM update flag — None means LCM did not say, and
-    rendering that as "No" would assert the component is current.
-    """
-    if value is None:
-        return "Unknown"
-    return "Yes" if value else "No"
+    def _caption(self, pdf: _Pdf, t: Table, continued: bool = False) -> None:
+        pdf.set_font(SANS, "B", 8.6)
+        pdf.set_text_color(*T.INK_2_RGB)
+        label = t.label + " "
+        pdf.cell(pdf.get_string_width(label), 5, label)
+        pdf.set_font(SANS, "I" if continued else "", 8.6)
+        text = "(continued)" if continued else T.clean(t.caption)
+        pdf.cell(0, 5, text, align="L", new_x="LMARGIN", new_y="NEXT")
+        pdf.ln(1)
+
+    def _header_row(self, pdf: _Pdf, t: Table, widths: list[float]) -> None:
+        pdf.set_font(SANS, "B", HEAD_PT)
+        wrapped = [self._lines(pdf, h, w - 2 * PAD_X) for h, w in zip(t.headers, widths,
+                                                                      strict=True)]
+        h = max(len(x) for x in wrapped) * LINE_H + 2 * PAD_Y
+        y, x = pdf.get_y(), pdf.l_margin
+        pdf.set_fill_color(*T.HEADER_FILL_RGB)
+        pdf.rect(x, y, sum(widths), h, style="F")
+        pdf.set_text_color(*T.INK_2_RGB)
+        for lines, w, align in zip(wrapped, widths, t.align, strict=True):
+            for k, line in enumerate(lines):
+                pdf.set_xy(x + PAD_X, y + PAD_Y + k * LINE_H)
+                pdf.cell(w - 2 * PAD_X, LINE_H, line, align=align)
+            x += w
+        pdf.set_draw_color(*T.IRIS_RGB)
+        pdf.set_line_width(0.35)
+        pdf.line(pdf.l_margin, y + h, pdf.l_margin + sum(widths), y + h)
+        pdf.set_xy(pdf.l_margin, y + h)
+
+    def _table(self, pdf: _Pdf, t: Table) -> None:
+        widths = self._widths(pdf, t)
+        # Caption, header and the first rows travel together.
+        if pdf.get_y() + 24 > pdf.page_break_trigger:
+            pdf.add_page()
+        self._caption(pdf, t)
+        self._header_row(pdf, t, widths)
+        pdf.set_auto_page_break(False)
+        for row in t.rows:
+            cells = []
+            for value, header, w, mono in zip(row, t.headers, widths, t.mono, strict=True):
+                text = cell_text(value, header)
+                glyph = 3.0 if isinstance(value, Status) else 0.0
+                pdf.set_font(MONO if mono and text != NA else SANS, "",
+                             MONO_PT if mono and text != NA else BODY_PT)
+                cells.append((value, text, self._lines(pdf, text, w - 2 * PAD_X - glyph),
+                              mono and text != NA))
+            h = max(len(c[2]) for c in cells) * LINE_H + 2 * PAD_Y
+            if pdf.get_y() + h > pdf.h - BOTTOM:
+                pdf.add_page()
+                self._caption(pdf, t, continued=True)
+                self._header_row(pdf, t, widths)
+            y, x = pdf.get_y(), pdf.l_margin
+            for (value, text, lines, mono), w, align in zip(cells, widths, t.align,
+                                                          strict=True):
+                pdf.set_font(MONO if mono else SANS, "", MONO_PT if mono else BODY_PT)
+                missing = text == NA
+                pdf.set_text_color(*(T.INK_3_RGB if missing else T.INK_RGB))
+                tx, tw = x + PAD_X, w - 2 * PAD_X
+                if isinstance(value, Status):
+                    pdf.set_fill_color(*T.STATUS_RGB[value.tone])
+                    pdf.rect(tx, y + PAD_Y + 0.95, 1.85, 1.85, style="F")
+                    tx, tw = tx + 3.0, tw - 3.0
+                for k, line in enumerate(lines):
+                    pdf.set_xy(tx, y + PAD_Y + k * LINE_H)
+                    pdf.cell(tw, LINE_H, line, align=align)
+                x += w
+            pdf.set_draw_color(*T.RULE_2_RGB)
+            pdf.set_line_width(0.15)
+            pdf.line(pdf.l_margin, y + h, pdf.l_margin + sum(widths), y + h)
+            pdf.set_xy(pdf.l_margin, y + h)
+        pdf.set_auto_page_break(True, margin=BOTTOM)
+        pdf.ln(6)
+
+    # ─── figures ───────────────────────────────────────────────────
+
+    def _figure(self, pdf: _Pdf, f: Figure) -> None:
+        d = f.diagram
+        w = min(pdf.epw, d.width_in * 25.4)
+        h = w * d.height / d.width
+        max_h = pdf.h - TOP - BOTTOM - 16
+        if h > max_h:
+            w, h = w * max_h / h, max_h
+        if pdf.get_y() + h + 9 > pdf.page_break_trigger:
+            pdf.add_page()
+        pdf.image(io.BytesIO(d.png), x=pdf.l_margin, w=w, alt_text=T.clean(f.title))
+        pdf.ln(1.2)
+        self._figure_caption(pdf, f, pdf.epw)
+        pdf.ln(4.5)
+
+    def _figure_caption(self, pdf: _Pdf, f: Figure, width: float) -> None:
+        pdf.set_font(SANS, "I", 8.4)
+        pdf.set_text_color(*T.INK_3_RGB)
+        pdf.multi_cell(width, 4.4, T.clean(f.title), align="L", new_x="LMARGIN", new_y="NEXT")
+
+    def _figure_row(self, pdf: _Pdf, row: FigureRow) -> None:
+        figs = row.figures
+        if not figs:
+            return
+        gap = 10.0
+        col_w = (pdf.epw - gap * (len(figs) - 1)) / len(figs)
+        sizes = []
+        for f in figs:
+            w = min(col_w, f.diagram.width_in * 25.4)
+            sizes.append((w, w * f.diagram.height / f.diagram.width))
+        tallest = max(h for _, h in sizes)
+        if pdf.get_y() + tallest + 12 > pdf.page_break_trigger:
+            pdf.add_page()
+        y0 = pdf.get_y()
+        bottom = y0
+        for i, (f, (w, h)) in enumerate(zip(figs, sizes, strict=True)):
+            x = pdf.l_margin + i * (col_w + gap)
+            pdf.image(io.BytesIO(f.diagram.png), x=x, y=y0, w=w, alt_text=T.clean(f.title))
+            pdf.set_xy(x, y0 + h + 1.2)
+            pdf.set_font(SANS, "I", 8.4)
+            pdf.set_text_color(*T.INK_3_RGB)
+            pdf.multi_cell(col_w, 4.4, T.clean(f.title), align="L", new_x="LEFT", new_y="NEXT")
+            bottom = max(bottom, pdf.get_y())
+        pdf.set_xy(pdf.l_margin, bottom + 4.5)
 
 
 def _versions(values: list[str], limit: int) -> str:
-    """The `limit` newest versions LCM offers, plus a count of the rest.
-
-    LCM returns up to a dozen upgrade targets for some components; joined in full they
-    overrun the column and `_truncate` would cut the tail mid-version, which reads as a
-    version number that does not exist.
-    """
-    if not values:
-        return "-"
-    extra = len(values) - limit
-    head = ", ".join(values[:limit])
-    return head if extra <= 0 else f"{head} (+{extra})"
+    """The `limit` newest versions LCM offers, plus a count of the rest (N/A when none)."""
+    return _shared_versions(values, limit) or NA
 
 
-def _latin1(text: str) -> str:
-    """fpdf2's built-in fonts are Latin-1 only; drop characters outside that range."""
-    return text.encode("latin-1", "replace").decode("latin-1")
-
-
-def _gib(value: int | None) -> float | None:
-    if not value:
-        return None
-    return round(value / GIB, 1)
+__all__ = ["PdfExporter"]

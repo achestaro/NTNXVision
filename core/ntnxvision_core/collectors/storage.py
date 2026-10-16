@@ -19,6 +19,7 @@ from typing import Any
 from ntnxvision_core.api.errors import NutanixApiError
 from ntnxvision_core.collectors.base import Collector
 from ntnxvision_core.models import StorageContainer
+from ntnxvision_core.scope import v4_list_scoped
 
 # Group attributes to request for each storage container.
 _ATTRS = [
@@ -65,7 +66,9 @@ class StorageCollector(Collector):
     def _via_v4(self) -> list[StorageContainer]:
         usage = self._usage_by_uuid()
         out: list[StorageContainer] = []
-        for e in self.conn.v4_list("clustermgmt/v4.0/config/storage-containers"):
+        rows, _ = v4_list_scoped(self.conn, "clustermgmt/v4.0/config/storage-containers",
+                                 "clusterExtId")
+        for e in rows:
             uuid = e.get("containerExtId") or ""
             used, free, max_cap = usage.get(uuid, (None, None, None))
             out.append(

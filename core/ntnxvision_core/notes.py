@@ -19,11 +19,25 @@ _LABELS = {
     "files": "Nutanix Files",
     "objects": "Nutanix Objects",
     "ndb": "NDB (Databases)",
+    "lcm_entities": "LCM Firmware and Software",
+    "lcm": "LCM Firmware and Software",
+    "ovas": "OVAs",
+    "pc_config": "Prism Central Configuration",
+    "templates": "VM Templates",
+    "alerts": "Health Alerts",
+    "licenses": "Licensing",
 }
 
 
 def pretty_label(key: str) -> str:
-    """Human-friendly label for a collector key."""
+    """Human-friendly label for a collector key.
+
+    A combined run's keys are ``"<host>: <key>"``; the host is kept verbatim (title-casing
+    it produced "Pc02.Demo.Local").
+    """
+    if ": " in key:
+        host, _, inner = key.partition(": ")
+        return f"{host} · {pretty_label(inner)}"
     return _LABELS.get(key, key.replace("_", " ").title())
 
 
