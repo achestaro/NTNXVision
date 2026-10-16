@@ -18,6 +18,8 @@ export interface Column<T> {
   /** Right-aligned mono (numbers, sizes, counts). */
   numeric?: boolean;
   className?: string | ((row: T) => string | undefined);
+  /** Class on the whole column, header included (e.g. to hide it at narrow widths). */
+  colClassName?: string;
   style?: React.CSSProperties;
   width?: number | string;
   sortable?: boolean;
@@ -37,6 +39,8 @@ export interface DataTableProps<T> {
   rows: T[];
   rowKey(row: T): string;
   ariaLabel?: string;
+  /** Extra class on the <table> (per-table layout rules). */
+  className?: string;
   rowClassName?(row: T): string | undefined;
   /** Enter / double-click on a row. */
   onRowOpen?(row: T): void;
@@ -71,6 +75,7 @@ export function DataTable<T>({
   rows,
   rowKey,
   ariaLabel,
+  className,
   rowClassName,
   onRowOpen,
   rowActions,
@@ -152,14 +157,14 @@ export function DataTable<T>({
 
   return (
     <>
-      <table className="tbl" aria-label={ariaLabel} data-kbd-table={primary ? '' : undefined}>
+      <table className={className ? `tbl ${className}` : 'tbl'} aria-label={ariaLabel} data-kbd-table={primary ? '' : undefined}>
         {head && (
           <thead>
             <tr>
               {columns.map((c) => (
                 <th
                   key={c.key}
-                  className={c.numeric ? 'n' : undefined}
+                  className={[c.numeric && 'n', c.colClassName].filter(Boolean).join(' ') || undefined}
                   style={{ width: c.width }}
                   aria-sort={sort?.key === c.key ? (sort.dir === 'asc' ? 'ascending' : 'descending') : undefined}
                 >
@@ -197,7 +202,7 @@ export function DataTable<T>({
               {columns.map((c) => {
                 const cls = typeof c.className === 'function' ? c.className(row) : c.className;
                 return (
-                  <td key={c.key} className={[c.numeric && 'n', cls].filter(Boolean).join(' ') || undefined} style={c.style}>
+                  <td key={c.key} className={[c.numeric && 'n', c.colClassName, cls].filter(Boolean).join(' ') || undefined} style={c.style}>
                     {c.render(row, i)}
                   </td>
                 );

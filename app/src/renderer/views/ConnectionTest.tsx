@@ -4,7 +4,7 @@
 // range (warning, may proceed).
 
 import React from 'react';
-import type { TestConnectionResult, Tone } from '@shared/ipc';
+import type { TestConnectionResult, TestConnectionStatus, Tone } from '@shared/ipc';
 import { Button, Callout, Status } from '../components';
 
 export type TestState =
@@ -12,6 +12,33 @@ export type TestState =
   | { kind: 'testing' }
   | { kind: 'done'; result: TestConnectionResult }
   | { kind: 'error'; message: string };
+
+/**
+ * How each sidecar test status reads in the UI: one tone and one short label, shared by
+ * the Targets table, the Multiple PCs rows, the row-test toasts and New collection. A
+ * version outside the supported range is warn-but-proceed, so it is a warning, not a
+ * failure. `hint` is the next step for a failure, for toasts and compact rows.
+ */
+export const TEST_OUTCOME: Record<TestConnectionStatus, { tone: Exclude<Tone, 'idle' | 'live'>; label: string; hint?: string }> = {
+  ok: { tone: 'ok', label: 'Verified' },
+  version_unsupported: {
+    tone: 'warn',
+    label: 'Version warning',
+    hint: 'Connected, but the version is outside the supported range. You can still collect.',
+  },
+  auth_failed: { tone: 'error', label: 'Credentials rejected', hint: 'Check the username and password, then test again.' },
+  untrusted_cert: {
+    tone: 'error',
+    label: 'Certificate not trusted',
+    hint: 'If you trust this certificate, edit the target and turn off TLS verification.',
+  },
+  unreachable: { tone: 'error', label: 'Unreachable', hint: 'Check the address, port, firewall and VPN.' },
+  error: { tone: 'error', label: 'Failed' },
+};
+
+export function testOutcome(status: TestConnectionStatus): (typeof TEST_OUTCOME)[TestConnectionStatus] {
+  return TEST_OUTCOME[status] ?? TEST_OUTCOME.error;
+}
 
 export function connectionSummary(test: TestState): {
   tone: Tone;
@@ -28,7 +55,9 @@ export function connectionSummary(test: TestState): {
     if (r.status === 'ok') return { tone: 'ok', shape: 'filled', short: 'Verified', header: <Status tone="ok">Connection verified</Status> };
     if (r.status === 'version_unsupported')
       return { tone: 'warn', shape: 'filled', short: 'Verified · version warning', header: <Status tone="warn">Connected · unsupported version</Status> };
-    return { tone: 'error', shape: 'filled', short: 'Failed', header: <Status tone="error">Connection failed</Status> };
+    // "Connection failed · credentials rejected"; a generic error keeps the plain wording.
+    const what = r.status === 'error' ? '' : ` · ${testOutcome(r.status).label.toLowerCase()}`;
+    return { tone: 'error', shape: 'filled', short: `Failed${what}`, header: <Status tone="error">Connection failed{what}</Status> };
   }
   return { tone: 'idle', shape: 'outline', short: 'Not tested yet', header: null };
 }
