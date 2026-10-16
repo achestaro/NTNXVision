@@ -382,11 +382,44 @@ ipcMain.handle(IPC.deleteConnection, async (_e, id: string) => {
 ipcMain.handle(IPC.getSettings, () => store.getSettings());
 ipcMain.handle(IPC.setSettings, (_e, settings: AppSettings) => store.setSettings(settings));
 
+// ─── demo mode: prefilled data ─────────────────────────────────────────
+
+// Saved targets a fresh demo profile starts with (passwords live in the in-memory
+// demo keychain, so they are re-seeded on every launch).
+const DEMO_PASSWORD = 'demo';
+const DEMO_TARGETS: ConnectionProfile[] = [
+  { id: '', mode: 'prism_central', host: 'pc01.demo.local', username: 'admin', port: 9440, insecure: false, name: 'pc01', ndbHost: 'ndb.demo.local', ndbUser: 'admin' },
+  { id: '', mode: 'prism_central', host: 'pc02.demo.local', username: 'admin', port: 9440, insecure: false, name: 'pc02' },
+  { id: '', mode: 'prism_central', host: 'pc03.demo.local', username: 'admin', port: 9440, insecure: false, name: 'pc03' },
+  { id: '', mode: 'prism_element', host: 'pe01.demo.local', username: 'admin', port: 9440, insecure: false, name: 'pe01' },
+  { id: '', mode: 'prism_central', host: 'large1.demo.local', username: 'admin', port: 9440, insecure: false, name: 'large1' },
+  { id: '', mode: 'prism_central', host: 'selfsigned.demo.local', username: 'admin', port: 9440, insecure: false, name: 'selfsigned' },
+];
+
+/** Give a demo profile saved targets and a few finished collections. Idempotent. */
+async function seedDemo(): Promise<void> {
+  if (!demo || e2e) return;
+  const isDemoHost = (h: string) => h.toLowerCase().endsWith('.demo.local');
+  if (!store.listConnections().some((p) => isDemoHost(p.host))) {
+    for (const t of [...DEMO_TARGETS].reverse()) store.saveConnection(t);
+  }
+  for (const p of store.listConnections().filter((c) => isDemoHost(c.host))) {
+    await secrets.setPassword(p.host, p.username, DEMO_PASSWORD);
+  }
+  try {
+    await sidecar.call('demo_seed', { export_dir: store.getSettings().exportDir });
+  } catch (err) {
+    console.error('Demo seeding failed:', err);
+  }
+}
+
 // ─── lifecycle ─────────────────────────────────────────────────────────
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
   if (isSmokeRun()) return void runSmoke(sidecar); // packaging smoke test, no window
   sidecar.start();
+  // A first demo launch fills the profile (~5 s) before the UI loads, so it opens on data.
+  await seedDemo();
   createWindow();
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
