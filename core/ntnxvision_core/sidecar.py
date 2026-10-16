@@ -753,6 +753,124 @@ def _m_export_comparison(_req_id: Any, params: dict[str, Any]) -> dict[str, Any]
     return {"path": str(out)}
 
 
+# ─── demo seeding ──────────────────────────────────────────────────────
+
+DEMO_PASSWORD = "demo"
+_seed_lock = threading.Lock()
+
+
+def _shift_iso(value: str | None, delta: Any) -> str | None:
+    from datetime import datetime
+
+    if not value:
+        return value
+    try:
+        return (datetime.fromisoformat(value.replace("Z", "+00:00")) - delta).isoformat(
+            timespec="seconds")
+    except ValueError:
+        return value
+
+
+def _backdate(env: Any, tracker: RunTracker | None, delta: Any) -> None:
+    """Make a seeded collection look as if it ran `delta` ago."""
+    env.collected_at = _shift_iso(env.collected_at, delta)
+    if tracker is not None:
+        if tracker.finished_at is None:
+            tracker.finish()
+        tracker.started_at = _shift_iso(tracker.started_at, delta) or tracker.started_at
+        tracker.finished_at = _shift_iso(tracker.finished_at, delta)
+
+
+def _seed_pc(host: str, name: str, delta: Any, formats: list[str], params: dict[str, Any],
+             *, finalize: bool = True) -> tuple[Any, RunTracker, dict[str, Any] | None]:
+    creds = PrismCredentials(host=host, username="admin", password=DEMO_PASSWORD,
+                             port=9440, verify_ssl=True)
+    tracker = RunTracker(None, run_id=uuid.uuid4().hex, mode="prism_central", host=host,
+                         name=name, formats=formats)
+    env = collect_environment(creds, tracker=tracker)
+    _backdate(env, tracker, delta)
+    result = None
+    if finalize:
+        result = _finalize(env, name, {"formats": formats, "export_dir": params.get("export_dir")},
+                           tracker=tracker, mode="prism_central")
+    _advance_demo(host)
+    return env, tracker, result
+
+
+def _seed_demo(params: dict[str, Any]) -> list[str]:
+    """Collect a believable history from the demo estate.
+
+    * pc01 two weeks ago and again today (so Compare has a real pair, and the user's next
+      pc01 collection drifts one more week);
+    * pe01 (Prism Element) three days ago;
+    * pc02 + pc03 yesterday, plus their combined multi-PC report;
+    * today's pc01 run also writes Excel + Word reports, so Results shows files.
+    """
+    from datetime import date, timedelta
+
+    made: list[str] = []
+    today = date.today()
+
+    def stamp(days: int) -> str:
+        return (today - timedelta(days=days)).isoformat()
+
+    _, _, r = _seed_pc("pc01.demo.local", f"pc01-{stamp(14)}", timedelta(days=14), [], params)
+    made.append(r["snapshot_name"] if r else "")
+
+    creds = ElementCredentials(host="pe01.demo.local", username="admin",
+                               password=DEMO_PASSWORD, port=9440, verify_ssl=True)
+    tracker = RunTracker(None, run_id=uuid.uuid4().hex, mode="prism_element",
+                         host=creds.host, name=f"pe01-{stamp(3)}")
+    env = collect_element_environment(creds, tracker=tracker)
+    _backdate(env, tracker, timedelta(days=3))
+    r = _finalize(env, f"pe01-{stamp(3)}", {"formats": []}, tracker=tracker,
+                  mode="prism_element")
+    _advance_demo(creds.host)
+    made.append(r["snapshot_name"])
+
+    parts = []
+    for host in ("pc02.demo.local", "pc03.demo.local"):
+        short = host.split(".")[0]
+        env_i, tracker_i, r = _seed_pc(host, f"{short}-{stamp(1)}", timedelta(days=1), [],
+                                       params)
+        made.append(r["snapshot_name"] if r else "")
+        parts.append((host, env_i, tracker_i))
+    combined = combine_environments([p[1] for p in parts])
+    combined.collected_at = parts[-1][1].collected_at
+    combined_tracker = CombinedTracker([(h, t) for h, _, t in parts], None, None)
+    combined_tracker.finished_at = max(t.finished_at or "" for _, _, t in parts) or None
+    combined_tracker.duration_ms = max(t.duration_ms or 0 for _, _, t in parts)
+    r = _finalize(combined, "combined-pc02-pc03", {"formats": []}, mode="prism_central",
+                  tracker=combined_tracker)
+    made.append(r["snapshot_name"])
+
+    _, _, r = _seed_pc("pc01.demo.local", f"pc01-{stamp(0)}", timedelta(hours=2),
+                       ["excel", "word"], params)
+    made.append(r["snapshot_name"] if r else "")
+    return [m for m in made if m]
+
+
+def _m_demo_seed(_req_id: Any, params: dict[str, Any]) -> dict[str, Any]:
+    """Demo mode only: fill an empty demo profile with a few finished collections.
+
+    Idempotent — does nothing when demo snapshots already exist (unless `force`).
+    """
+    if not demo_enabled():
+        raise NutanixApiError("demo_seed is only available in demo mode.")
+    from ntnxvision_core.synthetic import demo
+
+    with _seed_lock:
+        if _store().list_snapshots() and not params.get("force"):
+            return {"seeded": False, "snapshots": []}
+        state = demo.state() or demo.enable()
+        saved_latency = state.api.latency_ms
+        state.api.latency_ms = 0.0  # seeding should take seconds, not minutes
+        try:
+            return {"seeded": True, "snapshots": _seed_demo(params)}
+        finally:
+            state.api.latency_ms = saved_latency
+
+
 def _m_disk_usage(_req_id: Any, _params: dict[str, Any]) -> dict[str, Any]:
     usage = shutil.disk_usage(snapshots_dir())
     return {"free_bytes": usage.free, "total_bytes": usage.total}
@@ -779,4 +897,5 @@ _METHODS = {
     "delete_snapshot": _m_delete_snapshot,
     "clear_snapshots": _m_clear_snapshots,
     "disk_usage": _m_disk_usage,
+    "demo_seed": _m_demo_seed,
 }
