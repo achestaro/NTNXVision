@@ -246,6 +246,27 @@ function fontCopyright(text) {
   return head.replace(/\s+\S+\.ttf:.*$/, '').trim();
 }
 
+// The PDF exporter embeds (subsets of) these OFL fonts, vendored as TTFs next to their
+// license texts. One row per family; the files a family ships are listed with it.
+const REPORT_FONTS_DIR = join(ROOT, 'core', 'ntnxvision_core', 'exporters', 'fonts');
+
+function reportFonts() {
+  if (!existsSync(REPORT_FONTS_DIR)) return [];
+  const files = readdirSync(REPORT_FONTS_DIR).sort();
+  return files
+    .filter((f) => /^OFL-.+\.txt$/.test(f))
+    .map((license) => {
+      const family = license.replace(/^OFL-/, '').replace(/\.txt$/, '');
+      const text = norm(readFileSync(join(REPORT_FONTS_DIR, license), 'utf8'));
+      return {
+        family,
+        files: files.filter((f) => f.startsWith(`${family}-`) && f.endsWith('.ttf')),
+        copyright: text.split('\n')[0] ?? '',
+        text,
+      };
+    });
+}
+
 function nutanixIcons() {
   if (!existsSync(ICONS_DIR)) return [];
   const out = [];
@@ -291,6 +312,7 @@ async function main() {
     prefix: 'py',
   }));
   const icons = nutanixIcons();
+  const pdfFonts = reportFonts();
 
   const md = [
     '# Third-party notices',
@@ -346,6 +368,18 @@ async function main() {
     '|---|---|---|---|',
     ...fonts.map((f) => `| ${cell(f.name)} | ${cell(f.version)} | ${cell(f.license)} | ${cell(fontCopyright(f.text))} |`),
     '',
+    ...(pdfFonts.length
+      ? [
+          'The PDF reports produced by the sidecar embed subsets of the following typefaces,',
+          'shipped as unmodified TTF files in `core/ntnxvision_core/exporters/fonts/` together',
+          'with their license texts, under the same SIL Open Font License 1.1:',
+          '',
+          '| Font family | Files | License | Copyright |',
+          '|---|---|---|---|',
+          ...pdfFonts.map((f) => `| ${cell(f.family)} | ${cell(f.files.join(', '))} | OFL-1.1 | ${cell(f.copyright)} |`),
+          '',
+        ]
+      : []),
     fence(ofl(fonts)),
     '',
     '## Node modules packaged with the main process',
@@ -431,7 +465,7 @@ async function main() {
     return;
   }
   writeFileSync(OUT, output);
-  const total = rendererCode.length + fonts.length + main.length + pyRows.length + 1;
+  const total = rendererCode.length + fonts.length + pdfFonts.length + main.length + pyRows.length + 1;
   console.log(`Wrote ${relative(ROOT, OUT)}: ${total} components, ${icons.length} Nutanix icon files.`);
   if (py.missing?.length) console.warn(`warning: Python packages not found by pip-licenses: ${py.missing.join(', ')}`);
 }

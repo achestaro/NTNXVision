@@ -21,6 +21,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
+from ntnxvision_core.exporters.theme import on_off, power_label
 from ntnxvision_core.models import Environment
 
 GIB = 1024**3
@@ -32,6 +33,11 @@ class Ctx:
     def __init__(self, env: Environment) -> None:
         self.env = env
         self.cluster_by_uuid = {c.uuid: c for c in env.clusters if c.uuid}
+        # Prism Element mode inventories exactly one cluster, and its v2.0 payloads leave
+        # the cluster off storage containers and networks; everything belongs to it.
+        self.only_cluster = (env.clusters[0].name
+                             if env.source_type == "prism_element" and len(env.clusters) == 1
+                             else None)
         self.vms_per_cluster: dict[str, int] = {}
         for vm in env.vms:
             key = vm.cluster_uuid or vm.cluster_name or ""
@@ -50,6 +56,17 @@ class Ctx:
                 key, _, values = cat.partition(":")
                 for value in values.split(","):
                     self.policy_by_category.setdefault(f"{key}:{value}", p.name or p.uuid)
+
+    def cluster_name(self, obj: Any) -> str | None:
+        """The object's cluster name: as reported, else resolved from its cluster UUID
+        (v4 and v2.0 payloads often carry only the UUID), else the single PE cluster."""
+        name = getattr(obj, "cluster_name", None)
+        if name:
+            return str(name)
+        cluster = self.cluster_by_uuid.get(getattr(obj, "cluster_uuid", None) or "")
+        if cluster is not None and cluster.name:
+            return cluster.name
+        return self.only_cluster
 
     def vm_policy(self, vm: Any) -> str | None:
         if vm.protection_policy:
@@ -143,6 +160,10 @@ def _a(name: str) -> Getter:
     return lambda o, _c: getattr(o, name, None)
 
 
+def _cluster(o: Any, c: Ctx) -> str | None:
+    return c.cluster_name(o)
+
+
 def power_cell(raw: Any) -> dict[str, Any] | None:
     if not raw:
         return None
@@ -226,7 +247,7 @@ HOSTS = TableSpec(
     "hosts", "Hosts", "Hosts", "Host", "hosts", lambda e: e.hosts,
     (
         Col("name", "Name", _a("name"), label="Name", kind="name", search=True),
-        Col("cluster", "Cluster", _a("cluster_name"), label="Cluster", facet=True, search=True),
+        Col("cluster", "Cluster", _cluster, label="Cluster", facet=True, search=True),
         Col("hypervisor", "Hypervisor", _a("hypervisor_type"), label="Hypervisor", facet=True),
         Col("hv_version", "Version", _a("hypervisor_version"), label="Hypervisor version",
             kind="mono", diff="hypervisor version"),
@@ -255,9 +276,9 @@ HOSTS = TableSpec(
 def _vm_cols(include_type: bool) -> tuple[Col, ...]:
     cols = [
         Col("name", "Name", _a("name"), label="Name", kind="name", search=True),
-        Col("power", "Power", _a("power_state"), label="Power", kind="status", cell=power_cell,
-            facet=True, diff="power"),
-        Col("cluster", "Cluster", _a("cluster_name"), label="Cluster", facet=True, search=True),
+        Col("power", "Power", _a("power_state"), excel=power_label, label="Power",
+            kind="status", cell=power_cell, facet=True, diff="power"),
+        Col("cluster", "Cluster", _cluster, label="Cluster", facet=True, search=True),
         Col("host", "Host", _a("host_name"), search=True),
     ]
     if include_type:
@@ -304,15 +325,15 @@ STORAGE = TableSpec(
     "storage containers", lambda e: e.storage_containers,
     (
         Col("name", "Name", _a("name"), label="Name", kind="name", search=True),
-        Col("cluster", "Cluster", _a("cluster_name"), label="Cluster", facet=True, search=True),
+        Col("cluster", "Cluster", _cluster, label="Cluster", facet=True, search=True),
         Col("rf", "RF", _a("replication_factor"), label="RF", kind="number",
             diff="replication factor"),
         Col("compression", "Compression", _a("compression_enabled"),
             excel=lambda v: "On" if v else "Off", label="Compression", kind="status",
             cell=bool_cell("On", "Off"), facet=True, diff="compression"),
-        Col("dedup", "Dedup", _a("deduplication"), excel=lambda v: v or "None",
+        Col("dedup", "Dedup", _a("deduplication"), excel=on_off,
             label="Dedup", facet=True, diff="dedup"),
-        Col("ec", "Erasure Coding", _a("erasure_coding"), excel=lambda v: v or "Off",
+        Col("ec", "Erasure Coding", _a("erasure_coding"), excel=on_off,
             diff="erasure coding"),
         Col("capacity", "Max Capacity (GiB)", _a("max_capacity_bytes"), excel=gib,
             label="Capacity", kind="bytes", diff="capacity"),
@@ -328,7 +349,7 @@ SUBNETS = TableSpec(
     "subnets", "Subnets", "Subnets", "Subnet", "subnets", lambda e: e.subnets,
     (
         Col("name", "Name", _a("name"), label="Name", kind="name", search=True),
-        Col("cluster", "Cluster", _a("cluster_name"), label="Cluster", facet=True, search=True),
+        Col("cluster", "Cluster", _cluster, label="Cluster", facet=True, search=True),
         Col("type", "Type", _a("subnet_type"), label="Type", facet=True),
         Col("vlan", "VLAN", _a("vlan_id"), label="VLAN", kind="number", diff="VLAN"),
         Col("vswitch", "Virtual Switch", _a("virtual_switch"), label="Virtual switch"),
@@ -384,7 +405,7 @@ OVAS = TableSpec(
         Col("name", "Name", _a("name"), label="Name", kind="name", search=True),
         Col("size", "Size (GiB)", _a("size_bytes"), excel=gib, label="Size", kind="bytes"),
         Col("disks", "Disks", _a("disk_count"), label="Disks", kind="number"),
-        Col("cluster", "Cluster", _a("cluster_name"), label="Cluster", facet=True),
+        Col("cluster", "Cluster", _cluster, label="Cluster", facet=True),
         Col("created", "Created", _a("created"), label="Created", kind="datetime"),
     ),
     id=lambda o: o.uuid, name=lambda o: o.name or o.uuid, note_keys=("ovas",),
@@ -496,7 +517,7 @@ REMOTE_SITES = TableSpec(
     lambda e: e.remote_sites,
     (
         Col("name", "Name", _a("name"), label="Name", kind="name"),
-        Col("cluster", "Cluster", _a("cluster_name"), label="Cluster"),
+        Col("cluster", "Cluster", _cluster, label="Cluster"),
         Col("address", "Address", _a("address"), label="Address", kind="mono"),
         Col("status", "Status", _a("status"), label="Status"),
         Col("api", "API", _a("api_source")),
@@ -512,7 +533,7 @@ ALERTS = TableSpec(
         Col("name", "Title", _a("title"), label="Title", kind="name", search=True),
         Col("entity_type", "Entity Type", _a("entity_type"), label="Entity type", facet=True),
         Col("entity", "Entity", _a("entity_name"), label="Entity", search=True),
-        Col("cluster", "Cluster", _a("cluster_name"), label="Cluster", facet=True),
+        Col("cluster", "Cluster", _cluster, label="Cluster", facet=True),
         Col("resolved", "Resolved", _a("resolved"), excel=yes_no, label="Resolved",
             kind="status", cell=bool_cell("Resolved", "Open", "warn"), facet=True),
         Col("acknowledged", "Acknowledged", _a("acknowledged"), excel=yes_no),
@@ -529,7 +550,7 @@ LCM = TableSpec(
     (
         Col("name", "Component", _a("name"), label="Component", kind="name", search=True),
         Col("class", "Class", _a("entity_class"), label="Class", facet=True),
-        Col("cluster", "Cluster", _a("cluster_name"), label="Cluster", facet=True, search=True),
+        Col("cluster", "Cluster", _cluster, label="Cluster", facet=True, search=True),
         Col("current", "Current Version", _a("current_version"), label="Version",
             kind="mono", search=True, diff="version"),
         Col("update", "Update Available", _a("update_available"), excel=update_flag,
@@ -645,7 +666,7 @@ FILE_SERVERS = TableSpec(
     lambda e: e.file_servers,
     (
         Col("name", "Name", _a("name"), label="Name", kind="name", search=True),
-        Col("cluster", "Cluster", _a("cluster_name"), label="Cluster", facet=True),
+        Col("cluster", "Cluster", _cluster, label="Cluster", facet=True),
         Col("version", "Version", _a("version"), label="Version", kind="mono", diff="version"),
         Col("fsvms", "FSVMs", _a("num_fsvm"), label="FSVMs", kind="number", diff="FSVMs"),
         Col("size", "Size (GiB)", _a("size_bytes"), excel=gib, label="Size", kind="bytes",
@@ -679,7 +700,7 @@ OBJECT_STORES = TableSpec(
     lambda e: e.object_stores,
     (
         Col("name", "Name", _a("name"), label="Name", kind="name", search=True),
-        Col("cluster", "Cluster", _a("cluster_name"), label="Cluster"),
+        Col("cluster", "Cluster", _cluster, label="Cluster"),
         Col("version", "Version", _a("deployment_version"), label="Version", kind="mono",
             diff="version"),
         Col("workers", "Workers", _a("num_worker_nodes"), label="Workers", kind="number"),
@@ -714,7 +735,7 @@ VOLUME_GROUPS = TableSpec(
     lambda e: e.volume_groups,
     (
         Col("name", "Name", _a("name"), label="Name", kind="name", search=True),
-        Col("cluster", "Cluster", _a("cluster_name"), label="Cluster", facet=True,
+        Col("cluster", "Cluster", _cluster, label="Cluster", facet=True,
             search=True),
         Col("disks", "Disks", _a("disk_count"), label="Disks", kind="number", diff="disks"),
         Col("capacity", "Capacity (GiB)", _a("total_capacity_bytes"), excel=gib,
@@ -755,7 +776,7 @@ DATABASE_SERVERS = TableSpec(
         Col("engine", "Engine", _a("db_engine"), label="Engine"),
         Col("ips", "IPs", lambda s, _x: joined(s.ip_addresses), label="IP", kind="mono"),
         Col("status", "Status", _a("status"), label="Status"),
-        Col("cluster", "Cluster", _a("cluster_name")),
+        Col("cluster", "Cluster", _cluster),
         Col("cores", "Cores", _a("vm_cores"), label="Cores", kind="number"),
         Col("memory", "Memory (GB)", _a("memory_gb")),
         Col("api", "API", _a("api_source")),

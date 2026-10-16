@@ -70,6 +70,11 @@ ntnxvision = "ntnxvision_core.__main__:app"
 where = ["."]
 include = ["ntnxvision_core*"]
 
+# The PDF report embeds these OFL fonts (Figtree, Montserrat Light, JetBrains Mono); each
+# ships next to its license text.
+[tool.setuptools.package-data]
+"ntnxvision_core.exporters" = ["fonts/*.ttf", "fonts/OFL-*.txt"]
+
 [tool.ruff]
 line-length = 100
 target-version = "py310"
