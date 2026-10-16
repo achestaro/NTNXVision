@@ -84,6 +84,10 @@ if (-not $SkipTests) {
   Invoke-Checked npm run lint
 }
 
+Step "Third-party notices (this build's exact dependency set)"
+Invoke-Checked npm run notices
+Copy-Item (Join-Path $Root 'THIRD_PARTY_NOTICES.md') (Join-Path $Root 'core\dist\ntnxvision-sidecar\_internal\legal\') -Force
+
 Step 'Build renderer + main'
 Invoke-Checked npm run build
 

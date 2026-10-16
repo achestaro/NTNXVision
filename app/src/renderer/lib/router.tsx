@@ -12,7 +12,8 @@ export type Route =
   | { screen: 'inventory'; snapshot?: string; type?: string; filterText?: string }
   | { screen: 'snapshots' }
   | { screen: 'compare'; baseline?: string; current?: string }
-  | { screen: 'settings' };
+  | { screen: 'settings' }
+  | { screen: 'legal' };
 
 export type Screen = Route['screen'];
 

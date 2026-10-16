@@ -3,7 +3,7 @@
   "version": "0.3.0",
   "description": "NTNXVision: Nutanix Prism Central inventory & documentation tool",
   "author": "Alberto Chestaro",
-  "license": "UNLICENSED",
+  "license": "MIT",
   "private": true,
   "main": "dist/main/main.js",
   "scripts": {
@@ -26,7 +26,9 @@
     "rebuild:native": "npx electron-builder install-app-deps",
     "smoke": "npx electron . --smoke",
     "screenshots": "npm run build:renderer && node scripts/screenshot.mjs",
-    "e2e": "npm run build && node scripts/e2e-demo.mjs"
+    "e2e": "npm run build && node scripts/e2e-demo.mjs",
+    "notices": "node ../scripts/generate-third-party-notices.mjs",
+    "notices:check": "node ../scripts/generate-third-party-notices.mjs --check"
   },
   "dependencies": {
     "keytar": "^7.9.0"
@@ -79,6 +81,18 @@
     "buildDependenciesFromSource": false,
     "extraResources": [
       {
+        "from": "../LICENSE",
+        "to": "LICENSE"
+      },
+      {
+        "from": "../NOTICE",
+        "to": "NOTICE"
+      },
+      {
+        "from": "../THIRD_PARTY_NOTICES.md",
+        "to": "THIRD_PARTY_NOTICES.md"
+      },
+      {
         "from": "../core/dist/ntnxvision-sidecar",
         "to": "sidecar",
         "filter": [
@@ -121,7 +135,8 @@
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
-      "shortcutName": "NTNXVision"
+      "shortcutName": "NTNXVision",
+      "license": "../LICENSE"
     },
     "mac": {
       "target": [
@@ -136,7 +151,13 @@
       "entitlementsInherit": "build/entitlements.mac.plist",
       "notarize": false,
       "minimumSystemVersion": "11.0",
-      "darkModeSupport": true
+      "darkModeSupport": true,
+      "extraResources": [
+        {
+          "from": "node_modules/electron/dist/LICENSES.chromium.html",
+          "to": "LICENSES.chromium.html"
+        }
+      ]
     },
     "dmg": {
       "title": "${productName} ${version}",
