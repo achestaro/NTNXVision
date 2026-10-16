@@ -23,6 +23,7 @@ from ntnxvision_core.api import PrismCredentials
 from ntnxvision_core.api.element_client import ElementCredentials
 from ntnxvision_core.api.errors import NutanixApiError
 from ntnxvision_core.api.ndb_client import NdbCredentials
+from ntnxvision_core.capacity import DEFAULT_VCPU_RATIO
 from ntnxvision_core.engine import (
     collect_element_environment,
     collect_environment,
@@ -246,12 +247,15 @@ def export(
     snapshot: str = typer.Argument(..., help="Path to a .ntnxsnap.json snapshot"),
     formats: str = typer.Option("excel", help="Comma-separated: excel,pdf,word"),
     name: str = typer.Option(None, help="Output base name (defaults to snapshot name)"),
+    vcpu_ratio: float = typer.Option(
+        DEFAULT_VCPU_RATIO, "--vcpu-ratio",
+        help="Target vCPU:pCPU ratio for the cluster capacity figures"),
 ) -> None:
     """Re-export a saved snapshot to one or more formats (offline)."""
     env = SnapshotStore(snapshots_dir()).load(snapshot)
     base = name or "environment"
     for fmt in _parse_formats(formats):
-        out = export_environment(env, fmt, exports_dir(), base)
+        out = export_environment(env, fmt, exports_dir(), base, {"vcpu_ratio": vcpu_ratio})
         console.print(f"{fmt.title()} exported → [green]{out}[/green]")
 
 

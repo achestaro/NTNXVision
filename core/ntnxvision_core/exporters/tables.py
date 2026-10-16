@@ -21,8 +21,10 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
+from ntnxvision_core.capacity import ClusterCapacity, coerce_ratio, compute_environment
 from ntnxvision_core.exporters.theme import on_off, power_label
 from ntnxvision_core.models import Environment
+from ntnxvision_core.numfmt import fmt_ratio
 
 GIB = 1024**3
 
@@ -30,8 +32,11 @@ GIB = 1024**3
 class Ctx:
     """Per-Environment lookups a few derived columns need (built once, cached)."""
 
-    def __init__(self, env: Environment) -> None:
+    def __init__(self, env: Environment, vcpu_ratio: float | None = None) -> None:
         self.env = env
+        #: Target vCPU:pCPU ratio behind the "vCPU Total" capacity columns.
+        self.vcpu_ratio = coerce_ratio(vcpu_ratio)
+        self._capacity: dict[int, ClusterCapacity] | None = None
         self.cluster_by_uuid = {c.uuid: c for c in env.clusters if c.uuid}
         # Prism Element mode inventories exactly one cluster, and its v2.0 payloads leave
         # the cluster off storage containers and networks; everything belongs to it.
@@ -67,6 +72,12 @@ class Ctx:
         if cluster is not None and cluster.name:
             return cluster.name
         return self.only_cluster
+
+    def capacity(self, cluster: Any) -> ClusterCapacity | None:
+        """The cluster's capacity figures (computed for every cluster on first use)."""
+        if self._capacity is None:
+            self._capacity = compute_environment(self.env, self.vcpu_ratio)
+        return self._capacity.get(id(cluster))
 
     def vm_policy(self, vm: Any) -> str | None:
         if vm.protection_policy:
@@ -206,6 +217,23 @@ def _cluster_key(c: Any) -> str:
     return c.uuid or c.name or ""
 
 
+def _cap(field: str) -> Getter:
+    """A capacity figure of a cluster (see `capacity.py`)."""
+    def get(c: Any, x: Ctx) -> Any:
+        cap = x.capacity(c)
+        return getattr(cap, field, None) if cap is not None else None
+    return get
+
+
+def _int_or_none(value: Any) -> int | None:
+    return None if value is None else int(round(value))
+
+
+def ratio_text(value: Any) -> str:
+    """Excel cell for a ratio: "3.5 : 1", or N/A."""
+    return fmt_ratio(value)
+
+
 # ─── specs ─────────────────────────────────────────────────────────────
 
 INFRA = "Infrastructure"
@@ -238,9 +266,62 @@ CLUSTERS = TableSpec(
             label="Model", search=True),
         Col("timezone", "Timezone", _a("timezone")),
         Col("api", "API", _a("api_source")),
+        # Capacity and oversubscription (capacity.py). Provisioned figures count every VM,
+        # powered on or off; N-1 drops the largest node and is N/A below three nodes.
+        Col("cpu_ratio", "vCPU:pCore (all VMs)", _cap("cpu_ratio"), excel=ratio_text,
+            label="vCPU:pCore", kind="ratio"),
+        Col("cpu_ratio_n1", "vCPU:pCore N-1", _cap("cpu_ratio_n1"), excel=ratio_text,
+            label="vCPU:pCore N-1", kind="ratio"),
+        Col("vcpu_total", "vCPU Total", lambda c, x: _int_or_none(_cap("vcpu_total")(c, x))),
+        Col("vcpu_total_n1", "vCPU Total N-1",
+            lambda c, x: _int_or_none(_cap("vcpu_total_n1")(c, x))),
+        Col("storage_ratio", "Storage Provisioned:Usable", _cap("storage_ratio"),
+            excel=ratio_text, label="Storage ratio", kind="ratio"),
+        Col("storage_ratio_n1", "Storage Provisioned:Usable N-1", _cap("storage_ratio_n1"),
+            excel=ratio_text, label="Storage ratio N-1", kind="ratio"),
+        Col("storage_total", "Storage Total (GiB)", _cap("storage_total_bytes"), excel=gib),
+        Col("storage_total_n1", "Storage Total N-1 (GiB)", _cap("storage_total_n1_bytes"),
+            excel=gib),
     ),
     id=lambda c: c.uuid, name=lambda c: c.name or c.uuid, where=lambda c: c.source_pc,
     note_keys=("clusters",), sources=True, group=INFRA,
+)
+
+#: The Excel "Capacity" sheet: every input and result of the capacity math, per cluster.
+#: Not an Inventory type (the clusters grid and detail pane show these figures).
+CAPACITY = TableSpec(
+    "capacity", "Capacity", "Capacity", "Cluster", "clusters", lambda e: e.clusters,
+    (
+        Col("name", "Cluster", _a("name")),
+        Col("nodes", "Nodes", _cap("node_count")),
+        Col("rf", "RF", _cap("rf")),
+        Col("cores", "Physical Cores", _cap("physical_cores")),
+        Col("cvm", "CVM vCPUs", _cap("cvm_vcpus")),
+        Col("usable", "Usable Cores", _cap("usable_cores")),
+        Col("usable_n1", "Usable Cores N-1", _cap("usable_cores_n1")),
+        Col("target", "Target vCPU:pCore", _cap("target_ratio"), excel=ratio_text),
+        Col("vcpu_total", "vCPU Total", lambda c, x: _int_or_none(_cap("vcpu_total")(c, x))),
+        Col("vcpu_total_n1", "vCPU Total N-1",
+            lambda c, x: _int_or_none(_cap("vcpu_total_n1")(c, x))),
+        Col("vms", "VMs", _cap("vm_count")),
+        Col("prov_vcpu", "Provisioned vCPU (all VMs)", _cap("provisioned_vcpus")),
+        Col("prov_vcpu_on", "Provisioned vCPU (powered on)", _cap("provisioned_vcpus_on")),
+        Col("cpu_ratio", "vCPU:pCore (all VMs)", _cap("cpu_ratio"), excel=ratio_text),
+        Col("cpu_ratio_n1", "vCPU:pCore N-1", _cap("cpu_ratio_n1"), excel=ratio_text),
+        Col("cpu_ratio_on", "vCPU:pCore (powered on)", _cap("cpu_ratio_on"), excel=ratio_text),
+        Col("raw", "Raw Storage (GiB)", _cap("raw_bytes"), excel=gib),
+        Col("storage_total", "Storage Total (GiB)", _cap("storage_total_bytes"), excel=gib),
+        Col("storage_total_n1", "Storage Total N-1 (GiB)", _cap("storage_total_n1_bytes"),
+            excel=gib),
+        Col("prov_disk", "Provisioned Disk (GiB)", _cap("provisioned_disk_bytes"), excel=gib),
+        Col("storage_ratio", "Storage Provisioned:Usable", _cap("storage_ratio"),
+            excel=ratio_text),
+        Col("storage_ratio_n1", "Storage Provisioned:Usable N-1", _cap("storage_ratio_n1"),
+            excel=ratio_text),
+        Col("notes", "Notes", lambda c, x: " ".join(_cap("notes")(c, x) or [])),
+    ),
+    id=lambda c: c.uuid, name=lambda c: c.name or c.uuid, where=lambda c: c.source_pc,
+    note_keys=("clusters", "hosts"), sources=True, group=INFRA,
 )
 
 HOSTS = TableSpec(

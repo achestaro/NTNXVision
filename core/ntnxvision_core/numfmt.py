@@ -35,6 +35,17 @@ def fmt_count(n: Any) -> str:
     return f"{n:,}"
 
 
+def fmt_ratio(value: Any) -> str:
+    """An oversubscription ratio, one decimal with spaces around the colon: "3.5 : 1".
+
+    None (or anything not a number) renders as `NA`; large values keep comma grouping
+    ("1,234.5 : 1").
+    """
+    if value is None or isinstance(value, bool) or not isinstance(value, (int, float)):
+        return NA
+    return f"{value:,.1f} : 1"
+
+
 def cell_text(value: Any, header: str | None = None) -> str:
     """A table cell as text: quantities grouped, identifier columns left alone."""
     if value is None:
@@ -55,4 +66,4 @@ def excel_number_format(value: Any) -> str | None:
     return None
 
 
-__all__ = ["NA", "PLAIN_HEADERS", "cell_text", "excel_number_format", "fmt_count"]
+__all__ = ["NA", "PLAIN_HEADERS", "cell_text", "excel_number_format", "fmt_count", "fmt_ratio"]
