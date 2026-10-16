@@ -1,7 +1,7 @@
 {
   "name": "ntnxvision",
   "version": "0.3.0",
-  "description": "NTNXVision \u2014 Nutanix Prism Central inventory & documentation tool",
+  "description": "NTNXVision — Nutanix Prism Central inventory & documentation tool",
   "author": "Alberto Chestaro",
   "license": "UNLICENSED",
   "private": true,
@@ -16,13 +16,18 @@
     "build:main": "npx tsc -p tsconfig.main.json",
     "start": "npx electron .",
     "lint": "npx eslint . --ext .ts,.tsx",
-    "package": "npm run build && npx electron-builder"
+    "package": "npm run build && npx electron-builder",
+    "screenshots": "npm run build:renderer && node scripts/screenshot.mjs"
   },
   "dependencies": {
     "keytar": "^7.9.0"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.4",
+    "@fontsource-variable/figtree": "^5.3.0",
+    "@fontsource/jetbrains-mono": "^5.3.0",
+    "@fontsource/montserrat": "^5.3.0",
+    "@phosphor-icons/react": "^2.1.10",
     "@types/node": "^20.11.0",
     "@types/react": "^18.2.0",
     "@types/react-dom": "^18.2.0",
@@ -31,6 +36,7 @@
     "electron": "^30.0.0",
     "electron-builder": "^24.13.0",
     "eslint": "^9.39.4",
+    "globals": "^14.0.0",
     "playwright-core": "^1.61.1",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",

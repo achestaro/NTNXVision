@@ -64,8 +64,15 @@ export function deleteConnection(id: string): ConnectionProfile[] {
 
 const SETTINGS_FILE = 'settings.json';
 
+const DEFAULT_SETTINGS: AppSettings = {
+  theme: 'system',
+  accent: 'iris',
+  density: 'comfortable',
+};
+
 export function getSettings(): AppSettings {
-  return readJson<AppSettings>(SETTINGS_FILE, {});
+  const stored = readJson<AppSettings>(SETTINGS_FILE, {});
+  return { ...DEFAULT_SETTINGS, ...(stored && typeof stored === 'object' ? stored : {}) };
 }
 
 export function setSettings(settings: AppSettings): AppSettings {
