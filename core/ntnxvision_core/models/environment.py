@@ -249,6 +249,8 @@ class Cluster(SourcedObject):
     redundancy_factor: int | None = None
     num_nodes: int | None = None
     external_ip: str | None = None
+    #: The cluster's iSCSI Data Services IP (Volumes, Files, Objects, CSI); often unset.
+    data_services_ip: str | None = None
     timezone: str | None = None
     encryption_enabled: bool | None = None
     is_lts: bool | None = None

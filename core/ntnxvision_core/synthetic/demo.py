@@ -165,6 +165,7 @@ def reset() -> None:
         with target._lock:
             target.epoch = 0
             target._cache = {}
+    st.api.reset()
 
 
 def hosts() -> list[dict[str, str]]:

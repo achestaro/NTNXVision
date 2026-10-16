@@ -84,8 +84,8 @@ def test_excel_lcm_sheet_headers_and_rows(tmp_path) -> None:
     ws = load_workbook(out)[_SHEET]
 
     headers = [c.value for c in ws[1]]
-    assert headers == [
-        "Component", "Class", "Cluster", "Current Version",
+    assert headers == [  # Cluster first: the house column-order rule
+        "Cluster", "Component", "Class", "Current Version",
         "Update Available", "Available Versions", "Last Updated", "API",
     ]
     # `target_version` is intentionally absent: LCM reports it equal to the running
@@ -96,8 +96,8 @@ def test_excel_lcm_sheet_headers_and_rows(tmp_path) -> None:
     assert ws.auto_filter.ref == "A1:H6"
 
     col = {name: i for i, name in enumerate(headers)}
-    rows = {r[0]: r for r in ws.iter_rows(min_row=2, values_only=True)}
-    assert rows["AHV"][:4] == ("AHV", "Hypervisor", "cluster-01", "10.0")
+    rows = {r[1]: r for r in ws.iter_rows(min_row=2, values_only=True)}
+    assert rows["AHV"][:4] == ("cluster-01", "AHV", "Hypervisor", "10.0")
     assert rows["AHV"][col["Update Available"]] == "Yes"
     assert rows["AHV"][col["Available Versions"]] == "10.1, 10.0.1"
     # A real Excel timestamp (UTC), shown as yyyy-mm-dd hh:mm, so it sorts and filters.
@@ -115,7 +115,7 @@ def test_excel_unknown_update_flag_is_not_no(tmp_path) -> None:
     out = ExcelExporter().export(_lcm_env(), tmp_path / "lcm.xlsx")
     ws = load_workbook(out)[_SHEET]
     col = {name: i for i, name in enumerate(c.value for c in ws[1])}
-    row = next(r for r in ws.iter_rows(min_row=2, values_only=True) if r[0] == "SATADOM SL 3ME4")
+    row = next(r for r in ws.iter_rows(min_row=2, values_only=True) if r[1] == "SATADOM SL 3ME4")
     assert row[col["Update Available"]] == "Unknown"
     # empty available_versions renders as the N/A placeholder, never a blank cell
     assert row[col["Available Versions"]] == "N/A"
@@ -129,7 +129,8 @@ def test_excel_omits_lcm_sheet_when_not_collected(tmp_path) -> None:
 
 
 def test_excel_combined_run_attributes_lcm_rows_to_a_pc(tmp_path) -> None:
-    """Combined reports prepend a "Prism Central" column to every inventory sheet;
+    """Combined reports add a "Prism Central" column to every inventory sheet (right
+    after Cluster);
     LCM component names (AHV, AOS) repeat across estates, so without it the merged
     rows are indistinguishable.
     """
@@ -139,8 +140,8 @@ def test_excel_combined_run_attributes_lcm_rows_to_a_pc(tmp_path) -> None:
     out = ExcelExporter().export(combine_environments([a, b]), tmp_path / "combined.xlsx")
 
     ws = load_workbook(out)[_SHEET]
-    assert [c.value for c in ws[1]][:2] == ["Prism Central", "Component"]
-    sources = {r[0] for r in ws.iter_rows(min_row=2, values_only=True)}
+    assert [c.value for c in ws[1]][:3] == ["Cluster", "Prism Central", "Component"]
+    sources = {r[1] for r in ws.iter_rows(min_row=2, values_only=True)}
     assert sources == {"pc-a.lab.local", "pc-b.lab.local"}
     assert ws.max_row == 11  # header + 5 components from each PC
 
@@ -152,9 +153,9 @@ def test_combined_run_attributes_lcm_rows_in_pdf_and_word(tmp_path) -> None:
     combined = combine_environments([a, b])
 
     doc = Document(str(WordExporter().export(combined, tmp_path / "combined.docx")))
-    table = next(t for t in doc.tables if t.rows[0].cells[1].text == "Component")
-    assert table.rows[0].cells[0].text == "Prism Central"
-    assert {r.cells[0].text for r in table.rows[1:]} == {"pc-a.lab.local", "pc-b.lab.local"}
+    table = next(t for t in doc.tables if t.rows[0].cells[2].text == "Component")
+    assert [c.text for c in table.rows[0].cells[:2]] == ["Cluster", "Prism Central"]
+    assert {r.cells[1].text for r in table.rows[1:]} == {"pc-a.lab.local", "pc-b.lab.local"}
 
     # The PDF's column widths are rescaled around the extra column; assert it renders.
     assert PdfExporter().export(combined, tmp_path / "combined.pdf").stat().st_size > 1000
@@ -201,12 +202,12 @@ def test_word_lifecycle_section_and_counts(tmp_path) -> None:
     assert "Of the 5 component(s) inventoried, 3 have a newer version available" in text
     assert "1 component(s) LCM did not report an upgrade target" in text
 
-    table = next(t for t in doc.tables if t.rows[0].cells[0].text == "Component")
+    table = next(t for t in doc.tables if t.rows[0].cells[1].text == "Component")
     assert [c.text for c in table.rows[0].cells] == [
-        "Component", "Class", "Cluster", "Current Version", "Update Available",
+        "Cluster", "Component", "Class", "Current Version", "Update Available",
         "Available Versions",
     ]
-    by_component = {r.cells[0].text: [c.text for c in r.cells] for r in table.rows[1:]}
+    by_component = {r.cells[1].text: [c.text for c in r.cells] for r in table.rows[1:]}
     assert by_component["SATADOM SL 3ME4"][4] == "Unknown"
     assert by_component["SATADOM SL 3ME4"][5] == "N/A"
     # "No update" is a healthy status: an ok glyph precedes the ink label.

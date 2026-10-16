@@ -294,6 +294,9 @@ def _clusters_and_hosts(est: PcEstate, specs: list[ClusterSpec]) -> None:
             "nodes": nodes,
             "rf": 3 if nodes >= 8 else 2,
             "external_ip": f"10.{20 + ci}.0.10",
+            # Every third cluster runs without a Data Services IP (no Volumes / Files
+            # clients), so the reports and grid exercise the N/A path.
+            "data_services_ip": None if ci % 3 == 2 else f"10.{20 + ci}.0.11",
             "timezone": ["America/Phoenix", "Europe/Amsterdam", "UTC"][ci % 3],
             "encryption": "ENABLED" if r.random() < 0.5 else "DISABLED",
             "is_lts": aos in ("6.10", "6.10.1", "7.0"),
