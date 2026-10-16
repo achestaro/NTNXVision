@@ -266,6 +266,9 @@ export interface ApiRoutingRow {
   reason: string;
   /** What happens after the Q4 2026 v3 sunset. */
   after_sunset: StatusValue;
+  /** Combined runs only: the Prism Central host this row is about (`areas` is then
+   *  prefixed "<host>: "). Each PC is judged against its own version. */
+  source?: string;
 }
 
 export interface CompatInfo {
