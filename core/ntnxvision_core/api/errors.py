@@ -21,6 +21,13 @@ class ConnectionFailed(NutanixApiError):
     """Could not reach Prism Central (network / TLS / DNS)."""
 
 
+class TlsVerificationFailed(ConnectionFailed):
+    """The endpoint answered, but its certificate did not verify (self-signed, unknown
+    CA, name mismatch). Kept distinct from a network failure so a connection test can
+    tell "fix your trust settings" apart from "the host is not there".
+    """
+
+
 class AuthenticationError(NutanixApiError):
     """Credentials were rejected (401 / 403)."""
 

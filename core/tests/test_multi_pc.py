@@ -57,13 +57,14 @@ def test_inventory_multi_isolates_a_failing_target() -> None:
     """
     from ntnxvision_core import sidecar
 
-    def fake_collect(creds: Any, progress: Any = None, ndb_creds: Any = None) -> Environment:
+    def fake_collect(creds: Any, progress: Any = None, ndb_creds: Any = None,
+                     **_kw: Any) -> Environment:
         if creds.host == "bad.local":
             raise RuntimeError("connection refused")
         return _env(creds.host, f"c-{creds.host}")
 
     with patch.object(sidecar, "collect_environment", side_effect=fake_collect), \
-         patch.object(sidecar, "_finalize", side_effect=lambda env, name, params: {
+         patch.object(sidecar, "_finalize", side_effect=lambda env, name, params, **_kw: {
              "summary": env.summary(), "source_type": env.source_type,
              "prism_central": env.prism_central.model_dump(), "warnings": [],
              "collection_notes": {}, "snapshot_path": None, "exports": {}, "export_errors": {},
@@ -87,12 +88,13 @@ def test_inventory_multi_isolates_a_failing_target() -> None:
 def test_inventory_multi_combines_when_requested() -> None:
     from ntnxvision_core import sidecar
 
-    def fake_collect(creds: Any, progress: Any = None, ndb_creds: Any = None) -> Environment:
+    def fake_collect(creds: Any, progress: Any = None, ndb_creds: Any = None,
+                     **_kw: Any) -> Environment:
         return _env(creds.host, f"c-{creds.host}")
 
     finalize_calls: list[str] = []
 
-    def fake_finalize(env: Environment, name: str, params: Any) -> dict[str, Any]:
+    def fake_finalize(env: Environment, name: str, params: Any, **_kw: Any) -> dict[str, Any]:
         finalize_calls.append(name)
         return {
             "summary": env.summary(), "source_type": env.source_type,
@@ -120,13 +122,14 @@ def test_inventory_multi_combines_when_requested() -> None:
 def test_inventory_multi_skips_combine_with_fewer_than_two_successes() -> None:
     from ntnxvision_core import sidecar
 
-    def fake_collect(creds: Any, progress: Any = None, ndb_creds: Any = None) -> Environment:
+    def fake_collect(creds: Any, progress: Any = None, ndb_creds: Any = None,
+                     **_kw: Any) -> Environment:
         if creds.host == "bad.local":
             raise RuntimeError("nope")
         return _env(creds.host, "c1")
 
     with patch.object(sidecar, "collect_environment", side_effect=fake_collect), \
-         patch.object(sidecar, "_finalize", side_effect=lambda env, name, params: {
+         patch.object(sidecar, "_finalize", side_effect=lambda env, name, params, **_kw: {
              "summary": env.summary(), "source_type": env.source_type,
              "prism_central": env.prism_central.model_dump(), "warnings": [],
              "collection_notes": {}, "snapshot_path": None, "exports": {}, "export_errors": {},
@@ -482,13 +485,14 @@ def test_inventory_multi_uses_each_targets_own_ndb_credentials() -> None:
 
     seen: list[tuple[str, Any]] = []
 
-    def fake_collect(creds: Any, progress: Any = None, ndb_creds: Any = None) -> Environment:
+    def fake_collect(creds: Any, progress: Any = None, ndb_creds: Any = None,
+                     **_kw: Any) -> Environment:
         seen.append((creds.host, None if ndb_creds is None
                      else (ndb_creds.host, ndb_creds.username, ndb_creds.verify_ssl)))
         return _env(creds.host, f"c-{creds.host}")
 
     with patch.object(sidecar, "collect_environment", side_effect=fake_collect), \
-         patch.object(sidecar, "_finalize", side_effect=lambda env, name, params: {
+         patch.object(sidecar, "_finalize", side_effect=lambda env, name, params, **_kw: {
              "summary": env.summary(), "source_type": env.source_type,
              "prism_central": env.prism_central.model_dump(), "warnings": [],
              "collection_notes": {}, "snapshot_path": None, "exports": {}, "export_errors": {},
@@ -502,7 +506,8 @@ def test_inventory_multi_uses_each_targets_own_ndb_credentials() -> None:
             "combine": False,
         })
 
-    assert seen == [
+    # Targets collect in parallel, so compare without depending on call order.
+    assert sorted(seen, key=lambda s: s[0]) == [
         # Each estate's own Era instance, and the target's TLS choice carried across.
         ("pc1.local", ("era1.local", "era-admin", False)),
         ("pc2.local", None),

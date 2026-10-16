@@ -786,6 +786,11 @@ class Environment(_Base):
     # Collection diagnostics: {collector_name: "ok" | "skipped: reason" | "error: ..."}
     collection_notes: dict[str, str] = Field(default_factory=dict)
 
+    #: Metadata of the collection run that produced this snapshot — per-area outcome,
+    #: API routing, compatibility, duration, reports (see `runinfo.build_run_metadata`).
+    #: None on snapshots written before it existed; the UI then shows the summary only.
+    run: dict[str, Any] | None = None
+
     @property
     def is_combined(self) -> bool:
         """True for an Environment merged from several Prism Centrals.

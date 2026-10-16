@@ -581,7 +581,10 @@ def _prefix_str(p: Any) -> str | None:
 
 
 def _target_group(filter_spec: dict[str, Any]) -> str | None:
-    params = filter_spec.get("params", {}) or {}
+    # A v3 target group nests its category params under `filter`
+    # ({"peer_specification_type": "FILTER", "filter": {"params": {...}}}); an entity
+    # filter (isolation rules) carries them directly. Read both.
+    params = filter_spec.get("params") or (filter_spec.get("filter") or {}).get("params") or {}
     parts = [f"{k}:{','.join(v)}" for k, v in params.items()]
     return "; ".join(parts) if parts else None
 

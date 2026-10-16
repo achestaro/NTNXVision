@@ -31,15 +31,8 @@ ElementProgress = Any
 
 def collect_element(conn: ElementConnection, env: Any, progress: Any = None) -> None:
     """Populate env from a direct Prism Element connection (v2.0 API)."""
-    steps = [
-        ("Cluster", _cluster),
-        ("Hosts / Nodes", _hosts),
-        ("Storage Containers", _storage),
-        ("Networks", _networks),
-        ("Virtual Machines", _vms),
-    ]
-    total = len(steps)
-    for idx, (label, fn) in enumerate(steps):
+    total = len(ELEMENT_STEPS)
+    for idx, (_area, label, fn) in enumerate(ELEMENT_STEPS):
         if progress:
             progress(idx, total, label, "running")
         try:
@@ -224,6 +217,17 @@ def _nics(vm: dict[str, Any]) -> list[Nic]:
             )
         )
     return out
+
+
+#: (area id, label, step) in run order. The area ids match the Prism Central collectors'
+#: so the UI's area list, progress events and run metadata read the same in both modes.
+ELEMENT_STEPS: list[tuple[str, str, Any]] = [
+    ("clusters", "Cluster", _cluster),
+    ("hosts", "Hosts / Nodes", _hosts),
+    ("storage_containers", "Storage Containers", _storage),
+    ("subnets", "Networks", _networks),
+    ("vms", "Virtual Machines", _vms),
+]
 
 
 # ─── helpers ───────────────────────────────────────────────────────────
