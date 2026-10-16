@@ -2014,6 +2014,18 @@ Run-time Hooks are in the directory
 ./PyInstaller/hooks/rthooks
 
 
+Additional Run-time Modules
+----------------------------------
+
+In addition to run-time hooks, PyInstaller may embed additional run-time
+modules in the final executable. At the time of writing, these include
+the splash-screen module (``pyi_splash``) and modules from utility package
+for run-time hooks (``_pyi_rth_utils``). All these files are licensed under
+the Apache License, Version 2.0, and are located in the following directory:
+
+./PyInstaller/fake-modules
+
+
 The PyInstaller.isolated submodule
 ----------------------------------
 
@@ -2608,28 +2620,31 @@ SOFTWARE.
 | [annotated-doc](#py-annotated-doc) | 0.0.5 | MIT |
 | [annotated-types](#py-annotated-types) | 0.8.0 | MIT |
 | [certifi](#py-certifi) | 2026.7.22 | Mozilla Public License 2.0 (MPL 2.0) |
-| [charset-normalizer](#py-charset-normalizer) | 3.5.1 | MIT |
+| [cffi](#py-cffi) | 2.1.1 | MIT-0 |
+| [charset-normalizer](#py-charset-normalizer) | 3.5.2 | MIT |
+| [cryptography](#py-cryptography) | 46.0.7 | Apache-2.0 OR BSD-3-Clause |
 | [defusedxml](#py-defusedxml) | 0.7.1 | Python Software Foundation License |
 | [et_xmlfile](#py-et-xmlfile) | 2.0.0 | MIT License |
-| [fonttools](#py-fonttools) | 4.64.0 | MIT |
-| [fpdf2](#py-fpdf2) | 2.8.8 | LGPL-3.0-only |
-| [idna](#py-idna) | 3.19 | BSD-3-Clause |
+| [fonttools](#py-fonttools) | 4.67.0 | MIT |
+| [fpdf2](#py-fpdf2) | 2.8.9 | LGPL-3.0-only |
+| [idna](#py-idna) | 3.20 | BSD-3-Clause |
 | [lxml](#py-lxml) | 6.1.3 | BSD-3-Clause |
 | [markdown-it-py](#py-markdown-it-py) | 4.2.0 | MIT License |
 | [mdurl](#py-mdurl) | 0.1.2 | MIT License |
 | [openpyxl](#py-openpyxl) | 3.1.5 | MIT License |
 | [pillow](#py-pillow) | 12.3.0 | MIT-CMU |
-| [pydantic](#py-pydantic) | 2.13.5 | MIT |
-| [pydantic_core](#py-pydantic-core) | 2.46.5 | MIT |
+| [pycparser](#py-pycparser) | 3.11 | BSD-3-Clause |
+| [pydantic](#py-pydantic) | 2.14.1 | MIT |
+| [pydantic_core](#py-pydantic-core) | 2.50.1 | MIT |
 | [Pygments](#py-pygments) | 2.21.0 | BSD-2-Clause |
 | [python-docx](#py-python-docx) | 1.2.0 | MIT License |
 | [requests](#py-requests) | 2.34.2 | Apache Software License |
 | [rich](#py-rich) | 14.3.4 | MIT License |
 | [shellingham](#py-shellingham) | 1.5.4 | ISC License (ISCL) |
-| [typer](#py-typer) | 0.27.2 | MIT |
+| [typer](#py-typer) | 0.27.3 | MIT |
 | [typing_extensions](#py-typing-extensions) | 4.16.0 | PSF-2.0 |
 | [typing-inspection](#py-typing-inspection) | 0.4.4 | MIT |
-| [urllib3](#py-urllib3) | 2.7.0 | MIT |
+| [urllib3](#py-urllib3) | 2.8.0 | MIT |
 
 <a id="py-annotated-doc"></a>
 #### annotated-doc 0.0.5
@@ -2717,8 +2732,37 @@ one at http://mozilla.org/MPL/2.0/.
 @(#) $RCSfile: certdata.txt,v $ $Revision: 1.80 $ $Date: 2011/11/03 15:11:58 $
 ```
 
+<a id="py-cffi"></a>
+#### cffi 2.1.1
+
+License: **MIT-0** · <https://cffi.readthedocs.io/en/latest/whatsnew.html>
+
+```text
+Except when otherwise stated (look for LICENSE files in directories or
+information at the beginning of each file) all software and
+documentation is licensed as follows:
+
+    MIT No Attribution
+
+    Permission is hereby granted, free of charge, to any person
+    obtaining a copy of this software and associated documentation
+    files (the "Software"), to deal in the Software without
+    restriction, including without limitation the rights to use,
+    copy, modify, merge, publish, distribute, sublicense, and/or
+    sell copies of the Software, and to permit persons to whom the
+    Software is furnished to do so.
+
+    THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
+    OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+    FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL
+    THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+    LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+    FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+    DEALINGS IN THE SOFTWARE.
+```
+
 <a id="py-charset-normalizer"></a>
-#### charset-normalizer 3.5.1
+#### charset-normalizer 3.5.2
 
 License: **MIT** · <https://github.com/jawah/charset_normalizer/blob/master/CHANGELOG.md>
 
@@ -2744,6 +2788,17 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+```
+
+<a id="py-cryptography"></a>
+#### cryptography 46.0.7
+
+License: **Apache-2.0 OR BSD-3-Clause** · <https://github.com/pyca/cryptography>
+
+```text
+This software is made available under the terms of *either* of the licenses
+found in LICENSE.APACHE or LICENSE.BSD. Contributions to cryptography are made
+under the terms of *both* these licenses.
 ```
 
 <a id="py-defusedxml"></a>
@@ -3109,7 +3164,7 @@ PERFORMANCE OF THIS SOFTWARE.
 ```
 
 <a id="py-fonttools"></a>
-#### fonttools 4.64.0
+#### fonttools 4.67.0
 
 License: **MIT** · <http://github.com/fonttools/fonttools>
 
@@ -3138,7 +3193,7 @@ SOFTWARE.
 ```
 
 <a id="py-fpdf2"></a>
-#### fpdf2 2.8.8
+#### fpdf2 2.8.9
 
 License: **LGPL-3.0-only** · <https://py-pdf.github.io/fpdf2/>
 
@@ -3311,7 +3366,7 @@ Library.
 ```
 
 <a id="py-idna"></a>
-#### idna 3.19
+#### idna 3.20
 
 License: **BSD-3-Clause** · <https://github.com/kjd/idna>
 
@@ -5084,8 +5139,43 @@ ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ~~~~
 
+<a id="py-pycparser"></a>
+#### pycparser 3.11
+
+License: **BSD-3-Clause** · <https://github.com/eliben/pycparser>
+
+```text
+pycparser -- A C parser in Python
+
+Copyright (c) 2008-2027, Eli Bendersky
+All rights reserved.
+
+Redistribution and use in source and binary forms, with or without modification,
+are permitted provided that the following conditions are met:
+
+* Redistributions of source code must retain the above copyright notice, this
+  list of conditions and the following disclaimer.
+* Redistributions in binary form must reproduce the above copyright notice,
+  this list of conditions and the following disclaimer in the documentation
+  and/or other materials provided with the distribution.
+* Neither the name of the copyright holder nor the names of its contributors may
+  be used to endorse or promote products derived from this software without
+  specific prior written permission.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
+ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE
+LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE
+GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
+HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
+LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT
+OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+```
+
 <a id="py-pydantic"></a>
-#### pydantic 2.13.5
+#### pydantic 2.14.1
 
 License: **MIT** · <https://github.com/pydantic/pydantic>
 
@@ -5114,7 +5204,7 @@ SOFTWARE.
 ```
 
 <a id="py-pydantic-core"></a>
-#### pydantic_core 2.46.5
+#### pydantic_core 2.50.1
 
 License: **MIT** · <https://github.com/pydantic>
 
@@ -5437,7 +5527,7 @@ OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 ```
 
 <a id="py-typer"></a>
-#### typer 0.27.2
+#### typer 0.27.3
 
 License: **MIT** · <https://github.com/fastapi/typer>
 
@@ -5782,7 +5872,7 @@ SOFTWARE.
 ```
 
 <a id="py-urllib3"></a>
-#### urllib3 2.7.0
+#### urllib3 2.8.0
 
 License: **MIT** · <https://github.com/urllib3/urllib3/blob/main/CHANGES.rst>
 

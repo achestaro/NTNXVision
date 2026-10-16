@@ -59,13 +59,19 @@ from ntnxvision_core.engine import (
 from ntnxvision_core.exporters import export_environment
 from ntnxvision_core.paths import demo_enabled, exports_dir, snapshots_dir
 from ntnxvision_core.runinfo import CombinedTracker, RunTracker, build_run_metadata
-from ntnxvision_core.store import SnapshotStore
+from ntnxvision_core.store import SnapshotStore, transfer
 from ntnxvision_core.store import snapshot as snapstore
+from ntnxvision_core.store.names import safe_name
 
 CANCELLED = -32800
 BUSY = -32002
 API_ERROR = -32000
 OTHER_ERROR = -32001
+#: Snapshot files (`export_snapshot_file`, `inspect_snapshot_file`, `import_snapshot_file`).
+INVALID_FILE = -32010
+NEWER_VERSION = -32011
+PASSWORD_ERROR = -32012
+TRANSFER_ERROR = -32013
 
 _FORMAT_LABELS = {"excel": "Excel workbook", "pdf": "PDF report", "word": "Word ADD"}
 
@@ -250,6 +256,8 @@ def _handle(request: dict[str, Any]) -> None:
         _error(req_id, BUSY, str(exc))
     except NutanixApiError as exc:
         _error(req_id, API_ERROR, str(exc))
+    except transfer.TransferError as exc:
+        _error(req_id, _transfer_code(exc), str(exc))
     except Exception as exc:  # noqa: BLE001
         _error(req_id, OTHER_ERROR, f"{type(exc).__name__}: {exc}")
 
@@ -656,7 +664,7 @@ def _m_rename_snapshot(_req_id: Any, params: dict[str, Any]) -> dict[str, Any]:
     new_name = str(params.get("new_name") or "").strip()
     if not new_name:
         raise NutanixApiError("A new name is required.")
-    safe = "".join(c if c.isalnum() or c in "-_. " else "_" for c in new_name).strip()
+    safe = safe_name(new_name, fallback="")
     if not safe:
         raise NutanixApiError("The new name has no usable characters.")
     try:
@@ -704,6 +712,82 @@ def _resolve_snapshot_path(raw: str) -> Path:
     if not resolved.is_file():
         raise NutanixApiError(f"Snapshot not found: {resolved.name}")
     return resolved
+
+
+# ─── snapshot files (.ntnxsnap) ────────────────────────────────────────
+
+
+def _transfer_code(exc: transfer.TransferError) -> int:
+    if isinstance(exc, transfer.UnsupportedVersion):
+        return NEWER_VERSION
+    if isinstance(exc, (transfer.PasswordRequired, transfer.WrongPassword)):
+        return PASSWORD_ERROR
+    if isinstance(exc, transfer.InvalidSnapshotFile):
+        return INVALID_FILE
+    return TRANSFER_ERROR
+
+
+def _export_item(raw: str) -> transfer.ExportItem:
+    path = _resolve_snapshot_path(raw)
+    store = _store()
+    env = _cache.get(path)
+    if not env.snapshot_id:
+        transfer.ensure_snapshot_id(store, path, env)
+        _cache.invalidate(path)
+    return transfer.ExportItem(env=env, meta=snapstore.read_meta(path, _cache))
+
+
+def _local_file(raw: Any, what: str) -> Path:
+    if not isinstance(raw, str) or not raw.strip():
+        raise transfer.TransferError(f"A {what} is required.")
+    path = Path(raw).expanduser()
+    if not path.is_absolute():
+        raise transfer.TransferError(f"The {what} must be an absolute path.")
+    return path
+
+
+def _m_export_snapshot_file(_req_id: Any, params: dict[str, Any]) -> dict[str, Any]:
+    """Export one snapshot (`snapshot`) or a bundle (`snapshots`) to one .ntnxsnap file."""
+    raws = params.get("snapshots") or [params.get("snapshot")]
+    items = [_export_item(str(r)) for r in raws if r]
+    dest = _local_file(params.get("dest_path"), "destination file")
+    return transfer.export_file(items, dest, password=params.get("password") or None,
+                                note=params.get("note"), app_version=params.get("app_version"))
+
+
+def _m_export_snapshot_files(_req_id: Any, params: dict[str, Any]) -> dict[str, Any]:
+    """Export several snapshots to a folder, one .ntnxsnap file each."""
+    dest_dir = _local_file(params.get("dest_dir"), "destination folder")
+    if not dest_dir.is_dir():
+        raise transfer.TransferError(f"The folder {dest_dir} does not exist.")
+    files = []
+    errors = []
+    for raw in params.get("snapshots") or []:
+        try:
+            item = _export_item(str(raw))
+            dest = transfer.unique_file(dest_dir, str(item.meta.get("name") or "snapshot"))
+            files.append(transfer.export_file(
+                [item], dest, password=params.get("password") or None, note=params.get("note"),
+                app_version=params.get("app_version")))
+        except Exception as exc:  # noqa: BLE001 — one failed snapshot never stops the batch
+            errors.append({"snapshot": str(raw), "error": str(exc)})
+    return {"dir": str(dest_dir), "files": files, "errors": errors}
+
+
+def _m_inspect_snapshot_file(_req_id: Any, params: dict[str, Any]) -> dict[str, Any]:
+    path = _local_file(params.get("path"), "snapshot file")
+    return transfer.inspect_file(path, _store(), password=params.get("password") or None)
+
+
+def _m_import_snapshot_file(_req_id: Any, params: dict[str, Any]) -> dict[str, Any]:
+    path = _local_file(params.get("path"), "snapshot file")
+    with _import_lock:
+        return transfer.import_file(path, _store(), password=params.get("password") or None,
+                                    on_conflict=str(params.get("on_conflict") or "keep_both"),
+                                    on_saved=_cache.invalidate)
+
+
+_import_lock = threading.Lock()
 
 
 # ─── inventory & compare ───────────────────────────────────────────────
@@ -896,6 +980,10 @@ _METHODS = {
     "rename_snapshot": _m_rename_snapshot,
     "delete_snapshot": _m_delete_snapshot,
     "clear_snapshots": _m_clear_snapshots,
+    "export_snapshot_file": _m_export_snapshot_file,
+    "export_snapshot_files": _m_export_snapshot_files,
+    "inspect_snapshot_file": _m_inspect_snapshot_file,
+    "import_snapshot_file": _m_import_snapshot_file,
     "disk_usage": _m_disk_usage,
     "demo_seed": _m_demo_seed,
 }
