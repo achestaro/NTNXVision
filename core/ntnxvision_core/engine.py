@@ -11,14 +11,17 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from datetime import datetime, timezone
+from functools import partial
 from typing import Any
 
 from ntnxvision_core.api import PrismConnection, PrismCredentials
 from ntnxvision_core.api.element_client import ElementConnection, ElementCredentials
 from ntnxvision_core.api.ndb_client import NdbConnection, NdbCredentials
-from ntnxvision_core.collectors import ALL_COLLECTORS
+from ntnxvision_core.areas import AREAS, NDB_AREA, Area
+from ntnxvision_core.areas import select as select_areas
+from ntnxvision_core.cancel import CancelToken, RunCancelled
 from ntnxvision_core.collectors.base import Collector
-from ntnxvision_core.collectors.element import collect_element
+from ntnxvision_core.collectors.element import ELEMENT_STEPS
 from ntnxvision_core.collectors.ndb import collect_ndb
 from ntnxvision_core.compat import check_aos, check_prism_central
 from ntnxvision_core.models import (
@@ -27,6 +30,7 @@ from ntnxvision_core.models import (
     SourcedObject,
     SourceEnvironment,
 )
+from ntnxvision_core.runinfo import RunTracker, classify
 
 # progress(step_index, total_steps, collector_label, status)
 ProgressFn = Callable[[int, int, str, str], None]
@@ -37,22 +41,42 @@ def collect_environment(
     collectors: list[type[Collector]] | None = None,
     progress: ProgressFn | None = None,
     ndb_creds: NdbCredentials | None = None,
+    *,
+    areas: list[str] | None = None,
+    cancel: CancelToken | None = None,
+    tracker: RunTracker | None = None,
 ) -> Environment:
-    """Connect to Prism Central and run all collectors, returning a populated Environment.
+    """Connect to Prism Central and run the selected collectors into an Environment.
 
-    If `ndb_creds` is provided, an additional NDB collection step runs against the Era
-    control plane after the Prism Central collectors.
+    * `areas` limits the run to those area ids (see `ntnxvision_core.areas`); None or
+      empty runs everything. `collectors` (an explicit class list) is the older,
+      lower-level way to do the same and wins when given.
+    * `cancel` is checked before every request and between collectors; a cancelled run
+      raises `RunCancelled` and returns nothing — callers must not save partial data.
+    * `tracker` receives the per-area progress (status, API, objects, duration).
+    * `progress` is the legacy 4-argument callback the CLI uses.
+
+    If `ndb_creds` is provided, an additional NDB step runs against the Era control
+    plane after the Prism Central collectors.
     """
-    collector_types = collectors or ALL_COLLECTORS
+    if collectors is not None:
+        run_areas = [a for a in AREAS if a.collector in collectors]
+        run_areas += [
+            Area(c.name, c.label, "Other", c, c.name)
+            for c in collectors
+            if c not in {a.collector for a in run_areas}
+        ]
+    else:
+        run_areas = select_areas(areas, "prism_central")
     env = Environment(
         collected_at=datetime.now(timezone.utc).isoformat(),
         prism_central=PrismCentral(host=creds.host),
     )
 
-    # Total steps: PC collectors + optional NDB step.
-    total = len(collector_types) + (1 if ndb_creds else 0)
+    planned = [*run_areas, *([NDB_AREA] if ndb_creds else [])]
+    total = len(planned)
 
-    with PrismConnection(creds) as conn:
+    with PrismConnection(creds, cancel=cancel) as conn:
         env.prism_central.version = conn.pc_version
 
         # Compatibility check (warn but proceed).
@@ -61,23 +85,34 @@ def collect_environment(
         if pc_compat.warning:
             env.warnings.append(pc_compat.warning)
 
-        for idx, collector_cls in enumerate(collector_types):
-            collector = collector_cls(conn)
-            _emit(progress, idx, total, collector.label, "running")
-            try:
-                collector.collect(env)
-                note = env.collection_notes.get(collector.name, "ok")
-                _emit(progress, idx, total, collector.label, note)
-            except Exception as exc:  # noqa: BLE001 — isolate collector failures
-                env.collection_notes[collector.name] = f"error: {exc}"
-                _emit(progress, idx, total, collector.label, f"error: {exc}")
+        if tracker is not None:
+            tracker.start(planned, conn.pc_version)
 
-        # Read *after* the collectors run: v4 availability is negotiated lazily, on the
-        # first call that asks for a feature area, so nothing is known at connect time.
-        env.prism_central.negotiated_api_versions = dict(conn.negotiated)
+        try:
+            for idx, area in enumerate(run_areas):
+                if cancel is not None:
+                    cancel.check()
+                assert area.collector is not None
+                collector = area.collector(conn)
+                _run_area(env, area, idx, total, partial(collector.collect, env),
+                          progress, tracker, conn.negotiated, collector.label,
+                          collector.name)
+        except RunCancelled:
+            if tracker is not None:
+                tracker.cancel_pending()
+            raise
+        finally:
+            # Read *after* the collectors run: v4 availability is negotiated lazily, on
+            # the first call that asks for a feature area, so nothing is known at
+            # connect time.
+            env.prism_central.negotiated_api_versions = dict(conn.negotiated)
 
     if ndb_creds:
-        _collect_ndb_step(ndb_creds, env, progress, len(collector_types), total)
+        if cancel is not None and cancel.cancelled:
+            if tracker is not None:
+                tracker.cancel_pending()
+            raise RunCancelled("Run cancelled")
+        _collect_ndb_step(ndb_creds, env, progress, len(run_areas), total, tracker, cancel)
 
     _resolve_cross_references(env)
     return env
@@ -86,6 +121,10 @@ def collect_environment(
 def collect_element_environment(
     creds: ElementCredentials,
     progress: ProgressFn | None = None,
+    *,
+    areas: list[str] | None = None,
+    cancel: CancelToken | None = None,
+    tracker: RunTracker | None = None,
 ) -> Environment:
     """Connect directly to a cluster's Prism Element (v2.0) and inventory it.
 
@@ -98,7 +137,10 @@ def collect_element_environment(
         source_type="prism_element",
         prism_central=PrismCentral(host=creds.host),
     )
-    with ElementConnection(creds) as conn:
+    selected = {a.id for a in select_areas(areas, "prism_element")}
+    steps = [s for s in ELEMENT_STEPS if s[0] in selected]
+    by_id = {a.id: a for a in AREAS}
+    with ElementConnection(creds, cancel=cancel) as conn:
         env.prism_central.version = conn.aos_version  # AOS version for PE mode
 
         aos_compat = check_aos(conn.aos_version)
@@ -106,10 +148,76 @@ def collect_element_environment(
         if aos_compat.warning:
             env.warnings.append(aos_compat.warning)
 
-        collect_element(conn, env, progress=progress)
+        if tracker is not None:
+            tracker.start([by_id[s[0]] for s in steps], conn.aos_version)
+        try:
+            for idx, (area_id, label, fn) in enumerate(steps):
+                if cancel is not None:
+                    cancel.check()
+                area = by_id[area_id]
+                _run_area(env, area, idx, len(steps), partial(fn, conn, env), progress,
+                          tracker, {}, label, area_id, api_override="v2")
+        except RunCancelled:
+            if tracker is not None:
+                tracker.cancel_pending()
+            raise
 
     _resolve_cross_references(env)
     return env
+
+
+def _run_area(
+    env: Environment,
+    area: Area,
+    idx: int,
+    total: int,
+    work: Callable[[], None],
+    progress: ProgressFn | None,
+    tracker: RunTracker | None,
+    negotiated: dict[str, str],
+    label: str,
+    note_key: str,
+    api_override: str | None = None,
+) -> None:
+    """Run one area, isolating its failure, and report it to both callbacks."""
+    before = {f: len(getattr(env, f)) for f in area.fields}
+    _emit(progress, idx, total, label, "running")
+    if tracker is not None:
+        tracker.begin(area.id)
+    try:
+        work()
+        note = env.collection_notes.get(note_key, "ok")
+        _emit(progress, idx, total, label, note)
+    except RunCancelled:
+        raise
+    except Exception as exc:  # noqa: BLE001 — isolate collector failures
+        note = f"error: {exc}"
+        env.collection_notes[note_key] = note
+        _emit(progress, idx, total, label, note)
+    if tracker is None:
+        return
+    status, detail = classify(area.id, note)
+    added = [item for f in area.fields for item in getattr(env, f)[before[f]:]]
+    api = api_override or _area_api(area, added, negotiated)
+    tracker.end(area.id, status, api=api, objects=len(added), detail=detail,
+                clusters=len(env.clusters))
+
+
+def _area_api(area: Area, added: list[Any], negotiated: dict[str, str]) -> str:
+    """Which API actually served an area: from the objects' provenance when there are
+    any, else from the namespace negotiation."""
+    sources = {str(getattr(o, "api_source", "") or "") for o in added}
+    if any(s.startswith("v4") for s in sources):
+        return "v4"
+    if any(s.startswith("v2") for s in sources):
+        return "v2"
+    if "ndb" in sources:
+        return "era"
+    if sources - {""}:
+        return "v3"
+    if area.v4_area and negotiated.get(area.v4_area) == "v4":
+        return "v4"
+    return area.legacy_api
 
 
 def combine_environments(envs: list[Environment]) -> Environment:
@@ -186,15 +294,20 @@ def _collect_ndb_step(
     progress: ProgressFn | None,
     idx: int,
     total: int,
+    tracker: RunTracker | None = None,
+    cancel: CancelToken | None = None,
 ) -> None:
-    _emit(progress, idx, total, "NDB (Databases)", "running")
-    try:
-        with NdbConnection(ndb_creds) as ndb:
+    def work() -> None:
+        with NdbConnection(ndb_creds, cancel=cancel) as ndb:
             collect_ndb(ndb, env)
-        _emit(progress, idx, total, "NDB (Databases)", env.collection_notes.get("ndb", "ok"))
-    except Exception as exc:  # noqa: BLE001
-        env.collection_notes["ndb"] = f"error: {exc}"
-        _emit(progress, idx, total, "NDB (Databases)", f"error: {exc}")
+
+    try:
+        _run_area(env, NDB_AREA, idx, total, work, progress, tracker, {},
+                  "NDB (Databases)", "ndb", api_override="era")
+    except RunCancelled:
+        if tracker is not None:
+            tracker.cancel_pending()
+        raise
 
 
 def _resolve_cross_references(env: Environment) -> None:

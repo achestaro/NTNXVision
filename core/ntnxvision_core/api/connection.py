@@ -25,7 +25,10 @@ from ntnxvision_core.api.errors import (
     AuthenticationError,
     ConnectionFailed,
     NutanixApiError,
+    TlsVerificationFailed,
 )
+from ntnxvision_core.api.transport import new_session
+from ntnxvision_core.cancel import CancelToken
 
 DEFAULT_PORT = 9440
 DEFAULT_TIMEOUT = 60
@@ -50,9 +53,11 @@ class PrismCredentials:
 class PrismConnection:
     creds: PrismCredentials
     timeout: int = DEFAULT_TIMEOUT
-    session: requests.Session = field(default_factory=requests.Session)
+    session: requests.Session = field(default_factory=new_session)
     pc_version: str | None = None
     negotiated: dict[str, str] = field(default_factory=dict)
+    #: Checked before every request, so a cancelled run stops between pages.
+    cancel: CancelToken | None = None
 
     # ─── lifecycle ─────────────────────────────────────────────────
 
@@ -81,7 +86,7 @@ class PrismConnection:
                 timeout=self.timeout,
             )
         except requests.exceptions.SSLError as exc:
-            raise ConnectionFailed(
+            raise TlsVerificationFailed(
                 f"TLS verification failed for {self.creds.host}. "
                 f"For a lab PC with a self-signed cert, disable SSL verification. ({exc})"
             ) from exc
@@ -112,10 +117,14 @@ class PrismConnection:
     # ─── raw request helpers ───────────────────────────────────────
 
     def get_json(self, url: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
+        if self.cancel is not None:
+            self.cancel.check()
         resp = self.session.get(url, params=params, timeout=self.timeout)
         return self._json_or_raise(resp)
 
     def post_json(self, url: str, body: dict[str, Any]) -> dict[str, Any]:
+        if self.cancel is not None:
+            self.cancel.check()
         resp = self.session.post(url, json=body, timeout=self.timeout)
         return self._json_or_raise(resp)
 
