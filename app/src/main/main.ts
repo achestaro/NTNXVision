@@ -155,6 +155,11 @@ ipcMain.handle(IPC.getAppInfo, (): AppInfo => ({
 
 registerLegalHandlers();
 
+/** The report file name prefix: the request's (even when empty), else the last one used. */
+function filePrefix(requested: string | undefined): string {
+  return requested !== undefined ? requested : store.getSettings().filePrefix ?? '';
+}
+
 /** The configured vCPU:pCPU target for the capacity figures (the sidecar defaults it). */
 function vcpuRatio(): number | undefined {
   return store.getSettings().vcpuRatio;
@@ -185,7 +190,7 @@ ipcMain.handle(IPC.startCollection, async (_e, req: CollectionRequest) => {
       username: req.username,
       port: req.port,
       insecure: req.insecure,
-      name: req.name,
+      name: req.targetName ?? '',
       ndbHost: req.ndb?.host,
       ndbUser: req.ndb?.username,
     });
@@ -202,6 +207,7 @@ ipcMain.handle(IPC.startCollection, async (_e, req: CollectionRequest) => {
     areas: req.areas,
     formats: req.formats,
     export_dir: req.exportDir || store.getSettings().exportDir,
+    file_prefix: filePrefix(req.filePrefix),
     ndb: req.mode === 'prism_central' ? req.ndb : undefined,
     vcpu_ratio: vcpuRatio(),
   });
@@ -237,6 +243,7 @@ ipcMain.handle(IPC.startMultiCollection, async (_e, req: MultiCollectionRequest)
     })),
     formats: req.formats,
     export_dir: req.exportDir || store.getSettings().exportDir,
+    file_prefix: filePrefix(req.filePrefix),
     combine: req.combine,
     combined_name: req.combinedName,
     vcpu_ratio: vcpuRatio(),
@@ -305,6 +312,7 @@ ipcMain.handle(IPC.exportComparison, (_e, req: CompareExportRequest) =>
     current: req.current,
     format: req.format,
     export_dir: req.exportDir || store.getSettings().exportDir,
+    file_prefix: filePrefix(req.filePrefix),
   }),
 );
 
@@ -313,6 +321,7 @@ ipcMain.handle(IPC.exportSnapshot, (_e, req: ExportRequest) =>
     snapshot: req.snapshotPath,
     formats: req.formats,
     export_dir: req.exportDir || store.getSettings().exportDir,
+    file_prefix: filePrefix(req.filePrefix),
     sections: req.sections,
     word: req.word
       ? {

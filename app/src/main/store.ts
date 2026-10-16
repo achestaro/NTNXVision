@@ -30,9 +30,24 @@ function writeJson(name: string, value: unknown): void {
 
 const CONNECTIONS_FILE = 'connections.json';
 
+/**
+ * A saved target's display name: what the user typed, else the host. Profiles saved by
+ * earlier versions took the snapshot name ("pc01-2026-09-30") as their name; that reads
+ * as a stale date, so it is shown as the host instead.
+ */
+export function targetName(name: string | undefined | null, host: string): string {
+  const trimmed = (name ?? '').trim();
+  if (!trimmed) return host;
+  const stem = (host.split('.')[0] || 'environment').replace(/[^A-Za-z0-9_-]/g, '-');
+  if (trimmed.startsWith(`${stem}-`) && /^\d{4}-\d{2}-\d{2}$/.test(trimmed.slice(stem.length + 1))) return host;
+  return trimmed;
+}
+
 export function listConnections(): ConnectionProfile[] {
   const profiles = readJson<ConnectionProfile[]>(CONNECTIONS_FILE, []);
-  return Array.isArray(profiles) ? profiles.filter((p) => p && p.host) : [];
+  return Array.isArray(profiles)
+    ? profiles.filter((p) => p && p.host).map((p) => ({ ...p, name: targetName(p.name, p.host) }))
+    : [];
 }
 
 export function saveConnection(profile: ConnectionProfile): ConnectionProfile[] {
@@ -44,7 +59,8 @@ export function saveConnection(profile: ConnectionProfile): ConnectionProfile[] 
     username: profile.username,
     port: profile.port,
     insecure: profile.insecure,
-    name: profile.name,
+    // The id is host:port:username, so renaming a target updates it in place.
+    name: targetName(profile.name, profile.host),
     ndbHost: profile.ndbHost,
     ndbUser: profile.ndbUser,
   };
