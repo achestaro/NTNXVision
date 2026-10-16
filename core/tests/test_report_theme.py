@@ -123,15 +123,15 @@ def test_missing_values_read_na_and_numbers_are_grouped() -> None:
     report = build_report(_pc_env(), ExportOptions(), "x")
     tables = [b for ch in report.chapters for s in ch.sections for b in s.blocks
               if isinstance(b, Table)]
-    hosts = next(t for t in tables if t.headers[0] == "Host")
+    hosts = next(t for t in tables if t.headers[:2] == ["Cluster", "Host"])
     assert hosts.align[hosts.headers.index("VMs")] == "R"
     from ntnxvision_core.exporters.content import cell_text
 
     assert cell_text(1500, "VMs") == "1,500"
     assert cell_text(None, "VMs") == "N/A"
     assert cell_text(512.0, "Memory (GiB)") == "512.0"
-    alerts = next(t for t in tables if t.headers[0] == "Severity")
-    sev = alerts.rows[0][0]
+    alerts = next(t for t in tables if t.headers[:2] == ["Cluster", "Severity"])
+    sev = alerts.rows[0][1]
     assert isinstance(sev, Status) and sev.tone == "error"
     assert alerts.rows[0][alerts.headers.index("Created (UTC)")] == "2026-09-01 10:15"
 
@@ -194,13 +194,13 @@ def test_prism_element_report_has_no_prism_central_chapter(tmp_path: Path) -> No
     assert "Prism Element pe.lab.local (AOS 7.0)" in repr(report.chapters[0].blocks[0])
     # The single PE cluster owns the networks and containers its v2.0 payloads leave bare.
     nets = next(b for c in report.chapters for s in c.sections for b in s.blocks
-                if isinstance(b, Table) and b.headers[0] == "Subnet")
-    assert nets.rows[0][1] == "pe-cluster"
+                if isinstance(b, Table) and b.headers[:2] == ["Cluster", "Subnet"])
+    assert nets.rows[0][0] == "pe-cluster"
     wb = load_workbook(ExcelExporter().export(env, tmp_path / "pe.xlsx"))
     assert "Prism Central" not in wb.sheetnames
     overview = {r[0]: r[1] for r in wb["Overview"].iter_rows(values_only=True) if r[0]}
     assert overview["Prism Element"] == "pe.lab.local"
-    assert wb["Storage"]["B2"].value == "pe-cluster"
+    assert wb["Storage"]["A2"].value == "pe-cluster"
 
 
 # ─── Excel ─────────────────────────────────────────────────────────────

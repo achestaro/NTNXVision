@@ -236,12 +236,16 @@ def test_combined_excel_names_the_sources_and_attributes_every_row(tmp_path) -> 
         ("pc-amer.local", "pc.2024.3.2", 3),
     ]
 
-    for sheet, expected in (("Clusters", "Cluster01"), ("Hosts", "node-pc-emea.local")):
+    # Cluster leads every table; the attribution column follows it.
+    for sheet in ("Clusters", "Hosts"):
         rows = list(wb[sheet].iter_rows(values_only=True))
-        assert rows[0][0] == "Prism Central", f"{sheet} lacks the attribution column"
-        assert rows[1][0] == "pc-emea.local"
-        assert rows[2][0] == "pc-amer.local"
-        assert rows[1][1] == expected
+        assert rows[0][:2] == ("Cluster", "Prism Central"), f"{sheet}: {rows[0][:3]}"
+        assert rows[1][1] == "pc-emea.local"
+        assert rows[2][1] == "pc-amer.local"
+        assert rows[1][0] == "Cluster01"
+    hosts = list(wb["Hosts"].iter_rows(values_only=True))
+    assert hosts[1][2] == "node-pc-emea.local"
+    # VM tables keep their order, so the attribution column leads there.
     assert list(wb["VMs"].iter_rows(values_only=True))[0][0] == "Prism Central"
 
 
@@ -261,7 +265,7 @@ def test_single_pc_excel_keeps_its_original_shape(tmp_path) -> None:
     overview = {r[0]: r[1] for r in wb["Overview"].iter_rows(values_only=True) if r[0]}
     assert overview["Prism Central"] == "pc1.local"
     assert overview["PC Version"] == "pc.2024.3"
-    assert list(wb["Clusters"].iter_rows(values_only=True))[0][0] == "Name"
+    assert list(wb["Clusters"].iter_rows(values_only=True))[0][0] == "Cluster"
 
 
 def test_combined_word_names_the_sources_and_attributes_clusters(tmp_path) -> None:
@@ -283,10 +287,10 @@ def test_combined_word_names_the_sources_and_attributes_clusters(tmp_path) -> No
     assert [r[0] for r in source_table[1:]] == ["pc-emea.local", "pc-amer.local"]
     assert [r[3] for r in source_table[1:]] == ["1", "3"]        # per-PC node counts
 
-    cluster_table = next(t for t in tables if t[0] == ["Prism Central", "Cluster", "AOS",
-                                                       "Hypervisor", "Nodes", "RF", "Encryption"])
-    assert [r[0] for r in cluster_table[1:]] == ["pc-emea.local", "pc-amer.local"]
-    assert {r[1] for r in cluster_table[1:]} == {"Cluster01"}    # same name, distinguishable
+    cluster_table = next(t for t in tables if t[0][:4] == ["Cluster", "Prism Central", "AOS",
+                                                           "Hypervisor"])
+    assert [r[1] for r in cluster_table[1:]] == ["pc-emea.local", "pc-amer.local"]
+    assert {r[0] for r in cluster_table[1:]} == {"Cluster01"}    # same name, distinguishable
 
 
 def test_combined_pdf_exports_with_the_extra_column(tmp_path) -> None:

@@ -128,6 +128,8 @@ def cluster_v4(est: PcEstate, c: dict[str, Any]) -> dict[str, Any]:
         },
         "network": {
             "externalAddress": ip4(c["external_ip"]),
+            **({"externalDataServiceIp": ip4(c["data_services_ip"])}
+               if c.get("data_services_ip") else {}),
             "nameServerIpList": [ip4("10.20.1.5"), ip4("10.20.1.6")],
             "ntpServerIpList": [{"fqdn": {"value": "pool.ntp.org"}}],
         },
@@ -185,6 +187,7 @@ def cluster_v3(est: PcEstate, c: dict[str, Any]) -> dict[str, Any]:
             "is_available": True,
         },
         "network": {"external_ip": c["external_ip"],
+                    "external_data_services_ip": c.get("data_services_ip"),
                     "name_server_ip_list": ["10.20.1.5", "10.20.1.6"]},
         "nodes": {"hypervisor_server_list": [
             {"ip": h["hv_ip"], "type": "ESX" if h["hypervisor"] == "ESXi" else "AHV",
@@ -1105,6 +1108,7 @@ def pe_cluster_v2(est: PeEstate) -> dict[str, Any]:
         "cluster_redundancy_state": {"current_redundancy_factor": c["rf"],
                                      "desired_redundancy_factor": c["rf"]},
         "num_nodes": c["nodes"], "cluster_external_ipaddress": c["external_ip"],
+        "cluster_external_data_services_ipaddress": c.get("data_services_ip"),
         "timezone": c["timezone"], "encrypted": c["encryption"] == "ENABLED",
         "operation_mode": "Normal",
     }

@@ -867,12 +867,93 @@ textarea.input {
   margin-top: 4px;
 }
 
-.chk {
+/* Checkbox (Runway §9): a 16 px rounded box. Unchecked = body fill + rule-strong border;
+   checked = accent fill + on-accent tick; indeterminate = accent fill + dash. The native
+   input stays in place (appearance: none) so keyboard, label and form behaviour are free. */
+.cbx {
+  position: relative;
+  display: inline-flex;
+  flex: none;
+  width: 16px;
+  height: 16px;
+}
+.cbx-input {
+  appearance: none;
+  -webkit-appearance: none;
+  position: absolute;
+  inset: 0;
   width: 16px;
   height: 16px;
   margin: 0;
-  accent-color: var(--accent);
-  flex: none;
+  border: 1px solid var(--rule-strong);
+  border-radius: 3px;
+  background: var(--body);
+  cursor: pointer;
+  transition:
+    background-color var(--dur-fast) var(--ease),
+    border-color var(--dur-fast) var(--ease);
+}
+.cbx-input:hover:not(:disabled) {
+  border-color: var(--ink-2);
+}
+.cbx-input:checked,
+.cbx-input:indeterminate {
+  border-color: var(--accent);
+  background: var(--accent);
+}
+.cbx-input:checked:hover:not(:disabled),
+.cbx-input:indeterminate:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--accent) 82%, var(--ink));
+  background: color-mix(in srgb, var(--accent) 82%, var(--ink));
+}
+.cbx-input:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+.cbx-input:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+.cbx-tick,
+.cbx-dash {
+  position: absolute;
+  display: none;
+  pointer-events: none;
+}
+.cbx-tick {
+  left: 5px;
+  top: 2px;
+  width: 6px;
+  height: 10px;
+  border: solid var(--on-accent);
+  border-width: 0 2px 2px 0;
+  transform: rotate(45deg);
+}
+.cbx-dash {
+  left: 4px;
+  top: 7px;
+  width: 8px;
+  height: 2px;
+  border-radius: 1px;
+  background: var(--on-accent);
+}
+.cbx-input:checked:not(:indeterminate) ~ .cbx-tick,
+.cbx-input:indeterminate ~ .cbx-dash {
+  display: block;
+}
+.cbx-input:disabled ~ .cbx-tick,
+.cbx-input:disabled ~ .cbx-dash {
+  opacity: 0.6;
+}
+@media (forced-colors: active) {
+  .cbx-input {
+    appearance: auto;
+    -webkit-appearance: auto;
+  }
+  .cbx-tick,
+  .cbx-dash {
+    display: none !important;
+  }
 }
 .opt {
   display: flex;
@@ -882,9 +963,79 @@ textarea.input {
   color: var(--ink);
   cursor: pointer;
 }
+.opt.opt-2 {
+  align-items: flex-start;
+  padding: 4px 0;
+}
+.opt.opt-2 .cbx {
+  margin-top: 2px;
+}
+.opt-text {
+  min-width: 0;
+}
+.opt-label {
+  display: block;
+}
+.opt-desc {
+  display: block;
+  font-size: 12px;
+  line-height: 16px;
+  color: var(--ink-3);
+}
 .opt.dis {
   color: var(--ink-3);
   cursor: not-allowed;
+}
+
+/* Checklist header: an 11 px tracked label left, a text action ("Select all") right. */
+.chk-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 24px;
+  margin-bottom: 4px;
+}
+.chk-head .lbl,
+.chk-head .eyebrow {
+  margin: 0;
+}
+.chk-head .textlink {
+  font-size: 12px;
+  line-height: 16px;
+}
+.textlink:disabled {
+  color: var(--ink-3);
+  cursor: not-allowed;
+  text-decoration: none;
+}
+
+/* Checklist popover (Inventory Columns): header strip, then one checkbox row per item. */
+.menu.chk-menu {
+  width: 260px;
+  padding: 4px;
+}
+.chk-menu .chk-head {
+  padding: 4px 8px 6px;
+  margin: 0 0 4px;
+  border-bottom: 1px solid var(--rule);
+}
+.chk-menu-list {
+  max-height: min(360px, 60vh);
+  overflow-y: auto;
+}
+.chk-menu .opt {
+  min-height: 32px;
+  padding: 0 8px;
+  border-radius: 2px;
+}
+.chk-menu .opt:hover {
+  background: var(--surface-hover);
+}
+.chk-menu .opt-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .seg {
@@ -970,8 +1121,12 @@ textarea.input {
   border-color: var(--accent);
   background: var(--accent-tint);
 }
-.fmt .chk {
+.fmt .cbx {
   margin-top: 2px;
+}
+.fmt.dis {
+  cursor: not-allowed;
+  opacity: 0.6;
 }
 .fmt-title {
   display: block;
@@ -1806,4 +1961,9 @@ h1 .imported-badge {
   font-size: 16px;
   font-weight: 500;
   color: var(--ink);
+}
+
+/* A checkbox alone in a table cell (row selection). */
+.cbx.cbx-cell {
+  vertical-align: middle;
 }

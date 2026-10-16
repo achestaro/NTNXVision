@@ -21,7 +21,7 @@ from typing import Any
 
 from ntnxvision_core.exporters import diagrams
 from ntnxvision_core.exporters.diagrams import Diagram
-from ntnxvision_core.exporters.sourcing import source_hosts, sources
+from ntnxvision_core.exporters.sourcing import source_hosts, sources, with_sources
 from ntnxvision_core.exporters.tables import Ctx
 from ntnxvision_core.exporters.theme import (
     clean,
@@ -76,6 +76,8 @@ class Table:
     mono: list[bool] = field(default_factory=list)
     weights: list[float] = field(default_factory=list)
     label: str = ""  # "Table 4-1." (assigned by `_number`)
+    #: True for VM tables, the one exception to the Cluster-first column rule.
+    keep_order: bool = False
 
     @property
     def title(self) -> str:
@@ -194,7 +196,7 @@ class Report:
 MONO_HEADERS = frozenset({
     "AOS", "Version", "Current Version", "Current", "Available Versions", "Active Version",
     "IP Prefix", "IP address(es)", "IP Addresses", "Gateway", "VLAN", "Routable Prefixes",
-    "NCC Version", "API",
+    "NCC Version", "API", "External IP", "Data Services IP",
 })
 
 
@@ -242,18 +244,33 @@ def _prepare(value: Any, header: str) -> Any:
     return value
 
 
+def _cluster_first(headers: list[str], rows: list[list[Any]]
+                   ) -> tuple[list[str], list[list[Any]]]:
+    """Move the Cluster column to the front (the rule `tables.TableSpec` enforces for the
+    workbook and the grid), keeping every other column in order."""
+    if "Cluster" not in headers or headers[0] == "Cluster":
+        return headers, rows
+    i = headers.index("Cluster")
+    order = [i, *(k for k in range(len(headers)) if k != i)]
+    return [headers[k] for k in order], [[r[k] for k in order] for r in rows]
+
+
 def make_table(headers: list[str], rows: list[list[Any]], caption: str,
-               srcs: list[str] | None = None, prune: tuple[str, ...] = ()) -> Table | None:
+               srcs: list[str] | None = None, prune: tuple[str, ...] = (),
+               keep_order: bool = False) -> Table | None:
     """A `Table` from raw rows, with per-column alignment, font and width weights.
 
-    `srcs` (combined runs) prepends the "Prism Central" attribution column; `prune` names
-    columns dropped when every row is missing a value (an all-N/A column is noise).
+    The Cluster column is moved first (the house rule) unless `keep_order` (VM tables).
+    `srcs` (combined runs) adds the "Prism Central" attribution column, right after
+    Cluster or else first; `prune` names columns dropped when every row is missing a
+    value (an all-N/A column is noise).
     """
     if not rows:
         return None
-    if srcs is not None:
-        headers = ["Prism Central", *headers]
-        rows = [[s, *r] for s, r in zip(srcs, rows, strict=True)]
+    rows = [list(r) for r in rows]
+    if not keep_order:
+        headers, rows = _cluster_first(headers, rows)
+    headers, rows = with_sources(headers, rows, srcs)
     rows = [list(r) for r in rows]
     _timestamps(rows, headers)
     rows = [[_prepare(v, h) for v, h in zip(r, headers, strict=True)] for r in rows]
@@ -272,7 +289,7 @@ def make_table(headers: list[str], rows: list[list[Any]], caption: str,
         p90 = lengths[min(len(lengths) - 1, int(len(lengths) * 0.9))]
         weights.append(float(max(min(max(p90, len(h) * 0.85), 46), 4)))
     caption = f"{caption.rstrip('.')} ({fmt_count(len(rows))})."
-    return Table(headers, rows, caption, align, mono, weights)
+    return Table(headers, rows, caption, align, mono, weights, keep_order=keep_order)
 
 
 # ─── value helpers ─────────────────────────────────────────────────────────────
@@ -680,9 +697,11 @@ class _Builder:
                 "the contributing Prism Centrals and their clusters." if env.is_combined else
                 "Prism Central and its registered clusters.")))
         ch.add("Clusters Overview", make_table(
-            ["Cluster", "AOS", "Hypervisor", "Nodes", "RF", "Encryption"],
+            ["Cluster", "AOS", "Hypervisor", "Nodes", "RF", "Encryption", "External IP",
+             "Data Services IP"],
             [[c.name, c.aos_version, ", ".join(c.hypervisor_types), c.num_nodes,
-              c.redundancy_factor, "Yes" if c.encryption_enabled else "No"]
+              c.redundancy_factor, "Yes" if c.encryption_enabled else "No", c.external_ip,
+              c.data_services_ip]
              for c in env.clusters],
             "Registered clusters", self.src(env.clusters)))
         return ch
@@ -769,7 +788,8 @@ class _Builder:
             ["Name", "Type", "Power", "Cluster", "vCPU", "Memory (GiB)"],
             [[v.name, v.vm_type, power_label(v.power_state), self.cluster(v), v.vcpu_total,
               gib(v.memory_bytes)] for v in env.system_vms],
-            "Nutanix system VMs (CVMs and Prism Central)", self.src(env.system_vms)))
+            "Nutanix system VMs (CVMs and Prism Central)", self.src(env.system_vms),
+            keep_order=True))
         return ch
 
     def catalog(self) -> Chapter:
