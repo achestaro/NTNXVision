@@ -106,9 +106,10 @@ def collect_environment(
                     cancel.check()
                 assert area.collector is not None
                 collector = area.collector(conn)
-                _run_area(env, area, idx, total, partial(collector.collect, env),
-                          progress, tracker, conn.negotiated, collector.label,
-                          collector.name, scope=scope)
+                work = _noting_rate_limits(conn, env, collector.name,
+                                           partial(collector.collect, env))
+                _run_area(env, area, idx, total, work, progress, tracker, conn.negotiated,
+                          collector.label, collector.name, scope=scope)
         except RunCancelled:
             if tracker is not None:
                 tracker.cancel_pending()
@@ -133,6 +134,29 @@ def collect_environment(
         scope.prune(env)
         env.cluster_scope = scope.record()
     return env
+
+
+def _noting_rate_limits(conn: Any, env: Environment, note_key: str,
+                        work: Callable[[], None]) -> Callable[[], None]:
+    """`work`, plus a collection note when the shared client had to retry HTTP 429s.
+
+    The retries themselves happen in `PrismConnection._send`; this only makes them
+    visible per area ("ok: 3 request(s) retried after API rate limiting"), because a run
+    that had to back off says something about how loaded the Prism Central was. A note
+    that already mentions rate limiting (the alerts collector counts its own) is kept.
+    """
+    def run() -> None:
+        before = int(getattr(conn, "throttled", 0) or 0)
+        work()
+        retried = int(getattr(conn, "throttled", 0) or 0) - before
+        if retried <= 0:
+            return
+        note = env.collection_notes.get(note_key, "ok")
+        if "rate limit" in note or not (note == "ok" or note.startswith("ok:")):
+            return
+        text = f"{retried:,} request(s) retried after API rate limiting"
+        env.collection_notes[note_key] = f"ok: {text}" if note == "ok" else f"{note}; {text}"
+    return run
 
 
 def _resolve_scope(conn: PrismConnection, clusters: list[str] | None) -> Scope | None:
