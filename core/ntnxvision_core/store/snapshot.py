@@ -29,6 +29,7 @@ from pathlib import Path
 from typing import Any
 
 from ntnxvision_core.models import Environment
+from ntnxvision_core.paths import private_dir, write_private_text
 from ntnxvision_core.store.names import max_stem_for, safe_name, unique_name
 
 SNAP_SUFFIX = ".ntnxsnap.json"
@@ -38,7 +39,7 @@ META_SUFFIX = ".ntnxmeta.json"
 class SnapshotStore:
     def __init__(self, directory: str | Path) -> None:
         self.directory = Path(directory)
-        self.directory.mkdir(parents=True, exist_ok=True)
+        private_dir(self.directory)
 
     def path_for(self, name: str) -> Path:
         return self.directory / f"{_safe(name, self.directory)}{SNAP_SUFFIX}"
@@ -73,7 +74,7 @@ class SnapshotStore:
             path = self.directory / f"{stem}{SNAP_SUFFIX}"
         path = path or self.path_for(name)
         tmp = path.with_name(path.name + ".tmp")
-        tmp.write_text(env.model_dump_json(exclude_none=False), encoding="utf-8")
+        write_private_text(tmp, env.model_dump_json(exclude_none=False))
         os.replace(tmp, path)
         # The index is a cache; listing rebuilds it if this write fails.
         with contextlib.suppress(OSError):
@@ -169,7 +170,7 @@ def write_meta(path: Path, env: Environment, exports: list[dict[str, Any]] | Non
     meta["snapshot_mtime"] = path.stat().st_mtime
     meta["exports"] = exports if exports is not None else previous.get("exports", [])
     meta["provenance"] = provenance if provenance is not None else previous.get("provenance")
-    meta_path(path).write_text(json.dumps(meta), encoding="utf-8")
+    write_private_text(meta_path(path), json.dumps(meta))
     return meta
 
 
@@ -210,7 +211,7 @@ def record_exports(path: Path, files: list[dict[str, Any]]) -> None:
     history.extend(files)
     meta["exports"] = history[-50:]
     with contextlib.suppress(OSError):
-        meta_path(path).write_text(json.dumps(meta), encoding="utf-8")
+        write_private_text(meta_path(path), json.dumps(meta))
 
 
 def info_from_meta(meta: dict[str, Any]) -> dict[str, Any]:
@@ -235,7 +236,7 @@ def rename(path: Path, new_name: str) -> Path:
             data = json.loads(new_meta.read_text(encoding="utf-8"))
             data["name"] = new_name
             data["snapshot_mtime"] = target.stat().st_mtime
-            new_meta.write_text(json.dumps(data), encoding="utf-8")
+            write_private_text(new_meta, json.dumps(data))
         except (OSError, ValueError):
             pass
     return target

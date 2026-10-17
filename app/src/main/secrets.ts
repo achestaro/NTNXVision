@@ -2,17 +2,18 @@
 // Passwords are NEVER written to disk in plaintext by this app.
 
 import { testEnv } from './testhooks';
+import { Keychain, KeyringModule, makeKeychain } from './keychain';
 
 const SERVICE = 'NTNXVision';
 
-// keytar is a native module; import lazily so a missing build doesn't crash the app.
-type Keytar = typeof import('keytar');
-let keytar: Keytar | null = null;
+// The keyring module is native; import lazily so a missing build doesn't crash the app.
+// keychain.ts keeps the entries keytar wrote readable (same service and layout).
+let keychain: Keychain | null = null;
 try {
   // eslint-disable-next-line @typescript-eslint/no-require-imports
-  keytar = require('keytar');
+  keychain = makeKeychain(require('@napi-rs/keyring') as KeyringModule, SERVICE);
 } catch {
-  keytar = null;
+  keychain = null;
 }
 
 // Demo mode and the end-to-end tests keep (fake) passwords in process memory instead of
@@ -25,10 +26,10 @@ const memory: Map<string, string> | null =
     ? new Map()
     : null;
 
-/** Which store passwords go to: "keychain" (the OS keychain via keytar) or "memory". */
+/** Which store passwords go to: "keychain" (the OS keychain) or "memory". */
 export function storeKind(): 'keychain' | 'memory' | 'unavailable' {
   if (memory) return 'memory';
-  return keytar ? 'keychain' : 'unavailable';
+  return keychain ? 'keychain' : 'unavailable';
 }
 
 // Accounts are named by app/src/main/targets.ts: "target:<id>" (password),
@@ -36,7 +37,7 @@ export function storeKind(): 'keychain' | 'memory' | 'unavailable' {
 
 export async function getSecret(account: string): Promise<string | null> {
   if (memory) return memory.get(account) ?? null;
-  if (keytar) return keytar.getPassword(SERVICE, account);
+  if (keychain) return keychain.get(account);
   return null;
 }
 
@@ -46,8 +47,8 @@ export async function setSecret(account: string, secret: string): Promise<void> 
     memory.set(account, secret);
     return;
   }
-  if (keytar) {
-    await keytar.setPassword(SERVICE, account, secret);
+  if (keychain) {
+    keychain.set(account, secret);
     return;
   }
   throw new Error('No OS keychain is available on this computer');
@@ -58,5 +59,5 @@ export async function deleteSecret(account: string): Promise<void> {
     memory.delete(account);
     return;
   }
-  if (keytar) await keytar.deletePassword(SERVICE, account);
+  if (keychain) keychain.delete(account);
 }

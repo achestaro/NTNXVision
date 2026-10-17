@@ -1,5 +1,5 @@
 // Packaging smoke test: `NTNXVision --smoke` (or NTNXVISION_SMOKE=1) starts the main
-// process, checks the native keytar module loads, pings the Python sidecar through the
+// process, checks the native keyring module loads, pings the Python sidecar through the
 // normal SidecarClient, prints one JSON line and exits — 0 on success, 1 on failure.
 // No window is created. Used by CI against the packaged app and by scripts/build-*.
 
@@ -22,10 +22,10 @@ export async function runSmoke(sidecar: SidecarClient): Promise<void> {
   let ok = true;
   try {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
-    require('keytar');
-    report.keytar = 'ok';
+    require('@napi-rs/keyring');
+    report.keyring = 'ok';
   } catch (err) {
-    report.keytar = String(err);
+    report.keyring = String(err);
     ok = false;
   }
   try {

@@ -60,7 +60,7 @@ jobs:
       - name: eslint
         working-directory: app
         run: |
-          npm ci --ignore-scripts --no-audit --no-fund   # lint needs no native keytar build
+          npm ci --ignore-scripts --no-audit --no-fund   # lint needs no native module
           npm run lint
       # Shipped (production) dependencies must have no high or critical advisories.
       - name: npm audit (production, high)
