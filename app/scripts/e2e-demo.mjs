@@ -20,6 +20,9 @@
 // (several clusters: deselect / select all and pick; one cluster: shown greyed out; a
 // failed listing with retry), a scoped snapshot holding only the chosen clusters, the
 // remembered selection, Compare's scope notice and report names carrying one date.
+// Per-cluster vCPU:pCPU target: collapsed by default, a custom target for one cluster
+// (validated), recorded on the snapshot (Inventory detail pane, Compare), remembered on
+// the target for its next collection; Prism Element's one cluster offers it too.
 // Screenshots of each step go to <outDir> (default ./screenshots/e2e), plus the UX review
 // set in ./screenshots/UX, the scope set in ./screenshots/Scope and the Targets set in
 // ./screenshots/Targets. Targets CRUD: create, edit (rename + a new username keeps the
@@ -172,6 +175,16 @@ async function clustersListed(n) {
   await page.getByTestId('cluster-list').waitFor({ timeout: 30_000 });
   await page.waitForFunction((k) => document.querySelectorAll('[data-testid="cluster-list"] input').length === k, n, { timeout: 30_000 });
 }
+
+/** A detail-pane field's value ("Target ratio" → "6.0 : 1 (custom)"). */
+async function detailValue(label) {
+  const kv = page.locator('.kv').filter({ has: page.locator('dt', { hasText: new RegExp(`^${label}$`) }) }).first();
+  await kv.waitFor({ timeout: 30_000 });
+  return (await kv.locator('dd').innerText()).trim();
+}
+
+/** "1,234" → 1234. */
+const num = (text) => Number(String(text).replace(/,/g, ''));
 
 /** "2 / 4" in the picker header. */
 const clusterCount = () => page.getByTestId('cluster-count').innerText();
@@ -454,9 +467,47 @@ try {
     await clustersListed(4);
     await page.getByTestId('cluster-toggle-all').click(); // every cluster this time
     if ((await clusterCount()) !== '4 / 4') throw new Error(`selection ${await clusterCount()}`);
+    // Per-cluster vCPU:pCPU target: collapsed until asked for, every cluster on the default.
+    const ratios = page.getByTestId('ratio-overrides');
+    await ratios.getByText('Every cluster uses the default 4.0 : 1 from Settings.').waitFor();
+    if (await page.getByTestId('ratio-list').count()) throw new Error('per-cluster targets are expanded by default');
+    await page.getByTestId('ratio-toggle').click();
+    await page.getByTestId('ratio-list').waitFor();
+    if ((await page.getByTestId('ratio-list').locator('input').count()) !== 4) throw new Error('not one target per collected cluster');
+    if ((await page.getByTestId('ratio-PHX-PROD-02').getAttribute('placeholder')) !== '4.0') throw new Error('placeholder is not the default');
+    // Validation: out of range and two decimals block Start.
+    await page.getByTestId('ratio-PHX-PROD-02').fill('40');
+    await page.getByTestId('ratio-error').getByText(/PHX-PROD-02: Enter a number from 1 to 32/).waitFor();
+    await page.getByTestId('start-blockers').getByText('Fix the vCPU:pCPU target per cluster in step 2.').waitFor();
+    await expectDisabled('[data-testid="start-collection"]', true, 'Start with an invalid target');
+    await page.getByTestId('ratio-PHX-PROD-02').fill('6.25');
+    await page.getByTestId('ratio-error').waitFor();
+    await page.getByTestId('ratio-PHX-PROD-02').fill('6');
+    await page.getByTestId('ratio-error').waitFor({ state: 'detached' });
+    await page.getByTestId('ratio-count').getByText('1 custom').waitFor();
+    await page.getByTestId('summary-ratio').getByText('4.0 : 1 · 1 custom').waitFor();
+    await ratios.scrollIntoViewIfNeeded();
+    await scopeShot('step2-ratio-per-cluster');
     await startButton().click();
     await heading('Collection complete', 180_000);
     await page.getByTestId('results-scope').getByText('Scope: All 4 clusters').waitFor();
+  });
+
+  await run('remembered-ratio', async () => {
+    // The next collection from the same target pre-fills its per-cluster targets.
+    await fillTarget('Lab PC01 renamed');
+    await clustersListed(4);
+    await page.getByTestId('ratio-count').getByText('1 custom').waitFor({ timeout: 15_000 });
+    if ((await page.getByTestId('ratio-toggle').getAttribute('aria-expanded')) !== 'true') await page.getByTestId('ratio-toggle').click();
+    if ((await page.getByTestId('ratio-PHX-PROD-02').inputValue()) !== '6.0') throw new Error('the custom target was not remembered');
+    if ((await page.getByTestId('ratio-PHX-PROD-01').inputValue()) !== '') throw new Error('a default cluster was pre-filled');
+    // Prism Element mode: its one cluster.
+    await fillTarget('PE01');
+    await page.getByTestId('ratio-overrides').waitFor({ timeout: 30_000 });
+    if ((await page.getByTestId('ratio-list').locator('input').count()) !== 1) throw new Error('Prism Element should offer one cluster');
+    await page.getByTestId('ratio-overrides').scrollIntoViewIfNeeded();
+    await scopeShot('step2-ratio-prism-element');
+    await page.getByTestId('ratio-toggle').click(); // collapse again for the later steps
   });
 
   await run('saved-target-renamed', async () => {
@@ -575,10 +626,19 @@ try {
     // The heterogeneous cluster (two node generations) and the two-node one (N-1 is N/A).
     await openRow('PHX-PROD-02');
     await page.getByText('Cluster details').waitFor({ timeout: 30_000 });
-    await page.getByText('Target ratio').waitFor();
-    await page.getByText('4.0 : 1', { exact: true }).first().waitFor();
+    // The custom target chosen at collection drives vCPU Total: usable cores x 6.
+    if ((await detailValue('Target ratio')) !== '6.0 : 1 (custom)') throw new Error(`PHX-PROD-02 target: ${await detailValue('Target ratio')}`);
+    const usable = num((await detailValue('Usable cores')).split(' of ')[0]);
+    const total = num((await detailValue('vCPU Total')).split(' · ')[0]);
+    if (!usable || total !== usable * 6) throw new Error(`vCPU Total ${total} is not ${usable} x 6`);
+    // A tall window so the whole detail pane (capacity block included) is in the shot.
+    await page.setViewportSize({ width: 1440, height: 1700 }).catch(() => {});
+    await page.waitForTimeout(150);
+    await uxShot('cluster-detail-custom-target');
+    await page.setViewportSize({ width: 1440, height: 960 }).catch(() => {});
     await openRow('AMS-EDGE-02');
     await page.getByText('N-1 is not applicable to a 2-node cluster.').waitFor({ timeout: 30_000 });
+    if ((await detailValue('Target ratio')) !== '4.0 : 1 (default)') throw new Error(`AMS-EDGE-02 target: ${await detailValue('Target ratio')}`);
   });
 
   await run('compare', async () => {
@@ -590,6 +650,11 @@ try {
     await page.locator('.compare-scope-notice').getByText(/AMS-EDGE-02, PHX-DR-01/).waitFor();
     const added = await page.locator('tbody').innerText();
     if (/PHX-DR-01|AMS-EDGE-02/.test(added)) throw new Error('objects of out-of-scope clusters are listed as changes');
+    // The target recorded on each snapshot: PHX-PROD-02 went from the default to custom.
+    const changeRow = page.getByRole('row').filter({ hasText: 'vCPU:pCPU target' });
+    await changeRow.filter({ hasText: 'PHX-PROD-02' }).first().waitFor({ timeout: 15_000 });
+    const rowText = await changeRow.first().innerText();
+    if (!/4\.0 : 1 \(default\)/.test(rowText) || !/6\.0 : 1 \(custom\)/.test(rowText)) throw new Error(`target change row: ${rowText}`);
     await scopeShot('compare-scope-notice');
   });
 
