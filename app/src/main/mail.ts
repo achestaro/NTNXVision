@@ -9,9 +9,15 @@
 import type { SmtpField, SmtpSaveRequest, SmtpSaveResult, SmtpSecurity, SmtpSettings, SmtpSettingsInfo, SmtpTestRequest } from '../shared/ipc';
 import { DEFAULT_SMTP } from '../shared/ipc';
 import { isValidEmail } from '../shared/schedule';
-import type { SecretsIO } from './targets';
+import { endpointHash, type SecretsIO } from './targets';
 
+/** The unbound account earlier builds used: read only by the one-time migration. */
 export const SMTP_PASSWORD_ACCOUNT = 'smtp:password';
+
+/** Bound to host, port, security and username: a changed server finds no saved password (R3-01). */
+export function smtpPasswordAccount(s: Pick<SmtpSettings, 'host' | 'port' | 'security' | 'username'>): string {
+  return `smtp:password:${endpointHash(s.host.toLowerCase(), s.port, s.security, s.username)}`;
+}
 
 export interface SmtpIO {
   read(): unknown;
@@ -105,7 +111,7 @@ export class SmtpStore {
     if (this.io.tampered?.()) return { ...s, hasPassword: false, configured: false, tampered: true };
     let hasPassword = false;
     try {
-      hasPassword = !!(await this.secrets.get(SMTP_PASSWORD_ACCOUNT));
+      hasPassword = !!(await this.secrets.get(smtpPasswordAccount(s)));
     } catch {
       hasPassword = false;
     }
@@ -115,7 +121,7 @@ export class SmtpStore {
   async password(): Promise<string> {
     if (this.io.tampered?.()) return '';
     try {
-      return (await this.secrets.get(SMTP_PASSWORD_ACCOUNT)) ?? '';
+      return (await this.secrets.get(smtpPasswordAccount(this.settings()))) ?? '';
     } catch {
       return '';
     }
@@ -137,8 +143,14 @@ export class SmtpStore {
       next.username === saved.username;
     if (!sameServer && next.pinnedSha256 === saved.pinnedSha256) next.pinnedSha256 = '';
     try {
-      if (req.clearPassword || !next.username || (!sameServer && !req.password)) await this.secrets.delete(SMTP_PASSWORD_ACCOUNT);
-      else if (req.password) await this.secrets.set(SMTP_PASSWORD_ACCOUNT, req.password);
+      const savedAcct = smtpPasswordAccount(saved);
+      const nextAcct = smtpPasswordAccount(next);
+      if (req.clearPassword || !next.username || (!sameServer && !req.password)) {
+        for (const a of new Set([savedAcct, nextAcct, SMTP_PASSWORD_ACCOUNT])) await this.secrets.delete(a);
+      } else if (req.password) {
+        await this.secrets.set(nextAcct, req.password);
+        for (const a of new Set([savedAcct, SMTP_PASSWORD_ACCOUNT])) if (a !== nextAcct) await this.secrets.delete(a);
+      }
     } catch (err) {
       return {
         ok: false,
@@ -148,6 +160,24 @@ export class SmtpStore {
     }
     this.io.write(next);
     return { ok: true, settings: await this.info() };
+  }
+
+  /**
+   * Copy the unbound `smtp:password` entry to the account bound to the saved server, then
+   * delete it. Skipped when email.json failed verification or the new entry exists.
+   */
+  async migrateSecrets(): Promise<void> {
+    const s = this.settings();
+    if (this.io.tampered?.() || !s.username) return;
+    try {
+      const old = await this.secrets.get(SMTP_PASSWORD_ACCOUNT);
+      const acct = smtpPasswordAccount(s);
+      if (!old || (await this.secrets.get(acct))) return;
+      await this.secrets.set(acct, old);
+      await this.secrets.delete(SMTP_PASSWORD_ACCOUNT);
+    } catch {
+      /* keychain locked or unavailable: retry next launch */
+    }
   }
 
   /**
