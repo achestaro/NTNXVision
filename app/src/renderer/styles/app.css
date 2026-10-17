@@ -78,6 +78,8 @@ p {
   font-size: 12px;
   line-height: 16px;
   color: var(--ink-3);
+  /* Long build strings (el8.5-release-…-<hash>) and hostnames wrap inside the header. */
+  overflow-wrap: anywhere;
 }
 
 .t12 {
@@ -304,6 +306,7 @@ p {
 }
 .ph h1 {
   margin: 2px 0 0;
+  overflow-wrap: anywhere;
   font-size: 24px;
   line-height: 32px;
   font-weight: 600;
@@ -453,6 +456,39 @@ p {
 .phead .spacer {
   flex: 1;
 }
+/* The strip has a fixed height: a long title, meta or note truncates (full text in its
+   tooltip) instead of running past the panel. */
+.phead-title,
+.phead-meta,
+.phead-note {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.phead-title {
+  flex-shrink: 0;
+  max-width: 60%;
+}
+.phead-note {
+  font-size: 12px;
+}
+.phead-note .st {
+  display: inline;
+}
+.phead-note .g {
+  margin-right: 6px;
+  vertical-align: 0;
+}
+/* A long build string in the note truncates on its own, so the verdict after it stays. */
+.phead-note .ver {
+  display: inline-block;
+  max-width: 24ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  vertical-align: bottom;
+}
 .pbody {
   padding: var(--panel-p);
 }
@@ -544,6 +580,43 @@ p {
 }
 .tbl .wrap {
   white-space: normal;
+  /* Long unbroken tokens (URLs, build strings, API error bodies) wrap in the cell instead
+     of widening the table past its panel. */
+  overflow-wrap: anywhere;
+}
+/* Collection notes on Results: fixed columns so the note text gets the rest of the card. */
+.tbl-notes {
+  table-layout: fixed;
+}
+.tbl-notes td {
+  vertical-align: top;
+  padding-top: 8px;
+  padding-bottom: 8px;
+}
+.tbl-notes .notes-area {
+  width: 200px;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.tbl-notes .notes-area .st {
+  margin-top: 4px;
+  font-weight: 400;
+  font-size: 12px;
+}
+/* Clamped free text (ClampText): a few lines, then Show more. */
+.clamp-text {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
+.clamp-lines {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.clamp-toggle {
+  margin-top: 2px;
+  font-size: 12px;
 }
 .tbl .act {
   text-align: right;
@@ -755,6 +828,7 @@ p {
   margin-left: 4px;
 }
 .fqual {
+  overflow-wrap: anywhere;
   font-family: var(--font-mono);
   font-size: 12px;
   line-height: 20px;
@@ -822,6 +896,7 @@ p {
 .callout .callout-body {
   flex: 1;
   min-width: 0;
+  overflow-wrap: anywhere;
 }
 .callout .callout-actions {
   display: flex;
@@ -1927,6 +2002,30 @@ dl {
 }
 .file:last-child {
   border-bottom: 0;
+}
+.file-text {
+  flex: 1;
+  min-width: min(180px, 100%);
+  overflow-wrap: anywhere;
+}
+/* Results: Reports beside Collection notes, the notes getting the wider share; one column
+   when the page is narrow. */
+.results-cards {
+  container-type: inline-size;
+}
+.results-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 16px;
+  align-items: start;
+}
+.results-grid > .span-all {
+  grid-column: 1 / -1;
+}
+@container (min-width: 960px) {
+  .results-grid {
+    grid-template-columns: minmax(0, 2fr) minmax(0, 3fr);
+  }
 }
 
 .selbar {

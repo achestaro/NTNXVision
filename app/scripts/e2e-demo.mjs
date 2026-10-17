@@ -150,6 +150,13 @@ const targetRow = (name) => page.getByRole('table', { name: 'Targets' }).getByRo
 
 const uxShot = (name) => page.screenshot({ path: join(uxDir, `${name}.png`), fullPage: true });
 const scopeShot = (name) => page.screenshot({ path: join(scopeDir, `${name}.png`), fullPage: true });
+/** Cards on the current page whose content is wider than their box (empty when all fit). */
+const cardsOverflow = () =>
+  page.evaluate(() =>
+    [...document.querySelectorAll('.main .panel, .main .ph, .main .callout, .main .figs, .main .scroll-x, .main .phead')]
+      .filter((el) => el.scrollWidth - el.clientWidth > 1)
+      .map((el) => `${el.className} "${el.textContent.slice(0, 40)}" by ${el.scrollWidth - el.clientWidth}px`),
+  );
 
 const startButton = () => page.getByTestId('start-collection');
 const clusterBox = (name) => page.getByTestId(`cluster-${name}`);
@@ -376,6 +383,16 @@ try {
       if ((f.match(/\d{4}-\d{2}-\d{2}/g) ?? []).length !== 1) throw new Error(`${f} has more than one date`);
     }
     await scopeShot('results-scoped');
+    // The Collection notes card (and every other card) contains its text at 1,440 and
+    // 1,100: long notes, URLs and build strings wrap or clamp instead of running past it.
+    await page.getByTestId('results-notes').waitFor();
+    for (const width of [1440, 1100]) {
+      await page.setViewportSize({ width, height: 960 }).catch(() => {});
+      await page.waitForTimeout(100);
+      const bad = await cardsOverflow();
+      if (bad.length) throw new Error(`Results at ${width}px: content overflows its card: ${bad.join('; ')}`);
+    }
+    await page.setViewportSize({ width: 1440, height: 960 }).catch(() => {});
   });
 
   await run('scoped-inventory', async () => {
@@ -729,6 +746,8 @@ try {
     await page.getByRole('button', { name: /Collect from 2 Prism Centrals/ }).click();
     await heading('Collection complete', 180_000);
     await page.getByText(/2 of 2 collected/).first().waitFor({ timeout: 10_000 });
+    const over = await cardsOverflow();
+    if (over.length) throw new Error(`multi-PC Results: content overflows its card: ${over.join('; ')}`);
     // Multi-PC reports follow the remembered prefix too: "<prefix>-<name> (<target>)-<date>".
     const files = await readdir(exportDir);
     for (const stem of ['Tiny', 'PC03']) {
