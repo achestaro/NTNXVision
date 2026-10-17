@@ -360,6 +360,51 @@ try {
     await page.getByText('Connection failed · certificate not trusted').first().waitFor();
     await page.getByRole('button', { name: 'Turn off verification for this target' }).waitFor();
   });
+  await run('tls-trust-on-first-use', async () => {
+    // Turning verification off does not trust anything: the test shows the certificate and
+    // asks first. Nothing (not even the password) is sent until the user trusts it.
+    await page.getByRole('button', { name: 'Turn off verification for this target' }).click();
+    await page.getByText('Trust the certificate of selfsigned.demo.local?').waitFor({ timeout: 30_000 });
+    await page.getByText(/Nothing, not even the password, has been sent yet/).waitFor();
+    await page.getByText('SHA-256').first().waitFor();
+    // Start is blocked until the certificate is trusted.
+    await page.getByTestId('start-blockers').getByText('Test the connection in step 1 and trust the certificate.').waitFor();
+    await page.getByRole('button', { name: 'Trust this certificate' }).click();
+    await page.getByText('Connection verified').first().waitFor({ timeout: 30_000 });
+    await page.getByTestId('start-blockers').getByText('Test the connection in step 1 and trust the certificate.').waitFor({ state: 'detached' });
+  });
+  await run('tls-pinned-collection', async () => {
+    // A trusted (pinned) self-signed PC collects like any other.
+    await page.getByLabel('Snapshot name').fill('selfsigned-pinned');
+    await clustersListed(1);
+    await startButton().click();
+    await heading('Collection complete', 180_000);
+  });
+  await run('tls-changed-certificate', async () => {
+    // Simulate the server presenting a different certificate than the pinned one.
+    const WRONG = Array(32).fill('AB').join(':');
+    const target = await page.evaluate(async () => (await window.ntnx.listConnections()).find((t) => t.name === 'Self-signed'));
+    const probe = (pinnedCert) =>
+      page.evaluate(
+        (req) => window.ntnx.testConnection(req),
+        { mode: 'prism_central', host: target.host, port: target.port, username: target.username, password: '', insecure: true, targetId: target.id, pinnedCert },
+      );
+    const stillPinned = await probe(undefined);
+    if (stillPinned.status !== 'ok') throw new Error(`the saved pin was not used: ${stillPinned.status}`);
+    const changed = await probe(WRONG);
+    if (changed.status !== 'cert_changed' || !changed.certificate?.fingerprint_sha256) throw new Error(`expected cert_changed, got ${changed.status}`);
+    // Store the wrong pin on the target, as if the server's certificate had been replaced.
+    await page.evaluate(
+      (req) => window.ntnx.saveTarget(req),
+      { id: target.id, mode: target.mode, name: target.name, host: target.host, port: target.port, username: target.username, insecure: true, password: '', pinnedCert: WRONG },
+    );
+    await fillTarget('Self-signed');
+    await testConnection('The certificate for selfsigned.demo.local changed.');
+    await page.getByText(/not the certificate you trusted before/).waitFor();
+    // Re-trusting the new certificate gets through again.
+    await page.getByRole('button', { name: 'Trust this certificate' }).click();
+    await page.getByText('Connection verified').first().waitFor({ timeout: 30_000 });
+  });
   await run('test-unreachable', async () => {
     await fillTarget('Down');
     await testConnection('Connection failed · unreachable');
