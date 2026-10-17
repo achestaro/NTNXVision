@@ -1205,7 +1205,7 @@ def _m_send_email(_req_id: Any, params: dict[str, Any]) -> dict[str, Any]:
             for n, m in zip(names, metas, strict=True))
     ctx = {"target": target, "date": days[-1] if days else date.today().isoformat(),
            "snapshot": ", ".join(names), "summary": summary}
-    subject = mailer.render_template(str(params.get("subject") or ""), ctx).strip() or \
+    subject = mailer.render_subject(str(params.get("subject") or ""), ctx) or \
         f"NTNXVision report: {target}"
     body = mailer.render_template(str(params.get("body") or ""), ctx)
     if errors:
