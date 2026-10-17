@@ -29,6 +29,7 @@ from openpyxl.worksheet.worksheet import Worksheet
 
 from ntnxvision_core.exporters import tables as T
 from ntnxvision_core.exporters import theme as TH
+from ntnxvision_core.exporters.csvsafe import TRIGGERS
 from ntnxvision_core.exporters.sourcing import source_hosts as _source_hosts
 from ntnxvision_core.exporters.sourcing import sources as _sources
 from ntnxvision_core.exporters.sourcing import with_sources as _with_sources
@@ -100,7 +101,7 @@ def xl_text(wb: Workbook) -> None:
                     cell.quotePrefix = True
 
 
-_FORMULA_LEAD = ("=", "+", "-", "@", "\t", "\r", "\n", "\uff1d", "\uff0b", "\uff0d", "\uff20")
+_FORMULA_LEAD = TRIGGERS  # one rule for xlsx, CSV and TSV (exporters/csvsafe.py)
 
 
 class ExcelExporter:
