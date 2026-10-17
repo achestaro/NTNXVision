@@ -10,8 +10,9 @@ name: Release
 # do not run it.
 #
 # Security model: the workflow token is read-only by default; only the `release` job (tags
-# only) gets contents: write. Signing secrets are exposed only to tag / manual runs, never
-# to pull requests, and a tag build fails if any signing secret is missing. Every action is
+# only) gets contents: write. Signing secrets live in the `release` Environment (restricted
+# to v* tags) and are exposed only to tag builds, never to pull requests or manual runs, and
+# a tag build fails if any signing secret is missing. Every action is
 # pinned by commit SHA (Dependabot keeps them current). Python build deps are installed from
 # the hash-locked core/requirements-build.lock with --require-hashes.
 
@@ -66,12 +67,13 @@ jobs:
       - name: npm audit (production, high)
         working-directory: app
         run: npm audit --omit=dev --audit-level=high
-      # Informational: the full tree includes build tooling (electron-builder, vite, ...) that
-      # is not shipped and is bumped on its own schedule, so this never blocks a merge.
-      - name: npm audit (full tree, critical, informational)
+      # The --omit=dev audit above skips electron itself (a devDependency, but shipped inside
+      # the app), so the full tree is audited too, blocking at moderate. This relies on the
+      # package.json override that removes the last moderate chain (global-agent): merge this
+      # change after it, or this step fails on a tree that still has that advisory.
+      - name: npm audit (full tree, moderate)
         working-directory: app
-        continue-on-error: true
-        run: npm audit --audit-level=critical
+        run: npm audit --audit-level=moderate
       # Python deps float within ranges, so a new upstream release can legitimately drift the
       # file; flag it here (non-blocking). Each build regenerates the copy it ships.
       - name: Third-party notices up to date
@@ -81,8 +83,12 @@ jobs:
           NTNXVISION_PYTHON: python
         run: npm run notices:check
 
-  # Known-vulnerability scan of the exact (hash-locked) Python set that is frozen into the
-  # sidecar. Fails on any advisory that has a published fix.
+  # Known-vulnerability scan of every platform's pins in the hash-locked Python set that is
+  # frozen into the sidecar. The lock holds per-platform pins (environment markers), and
+  # pip-audit would evaluate the markers for this Ubuntu runner only, so the markers are
+  # stripped and each distinct pin is audited. A package pinned twice (cryptography, fonttools)
+  # is split across files because pip-audit rejects duplicate requirements in one file.
+  # Fails on any advisory except the accepted blockers below.
   python-audit:
     name: Python dependency audit
     runs-on: ubuntu-latest
@@ -94,7 +100,22 @@ jobs:
         with:
           python-version: ${{ env.PYTHON_VERSION }}
       - run: python -m pip install pip-audit==2.10.1
-      - run: pip-audit -r core/requirements-build.lock --disable-pip --no-deps
+      - name: pip-audit (all platform pins)
+        run: |
+          # name==version only: markers, hashes and comments dropped.
+          grep -E '^[A-Za-z0-9_.-]+==' core/requirements-build.lock \
+            | sed -E 's/^([^ ]+==[^ ]+).*/\1/' > pins.txt
+          mkdir pins
+          awk -F'==' '{ n[$1]++; print > ("pins/req-" n[$1] ".txt") }' pins.txt
+          # Accepted blockers (B-2): the Intel macOS pin cryptography==48.0.1 is affected by
+          # these three advisories (fixed in 49 and 50, which have no wheel for that runner).
+          # Remove the flags once the Intel build moves to cryptography 50+.
+          for f in pins/req-*.txt; do
+            pip-audit -r "$f" --disable-pip --no-deps \
+              --ignore-vuln PYSEC-2026-3552 \
+              --ignore-vuln PYSEC-2026-3553 \
+              --ignore-vuln PYSEC-2026-3554
+          done
 
   # Secret scan of the working tree (not history). The gitleaks binary is pinned by version
   # and verified against a SHA-256 before it runs.
@@ -196,6 +217,10 @@ jobs:
               app/release/*.dmg
               app/release/*.zip
     runs-on: ${{ matrix.os }}
+    # Signing secrets live in the `release` GitHub Environment, which the repo owner restricts
+    # to v* tags (see build/README.md). Only tag runs attach it; PR and manual builds attach
+    # no environment, so they cannot read the secrets and stay unsigned.
+    environment: ${{ startsWith(github.ref, 'refs/tags/') && 'release' || '' }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
@@ -223,19 +248,20 @@ jobs:
             ~/Library/Caches/electron-builder
           key: electron-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('app/package-lock.json') }}
 
-      # Signing secrets are exposed only to tag and manual runs, never to pull requests (a PR
-      # branch can change the scripts that run here). Tag builds must be signed: they fail
-      # when any secret is absent. PR and manual test builds stay unsigned if none are set.
+      # Signing secrets are exposed only to tag runs (environment `release`), never to pull
+      # requests or manual runs (a PR or dispatched branch can change the scripts that run
+      # here). Tag builds must be signed: they fail when any secret is absent. PR and manual
+      # test builds are always unsigned.
       - name: Build (macOS)
         if: runner.os == 'macOS'
         env:
           # Exported to electron-builder names only when non-empty: an empty CSC_LINK makes
           # electron-builder treat "" as a certificate path and abort.
-          SEC_CSC_LINK: ${{ github.event_name != 'pull_request' && secrets.MAC_CSC_LINK || '' }}
-          SEC_CSC_KEY_PASSWORD: ${{ github.event_name != 'pull_request' && secrets.MAC_CSC_KEY_PASSWORD || '' }}
-          SEC_APPLE_ID: ${{ github.event_name != 'pull_request' && secrets.APPLE_ID || '' }}
-          SEC_APPLE_APP_SPECIFIC_PASSWORD: ${{ github.event_name != 'pull_request' && secrets.APPLE_APP_SPECIFIC_PASSWORD || '' }}
-          SEC_APPLE_TEAM_ID: ${{ github.event_name != 'pull_request' && secrets.APPLE_TEAM_ID || '' }}
+          SEC_CSC_LINK: ${{ startsWith(github.ref, 'refs/tags/') && secrets.MAC_CSC_LINK || '' }}
+          SEC_CSC_KEY_PASSWORD: ${{ startsWith(github.ref, 'refs/tags/') && secrets.MAC_CSC_KEY_PASSWORD || '' }}
+          SEC_APPLE_ID: ${{ startsWith(github.ref, 'refs/tags/') && secrets.APPLE_ID || '' }}
+          SEC_APPLE_APP_SPECIFIC_PASSWORD: ${{ startsWith(github.ref, 'refs/tags/') && secrets.APPLE_APP_SPECIFIC_PASSWORD || '' }}
+          SEC_APPLE_TEAM_ID: ${{ startsWith(github.ref, 'refs/tags/') && secrets.APPLE_TEAM_ID || '' }}
           REQUIRE_SIGNING: ${{ startsWith(github.ref, 'refs/tags/') && 'true' || 'false' }}
         run: |
           if [ "$REQUIRE_SIGNING" = "true" ]; then
@@ -263,8 +289,8 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         env:
-          SEC_WIN_CSC_LINK: ${{ github.event_name != 'pull_request' && secrets.WIN_CSC_LINK || '' }}
-          SEC_WIN_CSC_KEY_PASSWORD: ${{ github.event_name != 'pull_request' && secrets.WIN_CSC_KEY_PASSWORD || '' }}
+          SEC_WIN_CSC_LINK: ${{ startsWith(github.ref, 'refs/tags/') && secrets.WIN_CSC_LINK || '' }}
+          SEC_WIN_CSC_KEY_PASSWORD: ${{ startsWith(github.ref, 'refs/tags/') && secrets.WIN_CSC_KEY_PASSWORD || '' }}
           REQUIRE_SIGNING: ${{ startsWith(github.ref, 'refs/tags/') && 'true' || 'false' }}
         run: |
           if ($env:REQUIRE_SIGNING -eq 'true') {
@@ -281,6 +307,37 @@ jobs:
             $env:WIN_CSC_KEY_PASSWORD = $env:SEC_WIN_CSC_KEY_PASSWORD
           }
           ./scripts/build-windows.ps1 -SkipTests
+
+      # Assert the Electron fuses actually flipped in the packaged app (not just configured).
+      # GrantFileProtocolExtraPrivileges must be off: that needs the app:// renderer change
+      # on the branch being built.
+      - name: Verify Electron fuses on the packaged app
+        shell: bash
+        working-directory: app
+        run: |
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            APP=release/win-unpacked/NTNXVision.exe
+          else
+            apps=(release/mac*/NTNXVision.app)
+            APP="${apps[0]}"
+          fi
+          out="$(npx --no-install electron-fuses read --app "$APP")"
+          echo "$out"
+          fail=0
+          check() {
+            if ! grep -Eq "^[[:space:]]*$1 is $2[[:space:]]*$" <<<"$out"; then
+              echo "::error::Fuse $1 must be $2 in the packaged app."
+              fail=1
+            fi
+          }
+          check RunAsNode Disabled
+          check EnableNodeOptionsEnvironmentVariable Disabled
+          check EnableNodeCliInspectArguments Disabled
+          check EnableEmbeddedAsarIntegrityValidation Enabled
+          check OnlyLoadAppFromAsar Enabled
+          check EnableCookieEncryption Enabled
+          check GrantFileProtocolExtraPrivileges Disabled
+          exit $fail
 
       - name: Ping the sidecar bundled inside the packaged app
         shell: bash
