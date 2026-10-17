@@ -225,13 +225,19 @@ class PrismConnection:
 
     # ─── v3 REST (list endpoints are POST .../list, paginated) ─────
 
-    def v3_list(self, kind_path: str, page_size: int = 250) -> list[dict[str, Any]]:
-        """Fetch all entities from a v3 `.../list` endpoint, following offset paging."""
+    def v3_list(self, kind_path: str, page_size: int = 250, *,
+                filter: str | None = None) -> list[dict[str, Any]]:  # noqa: A002
+        """Fetch all entities from a v3 `.../list` endpoint, following offset paging.
+
+        `filter` is passed as the v3 FIQL ``filter`` (e.g. ``cluster_name==a,cluster_name==b``).
+        """
         url = f"{self.creds.base}/api/nutanix/v3/{kind_path}/list"
         results: list[dict[str, Any]] = []
         offset = 0
         while True:
-            body = {"length": page_size, "offset": offset}
+            body: dict[str, Any] = {"length": page_size, "offset": offset}
+            if filter:
+                body["filter"] = filter
             page = self.post_json(url, body)
             entities = page.get("entities", [])
             results.extend(entities)

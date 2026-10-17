@@ -63,10 +63,17 @@ def test_cross_references_are_consistent() -> None:
     for vm in est.vms:
         assert hosts[vm["host_uuid"]]["cluster_uuid"] == vm["cluster_uuid"]
         for d in vm["disks"]:
-            assert d["container_uuid"] in containers
+            # An ESXi disk on a local datastore has no container (by design).
+            assert d["container_uuid"] in containers or (
+                vm["hypervisor"] == "ESXi" and d["datastore"])
             assert d["image"] is None or d["image"] in images
         for n in vm["nics"]:
             assert n["subnet_uuid"] is None or n["subnet_uuid"] in subnets
+            # ESXi NICs sit on a port group of their own cluster, never a subnet.
+            if vm["hypervisor"] == "ESXi":
+                assert n["subnet_uuid"] is None
+                assert n["port_group_uuid"] in {p["uuid"] for p in est.port_groups
+                                                if p["cluster_uuid"] == vm["cluster_uuid"]}
     category_pairs = {(c["key"], c["value"]) for c in est.categories}
     for p in est.protection_policies:
         for key, values in p["categories"].items():

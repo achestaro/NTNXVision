@@ -23,7 +23,8 @@ from ntnxvision_core.exporters.content import Table, build_report
 from ntnxvision_core.inventory import InventoryService
 
 #: Columns the Clusters grid leaves out (detail pane only).
-DETAIL_ONLY_KEYS = {"data_services_ip"}
+# The vCenter an ESXi cluster is registered to is a detail too (empty on AHV).
+DETAIL_ONLY_KEYS = {"data_services_ip", "vcenter"}
 #: The capacity columns the Excel Clusters sheet used to carry, by header.
 MOVED_TO_CAPACITY = {
     "vCPU:pCore (all VMs)", "vCPU:pCore N-1", "vCPU Total", "vCPU Total N-1",
