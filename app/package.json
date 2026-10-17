@@ -15,7 +15,8 @@
     "dev:electron:demo": "npx wait-on http://localhost:5273 dist/main/main.js && npx electron . --demo",
     "build": "npm run build:renderer && npm run build:main",
     "build:renderer": "npx vite build",
-    "build:main": "npx tsc -p tsconfig.main.json",
+    "build:main": "npx tsc -p tsconfig.main.json && npm run build:preload",
+    "build:preload": "esbuild src/main/preload.ts --bundle --platform=node --format=cjs --target=node20 --external:electron --outfile=dist/main/preload.bundle.js",
     "start": "npx electron .",
     "demo": "npm run build && npx electron . --demo --dist",
     "lint": "npx eslint . --ext .ts,.tsx",
@@ -48,6 +49,7 @@
     "concurrently": "^9.0.0",
     "electron": "44.9.0",
     "electron-builder": "^26.15.3",
+    "esbuild": "0.25.12",
     "eslint": "^9.39.4",
     "globals": "^14.0.0",
     "playwright-core": "^1.61.1",
@@ -70,6 +72,7 @@
     "files": [
       "dist/**/*",
       "!dist/**/*.map",
+      "!dist/main/preload.js",
       "package.json"
     ],
     "asar": true,
@@ -101,7 +104,7 @@
         ]
       }
     ],
-    "afterSign": "build/notarize.js",
+    "afterSign": "build/after-sign.js",
     "fileAssociations": [
       {
         "ext": "ntnxsnap",
@@ -160,7 +163,7 @@
       "hardenedRuntime": true,
       "gatekeeperAssess": false,
       "entitlements": "build/entitlements.mac.plist",
-      "entitlementsInherit": "build/entitlements.mac.plist",
+      "entitlementsInherit": "build/entitlements.inherit.plist",
       "notarize": false,
       "minimumSystemVersion": "11.0",
       "darkModeSupport": true,
@@ -174,6 +177,14 @@
     "dmg": {
       "title": "${productName} ${version}",
       "writeUpdateInfo": false
+    },
+    "electronFuses": {
+      "runAsNode": false,
+      "enableCookieEncryption": true,
+      "enableNodeOptionsEnvironmentVariable": false,
+      "enableNodeCliInspectArguments": false,
+      "enableEmbeddedAsarIntegrityValidation": true,
+      "onlyLoadAppFromAsar": true
     }
   }
 }

@@ -142,6 +142,15 @@ const page = await app.firstWindow();
 await page.setViewportSize({ width: 1440, height: 960 }).catch(() => {});
 const errors = [];
 page.on('pageerror', (e) => errors.push(e.message));
+// SEC-14: the built renderer runs under the strict production CSP; any violation fails the run.
+page.on('console', (m) => {
+  if (m.type() === 'error' && /Content[ -]Security[ -]Policy|Refused to /i.test(m.text())) errors.push(`CSP: ${m.text()}`);
+});
+await page.addInitScript(() => {
+  document.addEventListener('securitypolicyviolation', (e) => {
+    console.error(`Content Security Policy violation: ${e.violatedDirective} blocked ${e.blockedURI}`);
+  });
+});
 
 let step = 0;
 let failed = false;
