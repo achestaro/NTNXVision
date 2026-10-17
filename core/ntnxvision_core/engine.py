@@ -337,6 +337,8 @@ def combine_environments(envs: list[Environment]) -> Environment:
         )
         for env in envs
     ]
+    defaults = {env.vcpu_ratio_default for env in envs}
+    combined.vcpu_ratio_default = defaults.pop() if len(defaults) == 1 else None
     return combined
 
 

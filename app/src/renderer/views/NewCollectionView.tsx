@@ -14,6 +14,7 @@ import type {
   ExportFormat,
   SavedConnection,
 } from '@shared/ipc';
+import { DEFAULT_VCPU_RATIO } from '@shared/ipc';
 import {
   Badge,
   Button,
@@ -40,9 +41,11 @@ import { useSettings, modKey } from '../lib/settings';
 import { useRun } from '../lib/run';
 import { useConfirmShortcut } from '../lib/keyboard';
 import { useRouter } from '../lib/router';
-import { NA, REPORT_EXT, errorMessage, fmtCount, reportFileName, sanitizeSnapshotName, snapshotNameIssue, targetLabel, tildify } from '../lib/format';
+import { NA, REPORT_EXT, errorMessage, fmtCount, fmtRatio, reportFileName, sanitizeSnapshotName, snapshotNameIssue, targetLabel, tildify } from '../lib/format';
 import { ClusterPicker, initialSelection } from './ClusterPicker';
 import type { ClusterListState } from './ClusterPicker';
+import { RatioOverrides, initialRatioText, ratioIssue, ratioOverrides } from './RatioOverrides';
+import type { RatioText } from './RatioOverrides';
 import { TestOutcome, connectionSummary } from './ConnectionTest';
 import type { TestState } from './ConnectionTest';
 
@@ -89,6 +92,9 @@ export function NewCollectionView({
   const [startTried, setStartTried] = useState(false);
   const [clusterState, setClusterState] = useState<ClusterListState>({ kind: 'idle' });
   const [clusterSel, setClusterSel] = useState<Set<string>>(new Set());
+  /** Per-cluster vCPU:pCPU targets as typed, by cluster uuid (empty = the default). */
+  const [ratioText, setRatioText] = useState<RatioText>({});
+  const [ratioOpen, setRatioOpen] = useState(false);
   /** Set when a saved target with a keychain password is loaded: list its clusters. */
   const [autoList, setAutoList] = useState(false);
   const nameRef = useRef<HTMLInputElement>(null);
@@ -160,6 +166,7 @@ export function NewCollectionView({
     clusterReq.current += 1; // a reply still in flight is for the old details: ignore it
     setClusterState({ kind: 'idle' });
     setClusterSel(new Set());
+    setRatioText({});
   }
 
   // Changing any connection detail invalidates both the test and the cluster list.
@@ -194,6 +201,9 @@ export function NewCollectionView({
       if (req !== clusterReq.current) return;
       const memory = !isPe && profile && profile.host === host.trim() ? profile.clusterSelection : null;
       setClusterSel(initialSelection(result.clusters, memory));
+      // The target's remembered per-cluster vCPU:pCPU targets (same endpoint only).
+      const sameEndpoint = !!profile && profile.host === host.trim() && profile.mode === mode;
+      setRatioText(initialRatioText(result.clusters, sameEndpoint ? profile.vcpuRatioOverrides : null));
       setClusterState({ kind: 'ready', key, result });
     } catch (err) {
       if (req !== clusterReq.current) return;
@@ -275,16 +285,23 @@ export function NewCollectionView({
   // ── what blocks Start ──
   const clusters = clusterState.kind === 'ready' ? clusterState.result.clusters : [];
   const chosenClusters = clusters.filter((c) => clusterSel.has(c.uuid));
+  // The clusters being collected: a single listed cluster always is (PE mode, or a PC with one).
+  const collectedClusters = clusters.length === 1 ? clusters : chosenClusters;
+  const defaultRatio = settings.vcpuRatio ?? DEFAULT_VCPU_RATIO;
+  const badRatios = collectedClusters.filter((c) => ratioIssue(ratioText[c.uuid]));
+  const customCount = Object.keys(ratioOverrides(ratioText, collectedClusters.map((c) => c.uuid))).length;
   const blockers: string[] = [];
   if (nameIssue) blockers.push(nameIssue === 'Enter a snapshot name.' ? 'Enter a snapshot name in step 3.' : nameIssue);
   if (!isPe && clusterState.kind === 'ready' && clusters.length > 0 && chosenClusters.length === 0)
     blockers.push('Select at least one cluster in step 2.');
   if (clusterState.kind === 'loading') blockers.push('Loading the cluster list…');
+  if (badRatios.length) blockers.push('Fix the vCPU:pCPU target per cluster in step 2.');
   const canStart = !isRunning && blockers.length === 0;
 
   const doStart = async () => {
     if (isRunning) return;
     setStartTried(true);
+    if (badRatios.length) setRatioOpen(true);
     if (!validate() || !canStart) return;
     setStartError(null);
     const scoped = !isPe && clusterState.kind === 'ready' && clusters.length > 0;
@@ -301,7 +318,10 @@ export function NewCollectionView({
         targetName: targetName.trim(),
         areas: chosenAreas.map((a) => a.id),
         clusters: scoped ? chosenClusters.map((c) => c.uuid) : undefined,
-        knownClusters: scoped ? clusters.map((c) => c.uuid) : undefined,
+        knownClusters: clusterState.kind === 'ready' && clusters.length ? clusters.map((c) => c.uuid) : undefined,
+        // Every listed cluster's typed target: the run applies those it collects, and the
+        // target remembers all of them (a deselected cluster keeps its value).
+        vcpuRatioOverrides: ratioOverrides(ratioText, clusters.map((c) => c.uuid)),
         formats: chosenFormats.map((f) => f.id),
         exportDir: dir || undefined,
         filePrefix: prefix,
@@ -513,6 +533,16 @@ export function NewCollectionView({
               onRetry={() => void listClusters()}
               showEmptyError
             />
+            {clusterState.kind === 'ready' && (
+              <RatioOverrides
+                clusters={collectedClusters}
+                value={ratioText}
+                onChange={setRatioText}
+                defaultRatio={defaultRatio}
+                open={ratioOpen}
+                onToggle={() => setRatioOpen((o) => !o)}
+              />
+            )}
             <div style={{ borderTop: '1px solid var(--rule-2)', padding: '16px 16px 0' }}>
               <ChecklistHeader label="Resources" id="resLbl">
                 {catalogue.data && (
@@ -701,6 +731,13 @@ export function NewCollectionView({
                     : isPe
                       ? '1'
                       : 'All registered'}
+                </dd>
+              </div>
+              <div className="kv">
+                <dt>vCPU:pCPU</dt>
+                <dd className="mono" data-testid="summary-ratio">
+                  {fmtRatio(defaultRatio)}
+                  {customCount > 0 ? ` · ${fmtCount(customCount)} custom` : ''}
                 </dd>
               </div>
               <div className="kv">

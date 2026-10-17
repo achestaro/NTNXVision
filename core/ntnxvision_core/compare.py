@@ -29,6 +29,7 @@ from typing import Any
 from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill
 
+from ntnxvision_core.capacity import target_label, valid_ratio
 from ntnxvision_core.exporters.tables import COMPARE_TYPES, SPECS, Ctx, TableSpec
 from ntnxvision_core.inventory import display, fmt_bytes
 from ntnxvision_core.models import Environment
@@ -147,9 +148,36 @@ def raw_changes(base: Environment, cur: Environment,
                         "field": col.diff, "before": a or NA, "after": b or NA,
                         "detail": None, "id": k,
                     })
+            if type_id == "clusters":
+                change = _target_change(old, new)
+                if change is not None:
+                    out.append({
+                        "kind": "changed", "type": type_id, "object_type": spec.singular,
+                        "object": str(spec.name(new)), "where": _where(spec, new, cur),
+                        "field": TARGET_FIELD, "before": change[0], "after": change[1],
+                        "detail": None, "id": k,
+                    })
     if stats is not None:
         stats["out_of_scope"] = hidden
     return out
+
+
+#: Compare's field label for a change of a cluster's vCPU:pCPU target.
+TARGET_FIELD = "vCPU:pCPU target"
+
+
+def _target_change(old: Any, new: Any) -> tuple[str, str] | None:
+    """(before, after) when a cluster's recorded vCPU:pCPU target differs between the
+    snapshots, e.g. "4.0 : 1 (default)" to "6.0 : 1 (custom)".
+
+    Only when both snapshots recorded one: a snapshot written before per-cluster targets
+    has none, and reporting "N/A" against every cluster would be noise, not a change."""
+    a, b = valid_ratio(old.vcpu_ratio_target), valid_ratio(new.vcpu_ratio_target)
+    if a is None or b is None:
+        return None
+    before = target_label(a, bool(old.vcpu_ratio_custom))
+    after = target_label(b, bool(new.vcpu_ratio_custom))
+    return None if before == after else (before, after)
 
 
 def scope_notice(base: Environment, cur: Environment, hidden: int = 0

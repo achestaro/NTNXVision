@@ -79,7 +79,7 @@
   let connections = opt.empty || opt.noTargets
     ? []
     : [
-        { id: 't-pc01', mode: 'prism_central', host: 'pc01.example.com', username: 'admin', port: 9440, insecure: false, name: 'PC01 Production', ndbHost: 'ndb01.example.com', ndbUser: 'admin', hasPassword: true, ndbHasPassword: true, lastTest: tested('ok', true, 'Connected to Prism Central pc.2024.3', 'pc.2024.3', at(10, 15, 9, 40)) },
+        { id: 't-pc01', mode: 'prism_central', host: 'pc01.example.com', username: 'admin', port: 9440, insecure: false, name: 'PC01 Production', ndbHost: 'ndb01.example.com', ndbUser: 'admin', vcpuRatioOverrides: { 'c-phx-prod-01': 6 }, hasPassword: true, ndbHasPassword: true, lastTest: tested('ok', true, 'Connected to Prism Central pc.2024.3', 'pc.2024.3', at(10, 15, 9, 40)) },
         { id: 't-pc02', mode: 'prism_central', host: 'pc02.example.com', username: 'admin', port: 9440, insecure: false, name: 'PC02 DR site', hasPassword: true, lastTest: tested('ok', true, 'Connected to Prism Central pc.7.3', 'pc.7.3', at(10, 14, 17, 10)) },
         { id: 't-pc03', mode: 'prism_central', host: 'pc03.example.com', username: 'svc-inventory', port: 9440, insecure: false, name: 'PC03 Labs', hasPassword: false, lastTest: tested('auth_failed', false, 'HTTP 401 Unauthorized', null, at(10, 12, 11, 5)) },
         { id: 't-phx', mode: 'prism_element', host: 'phx-dr-01.example.com', username: 'admin', port: 9440, insecure: false, name: 'phx-dr-01', hasPassword: true, lastTest: null },
