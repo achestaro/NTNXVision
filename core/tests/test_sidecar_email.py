@@ -136,3 +136,18 @@ def test_multi_unique_names_and_per_target_scope(demo: Any, data_dir: Path) -> N
     with pytest.raises(NutanixApiError, match="at least one cluster"):
         sc._m_inventory_multi(None, {"targets": [
             {"host": "pc01.demo.local", **PW, "name": "x1", "clusters": []}], "formats": []})
+
+
+def test_test_smtp_untrusted_returns_the_certificate_then_pins(demo: Any) -> None:
+    """R2-03: the first test with an untrusted certificate sends nothing and shows it."""
+    with SmtpSink(tls="starttls", cert="self") as tls_sink:
+        params = {"smtp": smtp(tls_sink.port, security="starttls", allow_untrusted=True),
+                  "to": "user@example.com"}
+        r = sc._m_test_smtp(None, params)
+        assert r["status"] == "untrusted_cert" and not tls_sink.messages
+        fp = r["certificate"]["fingerprint_sha256"]
+        params["smtp"]["pinned_sha256"] = fp
+        assert sc._m_test_smtp(None, params)["ok"]
+        params["smtp"]["pinned_sha256"] = "00" * 32
+        assert "changed" in sc._m_test_smtp(None, params)["message"]
+        assert len(tls_sink.messages) == 1
