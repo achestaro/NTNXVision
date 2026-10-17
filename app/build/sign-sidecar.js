@@ -4,10 +4,11 @@
 // signed the app we re-sign the sidecar's Mach-O files with the identity that signed the
 // app, then re-seal the outer .app (not deep: the nested signatures stay).
 //
-// Skips cleanly when not building for macOS, when there is no sidecar, or when the app is
-// not signed with a real identity (unsigned / ad-hoc local builds: the hardened runtime is
-// not enforced there, so entitlements have no effect and nothing needs re-signing).
+// Skips cleanly when not building for macOS or when there is no sidecar. Without a real
+// identity (unsigned / ad-hoc local and fork builds) the hardened runtime is not enforced,
+// so entitlements have no effect; the app is only sealed ad-hoc so it can launch.
 
+const { Buffer } = require('node:buffer');
 const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
@@ -57,7 +58,12 @@ async function signSidecar(context) {
   const info = run('codesign', ['-dvv', appPath]);
   const identity = /Authority=(Developer ID Application: .+|Apple Development: .+|Mac Developer: .+)/.exec(info.out)?.[1];
   if (info.status !== 0 || /Signature=adhoc/.test(info.out) || !identity) {
-    console.log('  • sidecar entitlements skipped: the app is not signed with a certificate (unsigned or ad-hoc build)');
+    // Flipping Electron fuses rewrites the main executable, which leaves an unsigned build
+    // unlaunchable on Apple Silicon (the kernel kills it). Seal it ad-hoc so local and fork
+    // builds keep running; a real certificate replaces this in release builds.
+    const adhoc = run('codesign', ['--force', '--deep', '--sign', '-', appPath]);
+    if (adhoc.status !== 0) throw new Error(`ad-hoc signing failed:\n${adhoc.out}`);
+    console.log('  • no signing certificate: app sealed ad-hoc; sidecar entitlements apply to certificate-signed builds only');
     return;
   }
 
