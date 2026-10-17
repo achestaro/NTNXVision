@@ -355,7 +355,7 @@ def deployment(cfg: Any) -> str | None:
 
 _OUTCOME = {"collected": "Collected", "notes": "Collected with notes", "skipped": "Skipped",
             "failed": "Failed", "cancelled": "Cancelled"}
-_API_LABEL = {"v2": "v2.0", "era": "Era"}
+_API_LABEL = {"v2": "v2.0", "era": "Era", "vcenter": "vCenter"}
 
 
 def run_areas(env: Environment) -> list[dict[str, Any]]:

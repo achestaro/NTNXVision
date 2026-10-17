@@ -49,13 +49,15 @@ class Target:
     """Something answering at a demo hostname."""
 
     host: str
-    kind: str  # "pc" | "pe" | "ndb"
+    kind: str  # "pc" | "pe" | "ndb" | "vcenter"
     build: Callable[[int], Any]
     epoch: int = 0
     #: "ca" = served with the demo-CA-signed cert; "self" = a self-signed cert.
     tls: str = "ca"
     #: False = DNS failure (the router never connects).
     reachable: bool = True
+    #: A vCenter serves the ESXi part of this Prism Central's estate (same epoch).
+    source: Target | None = None
     _cache: dict[int, Any] = field(default_factory=dict, repr=False)
     _lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
 
@@ -171,6 +173,7 @@ class MockApi:
         query: dict[str, str],
         body: Any,
         authorization: str | None,
+        headers: dict[str, str] | None = None,
     ) -> Response:
         target = self.resolve(host)
         if target is None:
@@ -180,6 +183,15 @@ class MockApi:
             self.hits[key] = self.hits.get(key, 0) + 1
         if self.latency_ms:
             time.sleep(self.latency_ms / 1000.0)
+        if target.kind == "vcenter":
+            from ntnxvision_core.synthetic.vcenter import handle_vcenter
+
+            source = target.source or target
+            try:
+                return handle_vcenter(source.estate(), target.host, method, path, query,
+                                      authorization, headers or {})
+            except _HttpError as exc:
+                return exc.status, exc.body, exc.headers
         if not _authorized(authorization):
             return 401, {"api_version": "3.1", "code": 401, "state": "ERROR",
                          "message_list": [{"message": "Authentication required.",

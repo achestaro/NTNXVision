@@ -81,6 +81,15 @@ def test_v2_vm_maps_every_disk_nic_and_the_boot_firmware() -> None:
     assert v2_boot_type(None) is None
 
 
+def test_esxi_numcpus_is_the_total_not_sockets() -> None:
+    from ntnxvision_core.collectors.vms import _esxi_sockets
+
+    assert _esxi_sockets({"numCpus": 4, "numCoresPerSocket": 2}) == 2  # 2 x 2 = 4 vCPU
+    assert _esxi_sockets({"numCpus": 2, "numCoresPerSocket": 1}) == 2
+    assert _esxi_sockets({"numCpus": 3, "numCoresPerSocket": 2}) == 3  # odd: keep total
+    assert _esxi_sockets({}) is None
+
+
 def test_a_v2_network_without_a_vlan_is_untagged() -> None:
     pg = port_group_from_v2({"uuid": "pg-1", "name": "VM Network", "network_type": "external"},
                             "c1", "edge")

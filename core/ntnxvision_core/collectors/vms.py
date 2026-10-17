@@ -38,7 +38,7 @@ from typing import Any
 
 from ntnxvision_core.api.errors import NutanixApiError
 from ntnxvision_core.collectors.base import Collector
-from ntnxvision_core.collectors.element import _map_vm, usable_ip
+from ntnxvision_core.collectors.element import _map_vm, disk_key, usable_ip
 from ntnxvision_core.collectors.esxi import PeReadError, esxi_clusters, pe_networks, pe_vms
 from ntnxvision_core.collectors.normalize import AHV, ESXI, hypervisor_name
 from ntnxvision_core.models import Nic, VirtualDisk, VirtualMachine
@@ -218,7 +218,7 @@ class VmCollector(Collector):
             host_uuid=(entity.get("host") or {}).get("extId"),
             power_state=entity.get("powerState"),
             # The two schemas disagree: AHV reports numSockets, ESXi numCpus.
-            num_vcpus=entity.get("numSockets") or entity.get("numCpus"),
+            num_vcpus=entity.get("numSockets") or _esxi_sockets(entity),
             num_cores_per_vcpu=entity.get("numCoresPerSocket"),
             memory_bytes=entity.get("memorySizeBytes"),
             hypervisor=hypervisor,
@@ -607,13 +607,14 @@ def _merge_pe_detail(vm: VirtualMachine, pe: VirtualMachine) -> bool:
     have = {d.uuid for d in vm.disks if d.uuid}
     # Same disk in both: v4's disk extId is v2.0's `device_uuid`; the bus address
     # ("scsi.0") is the fallback key.
-    labels = {(d.label or "").casefold() for d in vm.disks if d.label}
+    keys = {disk_key(d.label) for d in vm.disks if not d.is_cdrom} - {None}
     for disk in pe.disks:
         if disk.is_cdrom or (disk.uuid and disk.uuid in have):
             continue
-        if disk.label and disk.label.casefold() in labels:
+        key = disk_key(disk.label)
+        if key and key in keys:
             continue
-        if not disk.uuid and not disk.label:
+        if not disk.uuid and not key:
             continue  # nothing to tell it apart from a disk v4 already listed
         vm.disks.append(disk)
         changed = True
@@ -640,6 +641,20 @@ def _merge_pe_detail(vm: VirtualMachine, pe: VirtualMachine) -> bool:
         vm.nics = pe.nics
         changed = True
     return changed
+
+
+def _esxi_sockets(entity: dict[str, Any]) -> int | None:
+    """Sockets of an ESXi VM, so that sockets x cores per socket is its vCPU count.
+
+    VMware's ``numCpus`` is the VM's total vCPUs (vCenter's ``cpu.count`` agrees on the
+    lab), not a socket count like AHV's ``numSockets``; taken as sockets it would count
+    a 4-vCPU VM with 2 cores per socket as 8.
+    """
+    total = entity.get("numCpus")
+    per = entity.get("numCoresPerSocket")
+    if isinstance(total, int) and isinstance(per, int) and per > 1 and total % per == 0:
+        return total // per
+    return total if isinstance(total, int) else None
 
 
 def _flag(value: Any) -> bool | None:

@@ -18,12 +18,14 @@ from ntnxvision_core.api import PrismConnection, PrismCredentials
 from ntnxvision_core.api.element_client import ElementConnection, ElementCredentials
 from ntnxvision_core.api.errors import NutanixApiError
 from ntnxvision_core.api.ndb_client import NdbConnection, NdbCredentials
-from ntnxvision_core.areas import AREAS, NDB_AREA, Area
+from ntnxvision_core.api.vcenter_client import VcenterConnection, VcenterCredentials
+from ntnxvision_core.areas import AREAS, NDB_AREA, VCENTER_AREA, Area
 from ntnxvision_core.areas import select as select_areas
 from ntnxvision_core.cancel import CancelToken, RunCancelled
 from ntnxvision_core.collectors.base import Collector
 from ntnxvision_core.collectors.element import ELEMENT_STEPS
 from ntnxvision_core.collectors.ndb import collect_ndb
+from ntnxvision_core.collectors.vcenter import enrich_from_vcenter
 from ntnxvision_core.compat import check_aos, check_prism_central
 from ntnxvision_core.models import (
     ClusterScope,
@@ -50,6 +52,7 @@ def collect_environment(
     cancel: CancelToken | None = None,
     tracker: RunTracker | None = None,
     clusters: list[str] | None = None,
+    vcenter_creds: VcenterCredentials | None = None,
 ) -> Environment:
     """Connect to Prism Central and run the selected collectors into an Environment.
 
@@ -66,7 +69,9 @@ def collect_environment(
       Environment (see `ntnxvision_core.scope`). The scope is recorded on the result.
 
     If `ndb_creds` is provided, an additional NDB step runs against the Era control
-    plane after the Prism Central collectors.
+    plane after the Prism Central collectors. If `vcenter_creds` is provided, a vCenter
+    step then fills what Nutanix cannot say about the ESXi clusters in scope
+    (`collectors.vcenter`); its failure is isolated like any collector's.
     """
     if collectors is not None:
         run_areas = [a for a in AREAS if a.collector in collectors]
@@ -82,7 +87,8 @@ def collect_environment(
         prism_central=PrismCentral(host=creds.host),
     )
 
-    planned = [*run_areas, *([NDB_AREA] if ndb_creds else [])]
+    planned = [*run_areas, *([NDB_AREA] if ndb_creds else []),
+               *([VCENTER_AREA] if vcenter_creds else [])]
     total = len(planned)
 
     with PrismConnection(creds, cancel=cancel) as conn:
@@ -126,6 +132,14 @@ def collect_environment(
                 tracker.cancel_pending()
             raise RunCancelled("Run cancelled")
         _collect_ndb_step(ndb_creds, env, progress, len(run_areas), total, tracker, cancel)
+
+    if vcenter_creds:
+        if cancel is not None and cancel.cancelled:
+            if tracker is not None:
+                tracker.cancel_pending()
+            raise RunCancelled("Run cancelled")
+        _collect_vcenter_step(vcenter_creds, env, progress, total - 1, total, tracker,
+                              cancel, scope)
 
     _resolve_cross_references(env)
     if scope is not None:
@@ -380,6 +394,29 @@ def _collect_ndb_step(
     try:
         _run_area(env, NDB_AREA, idx, total, work, progress, tracker, {},
                   "NDB (Databases)", "ndb", api_override="era")
+    except RunCancelled:
+        if tracker is not None:
+            tracker.cancel_pending()
+        raise
+
+
+def _collect_vcenter_step(
+    vc_creds: VcenterCredentials,
+    env: Environment,
+    progress: ProgressFn | None,
+    idx: int,
+    total: int,
+    tracker: RunTracker | None = None,
+    cancel: CancelToken | None = None,
+    scope: Scope | None = None,
+) -> None:
+    def work() -> None:
+        with VcenterConnection(vc_creds, cancel=cancel) as vc:
+            env.collection_notes["vcenter"] = enrich_from_vcenter(vc, env)
+
+    try:
+        _run_area(env, VCENTER_AREA, idx, total, work, progress, tracker, {},
+                  "vCenter enrichment", "vcenter", api_override="vcenter", scope=scope)
     except RunCancelled:
         if tracker is not None:
             tracker.cancel_pending()
