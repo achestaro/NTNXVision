@@ -106,20 +106,20 @@ export function SnapshotTransferProvider({ children }: { children: React.ReactNo
     return off;
   }, [enqueue]);
 
-  // Drag and drop anywhere on the window. Electron would otherwise navigate to a
-  // dropped file, so every file drag is taken over here.
+  // Drag and drop anywhere on the window. Every drag and drop is cancelled here so a
+  // dropped file, link or text can never navigate the window (SEC-02); only file drags are
+  // acted on, everything else does nothing.
   useEffect(() => {
     const hasFiles = (e: DragEvent) => Array.from(e.dataTransfer?.types ?? []).includes('Files');
     const onEnter = (e: DragEvent) => {
-      if (!hasFiles(e)) return;
       e.preventDefault();
+      if (!hasFiles(e)) return;
       dragDepth.current += 1;
       setDragging(true);
     };
     const onOver = (e: DragEvent) => {
-      if (!hasFiles(e)) return;
       e.preventDefault();
-      if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy';
+      if (e.dataTransfer) e.dataTransfer.dropEffect = hasFiles(e) ? 'copy' : 'none';
     };
     const onLeave = (e: DragEvent) => {
       if (!hasFiles(e)) return;
@@ -127,8 +127,8 @@ export function SnapshotTransferProvider({ children }: { children: React.ReactNo
       if (dragDepth.current === 0) setDragging(false);
     };
     const onDrop = (e: DragEvent) => {
-      if (!hasFiles(e)) return;
       e.preventDefault();
+      if (!hasFiles(e)) return;
       dragDepth.current = 0;
       setDragging(false);
       const paths = Array.from(e.dataTransfer?.files ?? [])

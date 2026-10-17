@@ -45,7 +45,9 @@ cd ../app && npm ci && npm run package:mac      # or: npm run package:win (Windo
   `Contents/Resources/sidecar/ntnxvision-sidecar` (macOS) or
   `resources\sidecar\ntnxvision-sidecar.exe` (Windows). The execute bit is restored if it
   was lost, the console window is hidden on Windows, and `NTNXVISION_SIDECAR=<path>`
-  overrides the path for debugging.
+  overrides the path for debugging in an unpackaged app only (a packaged app ignores every
+  `NTNXVISION_*` test override except demo mode, and starts the sidecar with an allowlisted
+  environment).
 
 ## File association (`.ntnxsnap`)
 
