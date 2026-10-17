@@ -829,6 +829,241 @@ export interface CompareExportRequest {
   filePrefix?: string;
 }
 
+// ─── email (SMTP) ───────────────────────────────────────────────────────
+
+/** Connection security: plain, STARTTLS upgrade (587) or implicit TLS (465). */
+export type SmtpSecurity = 'none' | 'starttls' | 'ssl';
+
+/**
+ * Outgoing mail server (Settings > Email). Stored in userData/email.json without the
+ * password, which lives in the OS keychain (account `smtp:password`) and never comes back
+ * to the renderer: it only learns `hasPassword`.
+ */
+export interface SmtpSettings {
+  host: string;
+  port: number;
+  security: SmtpSecurity;
+  /** Empty = the server needs no sign-in. */
+  username: string;
+  fromAddress: string;
+  /** Display name in the From header ("NTNXVision"). */
+  fromName: string;
+  /** Skip certificate verification (self-signed relay). */
+  allowUntrusted: boolean;
+  /** Attachments over this total, in MB, are not sent. */
+  maxAttachmentMb: number;
+  /** Send every report in one .zip file. */
+  zipAttachments: boolean;
+}
+
+export const DEFAULT_SMTP: SmtpSettings = {
+  host: '',
+  port: 587,
+  security: 'starttls',
+  username: '',
+  fromAddress: '',
+  fromName: 'NTNXVision',
+  allowUntrusted: false,
+  maxAttachmentMb: 20,
+  zipAttachments: false,
+};
+
+/** The default port for each security mode (the form switches to it). */
+export const SMTP_PORTS: Record<SmtpSecurity, number> = { none: 25, starttls: 587, ssl: 465 };
+
+export interface SmtpSettingsInfo extends SmtpSettings {
+  /** True when the keychain holds the SMTP password. */
+  hasPassword: boolean;
+  /** Host and From address are set: sending is possible. */
+  configured: boolean;
+}
+
+export interface SmtpSaveRequest extends SmtpSettings {
+  /** Empty = keep the saved password. */
+  password: string;
+  /** Remove the saved password (the server needs none any more). */
+  clearPassword?: boolean;
+}
+
+export type SmtpField = 'host' | 'port' | 'username' | 'fromAddress' | 'maxAttachmentMb' | 'to' | 'form';
+
+export interface SmtpSaveResult {
+  ok: boolean;
+  errors?: Partial<Record<SmtpField, string>>;
+  settings: SmtpSettingsInfo;
+}
+
+/** Send a test message with the form's (possibly unsaved) values. */
+export interface SmtpTestRequest extends SmtpSettings {
+  /** Empty = the saved password, while host and username are unchanged. */
+  password: string;
+  /** Where the test message goes. */
+  to: string;
+}
+
+/**
+ * Outcome of a test or a send.
+ * - ok                  accepted by the server for every recipient
+ * - auth_failed         the server rejected the username or password
+ * - auth_required       the server wants a sign-in and none is configured
+ * - tls_error           TLS handshake failed (wrong security mode for the port, STARTTLS not offered)
+ * - untrusted_cert      the server's certificate is not trusted (allow it in Settings)
+ * - unreachable         DNS failure, connection refused, no route
+ * - timeout             no answer in time
+ * - recipient_rejected  the server refused one or more recipients (see `rejected`)
+ * - sender_rejected     the server refused the From address
+ * - too_large           attachments over the size limit (ours or the server's)
+ * - not_configured      no mail server set up yet
+ * - invalid             a bad address or setting (or demo mode with a non-local server)
+ * - error               anything else
+ */
+export type EmailStatus =
+  | 'ok'
+  | 'auth_failed'
+  | 'auth_required'
+  | 'tls_error'
+  | 'untrusted_cert'
+  | 'unreachable'
+  | 'timeout'
+  | 'recipient_rejected'
+  | 'sender_rejected'
+  | 'too_large'
+  | 'not_configured'
+  | 'invalid'
+  | 'error';
+
+/** Result of test_smtp / send_email (snake_case: straight from the sidecar). */
+export interface EmailResult {
+  ok: boolean;
+  status: EmailStatus;
+  /** One line, e.g. "Sent to 2 recipients" or "The server rejected the username or password." */
+  message: string;
+  /** Mono detail: the server's reply or the low-level error. */
+  detail?: string | null;
+  recipients?: string[];
+  /** Recipients the server refused. */
+  rejected?: string[];
+  /** What was attached (after zipping). */
+  attachments?: { name: string; size_bytes: number }[];
+  total_bytes?: number | null;
+  zipped?: boolean;
+  /** Reports written to the export folder for this send (kept even when sending fails). */
+  files?: ReportFile[];
+  /** The rendered subject. */
+  subject?: string | null;
+}
+
+/** Email a snapshot's (or several snapshots') reports now (Email dialog). */
+export interface EmailSnapshotRequest {
+  snapshotPaths: string[];
+  formats: ExportFormat[];
+  sections?: ExportSection[];
+  word?: ExportRequest['word'];
+  to: string[];
+  cc: string[];
+  /** Placeholders: {target}, {date}, {snapshot}, {summary}. */
+  subject: string;
+  body: string;
+  /** Report file name prefix; omitted = the filePrefix setting. */
+  filePrefix?: string;
+}
+
+export const DEFAULT_EMAIL_SUBJECT = 'NTNXVision report: {target} ({date})';
+export const DEFAULT_EMAIL_BODY =
+  'Attached are the NTNXVision reports for {target}, collected {date}.\n\nSnapshot: {snapshot}\n{summary}\n';
+
+// ─── schedules ──────────────────────────────────────────────────────────
+
+/** When a schedule runs, in local time ("HH:MM", 24 h). Weekdays: 0 = Sunday … 6 = Saturday. */
+export type ScheduleFrequency =
+  | { kind: 'daily'; time: string }
+  | { kind: 'weekly'; days: number[]; time: string }
+  /** Day 29 to 31 runs on the last day of shorter months. */
+  | { kind: 'monthly'; day: number; time: string };
+
+/** What a schedule does: collect the target(s) fresh, build the reports, email them. */
+export interface ScheduleDefinition {
+  name: string;
+  enabled: boolean;
+  /** One saved target, or several Prism Central targets (as on Multiple PCs). */
+  targetIds: string[];
+  /** Several targets: one combined snapshot and report (true) or one per target (false). */
+  combine: boolean;
+  formats: ExportFormat[];
+  /** PDF and Word sections; omitted = all. */
+  sections?: ExportSection[];
+  word?: { preparedFor?: string; author?: string };
+  to: string[];
+  cc: string[];
+  /** Placeholders: {target}, {date}, {snapshot}, {summary}. */
+  subject: string;
+  body: string;
+  frequency: ScheduleFrequency;
+}
+
+export type ScheduleTrigger = 'scheduled' | 'catch_up' | 'manual';
+export type ScheduleRunStatus = 'running' | 'ok' | 'failed';
+
+/** One run of a schedule (newest first in `history`, at most 20 kept). */
+export interface ScheduleRunRecord {
+  id: string;
+  trigger: ScheduleTrigger;
+  /** ISO 8601. */
+  startedAt: string;
+  finishedAt?: string | null;
+  status: ScheduleRunStatus;
+  /** Where a failure happened. */
+  stage?: 'collect' | 'email' | null;
+  /** One line: "Emailed 2 reports to 3 recipients" or the reason it failed. */
+  message: string;
+  /** Snapshot names the run saved. */
+  snapshots?: string[];
+  /** The scheduled time this run was for (ISO); null for Run now. */
+  slot?: string | null;
+}
+
+export interface Schedule extends ScheduleDefinition {
+  id: string;
+  createdAt: string;
+  updatedAt: string;
+  /** Slots at or before this instant are done (ran, caught up or predate the schedule). */
+  anchor: string;
+  history: ScheduleRunRecord[];
+}
+
+/** A schedule as listed to the renderer. */
+export interface ScheduleInfo extends Schedule {
+  /** ISO 8601; null when disabled. */
+  nextRun: string | null;
+  lastRun: ScheduleRunRecord | null;
+  state: 'idle' | 'queued' | 'running';
+  /** Why it can't run as saved ("Target PC03 was deleted."). */
+  problems: string[];
+}
+
+export interface ScheduleSaveRequest extends ScheduleDefinition {
+  /** '' creates a schedule. */
+  id: string;
+}
+
+export type ScheduleField = 'name' | 'targets' | 'formats' | 'to' | 'cc' | 'time' | 'days' | 'day' | 'subject' | 'form';
+
+export interface ScheduleSaveResult {
+  ok: boolean;
+  errors?: Partial<Record<ScheduleField, string>>;
+  schedule?: ScheduleInfo;
+  schedules: ScheduleInfo[];
+}
+
+/** The schedules plus how the app keeps them running. */
+export interface SchedulesState {
+  schedules: ScheduleInfo[];
+  /** At least one schedule is enabled: closing the window keeps the app in the tray / menu bar. */
+  background: boolean;
+  /** Start at login is available (packaged app; not in demo or test runs). */
+  loginItemSupported: boolean;
+}
+
 // ─── overview ───────────────────────────────────────────────────────────
 
 export interface CoverageCounts {
@@ -875,6 +1110,8 @@ export interface AppSettings {
    * Inventory and every report. Unset = DEFAULT_VCPU_RATIO.
    */
   vcpuRatio?: number;
+  /** Open NTNXVision (in the tray / menu bar) when you sign in, so schedules run. */
+  startAtLogin?: boolean;
 }
 
 /** The vCPU:pCPU target used when the setting is unset (matches capacity.py). */
@@ -950,9 +1187,22 @@ export const IPC = {
   deleteTarget: 'store:deleteTarget',
   getSettings: 'store:getSettings',
   setSettings: 'store:setSettings',
+  // email (main process + the sidecar's test_smtp / send_email)
+  getSmtpSettings: 'email:getSettings',
+  saveSmtpSettings: 'email:saveSettings',
+  testSmtp: 'email:test',
+  emailSnapshot: 'email:sendSnapshot',
+  // schedules (main process scheduler)
+  listSchedules: 'schedules:list',
+  saveSchedule: 'schedules:save',
+  deleteSchedule: 'schedules:delete',
+  setScheduleEnabled: 'schedules:setEnabled',
+  runScheduleNow: 'schedules:runNow',
   // main → renderer (events)
   progress: 'core:progress',
   runFinished: 'core:runFinished',
+  /** The schedules changed (saved, run started or finished). Payload: SchedulesState. */
+  schedulesChanged: 'schedules:changed',
   /** .ntnxsnap files opened from the OS (double-click, Open with, second launch). */
   openSnapshotFiles: 'app:openSnapshotFiles',
 } as const;
@@ -1022,6 +1272,23 @@ export interface NtnxApi {
   deleteTarget(id: string): Promise<SavedConnection[]>;
   getSettings(): Promise<AppSettings>;
   setSettings(settings: AppSettings): Promise<AppSettings>;
+
+  /** Settings > Email: the mail server, without its password (hasPassword only). */
+  getSmtpSettings(): Promise<SmtpSettingsInfo>;
+  /** Validate and save; the password goes to the keychain and never comes back. */
+  saveSmtpSettings(req: SmtpSaveRequest): Promise<SmtpSaveResult>;
+  /** Send a test message with the form's values (resolves with the outcome, never rejects for SMTP errors). */
+  testSmtp(req: SmtpTestRequest): Promise<EmailResult>;
+  /** Build the snapshot's reports and email them now. */
+  emailSnapshot(req: EmailSnapshotRequest): Promise<EmailResult>;
+
+  listSchedules(): Promise<SchedulesState>;
+  saveSchedule(req: ScheduleSaveRequest): Promise<ScheduleSaveResult>;
+  deleteSchedule(id: string): Promise<SchedulesState>;
+  setScheduleEnabled(id: string, enabled: boolean): Promise<SchedulesState>;
+  /** Queue a run now (it waits for a running collection). Rejects for an unknown schedule. */
+  runScheduleNow(id: string): Promise<SchedulesState>;
+  onSchedulesChanged(cb: (state: SchedulesState) => void): () => void;
 }
 
 declare global {
