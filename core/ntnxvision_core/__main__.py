@@ -304,6 +304,36 @@ def mock_server(
         server.stop()
 
 
+@app.command("smtp-sink")
+def smtp_sink(
+    port: int = typer.Option(0, help="Port on 127.0.0.1 (0 = any free port)"),
+    out: str = typer.Option("", help="Write each received message to DIR/message-<n>.eml"),
+    tls: str = typer.Option("none", help="none, starttls or ssl"),
+    cert: str = typer.Option("ca", help="ca (issued by the demo CA) or self (self-signed)"),
+    username: str = typer.Option("", help="Require AUTH with this username"),
+    password: str = typer.Option("", help="...and this password"),
+    reject: Annotated[list[str] | None, typer.Option(help="Refuse this recipient")] = None,
+) -> None:
+    """Run a local test SMTP server on 127.0.0.1 that keeps every message (never relays).
+    For trying Settings > Email in demo mode and for the end-to-end tests. Prints
+    "SMTP sink listening on 127.0.0.1:<port>" first."""
+    import sys
+    import time
+
+    from ntnxvision_core.synthetic.smtpsink import SmtpSink
+
+    sink = SmtpSink(port=port, tls=tls, cert=cert, username=username, password=password,
+                    reject=list(reject or []), out_dir=out or None)
+    bound = sink.start()
+    sys.stdout.write(f"SMTP sink listening on 127.0.0.1:{bound}\n")
+    sys.stdout.flush()
+    try:
+        while True:
+            time.sleep(3600)
+    except KeyboardInterrupt:
+        sink.stop()
+
+
 @app.command()
 def sidecar() -> None:
     """Run the stdio JSON-RPC sidecar (used by the Electron app)."""

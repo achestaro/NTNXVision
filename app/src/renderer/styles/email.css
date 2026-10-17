@@ -1,0 +1,163 @@
+/* Email settings, Email dialog and Schedules (feature/email-schedules). Kept apart from
+   app.css so the feature stays in its own files. */
+
+/* Settings > Email: Server · Port, Username · Password, From address · From name. */
+.email-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr);
+  gap: 16px;
+}
+.email-grid > #smtp-port,
+.email-grid > div:has(> #smtp-port) {
+  max-width: 120px;
+}
+@media (max-width: 760px) {
+  .email-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+.email-test {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: flex-end;
+}
+.email-test-to {
+  flex: 1 1 260px;
+  max-width: 420px;
+}
+
+/* Recipients / subject / message stack in the Email dialog and the schedule editor. */
+.email-fields {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 16px;
+}
+@media (max-width: 760px) {
+  .email-fields {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+.email-fields textarea.input {
+  min-height: 112px;
+  font-size: 13px;
+  line-height: 20px;
+}
+
+/* Schedule editor */
+.sch-when {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  align-items: flex-end;
+}
+.sch-days {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.sch-day {
+  min-width: 44px;
+  height: var(--control-h);
+  padding: 0 8px;
+  border: 1px solid var(--rule-strong);
+  border-radius: 2px;
+  background: var(--body);
+  color: var(--ink-2);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+}
+.sch-day:hover {
+  background: var(--surface-hover);
+}
+.sch-day[aria-pressed='true'] {
+  border-color: var(--accent);
+  background: var(--accent-tint, var(--surface-hover));
+  color: var(--ink);
+}
+.sch-day:focus-visible {
+  outline: 2px solid var(--focus, var(--accent));
+  outline-offset: 1px;
+}
+.sch-targets {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.sch-target-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.sch-target-row select {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.sch-history {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border-top: 1px solid var(--rule-2);
+}
+.sch-history li {
+  display: grid;
+  grid-template-columns: 150px 96px minmax(0, 1fr);
+  gap: 12px;
+  align-items: baseline;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--rule-2);
+  font-size: 13px;
+}
+.sch-history li .msg {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+/* Schedules table: long cells clip with an ellipsis (full text in the tooltip), and the
+   table fits its panel down to a ~1,100 px window. */
+.schedules-panel {
+  container-type: inline-size;
+}
+.sch-clip {
+  display: inline-block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: bottom;
+}
+.sch-name-text {
+  max-width: 170px;
+}
+.sch-targets-text {
+  max-width: 140px;
+}
+.sch-when-text {
+  max-width: 178px;
+}
+.sch-to-text {
+  max-width: 122px;
+}
+.sch-last-text {
+  max-width: 150px;
+}
+@container (max-width: 1150px) {
+  .tbl-schedules .col-recipients,
+  .tbl-schedules .sch-run-inline {
+    display: none;
+  }
+  .sch-name-text {
+    max-width: 140px;
+  }
+  .sch-targets-text {
+    max-width: 120px;
+  }
+  .sch-when-text {
+    max-width: 125px;
+  }
+  .sch-last-text {
+    max-width: 110px;
+  }
+}
