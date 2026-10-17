@@ -3,6 +3,7 @@
 import {
   ArchiveIcon,
   ArrowsDownUpIcon,
+  CalendarCheckIcon,
   DownloadSimpleIcon,
   GearSixIcon,
   SquaresFourIcon,
@@ -31,6 +32,7 @@ export const NAV_GROUPS: { label: string; items: NavItem[] }[] = [
       { screen: 'targets', label: 'Targets', icon: TargetIcon, key: 't' },
       { screen: 'new', label: 'New collection', icon: DownloadSimpleIcon, key: 'n', also: ['collecting', 'results'] },
       { screen: 'multi', label: 'Multiple PCs', icon: StackIcon, key: 'm' },
+      { screen: 'schedules', label: 'Schedules', icon: CalendarCheckIcon, key: 'r' },
     ],
   },
   {

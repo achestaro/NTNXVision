@@ -8,6 +8,7 @@ import '@fontsource/montserrat/latin-200.css';
 import '@fontsource/montserrat/latin-300.css';
 import './styles/tokens.css';
 import './styles/app.css';
+import './styles/email.css';
 import { App } from './App';
 
 createRoot(document.getElementById('root')!).render(
