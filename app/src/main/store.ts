@@ -9,6 +9,7 @@ import { randomUUID } from 'node:crypto';
 import { app } from 'electron';
 import { AppSettings } from '../shared/ipc';
 import * as secrets from './secrets';
+import { storeKind } from './secrets';
 import { TargetStore } from './targets';
 import { ScheduleStore } from './schedules';
 import { SmtpStore } from './mail';
@@ -53,23 +54,6 @@ function writeJson(name: string, value: unknown): void {
   renameSync(`${file}.tmp`, file);
 }
 
-// ─── targets ────────────────────────────────────────────────────────────
-
-/**
- * Saved targets (targets.json, see targets.ts). A profile without targets.json yet is
- * migrated from the pre-targets connections.json on first use, which is left in place
- * untouched (it never held passwords).
- */
-export const targets = new TargetStore(
-  {
-    read: () => readJson<unknown>('targets.json', undefined),
-    readLegacy: () => readJson<unknown>('connections.json', undefined),
-    write: (file) => writeJson('targets.json', file),
-  },
-  { get: secrets.getSecret, set: secrets.setSecret, delete: secrets.deleteSecret },
-  { newId: () => randomUUID() },
-);
-
 // ─── settings ───────────────────────────────────────────────────────────
 
 const SETTINGS_FILE = 'settings.json';
@@ -106,8 +90,12 @@ const integrity = new Integrity({
   write: (macs) => writeJson('integrity.json', macs),
 });
 
-export function initIntegrity(): Promise<void> {
-  return integrity.init({ get: secrets.getSecret, set: secrets.setSecret });
+export async function initIntegrity(): Promise<void> {
+  // The in-memory keychain (demo, e2e) means a throwaway key: skip integrity altogether.
+  await integrity.init({ get: secrets.getSecret, set: secrets.setSecret }, storeKind() !== 'memory');
+  // Adopt targets.json now (upgrade from a version that did not protect it), before any
+  // other write signs integrity.json.
+  targetsFile.read();
 }
 
 /** A JSON file whose content is MAC-checked on every read and signed on every write. */
@@ -127,6 +115,27 @@ function guarded(name: string) {
     tampered: () => tampered,
   };
 }
+
+// ─── targets ────────────────────────────────────────────────────────────
+
+const targetsFile = guarded('targets.json');
+
+/**
+ * Saved targets (targets.json, see targets.ts), MAC-protected like schedules.json: if the
+ * file was changed outside the app the store releases no passwords (R2-02). A profile
+ * without targets.json yet is migrated from the pre-targets connections.json on first use,
+ * which is left in place untouched (it never held passwords).
+ */
+export const targets = new TargetStore(
+  {
+    read: targetsFile.read,
+    readLegacy: () => readJson<unknown>('connections.json', undefined),
+    write: (file) => targetsFile.write(file),
+    tampered: targetsFile.tampered,
+  },
+  { get: secrets.getSecret, set: secrets.setSecret, delete: secrets.deleteSecret },
+  { newId: () => randomUUID() },
+);
 
 // ─── email and schedules ────────────────────────────────────────────────
 

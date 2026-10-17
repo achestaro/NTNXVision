@@ -28,6 +28,11 @@ import type {
   VcpuRatioOverrides,
 } from '../shared/ipc';
 import { MAX_CLUSTER_RATIO, MIN_CLUSTER_RATIO } from '../shared/ipc';
+import { isPlainHost } from './validate';
+
+/** Shown on the Targets page when targets.json fails its integrity check (R2-02). */
+export const TARGETS_TAMPERED_MESSAGE =
+  'Saved targets were changed outside NTNXVision. Review each target and re-enter its password to re-enable it.';
 
 /** A target as written to targets.json. */
 export interface StoredTarget extends ConnectionProfile {
@@ -50,6 +55,8 @@ export interface TargetsIO {
   /** The pre-targets connections.json (an array of profiles), or undefined. */
   readLegacy(): unknown;
   write(file: TargetsFile): void;
+  /** True when the file just read failed its integrity check (see integrity.ts). */
+  tampered?(): boolean;
 }
 
 /** The OS keychain (or the in-memory demo store), by account name. */
@@ -238,6 +245,8 @@ export function remapIds(ids: string[] | undefined, idMap: Record<string, string
   return out;
 }
 
+const HOST_ERROR = 'Enter a host name or IP address only: no https://, user@, path, ? or #.';
+
 /** Field errors for a save request (empty object = valid). */
 export function validate(req: TargetSaveRequest, existing: StoredTarget[]): Partial<Record<TargetField, string>> {
   const e: Partial<Record<TargetField, string>> = {};
@@ -248,15 +257,15 @@ export function validate(req: TargetSaveRequest, existing: StoredTarget[]): Part
   }
   const host = str(req.host).trim();
   if (!host) e.host = 'Enter an address.';
-  else if (/\s|\/|^https?:/i.test(host)) e.host = 'Enter a host name or IP address only, without https:// or a path.';
+  else if (!isPlainHost(host)) e.host = HOST_ERROR;
   if (!Number.isInteger(req.port) || req.port < 1 || req.port > 65535) e.port = 'Port must be 1 to 65535.';
   if (!str(req.username).trim()) e.username = 'Enter a username.';
   const ndbHost = str(req.ndbHost).trim();
-  if (req.mode === 'prism_central' && ndbHost && /\s|\/|^https?:/i.test(ndbHost)) {
+  if (req.mode === 'prism_central' && ndbHost && !isPlainHost(ndbHost)) {
     e.ndbHost = 'Enter a host name or IP address only.';
   }
   const vcenterHost = str(req.vcenterHost).trim();
-  if (req.mode === 'prism_central' && vcenterHost && /\s|\/|^https?:/i.test(vcenterHost)) {
+  if (req.mode === 'prism_central' && vcenterHost && !isPlainHost(vcenterHost)) {
     e.vcenterHost = 'Enter a host name or IP address only.';
   }
   if (!MODES.includes(req.mode)) e.form = 'Choose Prism Central or Prism Element.';
@@ -279,6 +288,8 @@ export interface TargetStoreOptions {
 export class TargetStore {
   private file: TargetsFile | null = null;
   private idMap: Record<string, string> = {};
+  /** targets.json failed its integrity check when loaded: release no passwords (R2-02). */
+  private isTampered = false;
   private readonly newId: () => string;
   private readonly now: () => string;
 
@@ -294,16 +305,25 @@ export class TargetStore {
   /** Load (and migrate, once) on first use. */
   private data(): TargetsFile {
     if (!this.file) {
-      const m = migrate(this.io.read(), this.io.readLegacy(), this.newId, this.now());
+      const raw = this.io.read();
+      this.isTampered = this.io.tampered?.() ?? false;
+      const m = migrate(raw, this.io.readLegacy(), this.newId, this.now());
       this.file = m.file;
       this.idMap = m.idMap;
-      if (m.changed && (m.file.targets.length || this.io.readLegacy() !== undefined)) this.io.write(m.file);
+      // Never write (that would sign it) a file that failed verification.
+      if (!this.isTampered && m.changed && (m.file.targets.length || this.io.readLegacy() !== undefined)) this.io.write(m.file);
     }
     return this.file;
   }
 
   private persist(): void {
     this.io.write(this.data());
+  }
+
+  /** True while targets.json fails verification: nothing is released until a deliberate re-save. */
+  get tampered(): boolean {
+    this.data();
+    return this.isTampered;
   }
 
   /** Old id → new id from the migration this session ran (empty when none ran). */
@@ -325,18 +345,18 @@ export class TargetStore {
   /** The target's saved password, or null. */
   async password(id: string): Promise<string | null> {
     const t = this.data().targets.find((x) => x.id === id);
-    if (!t) return null;
+    if (!t || this.isTampered) return null;
     const own = await this.secrets.get(passwordAccount(t.id));
     if (own) return own;
     return t.legacySecret ? this.secrets.get(legacyAccount(t.host, t.username)) : null;
   }
 
   async ndbPassword(id: string): Promise<string | null> {
-    return this.data().targets.some((x) => x.id === id) ? this.secrets.get(ndbAccount(id)) : null;
+    return this.data().targets.some((x) => x.id === id) && !this.isTampered ? this.secrets.get(ndbAccount(id)) : null;
   }
 
   async vcenterPassword(id: string): Promise<string | null> {
-    return this.data().targets.some((x) => x.id === id) ? this.secrets.get(vcenterAccount(id)) : null;
+    return this.data().targets.some((x) => x.id === id) && !this.isTampered ? this.secrets.get(vcenterAccount(id)) : null;
   }
 
   /** The targets as the renderer sees them: no secrets, only whether they are saved. */
@@ -371,6 +391,7 @@ export class TargetStore {
       ndbHasPassword: t.ndbHost ? await has(() => this.ndbPassword(t.id)) : false,
       vcenterHasPassword: t.vcenterHost ? await has(() => this.vcenterPassword(t.id)) : false,
       lastTest: t.lastTest ?? null,
+      ...(this.isTampered ? { tamperedMessage: TARGETS_TAMPERED_MESSAGE } : {}),
     };
   }
 
@@ -399,10 +420,14 @@ export class TargetStore {
     const vcpuRatioOverrides = prev && prev.mode === req.mode && prev.host === host ? prev.vcpuRatioOverrides : undefined;
     // Certificate pins (trust on first use): one per endpoint, only while that endpoint has
     // TLS verification off, and only for the address they were trusted for.
-    const pinnedCert = nextPin(req.pinnedCert, prev?.pinnedCert, !!req.insecure, !!prev && prev.mode === req.mode && prev.host === host && prev.port === req.port);
+    // A file that failed verification vouches for nothing: no saved pin carries over.
+    const tampered = this.isTampered;
+    const pinnedCert = nextPin(req.pinnedCert, prev?.pinnedCert, !!req.insecure, !tampered && !!prev && prev.mode === req.mode && prev.host === host && prev.port === req.port);
     const ndbInsecure = req.ndbInsecure ?? prev?.ndbInsecure ?? false;
-    const ndbPinnedCert = ndbHost ? nextPin(req.ndbPinnedCert, prev?.ndbPinnedCert, ndbInsecure, prev?.ndbHost === ndbHost) : undefined;
-    const vcenterPinnedCert = vcenterHost ? nextPin(req.vcenterPinnedCert, prev?.vcenterPinnedCert, !!req.vcenterInsecure, prev?.vcenterHost === vcenterHost) : undefined;
+    const ndbUser = str(req.ndbUser).trim() || 'admin';
+    const vcenterUser = str(req.vcenterUser).trim() || 'administrator@vsphere.local';
+    const ndbPinnedCert = ndbHost ? nextPin(req.ndbPinnedCert, prev?.ndbPinnedCert, ndbInsecure, !tampered && prev?.ndbHost === ndbHost && (prev?.ndbUser ?? 'admin') === ndbUser) : undefined;
+    const vcenterPinnedCert = vcenterHost ? nextPin(req.vcenterPinnedCert, prev?.vcenterPinnedCert, !!req.vcenterInsecure, !tampered && prev?.vcenterHost === vcenterHost && (prev?.vcenterUser ?? '') === vcenterUser) : undefined;
     const next: StoredTarget = {
       id,
       mode: req.mode,
@@ -412,10 +437,10 @@ export class TargetStore {
       username: req.username.trim(),
       insecure: !!req.insecure,
       ...(pinnedCert ? { pinnedCert } : {}),
-      ...(ndbHost ? { ndbHost, ndbUser: str(req.ndbUser).trim() || 'admin', ndbInsecure } : {}),
+      ...(ndbHost ? { ndbHost, ndbUser, ndbInsecure } : {}),
       ...(ndbPinnedCert ? { ndbPinnedCert } : {}),
       ...(vcenterHost
-        ? { vcenterHost, vcenterUser: str(req.vcenterUser).trim() || 'administrator@vsphere.local', vcenterInsecure: !!req.vcenterInsecure }
+        ? { vcenterHost, vcenterUser, vcenterInsecure: !!req.vcenterInsecure }
         : {}),
       ...(vcenterPinnedCert ? { vcenterPinnedCert } : {}),
       ...(clusterSelection ? { clusterSelection } : {}),
@@ -429,18 +454,28 @@ export class TargetStore {
     // A target still on the shared pre-targets keychain entry (its move failed at startup).
     const oldLegacy = prev?.legacySecret ? legacyAccount(prev.host, prev.username) : null;
 
+    // A saved password follows its endpoint, never an edit: when the address, port, username
+    // or mode changes (or the file can't be trusted) and no new password came with the
+    // request, the stored one is deleted and the user must type it again (R2-02).
+    const primaryChanged = !prev || tampered || prev.mode !== next.mode || prev.host !== next.host || prev.port !== next.port || prev.username !== next.username;
+    const ndbChanged = !prev || tampered || prev.ndbHost !== next.ndbHost || prev.ndbUser !== next.ndbUser || !!prev.ndbInsecure !== !!next.ndbInsecure;
+    const vcenterChanged =
+      !prev || tampered || prev.vcenterHost !== next.vcenterHost || prev.vcenterUser !== next.vcenterUser || !!prev.vcenterInsecure !== !!next.vcenterInsecure;
+
     try {
       if (req.password) {
         await this.secrets.set(passwordAccount(id), req.password);
+      } else if (primaryChanged) {
+        if (prev) await this.secrets.delete(passwordAccount(id));
       } else if (oldLegacy) {
         // Not moved at startup (keychain locked?): move it now, from the old address.
         const old = await this.secrets.get(oldLegacy);
         if (old) await this.secrets.set(passwordAccount(id), old);
       }
       if (ndbHost && req.ndbPassword) await this.secrets.set(ndbAccount(id), req.ndbPassword);
-      if (!ndbHost && prev?.ndbHost) await this.secrets.delete(ndbAccount(id));
+      else if (prev && (!ndbHost ? prev.ndbHost : ndbChanged)) await this.secrets.delete(ndbAccount(id));
       if (vcenterHost && req.vcenterPassword) await this.secrets.set(vcenterAccount(id), req.vcenterPassword);
-      if (!vcenterHost && prev?.vcenterHost) await this.secrets.delete(vcenterAccount(id));
+      else if (prev && (!vcenterHost ? prev.vcenterHost : vcenterChanged)) await this.secrets.delete(vcenterAccount(id));
     } catch (err) {
       return {
         ok: false,
@@ -451,7 +486,11 @@ export class TargetStore {
 
     if (prev) targets[targets.indexOf(prev)] = next;
     else targets.unshift(next);
+    // Re-saving is the user's review of a tampered file: every other target keeps no
+    // password until it is re-entered, since its saved address can't be trusted.
+    if (tampered) await this.forgetOthers(id);
     this.persist();
+    this.isTampered = false;
     await this.dropLegacyIfUnused(oldLegacy);
     return { ok: true, target: await this.toSaved(next), targets: await this.listWithStatus() };
   }
@@ -462,7 +501,9 @@ export class TargetStore {
     const i = targets.findIndex((t) => t.id === id);
     if (i >= 0) {
       const [gone] = targets.splice(i, 1);
+      if (this.isTampered) await this.forgetOthers(id);
       this.persist();
+      this.isTampered = false;
       for (const account of [passwordAccount(id), ndbAccount(id), vcenterAccount(id)]) {
         try {
           await this.secrets.delete(account);
@@ -475,11 +516,28 @@ export class TargetStore {
     return this.listWithStatus();
   }
 
+  /** Delete the keychain entries of every target but `keepId` (after a tampered file). */
+  private async forgetOthers(keepId: string): Promise<void> {
+    for (const t of this.data().targets.filter((x) => x.id !== keepId)) {
+      for (const account of [passwordAccount(t.id), ndbAccount(t.id), vcenterAccount(t.id)]) {
+        try {
+          await this.secrets.delete(account);
+        } catch {
+          /* keychain unavailable: nothing stored to remove */
+        }
+      }
+      if (t.legacySecret) {
+        delete t.legacySecret;
+        await this.dropLegacyIfUnused(legacyAccount(t.host, t.username));
+      }
+    }
+  }
+
   /** Remember the cluster selection of a Prism Central target's last collection. */
   rememberClusters(id: string, sel: ClusterSelection): void {
     const t = this.data().targets.find((x) => x.id === id);
     const clean = cleanSelection(sel);
-    if (!t || t.mode !== 'prism_central' || !clean) return;
+    if (!t || this.isTampered || t.mode !== 'prism_central' || !clean) return;
     t.clusterSelection = clean;
     this.persist();
   }
@@ -492,7 +550,7 @@ export class TargetStore {
    */
   rememberRatios(id: string, overrides: VcpuRatioOverrides | undefined, known: string[]): void {
     const t = this.data().targets.find((x) => x.id === id);
-    if (!t || !Array.isArray(known)) return;
+    if (!t || this.isTampered || !Array.isArray(known)) return;
     const listed = new Set(known.filter((u) => typeof u === 'string'));
     const kept = Object.entries(t.vcpuRatioOverrides ?? {}).filter(([u]) => !listed.has(u));
     const next = cleanOverrides({ ...Object.fromEntries(kept), ...(cleanOverrides(overrides) ?? {}) });
@@ -510,7 +568,7 @@ export class TargetStore {
   trust(id: string, endpoint: TrustEndpoint, fingerprint: string): boolean {
     const t = this.data().targets.find((x) => x.id === id);
     const fp = cleanFingerprint(fingerprint);
-    if (!t || !fp) return false;
+    if (!t || !fp || this.isTampered) return false;
     if (endpoint === 'primary' && t.insecure) t.pinnedCert = fp;
     else if (endpoint === 'ndb' && t.ndbHost && t.ndbInsecure) t.ndbPinnedCert = fp;
     else if (endpoint === 'vcenter' && t.vcenterHost && t.vcenterInsecure) t.vcenterPinnedCert = fp;
@@ -522,7 +580,7 @@ export class TargetStore {
   /** Remember a target's last connection test (only for the target as saved). */
   recordTest(id: string, result: TestConnectionResult): void {
     const t = this.data().targets.find((x) => x.id === id);
-    if (!t) return;
+    if (!t || this.isTampered) return;
     t.lastTest = { status: result.status, ok: !!result.ok, message: result.message, version: result.version ?? null, at: this.now() };
     this.persist();
   }
@@ -534,6 +592,7 @@ export class TargetStore {
    */
   async migrateSecrets(): Promise<{ moved: number; pending: number }> {
     const targets = this.data().targets;
+    if (this.isTampered) return { moved: 0, pending: targets.filter((x) => x.legacySecret).length };
     let moved = 0;
     const done: string[] = [];
     for (const t of targets.filter((x) => x.legacySecret)) {
