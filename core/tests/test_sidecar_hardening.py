@@ -75,5 +75,6 @@ def test_prism_link_hostname_validation():
     for good in ("pc01.example.lab", "192.0.2.10", "pc01", "fe80::1"):
         assert valid_hostname(good), good
     for bad in ("", None, "https://evil.example", "evil.example/x", "user@evil.example",
-                "evil.example:9440", "a b", "evil.example?x=1", "evil.example#frag", "-bad.example"):
+                "evil.example:9440", "a b", "evil.example?x=1", "evil.example#frag",
+                "-bad.example"):
         assert not valid_hostname(bad), bad
