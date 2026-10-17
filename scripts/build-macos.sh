@@ -47,7 +47,9 @@ step "Python core venv ($($PY -V))"
 cd "$ROOT/core"
 [[ -x .venv/bin/python ]] || "$PY" -m venv .venv
 .venv/bin/python -m pip install --quiet --upgrade pip
-.venv/bin/python -m pip install --quiet -e ".[dev]"
+# Hash-pinned build deps (requirements-build.lock), then the project itself without deps.
+.venv/bin/python -m pip install --quiet --require-hashes -r requirements-build.lock
+.venv/bin/python -m pip install --quiet --no-deps -e .
 ARCH="$(.venv/bin/python -c 'import platform; print(platform.machine())')"
 case "$ARCH" in arm64|aarch64) EB_ARCH=--arm64 ;; x86_64) EB_ARCH=--x64 ;; *) echo "unsupported arch $ARCH" >&2; exit 1 ;; esac
 
