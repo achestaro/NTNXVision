@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Entitlements for Electron's helper processes (renderer, GPU, network) and other nested
+  code: the same minimum as the main executable (allow-jit), which is also what Electron's
+  own signing defaults grant its renderer and GPU helpers. electron-builder applies this
+  file to every nested binary; the PyInstaller sidecar is then re-signed with its own
+  entitlements by build/sign-sidecar.js.
+-->
+<plist version="1.0">
+  <dict>
+    <key>com.apple.security.cs.allow-jit</key>
+    <true/>
+  </dict>
+</plist>

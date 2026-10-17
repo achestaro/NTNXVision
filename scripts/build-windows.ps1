@@ -59,7 +59,9 @@ if (-not (Test-Path $venvPy)) {
   Invoke-Checked $py[0] @pyArgs
 }
 Invoke-Checked $venvPy -m pip install --quiet --upgrade pip
-Invoke-Checked $venvPy -m pip install --quiet -e '.[dev]'
+# Hash-pinned build deps (requirements-build.lock), then the project itself without deps.
+Invoke-Checked $venvPy -m pip install --quiet --require-hashes -r requirements-build.lock
+Invoke-Checked $venvPy -m pip install --quiet --no-deps -e .
 
 if (-not $SkipTests) {
   Step 'Core tests'
@@ -78,6 +80,11 @@ if (-not (Get-Command npm -ErrorAction SilentlyContinue)) { throw 'Need Node.js 
 Step "npm ci (node $(node -v))"
 Set-Location (Join-Path $Root 'app')
 Invoke-Checked npm ci --no-audit --no-fund
+# @napi-rs/keyring ships one prebuilt binary package per platform and npm only installs the
+# host's. Both Windows binaries are needed (the x64 host also packages the arm64 MSI), and
+# --no-save keeps package.json and the lockfile untouched (they are pinned in the lockfile).
+$kr = (Get-Content package.json -Raw | ConvertFrom-Json).dependencies.'@napi-rs/keyring'
+Invoke-Checked npm install --no-save --force --no-audit --no-fund "@napi-rs/keyring-win32-x64-msvc@$kr" "@napi-rs/keyring-win32-arm64-msvc@$kr"
 
 if (-not $SkipTests) {
   Step 'App lint'

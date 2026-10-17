@@ -142,6 +142,15 @@ const page = await app.firstWindow();
 await page.setViewportSize({ width: 1440, height: 960 }).catch(() => {});
 const errors = [];
 page.on('pageerror', (e) => errors.push(e.message));
+// SEC-14: the built renderer runs under the strict production CSP; any violation fails the run.
+page.on('console', (m) => {
+  if (m.type() === 'error' && /Content[ -]Security[ -]Policy|Refused to /i.test(m.text())) errors.push(`CSP: ${m.text()}`);
+});
+await page.addInitScript(() => {
+  document.addEventListener('securitypolicyviolation', (e) => {
+    console.error(`Content Security Policy violation: ${e.violatedDirective} blocked ${e.blockedURI}`);
+  });
+});
 
 let step = 0;
 let failed = false;
@@ -242,6 +251,18 @@ async function detailValue(label) {
   const kv = page.locator('.kv').filter({ has: page.locator('dt', { hasText: new RegExp(`^${label}$`) }) }).first();
   await kv.waitFor({ timeout: 30_000 });
   return (await kv.locator('dd').innerText()).trim();
+}
+
+/** Poll a detail-pane field until it shows the wanted value (the pane re-renders after a row click). */
+async function expectDetailValue(label, want, what) {
+  const deadline = Date.now() + 15_000;
+  let got = '';
+  while (Date.now() < deadline) {
+    got = await detailValue(label).catch(() => '');
+    if (got === want) return;
+    await page.waitForTimeout(100);
+  }
+  throw new Error(`${what}: ${got}`);
 }
 
 /** "1,234" → 1234. */
@@ -763,7 +784,7 @@ try {
     await openRow('PHX-PROD-02');
     await page.getByText('Cluster details').waitFor({ timeout: 30_000 });
     // The custom target chosen at collection drives vCPU Total: usable cores x 6.
-    if ((await detailValue('Target ratio')) !== '6.0 : 1 (custom)') throw new Error(`PHX-PROD-02 target: ${await detailValue('Target ratio')}`);
+    await expectDetailValue('Target ratio', '6.0 : 1 (custom)', 'PHX-PROD-02 target');
     const usable = num((await detailValue('Usable cores')).split(' of ')[0]);
     const total = num((await detailValue('vCPU Total')).split(' · ')[0]);
     if (!usable || total !== usable * 6) throw new Error(`vCPU Total ${total} is not ${usable} x 6`);
@@ -774,7 +795,7 @@ try {
     await page.setViewportSize({ width: 1440, height: 960 }).catch(() => {});
     await openRow('AMS-EDGE-02');
     await page.getByText('N-1 is not applicable to a 2-node cluster.').waitFor({ timeout: 30_000 });
-    if ((await detailValue('Target ratio')) !== '4.0 : 1 (default)') throw new Error(`AMS-EDGE-02 target: ${await detailValue('Target ratio')}`);
+    await expectDetailValue('Target ratio', '4.0 : 1 (default)', 'AMS-EDGE-02 target');
   });
 
   await run('compare', async () => {
