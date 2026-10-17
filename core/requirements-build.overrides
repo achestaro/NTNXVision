@@ -1,0 +1,7 @@
+# Used only by `uv pip compile --override` when regenerating requirements-build.lock:
+#   uv pip compile pyproject.toml --extra dev --universal --python-version 3.10 \
+#     --generate-hashes --override requirements-build.overrides -o requirements-build.lock
+# cryptography dropped macOS x86_64 wheels after 48.0.1, and a source build links the runner's
+# dynamic OpenSSL, which breaks the frozen sidecar. Intel Macs therefore stay on 48.0.1.
+cryptography>=50,<51 ; sys_platform != 'darwin' or platform_machine != 'x86_64'
+cryptography==48.0.1 ; sys_platform == 'darwin' and platform_machine == 'x86_64'
