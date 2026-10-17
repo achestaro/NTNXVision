@@ -9,6 +9,7 @@ import { useSettings } from '../lib/settings';
 import { useRun } from '../lib/run';
 import { useAsync } from '../lib/useAsync';
 import { useRouter } from '../lib/router';
+import { BackgroundSettingsPanel, EmailSettingsPanel } from './EmailSettings';
 import { NA, errorMessage, fmtBytes, fmtRatio, plural, tildify } from '../lib/format';
 
 // Bounds for the vCPU:pCPU target (the core accepts 0.1 to 64 and falls back to 4).
@@ -192,6 +193,9 @@ export function SettingsView(): JSX.Element {
             </Field>
           </div>
         </Panel>
+
+        <EmailSettingsPanel />
+        <BackgroundSettingsPanel />
 
         <Panel aria-labelledby="about">
           <PanelHeader id="about" title="About">

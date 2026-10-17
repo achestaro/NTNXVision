@@ -38,6 +38,7 @@ import { useAsync } from '../lib/useAsync';
 import { revealLabel } from '../lib/settings';
 import { basename, dirname, errorMessage, fmtBytes, fmtClock, fmtCount, fmtDuration, plural, tildify } from '../lib/format';
 import { useExportDialog } from './ExportDialog';
+import { useEmailDialog } from './EmailDialog';
 import { ImportedBadge, provenanceLine, useSnapshotTransfer } from './SnapshotTransfer';
 
 const FORMAT_META: Record<ExportFormat, { label: string; icon: typeof FileXlsIcon; create: string }> = {
@@ -114,6 +115,7 @@ function ResultsBody({
 }): JSX.Element {
   const { navigate } = useRouter();
   const exportDialog = useExportDialog();
+  const emailDialog = useEmailDialog();
   const transfer = useSnapshotTransfer();
 
   if (!lastResult) {
@@ -219,6 +221,9 @@ function ResultsBody({
             )}
             <Button onClick={() => r.snapshot_path && exportDialog.open(r.snapshot_path)} disabled={!r.snapshot_path}>
               Export more…
+            </Button>
+            <Button onClick={() => r.snapshot_path && emailDialog.open(r.snapshot_path)} disabled={!r.snapshot_path}>
+              Email…
             </Button>
             <Button
               variant="primary"
