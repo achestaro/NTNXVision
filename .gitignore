@@ -95,3 +95,6 @@ desktop.ini
 
 # UI screenshots from app/scripts/screenshot.mjs
 /app/screenshots/
+
+# CSV exports can hold customer inventory data; never commit them
+*.csv
