@@ -142,6 +142,8 @@ export interface SavedConnection extends ConnectionProfile {
   /** True when the OS keychain holds this target's vCenter password. */
   vcenterHasPassword?: boolean;
   lastTest?: TargetTestInfo | null;
+  /** Set (to the warning text) while targets.json fails its integrity check: no passwords are released. */
+  tamperedMessage?: string;
 }
 
 /**

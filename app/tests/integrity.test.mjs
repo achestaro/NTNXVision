@@ -229,3 +229,76 @@ test('no keychain, no protection: nothing is flagged', async () => {
   assert.equal(integrity.active, false);
   assert.equal(integrity.check('schedules.json', disk.read('schedules.json')), 'ok');
 });
+
+// ─── R2-06: fail closed ───
+
+test('R2-06: a missing key while MACs exist is tampered, never silently adopted', async () => {
+  const disk = fakeDisk();
+  const secrets = fakeSecrets();
+  const a = await boot(disk, secrets);
+  assert.ok(a.store.saveSchedule(request(), targets).ok);
+  // Someone removes the key from the keychain (and edits the file).
+  secrets.m.delete(INTEGRITY_ACCOUNT);
+  const raw = JSON.parse(disk.disk['schedules.json']);
+  raw.schedules[0].to = ['attacker@example.lab'];
+  disk.write('schedules.json', raw);
+  const b = await boot(disk, secrets);
+  assert.equal(b.store.tampered, true);
+  // A fresh key was made; a deliberate re-save signs again.
+  assert.ok(b.store.saveSchedule({ ...request(), id: b.store.list()[0].id }, targets).ok);
+  const c = await boot(disk, secrets);
+  assert.equal(c.store.tampered, false);
+});
+
+test('R2-06: demo/e2e (memory keychain) skips integrity: no key, no MACs, no verdicts', async () => {
+  const disk = fakeDisk({ 'schedules.json': { version: 1, schedules: [] } });
+  const secrets = fakeSecrets();
+  const w = setup(disk, secrets);
+  await w.integrity.init(secrets, false);
+  assert.equal(w.integrity.active, false);
+  assert.equal(w.integrity.check('schedules.json', { anything: 1 }), 'ok');
+  w.integrity.sign('schedules.json', { anything: 1 });
+  assert.equal(secrets.m.size, 0);
+  assert.equal(disk.read('integrity.json'), undefined);
+});
+
+test('R2-02: targets.json is adopted once at the upgrade, then protected', async () => {
+  const file = { version: 2, targets: [{ id: 'a', host: 'pc01.example.lab' }] };
+  const sched = { version: 1, schedules: [] };
+  // An install from before targets.json was protected: key and a schedules MAC, no schema marker.
+  const disk = fakeDisk({ 'schedules.json': sched, 'targets.json': file });
+  const secrets = fakeSecrets();
+  const w0 = setup(disk, secrets);
+  await w0.integrity.init(secrets);
+  w0.integrity.sign('schedules.json', sched);
+  const macs = disk.read('integrity.json');
+  delete macs.__schema;
+  disk.write('integrity.json', macs);
+  const w1 = setup(disk, secrets);
+  await w1.integrity.init(secrets);
+  const t1 = w1.guarded('targets.json');
+  assert.notEqual(t1.read(), undefined);
+  assert.equal(t1.tampered(), false);
+  assert.ok(disk.read('integrity.json')['targets.json']);
+  // Next launch: the marker is there, so an outside edit is caught.
+  disk.write('targets.json', { version: 2, targets: [{ id: 'a', host: 'evil.example.lab' }] });
+  const w2 = setup(disk, secrets);
+  await w2.integrity.init(secrets);
+  const t2 = w2.guarded('targets.json');
+  t2.read();
+  assert.equal(t2.tampered(), true);
+});
+
+test('R2-02: once the schema marker exists a targets.json without a MAC is tampered', async () => {
+  const disk = fakeDisk();
+  const secrets = fakeSecrets();
+  const w = setup(disk, secrets);
+  await w.integrity.init(secrets);
+  w.integrity.sign('schedules.json', { version: 1, schedules: [] });
+  disk.write('targets.json', { version: 2, targets: [] });
+  const w2 = setup(disk, secrets);
+  await w2.integrity.init(secrets);
+  const tf = w2.guarded('targets.json');
+  tf.read();
+  assert.equal(tf.tampered(), true);
+});
