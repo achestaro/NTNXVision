@@ -52,6 +52,7 @@ from ntnxvision_core.api.errors import NutanixApiError
 from ntnxvision_core.api.ndb_client import NdbCredentials
 from ntnxvision_core.api.vcenter_client import VcenterCredentials
 from ntnxvision_core.cancel import CancelToken, RunCancelled
+from ntnxvision_core.capacity import MAX_VCPU_RATIO, MIN_VCPU_RATIO, apply_targets, valid_ratio
 from ntnxvision_core.engine import (
     collect_element_environment,
     collect_environment,
@@ -505,6 +506,26 @@ def _clusters_param(params: dict[str, Any]) -> list[str] | None:
     return list(raw)
 
 
+def _ratio_overrides_param(raw: Any) -> dict[str, float]:
+    """Per-cluster vCPU:pCPU targets ({cluster uuid: ratio}); absent = none.
+
+    Each ratio must be a number from MIN_VCPU_RATIO to MAX_VCPU_RATIO: a bad one is a
+    caller error, refused before anything is collected rather than silently dropped."""
+    if raw is None:
+        return {}
+    if not isinstance(raw, dict):
+        raise NutanixApiError("vcpu_ratio_overrides must map cluster uuids to ratios.")
+    out: dict[str, float] = {}
+    for cluster_uuid, value in raw.items():
+        ratio = valid_ratio(value)
+        if not isinstance(cluster_uuid, str) or not cluster_uuid or ratio is None:
+            raise NutanixApiError(
+                f"Invalid vCPU:pCPU target for cluster {cluster_uuid!r}: enter a number "
+                f"from {MIN_VCPU_RATIO:g} to {MAX_VCPU_RATIO:g}.")
+        out[cluster_uuid] = ratio
+    return out
+
+
 def _m_inventory(req_id: Any, params: dict[str, Any]) -> dict[str, Any]:
     handle = _runs.begin(params.get("run_id"))
     try:
@@ -517,12 +538,14 @@ def _m_inventory(req_id: Any, params: dict[str, Any]) -> dict[str, Any]:
             verify_ssl=not insecure,
         )
         name = snapshot_name_for(params.get("name"))
+        overrides = _ratio_overrides_param(params.get("vcpu_ratio_overrides"))
         tracker = RunTracker(_emit_progress, run_id=handle.run_id, mode="prism_central",
                              host=creds.host, name=name, formats=params.get("formats") or [])
         env = collect_environment(creds, ndb_creds=_ndb_from(params.get("ndb"), insecure),
                                   vcenter_creds=_vcenter_from(params.get("vcenter"), insecure),
                                   areas=params.get("areas"), cancel=handle.token,
                                   tracker=tracker, clusters=_clusters_param(params))
+        apply_targets(env, params.get("vcpu_ratio"), overrides)
         result = _finalize(env, name, params, tracker=tracker, mode="prism_central",
                            handle=handle)
         _advance_demo(creds.host)
@@ -543,10 +566,12 @@ def _m_inventory_cluster(req_id: Any, params: dict[str, Any]) -> dict[str, Any]:
             verify_ssl=not params.get("insecure", False),
         )
         name = snapshot_name_for(params.get("name"))
+        overrides = _ratio_overrides_param(params.get("vcpu_ratio_overrides"))
         tracker = RunTracker(_emit_progress, run_id=handle.run_id, mode="prism_element",
                              host=creds.host, name=name, formats=params.get("formats") or [])
         env = collect_element_environment(creds, areas=params.get("areas"),
                                           cancel=handle.token, tracker=tracker)
+        apply_targets(env, params.get("vcpu_ratio"), overrides)
         result = _finalize(env, name, params, tracker=tracker, mode="prism_element",
                            handle=handle)
         _advance_demo(creds.host)
@@ -574,6 +599,7 @@ def _m_inventory_multi(req_id: Any, params: dict[str, Any]) -> dict[str, Any]:
         store = _store()
         claimed: set[str] = set()
         for t in targets:
+            t["vcpu_ratio_overrides"] = _ratio_overrides_param(t.get("vcpu_ratio_overrides"))
             t["name"] = snapshot_name_for(t.get("name"), store, claimed,
                                           fallback=str(t.get("host") or "target"))
             claimed.add(t["name"].casefold())
@@ -615,6 +641,7 @@ def _multi(handle: RunHandle, targets: list[dict[str, Any]], params: dict[str, A
                                       vcenter_creds=_vcenter_from(t.get("vcenter"), insecure),
                                       areas=params.get("areas"), cancel=handle.token,
                                       tracker=tracker)
+            apply_targets(env, params.get("vcpu_ratio"), t.get("vcpu_ratio_overrides"))
             tracker.finish()
             outcomes[i] = (env, tracker, None)
         except RunCancelled:

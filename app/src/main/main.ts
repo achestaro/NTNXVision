@@ -42,7 +42,7 @@ import { isSmokeRun, runSmoke } from './smoke';
 import * as secrets from './secrets';
 import * as store from './store';
 import { registerLegalHandlers } from './legal';
-import { matchesTarget, ndbAccount, passwordAccount, remapIds, vcenterAccount } from './targets';
+import { cleanOverrides, matchesTarget, ndbAccount, passwordAccount, remapIds, vcenterAccount } from './targets';
 
 const isDev = !app.isPackaged;
 const demo = isDemoMode();
@@ -260,6 +260,9 @@ ipcMain.handle(IPC.startCollection, async (_e, req: CollectionRequest) => {
   if (req.mode === 'prism_central' && req.clusters && req.knownClusters) {
     store.targets.rememberClusters(req.targetId!, { selected: req.clusters, known: req.knownClusters });
   }
+  // So are the per-cluster vCPU:pCPU targets (numbers by cluster uuid), in either mode.
+  const overrides = cleanOverrides(req.vcpuRatioOverrides);
+  if (req.knownClusters) store.targets.rememberRatios(req.targetId!, overrides, req.knownClusters);
   const method = req.mode === 'prism_element' ? 'inventory_cluster' : 'inventory';
   const { id, promise } = sidecar.callWithId<InventoryResult>(method, {
     run_id: runId,
@@ -277,6 +280,7 @@ ipcMain.handle(IPC.startCollection, async (_e, req: CollectionRequest) => {
     ndb: req.mode === 'prism_central' ? req.ndb : undefined,
     vcenter: req.mode === 'prism_central' ? req.vcenter : undefined,
     vcpu_ratio: vcpuRatio(),
+    vcpu_ratio_overrides: overrides,
   });
   legacyRuns.set(id, runId);
   promise
@@ -305,6 +309,8 @@ ipcMain.handle(IPC.startMultiCollection, async (_e, req: MultiCollectionRequest)
       name: t.name,
       ndb: t.ndb,
       vcenter: t.vcenter,
+      // The per-cluster targets remembered on the saved target (set in New collection).
+      vcpu_ratio_overrides: store.targets.get(t.targetId)?.vcpuRatioOverrides,
     })),
     formats: req.formats,
     export_dir: req.exportDir || store.getSettings().exportDir,
