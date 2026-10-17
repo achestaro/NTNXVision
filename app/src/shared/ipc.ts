@@ -92,7 +92,20 @@ export interface ConnectionProfile {
    * No credentials: uuids only.
    */
   clusterSelection?: ClusterSelection;
+  /**
+   * Per-cluster vCPU:pCPU targets chosen in New collection, by cluster uuid (Prism
+   * Central and Prism Element), so the next collection pre-fills them. Clusters without
+   * an entry use the global setting (AppSettings.vcpuRatio). Numbers only, no credentials.
+   */
+  vcpuRatioOverrides?: VcpuRatioOverrides;
 }
+
+/** Cluster uuid → vCPU:pCPU target (MIN_CLUSTER_RATIO to MAX_CLUSTER_RATIO, one decimal). */
+export type VcpuRatioOverrides = Record<string, number>;
+
+/** Bounds of a vCPU:pCPU target typed in the app (Settings and per cluster). */
+export const MIN_CLUSTER_RATIO = 1;
+export const MAX_CLUSTER_RATIO = 32;
 
 export interface ClusterSelection {
   selected: string[];
@@ -310,8 +323,19 @@ export interface CollectionRequest {
    * Omitted = every registered cluster. Objects of other clusters are never collected.
    */
   clusters?: string[];
-  /** Every cluster uuid the picker listed, remembered with `clusters` on the saved target. */
+  /**
+   * Every cluster uuid the picker listed (Prism Central and Prism Element), remembered
+   * with `clusters` on the saved target; also the clusters whose remembered vCPU:pCPU
+   * targets `vcpuRatioOverrides` replaces.
+   */
   knownClusters?: string[];
+  /**
+   * Per-cluster vCPU:pCPU targets for this run (cluster uuid → ratio). A listed cluster
+   * without an entry uses the global setting. The run records the effective target on
+   * every cluster in the snapshot, and the main process remembers these on the saved
+   * target. Entries for clusters the run does not collect are ignored by the run.
+   */
+  vcpuRatioOverrides?: VcpuRatioOverrides;
   formats: ExportFormat[];
   /** Ignored: targets are only created and changed on the Targets page. */
   saveCredentials?: boolean;
@@ -335,6 +359,11 @@ export interface MultiCollectionTarget {
   name: string;
   ndb?: NdbRequest;
   vcenter?: VcenterRequest;
+  /**
+   * Ignored: the main process applies the per-cluster vCPU:pCPU targets remembered on
+   * the saved target (set in New collection); other clusters use the global setting.
+   */
+  vcpuRatioOverrides?: VcpuRatioOverrides;
 }
 
 export interface MultiCollectionRequest {
@@ -841,8 +870,10 @@ export interface ExportRequest {
     author?: string;
   };
   /**
-   * Target vCPU:pCPU ratio for the cluster capacity figures ("vCPU Total"), recorded in the
-   * report. Omitted = the vcpuRatio setting (DEFAULT_VCPU_RATIO when unset).
+   * Target vCPU:pCPU ratio for the cluster capacity figures ("vCPU Total") of clusters
+   * that recorded none at collection (snapshots from before per-cluster targets). Newer
+   * snapshots always use the per-cluster targets recorded when they were collected.
+   * Omitted = the vcpuRatio setting (DEFAULT_VCPU_RATIO when unset).
    */
   vcpuRatio?: number;
 }
@@ -906,8 +937,10 @@ export interface AppSettings {
   /** The last report file name prefix used (Export dialog, New collection, Multiple PCs). */
   filePrefix?: string;
   /**
-   * Target vCPU:pCPU ratio behind the cluster capacity figures ("vCPU Total") in the
-   * Inventory and every report. Unset = DEFAULT_VCPU_RATIO.
+   * The default vCPU:pCPU target behind the cluster capacity figures ("vCPU Total"):
+   * recorded on every cluster a new collection collects unless New collection sets a
+   * per-cluster target, and used for snapshots collected before per-cluster targets
+   * existed. Unset = DEFAULT_VCPU_RATIO.
    */
   vcpuRatio?: number;
 }

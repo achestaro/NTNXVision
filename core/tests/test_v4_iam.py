@@ -12,12 +12,12 @@ from ntnxvision_core.models import Environment
 
 # A directory user: the only kind v3 also named correctly.
 V4_LDAP_USER = {
-    "extId": "6c5f628e-2143-5ae3-9fce-3d4621b4eba9",
+    "extId": "00007d92-3cb3-4ec3-a509-1dce253dba06",
     "username": "administrator",
     "displayName": "Administrator",
     "firstName": "Administrator",
     "lastName": "",
-    "idpId": "3bed6887-d662-50a9-b036-40ab95261c73",
+    "idpId": "0000463b-575a-4fa8-aaa1-b1c8a0a8e3c2",
     "status": "ACTIVE",
     "userType": "LDAP",
 }
@@ -25,35 +25,35 @@ V4_LDAP_USER = {
 # A built-in service identity. v3 returned an empty spec for these, so its username was
 # null; v4 also leaves displayName empty and types it SERVICE_ACCOUNT rather than LOCAL.
 V4_SERVICE_USER = {
-    "extId": "d4e56da1-ecd1-544c-afca-64ac09498b54",
+    "extId": "00009c13-170e-49e6-a73e-2765996274a6",
     "username": "ovasystemuser123",
     "displayName": "",
     "firstName": "",
     "lastName": "",
     "description": "",
     # The built-in provider — deliberately absent from the directory-services list.
-    "idpId": "8f50d429-b4e1-5871-9b4d-bbeaebb6872c",
+    "idpId": "00001798-34bb-4da6-a486-5b3bedf76b70",
     "status": "ACTIVE",
     "userType": "SERVICE_ACCOUNT",
 }
 
 V4_DIRECTORY_SERVICE = {
-    "extId": "3bed6887-d662-50a9-b036-40ab95261c73",
-    "name": "quinney",
-    "domainName": "quinney.dev",
+    "extId": "0000463b-575a-4fa8-aaa1-b1c8a0a8e3c2",
+    "name": "example",
+    "domainName": "example.lab",
     "directoryType": "ACTIVE_DIRECTORY",
 }
 
 V4_ROLES = [
     {
-        "extId": "b3e4b71a-2b71-5d2f-8f3f-2d4eb1e8de52",
+        "extId": "00001658-9f08-4761-ac3f-9d2149c05b03",
         "displayName": "Super Admin",
         "description": "Super Admin Role",
         "isSystemDefined": True,
         "operations": ["op-1", "op-2", "op-3"],
     },
     {
-        "extId": "0d0b5a1c-3d0e-5a3b-9a3d-6c1b0c1a2e77",
+        "extId": "0000a62c-d805-4a60-a4bf-bde5f2e63cd3",
         "displayName": "Category Viewer",
         "description": "",
         "isSystemDefined": True,
@@ -68,7 +68,7 @@ V3_LDAP_USER = {
         "resources": {
             "directory_service_user": {
                 "user_principal_name": "administrator",
-                "directory_service_reference": {"name": "quinney"},
+                "directory_service_reference": {"name": "example"},
             }
         }
     },
@@ -174,7 +174,7 @@ def test_display_name_prefers_the_name_parts_over_the_username() -> None:
 
 def test_directory_is_resolved_from_the_idp_id() -> None:
     """v4 names the provider only by id, so it has to be looked up."""
-    assert _collect(_Conn()).users[0].directory == "quinney"
+    assert _collect(_Conn()).users[0].directory == "example"
 
 
 def test_built_in_providers_leave_the_directory_column_blank() -> None:

@@ -14,7 +14,7 @@ from ntnxvision_core.collectors.vms import _classify_vm
 from ntnxvision_core.models import Environment, Nic, VirtualMachine
 
 # The PCVM name a real single-node PC deployment generates: NTNX-<pc-ip>-PCVM-<epoch>.
-REAL_PCVM_NAME = "NTNX-10-13-37-4-PCVM-1763821158"
+REAL_PCVM_NAME = "NTNX-198-51-100-4-PCVM-1700000000"
 
 
 # ─── item 1: "PCVM" contains "CVM", so the PC VM was classified as a CVM ───
@@ -36,8 +36,8 @@ def test_pc_naming_variants_still_classify_as_prism_central() -> None:
 def test_controller_vms_are_not_stolen_by_the_pc_rule() -> None:
     """The PC rule runs first now — real CVM names must still land on CVM."""
     assert _classify_vm("NTNX-host01-CVM", {}, {}) == "CVM"
-    assert _classify_vm("NTNX-16SM60010053-A-CVM", {}, {}) == "CVM"
-    assert _classify_vm("NTNX-16SM60010053-A", {}, {}) == "CVM"
+    assert _classify_vm("NTNX-00XX00000001-A-CVM", {}, {}) == "CVM"
+    assert _classify_vm("NTNX-00XX00000001-A", {}, {}) == "CVM"
     assert _classify_vm("some-vm", {"is_cvm": True}, {}) == "CVM"
     assert _classify_vm("app01", {}, {}) == "USER"
 

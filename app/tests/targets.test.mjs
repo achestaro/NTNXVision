@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 
 const require = createRequire(import.meta.url);
-const { TargetStore, migrate, remapIds, validate, passwordAccount, ndbAccount, vcenterAccount, legacyAccount } = require('../dist/main/targets.js');
+const { TargetStore, migrate, remapIds, validate, passwordAccount, ndbAccount, vcenterAccount, legacyAccount, cleanOverrides } = require('../dist/main/targets.js');
 
 function fakeIO({ current, legacy } = {}) {
   const io = {
@@ -138,6 +138,43 @@ test('save: an edited endpoint clears the last test and the remembered clusters'
   r = await store.save({ ...base, id: 'id-1', host: 'pc09.example.com' });
   assert.equal(r.target.lastTest, null);
   assert.equal(r.target.clusterSelection, undefined);
+});
+
+test('rememberRatios: per-cluster targets replace the listed clusters, keep the rest', async () => {
+  const io = fakeIO();
+  const store = new TargetStore(io, fakeSecrets(), { newId: ids() });
+  await store.save({ ...base, password: 'pw' });
+  store.rememberRatios('id-1', { a: 6, b: 2.45, junk: 0, big: 99 }, ['a', 'b', 'c', 'junk', 'big']);
+  let [t] = await store.listWithStatus();
+  assert.deepEqual(t.vcpuRatioOverrides, { a: 6, b: 2.5 });
+  // A later run that listed only a and c: a cleared, b (not listed) kept, c set.
+  store.rememberRatios('id-1', { c: 3 }, ['a', 'c']);
+  [t] = await store.listWithStatus();
+  assert.deepEqual(t.vcpuRatioOverrides, { b: 2.5, c: 3 });
+  // Nothing changed: no write.
+  const writes = io.writes;
+  store.rememberRatios('id-1', { c: 3 }, ['a', 'c']);
+  assert.equal(io.writes, writes);
+  // Every override cleared: the field goes away.
+  store.rememberRatios('id-1', {}, ['b', 'c']);
+  [t] = await store.listWithStatus();
+  assert.equal(t.vcpuRatioOverrides, undefined);
+});
+
+test('save: per-cluster targets survive a rename, not a new address', async () => {
+  const store = new TargetStore(fakeIO(), fakeSecrets(), { newId: ids() });
+  await store.save({ ...base, password: 'pw' });
+  store.rememberRatios('id-1', { a: 6 }, ['a']);
+  let r = await store.save({ ...base, id: 'id-1', name: 'Still PC01' });
+  assert.deepEqual(r.target.vcpuRatioOverrides, { a: 6 });
+  r = await store.save({ ...base, id: 'id-1', host: 'pc09.example.com' });
+  assert.equal(r.target.vcpuRatioOverrides, undefined);
+});
+
+test('cleanOverrides keeps numbers in range only', () => {
+  assert.deepEqual(cleanOverrides({ a: 1, b: 32, c: 0.5, d: '4', e: Number.NaN }), { a: 1, b: 32 });
+  assert.equal(cleanOverrides(null), undefined);
+  assert.equal(cleanOverrides(['x']), undefined);
 });
 
 test('save: removing NDB deletes its keychain entry; Prism Element drops NDB', async () => {

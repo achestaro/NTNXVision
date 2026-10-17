@@ -12,7 +12,7 @@ import threading
 from collections import OrderedDict
 from typing import Any
 
-from ntnxvision_core.capacity import coerce_ratio
+from ntnxvision_core.capacity import coerce_ratio, target_label
 from ntnxvision_core.exporters.tables import (
     INVENTORY_TYPES,
     SPECS,
@@ -482,7 +482,8 @@ def capacity_fields(cap: Any) -> list[dict[str, Any]]:
             f"{count(cap.usable_cores)} of {count(cap.physical_cores)}"
             if cap.usable_cores is not None else NA), "mono": True},
         {"label": "CVM vCPUs", "value": count(cap.cvm_vcpus), "mono": True},
-        {"label": "Target ratio", "value": fmt_ratio(cap.target_ratio), "mono": True},
+        {"label": "Target ratio", "value": target_label(cap.target_ratio, cap.target_custom),
+         "mono": True},
         {"label": "vCPU Total",
          "value": n1(count(cap.vcpu_total), cap.vcpu_total_n1, count(cap.vcpu_total_n1)),
          "mono": True},

@@ -3,7 +3,7 @@
 Two things differ between the APIs beyond field names.
 
 v3 returns a pseudo-host for Prism Central itself — no CPU model, no core count, a
-serial that is really the PC's IP ("10-13-37-4") and a `block` whose values are the
+serial that is really the PC's IP ("198-51-100-4") and a `block` whose values are the
 *string* "null". It has to be filtered on actual compute evidence; anything looser
 (a truthy serial, a non-empty block dict) lets it through as a blank row in the Hosts
 sheet. v4 does not return it at all.
