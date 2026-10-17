@@ -129,6 +129,11 @@ the typed channels in `app/src/shared/ipc.ts`, which the main process relays to 
   (`tests/test_column_order.py`). `compare_pdf.py` renders the Compare page's PDF export
   with the inventory PDF's renderer. `ExportOptions` carries PDF/Word section selection, the Word
   template (built-in or a customer `.dotx`) and the cover's prepared-for / author.
+- `mailer.py` — SMTP (stdlib `smtplib`) for the sidecar's `test_smtp` / `send_email`:
+  message building, None / STARTTLS / SSL-TLS, error classification, attachment size guard
+  and optional zip. Outbound SMTP is the only network use besides Nutanix APIs, and only
+  when the user configured a server; demo mode only sends to 127.0.0.1.
+  `synthetic/smtpsink.py` (`ntnxvision smtp-sink`) is a 127.0.0.1-only test sink.
 - `compat.py` — version compatibility checks (Prism Central `pc.2024.1`–`7.5.1.6`, AOS
   `6.5`–`7.5`). **Warn-but-proceed**: out-of-range versions surface as non-blocking warnings;
   collection always continues.
@@ -164,6 +169,14 @@ rule rather than assuming v4 is always available.
   in `userData`; `main/targets.ts` — saved targets (no passwords; stable ids, keychain
   accounts `target:<id>`, one-time migration from `connections.json`; `npm test`).
   Collections only run against saved targets, managed on the Targets page.
+- `main/mail.ts` — Settings > Email (userData `email.json`; password in the keychain as
+  `smtp:password`, never back to the renderer). `main/schedules.ts` — schedules store
+  (`schedules.json`, no secrets) and the run queue (anchor per schedule: no double runs,
+  missed slots catch up once), plain Node for `npm test`; slot maths in
+  `shared/schedule.ts` (local time, DST-safe). `main/scheduler.ts` — wires them to the
+  sidecar (collect fresh with `unique_name`, then `send_email`), a 30 s timer +
+  powerMonitor resume, the tray / menu bar (window close hides while a schedule is
+  enabled), notifications and Start at login.
 - `main/preload.ts` — exposes the `window.ntnx` bridge (typed by `NtnxApi` in `shared/ipc.ts`).
 - `shared/ipc.ts` — the single source of truth for the IPC contract (channels, request/result
   types, progress events) shared between main and renderer. Update this first when adding a
