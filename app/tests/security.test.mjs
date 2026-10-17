@@ -193,3 +193,14 @@ test('OS-handed snapshot files are not UNC-filtered; renderer paths are (R2-09)'
   assert.throws(() => policy.requireLocalAbsolute('\\\\host\\share\\a.ntnxsnap', 'path'));
   assert.equal(policy.requireLocalAbsolute('/Users/a/a.ntnxsnap', 'path'), '/Users/a/a.ntnxsnap');
 });
+
+test('R2-10: test and list-clusters requests accept plain hosts only', () => {
+  for (const host of ['pc01', 'pc01.example.lab', '192.0.2.10', 'fd00::1']) {
+    assert.doesNotThrow(() => req.asTestRequest({ ...testReq, host }), host);
+    assert.doesNotThrow(() => req.asListClustersRequest({ ...testReq, host }), host);
+  }
+  for (const host of ['admin@evil.example.lab', 'evil.example.lab?x=1', 'evil.example.lab#f', 'evil.example.lab/p', 'https://evil.example.lab', 'a b', 'evil.example.lab:9440', '']) {
+    throwsValidation(() => req.asTestRequest({ ...testReq, host }));
+    throwsValidation(() => req.asListClustersRequest({ ...testReq, host }));
+  }
+});

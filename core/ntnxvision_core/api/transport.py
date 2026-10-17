@@ -9,6 +9,7 @@ sends requests for the synthetic demo hostnames to the local mock Nutanix server
 
 from __future__ import annotations
 
+import ipaddress
 import re
 from collections.abc import Callable
 from typing import Any
@@ -19,9 +20,59 @@ import requests
 from ntnxvision_core.api.errors import (
     CertificateChanged,
     CertificateNotTrusted,
+    InvalidHost,
     NutanixApiError,
     RedirectBlocked,
 )
+
+#: A bare DNS name (labels of letters, digits, hyphens) or an IPv4 address.
+# Labels may contain "_" (not strict DNS, but common in lab and AD names); the target
+# editor (app/src/shared/host.ts) accepts the same set.
+_HOSTNAME_RE = re.compile(
+    r"^(?=.{1,253}$)[A-Za-z0-9_](?:[A-Za-z0-9_-]{0,61}[A-Za-z0-9_])?"
+    r"(?:\.[A-Za-z0-9_](?:[A-Za-z0-9_-]{0,61}[A-Za-z0-9_])?)*$"
+)
+
+
+def valid_hostname(host: str | None) -> bool:
+    """True for a plain hostname, IPv4 or IPv6 address (no scheme, path, port or userinfo).
+
+    The single host check: every credentials class, the certificate probe and the Prism
+    deep links use it, so the host that is displayed and matched is the host that is dialled.
+    """
+    if not host:
+        return False
+    if _HOSTNAME_RE.match(host):
+        return True
+    if "%" in host:
+        return False
+    try:
+        ipaddress.IPv6Address(host)
+    except ValueError:
+        return False
+    return True
+
+
+def clean_host(host: str) -> str:
+    """The validated host: surrounding space and IPv6 brackets removed.
+
+    Raises `InvalidHost` for anything that is not a plain hostname or IP address (userinfo,
+    ``?``, ``#``, ``/``, ports, schemes, IPv6 zone ids).
+    """
+    value = (host or "").strip()
+    if value.startswith("[") and value.endswith("]"):
+        value = value[1:-1]
+        if ":" not in value:
+            raise InvalidHost(f"Invalid host name: {host!r}")
+    if not valid_hostname(value):
+        raise InvalidHost(f"Invalid host name: {host!r}. Enter a plain host name or IP address")
+    return value
+
+
+def url_host(host: str) -> str:
+    """The host as it goes into a URL authority: IPv6 literals are bracketed."""
+    return f"[{host}]" if ":" in host else host
+
 
 _REDIRECTS = (301, 302, 303, 307, 308)
 _FP_RE = re.compile(r"^[0-9A-Fa-f]{2}(:?[0-9A-Fa-f]{2}){31}$")
@@ -142,16 +193,25 @@ class GuardedSession(BoundedSession):
         return resp
 
 
-def configure_tls(session: requests.Session, verify: bool, pinned: str | None = None) -> None:
+def configure_tls(session: requests.Session, verify: bool, pinned: str | None = None,
+                  *, allow_unpinned: bool = False) -> None:
     """Set certificate verification on a session; with it off, pin the server certificate.
 
     `pinned` is a SHA-256 fingerprint: urllib3 then requires the leaf certificate to match
     it on every new connection (this replaces chain verification, which is off). Applied
     to whatever adapter is mounted for https (and to proxied connections), so demo mode's
     router keeps working. Verification on ignores `pinned`.
+
+    With verification off and no usable pin this raises `CertificateNotTrusted` unless
+    `allow_unpinned=True` is passed explicitly (only the command line does, for --insecure,
+    after warning the user). The sidecar never passes it.
     """
     session.verify = verify
     digest = None if verify else normalize_fingerprint(pinned)
+    if not verify and digest is None and not allow_unpinned:
+        raise CertificateNotTrusted(
+            "TLS verification is off and the server certificate is not pinned. Trust the "
+            "certificate first (Targets, test the connection).")
     if isinstance(session, GuardedSession):
         session.pinned = digest
     if digest is None:
