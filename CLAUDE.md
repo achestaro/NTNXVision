@@ -38,7 +38,7 @@ ntnxvision mock-server                    # serve the synthetic estate on 127.0.
 ### Electron app (`app/`)
 ```bash
 cd app
-npm install          # builds keytar (needs Xcode CLT on macOS)
+npm install          # prebuilt native keyring module, no compiler needed
 npm run dev          # compiles main, starts Vite, launches Electron
 npm run dev:demo     # the same, in demo mode (synthetic estate, no lab needed)
 npm run demo         # build once and launch in demo mode
@@ -163,12 +163,16 @@ rule rather than assuming v4 is always available.
 - `main/sidecar.ts` — spawns and supervises the Python sidecar process (dev: venv Python;
   packaged: frozen PyInstaller binary from `resources/sidecar`); passes demo mode through
   the environment. `main/smoke.ts` — the packaging `--smoke` check.
-- `main/secrets.ts` — credential storage via `keytar` (Windows Credential Manager / macOS
+- `main/secrets.ts` — credential storage via `@napi-rs/keyring` (Windows Credential Manager / macOS
   Keychain) — never write credentials to disk in plaintext. Demo mode and tests use an
   in-memory store instead (`NTNXVISION_KEYCHAIN=memory`). `main/store.ts` — settings
   in `userData`; `main/targets.ts` — saved targets (no passwords; stable ids, keychain
   accounts `target:<id>`, one-time migration from `connections.json`; `npm test`).
   Collections only run against saved targets, managed on the Targets page.
+  `main/keychain.ts` keeps the entries keytar wrote readable (same service; Windows keeps
+  keytar's `service/account` target and UTF-8 blob). `main/integrity.ts` — HMAC (key in the
+  keychain as `integrity:key`) over `schedules.json` / `email.json`; an outside edit disables
+  schedules and mail until the user re-saves.
 - `main/mail.ts` — Settings > Email (userData `email.json`; password in the keychain as
   `smtp:password`, never back to the renderer). `main/schedules.ts` — schedules store
   (`schedules.json`, no secrets) and the run queue (anchor per schedule: no double runs,

@@ -28,7 +28,7 @@ import type {
   SmtpSaveRequest,
   SmtpTestRequest,
 } from '../shared/ipc';
-import { IPC } from '../shared/ipc';
+import { EMAIL_TAMPERED_MESSAGE, IPC } from '../shared/ipc';
 import { TargetRef, describeFrequency, scheduleSnapshotNames } from '../shared/schedule';
 import { SmtpStore, smtpParams } from './mail';
 import { Job, RetryLater, RunOutcome, ScheduleRunner, ScheduleStore, nextRun, scheduleInfo } from './schedules';
@@ -187,6 +187,7 @@ export class Scheduler {
     return {
       schedules: this.host.schedules.list().map((s) => scheduleInfo(s, this.runner.state(s.id), refs)),
       background: this.background(),
+      tampered: this.host.schedules.tampered,
       loginItemSupported: this.loginItemSupported(),
     };
   }
@@ -341,6 +342,7 @@ export class Scheduler {
   private async execute(s: Schedule, _job: Job): Promise<RunOutcome> {
     if (this.host.manualBusy()) throw new RetryLater();
     const smtp = await this.host.mail.info();
+    if (smtp.tampered) return FAILED('email', EMAIL_TAMPERED_MESSAGE);
     if (!smtp.configured) return FAILED('email', 'Email is not set up. Set up the mail server in Settings > Email.');
     const targets = s.targetIds.map((id) => store.targets.get(id));
     if (!targets.length || targets.some((t) => !t)) {
@@ -481,7 +483,8 @@ export class Scheduler {
       if (req.word) wordTemplateFor(req.word.template);
       const smtp = await mail.info();
       if (!smtp.configured) {
-        return { ok: false, status: 'not_configured', message: 'Email is not set up. Set up the mail server in Settings > Email.' } satisfies EmailResult;
+        const message = smtp.tampered ? EMAIL_TAMPERED_MESSAGE : 'Email is not set up. Set up the mail server in Settings > Email.';
+        return { ok: false, status: 'not_configured', message } satisfies EmailResult;
       }
       const settings = store.getSettings();
       return sidecar.call<EmailResult>('send_email', {
