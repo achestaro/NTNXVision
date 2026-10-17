@@ -294,7 +294,7 @@ def mock_server(
                   f"(CA: {demo_ca()})")
     for t in targets.values():
         console.print(f"  {t.host:<24} {t.kind}")
-    console.print("Example: curl --cacert <CA> -u admin:demo -H "
+    console.print("Example: curl --cacert <CA> -u admin:demo -H "  # gitleaks:allow
                   "'X-NTNXVision-Demo-Host: pc01.demo.local' "
                   f"https://127.0.0.1:{port}/api/clustermgmt/v4.0/config/clusters")
     try:
