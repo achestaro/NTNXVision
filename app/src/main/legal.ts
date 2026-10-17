@@ -4,6 +4,7 @@
 // in development they're read from the repository root.
 
 import { app, ipcMain } from 'electron';
+import { secureIpc } from './security';
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { IPC, LegalDocuments } from '../shared/ipc';
@@ -29,5 +30,5 @@ export async function getLegalDocuments(): Promise<LegalDocuments> {
 }
 
 export function registerLegalHandlers(): void {
-  ipcMain.handle(IPC.getLegalDocuments, () => getLegalDocuments());
+  secureIpc(ipcMain).handle(IPC.getLegalDocuments, () => getLegalDocuments());
 }

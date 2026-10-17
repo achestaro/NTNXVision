@@ -9,6 +9,8 @@ import { EventEmitter } from 'node:events';
 import { accessSync, chmodSync, constants as fsConstants, existsSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { app } from 'electron';
+import { allowlistedEnv } from './sidecarEnv';
+import { testEnv } from './testhooks';
 
 interface Pending {
   resolve: (value: unknown) => void;
@@ -19,11 +21,10 @@ interface Pending {
  * Path of the PyInstaller one-folder sidecar inside a packaged app:
  *   macOS   NTNXVision.app/Contents/Resources/sidecar/ntnxvision-sidecar
  *   Windows <install dir>\resources\sidecar\ntnxvision-sidecar.exe
- * `NTNXVISION_SIDECAR` overrides it (debugging a locally frozen build against a packaged
- * shell). On macOS/Linux the execute bit is restored if an archive/copy step dropped it.
+ * `NTNXVISION_SIDECAR` overrides it only in an unpackaged app (never honoured by a release). On macOS/Linux the execute bit is restored if an archive/copy step dropped it.
  */
 export function packagedSidecarPath(): string {
-  const override = process.env.NTNXVISION_SIDECAR;
+  const override = testEnv('NTNXVISION_SIDECAR');
   if (override) return override;
   const exe = process.platform === 'win32' ? 'ntnxvision-sidecar.exe' : 'ntnxvision-sidecar';
   const path = join(process.resourcesPath, 'sidecar', exe);
@@ -43,6 +44,11 @@ export function packagedSidecarPath(): string {
     }
   }
   return path;
+}
+
+function sidecarEnv(demo: boolean): NodeJS.ProcessEnv {
+  const base = app.isPackaged ? allowlistedEnv(process.env) : { ...process.env };
+  return demo ? { ...base, NTNXVISION_DEMO: '1' } : base;
 }
 
 export type ProgressListener = (params: Record<string, unknown>) => void;
@@ -77,7 +83,7 @@ export class SidecarClient extends EventEmitter {
     // a console window next to the app.
     // Demo mode reaches the sidecar through its environment (both the dev `python -m`
     // entry and the frozen binary read NTNXVISION_DEMO).
-    const env = isDemoMode() ? { ...process.env, NTNXVISION_DEMO: '1' } : process.env;
+    const env = sidecarEnv(isDemoMode());
     this.proc = spawn(command, args, { stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true, env });
     // Spawn failures (ENOENT/EACCES) arrive as 'error', not 'exit' — unhandled, they would
     // crash the main process.

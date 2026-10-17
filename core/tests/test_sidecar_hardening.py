@@ -66,3 +66,15 @@ def test_finalize_survives_snapshot_save_failure(tmp_path, monkeypatch) -> None:
     assert result["summary"] is not None
     assert result["snapshot_path"] is None
     assert any("could not be saved" in w for w in result["warnings"])
+
+
+def test_prism_link_hostname_validation():
+    """SEC-05: a Prism link is built only from a bare hostname or IP."""
+    from ntnxvision_core.inventory import valid_hostname
+
+    for good in ("pc01.example.lab", "192.0.2.10", "pc01", "fe80::1"):
+        assert valid_hostname(good), good
+    for bad in ("", None, "https://evil.example", "evil.example/x", "user@evil.example",
+                "evil.example:9440", "a b", "evil.example?x=1", "evil.example#frag",
+                "-bad.example"):
+        assert not valid_hostname(bad), bad
