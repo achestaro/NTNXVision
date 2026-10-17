@@ -12,7 +12,7 @@ import threading
 from collections import OrderedDict
 from typing import Any
 
-from ntnxvision_core.capacity import coerce_ratio
+from ntnxvision_core.capacity import coerce_ratio, target_label
 from ntnxvision_core.exporters.tables import (
     INVENTORY_TYPES,
     SPECS,
@@ -405,7 +405,9 @@ def _vm_detail(env: Environment, vm: Any, ctx: Ctx) -> dict[str, Any]:
     ]
     for i, d in enumerate(disks, start=1):
         fields.append({"label": f"Disk {i}", "value": " · ".join(x for x in (
-            d.label, fmt_bytes(d.disk_size_bytes), d.storage_container_name) if x),
+            d.label, fmt_bytes(d.disk_size_bytes),
+            d.storage_container_name or (f"datastore {d.datastore}" if d.datastore else None))
+            if x),
             "mono": True})
     for i, n in enumerate(vm.nics, start=1):
         parts = [n.subnet_name, f"VLAN {n.vlan_id}" if n.vlan_id is not None else None,
@@ -480,7 +482,8 @@ def capacity_fields(cap: Any) -> list[dict[str, Any]]:
             f"{count(cap.usable_cores)} of {count(cap.physical_cores)}"
             if cap.usable_cores is not None else NA), "mono": True},
         {"label": "CVM vCPUs", "value": count(cap.cvm_vcpus), "mono": True},
-        {"label": "Target ratio", "value": fmt_ratio(cap.target_ratio), "mono": True},
+        {"label": "Target ratio", "value": target_label(cap.target_ratio, cap.target_custom),
+         "mono": True},
         {"label": "vCPU Total",
          "value": n1(count(cap.vcpu_total), cap.vcpu_total_n1, count(cap.vcpu_total_n1)),
          "mono": True},

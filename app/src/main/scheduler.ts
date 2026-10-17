@@ -33,6 +33,7 @@ import { TargetRef, describeFrequency, scheduleSnapshotNames } from '../shared/s
 import { SmtpStore, smtpParams } from './mail';
 import { Job, RetryLater, RunOutcome, ScheduleRunner, ScheduleStore, nextRun, scheduleInfo } from './schedules';
 import { SidecarClient, SidecarError } from './sidecar';
+import { cleanOverrides } from './targets';
 import type { StoredTarget } from './targets';
 import * as store from './store';
 import { APP_ICON_PNG, MAC_TEMPLATE_PNG } from './trayIcons';
@@ -289,7 +290,17 @@ export class Scheduler {
       const ndbPassword = (await store.targets.ndbPassword(t.id)) ?? '';
       if (ndbPassword) ndb = { host: t.ndbHost, username: t.ndbUser || 'admin', password: ndbPassword };
     }
-    return { host: t.host, username: t.username, port: t.port, insecure: t.insecure, password, ndb };
+    // The target's vCenter (ESXi enrichment), as New collection turns it on when one is saved.
+    let vcenter: { host: string; username: string; password: string; insecure: boolean } | undefined;
+    if (t.mode === 'prism_central' && t.vcenterHost) {
+      const vcPassword = (await store.targets.vcenterPassword(t.id)) ?? '';
+      if (vcPassword) {
+        vcenter = { host: t.vcenterHost, username: t.vcenterUser || 'administrator@vsphere.local', password: vcPassword, insecure: !!t.vcenterInsecure };
+      }
+    }
+    // Per-cluster vCPU:pCPU targets remembered from the last manual run.
+    const overrides = cleanOverrides(t.vcpuRatioOverrides);
+    return { host: t.host, username: t.username, port: t.port, insecure: t.insecure, password, ndb, vcenter, overrides };
   }
 
   /**
@@ -366,7 +377,9 @@ export class Scheduler {
           formats: [],
           export_dir: settings.exportDir,
           ndb: conn.ndb,
+          vcenter: conn.vcenter,
           vcpu_ratio: settings.vcpuRatio,
+          vcpu_ratio_overrides: conn.overrides,
         });
         if (!result.snapshot_path) {
           return FAILED('collect', `The snapshot could not be saved. ${result.warnings.join(' ')}`.trim());
@@ -386,6 +399,8 @@ export class Scheduler {
             insecure: c.insecure,
             name: names.targets[i],
             ndb: c.ndb,
+            vcenter: c.vcenter,
+            vcpu_ratio_overrides: c.overrides,
             clusters: scopes[i],
           })),
           areas: areasFor('prism_central'),

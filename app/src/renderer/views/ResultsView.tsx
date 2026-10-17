@@ -5,6 +5,7 @@ import React from 'react';
 import { FileDocIcon, FileDashedIcon, FilePdfIcon, FileXlsIcon } from '@phosphor-icons/react';
 import type {
   AreaProgress,
+  CompatInfo,
   ApiRoutingRow,
   ExportFormat,
   Figure,
@@ -19,6 +20,7 @@ import {
   Badge,
   Button,
   Callout,
+  ClampText,
   DataTable,
   EmptyState,
   ErrorState,
@@ -272,57 +274,69 @@ function ResultsBody({
 
       {lastResult.multi && multiTargets.length > 0 && <TargetsPanel targets={multiTargets} />}
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 440px), 1fr))', gap: 16, alignItems: 'start' }}>
-        <ReportsPanel reports={reports} dir={reportDir} snapshotPath={r.snapshot_path} />
+      <div className="results-cards">
+        <div className="results-grid">
+          <ReportsPanel reports={reports} dir={reportDir} snapshotPath={r.snapshot_path} />
 
-        <Panel aria-labelledby="notes">
-          <PanelHeader id="notes" title="Collection notes" meta={total ? `${fmtCount(notesAreas.length)} of ${fmtCount(total)}` : undefined} />
-          <NotesTable areas={notesAreas} notesMap={total ? null : r.collection_notes} />
-          {total > 0 && (
-            <div style={{ padding: '10px 12px', borderTop: '1px solid var(--rule-2)', color: 'var(--ink-3)' }}>
-              {notesAreas.length === 0
-                ? `All ${plural(total, 'area')} collected without notes.`
-                : `The other ${plural(total - notesAreas.length, 'area')} collected without notes.`}
-            </div>
-          )}
-        </Panel>
-
-        {r.api_routing && r.api_routing.length > 0 && (
-          <Panel style={{ gridColumn: '1 / -1' }} aria-labelledby="api">
-            <PanelHeader id="api" title="API routing and compatibility">
-              {r.compat && (
-                <span style={{ fontSize: 12 }}>
-                  <Status tone={r.compat.supported ? 'ok' : 'warn'}>
-                    {r.compat.version ?? 'This version'} is {r.compat.supported ? 'within' : 'outside'} the supported range ({r.compat.range})
-                  </Status>
-                </span>
-              )}
-            </PanelHeader>
-            <div className="scroll-x">
-              <DataTable<ApiRoutingRow>
-                ariaLabel="API routing"
-                rows={r.api_routing}
-                rowKey={(x) => x.areas}
-                columns={[
-                  { key: 'areas', header: 'Area', className: 'nm', style: { whiteSpace: 'normal' }, render: (x) => x.areas },
-                  {
-                    key: 'api',
-                    header: 'API',
-                    render: (x) => (
-                      <Badge mono strong>
-                        {x.api === 'v2' ? 'v2.0' : x.api === 'era' ? 'Era' : x.api}
-                      </Badge>
-                    ),
-                  },
-                  { key: 'why', header: 'Why', className: 'wrap', render: (x) => x.reason },
-                  { key: 'after', header: 'After Q4 2026 v3 sunset', render: (x) => <StatusFromValue value={x.after_sunset} /> },
-                ]}
-              />
-            </div>
+          <Panel aria-labelledby="notes" data-testid="results-notes">
+            <PanelHeader id="notes" title="Collection notes" meta={total ? `${fmtCount(notesAreas.length)} of ${fmtCount(total)}` : undefined} />
+            <NotesTable areas={notesAreas} notesMap={total ? null : r.collection_notes} />
+            {total > 0 && (
+              <div style={{ padding: '10px 12px', borderTop: '1px solid var(--rule-2)', color: 'var(--ink-3)' }}>
+                {notesAreas.length === 0
+                  ? `All ${plural(total, 'area')} collected without notes.`
+                  : `The other ${plural(total - notesAreas.length, 'area')} collected without notes.`}
+              </div>
+            )}
           </Panel>
-        )}
+
+          {r.api_routing && r.api_routing.length > 0 && (
+            <Panel className="span-all" aria-labelledby="api">
+              <PanelHeader id="api" title="API routing and compatibility">
+                {r.compat && <CompatNote compat={r.compat} />}
+              </PanelHeader>
+              <div className="scroll-x">
+                <DataTable<ApiRoutingRow>
+                  ariaLabel="API routing"
+                  rows={r.api_routing}
+                  rowKey={(x) => x.areas}
+                  columns={[
+                    { key: 'areas', header: 'Area', className: 'nm wrap', render: (x) => x.areas },
+                    {
+                      key: 'api',
+                      header: 'API',
+                      render: (x) => (
+                        <Badge mono strong>
+                          {x.api === 'v2' ? 'v2.0' : x.api === 'era' ? 'Era' : x.api === 'vcenter' ? 'vCenter' : x.api}
+                        </Badge>
+                      ),
+                    },
+                    { key: 'why', header: 'Why', className: 'wrap', render: (x) => x.reason },
+                    { key: 'after', header: 'After Q4 2026 v3 sunset', render: (x) => <StatusFromValue value={x.after_sunset} /> },
+                  ]}
+                />
+              </div>
+            </Panel>
+          )}
+        </div>
       </div>
     </>
+  );
+}
+
+/**
+ * "<version> is within the supported range (…)" in the header strip. A long build string
+ * truncates on its own so the verdict stays readable; the full text is in the tooltip.
+ */
+function CompatNote({ compat }: { compat: CompatInfo }): JSX.Element {
+  const text = `${compat.version ?? 'This version'} is ${compat.supported ? 'within' : 'outside'} the supported range (${compat.range})`;
+  return (
+    <span className="phead-note" title={text} data-testid="results-compat">
+      <Status tone={compat.supported ? 'ok' : 'warn'}>
+        <span className="ver">{compat.version ?? 'This version'}</span>
+        {` is ${compat.supported ? 'within' : 'outside'} the supported range (${compat.range})`}
+      </Status>
+    </span>
   );
 }
 
@@ -368,7 +382,7 @@ function ReportsPanel({ reports, dir, snapshotPath }: { reports: ReportFile[]; d
         return (
           <div className="file" key={f.path}>
             <Icon icon={meta?.icon ?? FileDashedIcon} size={20} style={{ color: 'var(--ink-3)' }} />
-            <div style={{ flex: 1, minWidth: 180 }}>
+            <div className="file-text">
               <div style={{ fontWeight: 500 }}>{f.name}</div>
               <div className="mono muted" style={{ fontSize: 12 }}>
                 {detail}
@@ -386,7 +400,7 @@ function ReportsPanel({ reports, dir, snapshotPath }: { reports: ReportFile[]; d
       {missing.map((f) => (
         <div className="file" key={f}>
           <Icon icon={FileDashedIcon} size={20} style={{ color: 'var(--ink-3)' }} />
-          <div style={{ flex: 1, minWidth: 180 }}>
+          <div className="file-text">
             <div style={{ fontWeight: 500, color: 'var(--ink-2)' }}>{FORMAT_META[f].label === 'Excel' ? 'Excel workbook' : FORMAT_META[f].label}</div>
             <div className="t12 muted">Not requested for this run</div>
           </div>
@@ -406,12 +420,13 @@ function NotesTable({ areas, notesMap }: { areas: AreaProgress[]; notesMap: Reco
       <DataTable
         head={false}
         ariaLabel="Collection notes"
+        className="tbl-notes"
         rows={rows}
         rowKey={(x) => x.id}
         empty="No notes. Every area collected cleanly."
         columns={[
-          { key: 'a', header: 'Area', className: 'nm', render: (x) => x.label },
-          { key: 'd', header: 'Detail', className: 'wrap', render: (x) => x.detail },
+          { key: 'a', header: 'Area', className: 'nm notes-area', render: (x) => x.label },
+          { key: 'd', header: 'Detail', className: 'wrap', render: (x) => <ClampText>{x.detail}</ClampText> },
         ]}
       />
     );
@@ -420,13 +435,23 @@ function NotesTable({ areas, notesMap }: { areas: AreaProgress[]; notesMap: Reco
     <DataTable<AreaProgress>
       head={false}
       ariaLabel="Collection notes"
+      className="tbl-notes"
       rows={areas}
       rowKey={(a) => a.id}
       empty="No notes. Every area collected cleanly."
       columns={[
-        { key: 'a', header: 'Area', className: 'nm', render: (a) => a.label },
-        { key: 's', header: 'Status', render: (a) => <AreaStatusLabel status={a.status} /> },
-        { key: 'd', header: 'Detail', className: 'wrap', render: (a) => a.detail ?? '' },
+        {
+          key: 'a',
+          header: 'Area',
+          className: 'nm notes-area',
+          render: (a) => (
+            <>
+              <div>{a.label}</div>
+              <AreaStatusLabel status={a.status} />
+            </>
+          ),
+        },
+        { key: 'd', header: 'Detail', className: 'wrap', render: (a) => (a.detail ? <ClampText>{a.detail}</ClampText> : '') },
       ]}
     />
   );
@@ -443,7 +468,7 @@ function TargetsPanel({ targets }: { targets: MultiTargetResult[] }): JSX.Elemen
         rowKey={(t) => t.host}
         rowClassName={(t) => (t.success ? undefined : 'r-error')}
         columns={[
-          { key: 'host', header: 'Address', className: 'nm mono', style: { fontWeight: 400 }, render: (t) => t.host },
+          { key: 'host', header: 'Address', className: 'nm mono wrap', style: { fontWeight: 400 }, render: (t) => t.host },
           {
             key: 'st',
             header: 'Status',
@@ -461,7 +486,7 @@ function TargetsPanel({ targets }: { targets: MultiTargetResult[] }): JSX.Elemen
                 <span className="dash">Not saved</span>
               ),
           },
-          { key: 'detail', header: 'Detail', className: 'wrap', render: (t) => (t.success ? '' : t.error) },
+          { key: 'detail', header: 'Detail', className: 'wrap', render: (t) => (t.success ? '' : <ClampText>{t.error}</ClampText>) },
         ]}
       />
     </Panel>
