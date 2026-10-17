@@ -20,7 +20,7 @@ from ntnxvision_core.api.errors import (
     NutanixApiError,
     TlsVerificationFailed,
 )
-from ntnxvision_core.api.transport import configure_tls, new_session
+from ntnxvision_core.api.transport import clean_host, configure_tls, new_session, url_host
 from ntnxvision_core.cancel import CancelToken
 
 DEFAULT_TIMEOUT = 60
@@ -34,10 +34,15 @@ class NdbCredentials:
     verify_ssl: bool = True
     #: SHA-256 fingerprint of the trusted certificate (only used with verify_ssl off).
     pinned_sha256: str | None = None
+    #: Command line only: connect with verification off and no pin (--insecure).
+    allow_unpinned: bool = False
+
+    def __post_init__(self) -> None:
+        self.host = clean_host(self.host)
 
     @property
     def base(self) -> str:
-        return f"https://{self.host}/era/v0.9"
+        return f"https://{url_host(self.host)}/era/v0.9"
 
 
 @dataclass
@@ -56,7 +61,8 @@ class NdbConnection:
         self.session.headers.update(
             {"Authorization": f"Basic {token}", "Accept": "application/json"}
         )
-        configure_tls(self.session, self.creds.verify_ssl, self.creds.pinned_sha256)
+        configure_tls(self.session, self.creds.verify_ssl, self.creds.pinned_sha256,
+                      allow_unpinned=self.creds.allow_unpinned)
         try:
             resp = self.session.get(f"{self.creds.base}/clusters", timeout=self.timeout)
         except requests.exceptions.SSLError as exc:
