@@ -37,6 +37,7 @@ from ntnxvision_core.api.errors import (
     TlsVerificationFailed,
 )
 from ntnxvision_core.api.ndb_client import NdbConnection, NdbCredentials
+from ntnxvision_core.api.vcenter_client import VcenterConnection, VcenterCredentials
 from ntnxvision_core.areas import AREAS, TYPICAL_SECONDS
 from ntnxvision_core.compat import check_aos, check_prism_central
 from ntnxvision_core.numfmt import fmt_count
@@ -56,14 +57,14 @@ _DEPLOYMENT_PROBES = {
 def test_connection(params: dict[str, Any]) -> dict[str, Any]:
     mode = str(params.get("mode") or "prism_central")
     host = str(params.get("host") or "").strip()
-    port = int(params.get("port") or (443 if mode == "ndb" else 9440))
+    port = int(params.get("port") or (443 if mode in ("ndb", "vcenter") else 9440))
     username = str(params.get("username") or "")
     password = str(params.get("password") or "")
     insecure = bool(params.get("insecure"))
     base: dict[str, Any] = {
         "product": mode, "name": host,
         "supported_range": AOS_RANGE if mode == "prism_element" else
-        (None if mode == "ndb" else PC_RANGE),
+        (None if mode in ("ndb", "vcenter") else PC_RANGE),
         "typical_seconds": TYPICAL_SECONDS.get(mode, 60),
     }
     if not host:
@@ -76,6 +77,8 @@ def test_connection(params: dict[str, Any]) -> dict[str, Any]:
             return {**base, **_test_pe(host, port, username, password, insecure)}
         if mode == "ndb":
             return {**base, **_test_ndb(host, username, password, insecure)}
+        if mode == "vcenter":
+            return {**base, **_test_vcenter(host, port, username, password, insecure)}
         return {**base, **_test_pc(host, port, username, password, insecure)}
     except TlsVerificationFailed as exc:
         cert = describe_certificate(host, port)
@@ -247,6 +250,32 @@ def _test_ndb(host: str, username: str, password: str, insecure: bool) -> dict[s
     return {"status": "ok", "ok": True,
             "message": f"Connected to NDB{' ' + version if version else ''}",
             "detail": detail, "version": version, "version_supported": True,
+            "api": {"v4": 0, "v3": 0, "v2": 0, "not_deployed": 0}, "certificate": None}
+
+
+def _test_vcenter(host: str, port: int, username: str, password: str, insecure: bool
+                  ) -> dict[str, Any]:
+    """Log in to vCenter and count its hosts and VMs (GETs; the session is ended)."""
+    creds = VcenterCredentials(host=host, username=username, password=password, port=port,
+                               verify_ssl=not insecure)
+    with VcenterConnection(creds, timeout=TEST_TIMEOUT) as vc:
+        version = vc.version
+        hosts = vms = None
+        with contextlib.suppress(NutanixApiError):
+            data = vc.get("vcenter/host")
+            hosts = len(data) if isinstance(data, list) else None
+        with contextlib.suppress(NutanixApiError):
+            data = vc.get("vcenter/vm")
+            vms = len(data) if isinstance(data, list) else None
+    detail = " · ".join(p for p in (
+        f"{fmt_count(hosts)} hosts" if hosts is not None else None,
+        f"{fmt_count(vms)} VMs" if vms is not None else None,
+        "vSphere REST API",
+    ) if p)
+    return {"status": "ok", "ok": True,
+            "message": f"Connected to vCenter{' ' + version if version else ''}",
+            "detail": detail, "version": version, "version_supported": True,
+            "hosts": hosts, "vms": vms,
             "api": {"v4": 0, "v3": 0, "v2": 0, "not_deployed": 0}, "certificate": None}
 
 

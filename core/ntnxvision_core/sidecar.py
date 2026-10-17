@@ -50,6 +50,7 @@ from ntnxvision_core.api import PrismCredentials
 from ntnxvision_core.api.element_client import ElementCredentials
 from ntnxvision_core.api.errors import NutanixApiError
 from ntnxvision_core.api.ndb_client import NdbCredentials
+from ntnxvision_core.api.vcenter_client import VcenterCredentials
 from ntnxvision_core.cancel import CancelToken, RunCancelled
 from ntnxvision_core.capacity import MAX_VCPU_RATIO, MIN_VCPU_RATIO, apply_targets, valid_ratio
 from ntnxvision_core.engine import (
@@ -474,6 +475,18 @@ def _ndb_from(block: dict[str, Any] | None, insecure: bool) -> NdbCredentials | 
     return None
 
 
+def _vcenter_from(block: dict[str, Any] | None, insecure: bool) -> VcenterCredentials | None:
+    """The optional vCenter of a target (ESXi enrichment); its own `insecure` flag wins,
+    since a vCenter's certificate is often self-signed where the PC's is not."""
+    vc = block or {}
+    if vc.get("host") and vc.get("username"):
+        return VcenterCredentials(host=vc["host"], username=vc["username"],
+                                  password=vc.get("password", ""),
+                                  port=int(vc.get("port") or 443),
+                                  verify_ssl=not bool(vc.get("insecure", insecure)))
+    return None
+
+
 def _advance_demo(host: str) -> None:
     if demo_enabled():
         from ntnxvision_core.synthetic import demo
@@ -529,6 +542,7 @@ def _m_inventory(req_id: Any, params: dict[str, Any]) -> dict[str, Any]:
         tracker = RunTracker(_emit_progress, run_id=handle.run_id, mode="prism_central",
                              host=creds.host, name=name, formats=params.get("formats") or [])
         env = collect_environment(creds, ndb_creds=_ndb_from(params.get("ndb"), insecure),
+                                  vcenter_creds=_vcenter_from(params.get("vcenter"), insecure),
                                   areas=params.get("areas"), cancel=handle.token,
                                   tracker=tracker, clusters=_clusters_param(params))
         apply_targets(env, params.get("vcpu_ratio"), overrides)
@@ -624,6 +638,7 @@ def _multi(handle: RunHandle, targets: list[dict[str, Any]], params: dict[str, A
                 verify_ssl=not insecure,
             )
             env = collect_environment(creds, ndb_creds=_ndb_from(t.get("ndb"), insecure),
+                                      vcenter_creds=_vcenter_from(t.get("vcenter"), insecure),
                                       areas=params.get("areas"), cancel=handle.token,
                                       tracker=tracker)
             apply_targets(env, params.get("vcpu_ratio"), t.get("vcpu_ratio_overrides"))

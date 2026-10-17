@@ -405,7 +405,9 @@ def _vm_detail(env: Environment, vm: Any, ctx: Ctx) -> dict[str, Any]:
     ]
     for i, d in enumerate(disks, start=1):
         fields.append({"label": f"Disk {i}", "value": " · ".join(x for x in (
-            d.label, fmt_bytes(d.disk_size_bytes), d.storage_container_name) if x),
+            d.label, fmt_bytes(d.disk_size_bytes),
+            d.storage_container_name or (f"datastore {d.datastore}" if d.datastore else None))
+            if x),
             "mono": True})
     for i, n in enumerate(vm.nics, start=1):
         parts = [n.subnet_name, f"VLAN {n.vlan_id}" if n.vlan_id is not None else None,

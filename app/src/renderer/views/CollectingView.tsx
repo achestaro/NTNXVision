@@ -198,7 +198,7 @@ function AreaTable({ areas, starting }: { areas: AreaProgress[]; starting: boole
           render: (a) =>
             a.api ? (
               <Badge mono strong>
-                {a.api === 'v2' ? 'v2.0' : a.api === 'era' ? 'Era' : a.api}
+                {a.api === 'v2' ? 'v2.0' : a.api === 'era' ? 'Era' : a.api === 'vcenter' ? 'vCenter' : a.api}
               </Badge>
             ) : null,
         },

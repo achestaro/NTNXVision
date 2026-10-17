@@ -49,13 +49,15 @@ class Target:
     """Something answering at a demo hostname."""
 
     host: str
-    kind: str  # "pc" | "pe" | "ndb"
+    kind: str  # "pc" | "pe" | "ndb" | "vcenter"
     build: Callable[[int], Any]
     epoch: int = 0
     #: "ca" = served with the demo-CA-signed cert; "self" = a self-signed cert.
     tls: str = "ca"
     #: False = DNS failure (the router never connects).
     reachable: bool = True
+    #: A vCenter serves the ESXi part of this Prism Central's estate (same epoch).
+    source: Target | None = None
     _cache: dict[int, Any] = field(default_factory=dict, repr=False)
     _lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
 
@@ -171,6 +173,7 @@ class MockApi:
         query: dict[str, str],
         body: Any,
         authorization: str | None,
+        headers: dict[str, str] | None = None,
     ) -> Response:
         target = self.resolve(host)
         if target is None:
@@ -180,6 +183,15 @@ class MockApi:
             self.hits[key] = self.hits.get(key, 0) + 1
         if self.latency_ms:
             time.sleep(self.latency_ms / 1000.0)
+        if target.kind == "vcenter":
+            from ntnxvision_core.synthetic.vcenter import handle_vcenter
+
+            source = target.source or target
+            try:
+                return handle_vcenter(source.estate(), target.host, method, path, query,
+                                      authorization, headers or {})
+            except _HttpError as exc:
+                return exc.status, exc.body, exc.headers
         if not _authorized(authorization):
             return 401, {"api_version": "3.1", "code": 401, "state": "ERROR",
                          "message_list": [{"message": "Authentication required.",
@@ -211,6 +223,9 @@ class MockApi:
             query: dict[str, str], body: dict[str, Any]) -> Response:
         if method == "GET" and path == "/PrismGateway/services/rest/v1/cluster":
             return 200, r.pc_gateway_v1(est), {}
+        if method == "GET" and query.get("proxyClusterUuid") and \
+                path.startswith("/PrismGateway/services/rest/v2.0/"):
+            return self._pe_proxy(est, path, query)
         m = re.fullmatch(r"/api/nutanix/v3/(.+)/list", path)
         if method == "POST" and m:
             return self._v3_list(est, m.group(1), body)
@@ -219,6 +234,39 @@ class MockApi:
         if method == "GET" and path.startswith("/api/") and "/v4.0/" in path:
             return self._v4(target, est, path[len("/api/"):], query)
         return _not_found_v3(path)
+
+    def _pe_proxy(self, est: PcEstate, path: str, query: dict[str, str]) -> Response:
+        """Prism Element v2.0 of one registered cluster, through Prism Central.
+
+        Serves ``vms`` (disk / NIC config on request) and ``networks`` (Nutanix subnets
+        on AHV, vSphere port groups on ESXi) of the cluster named by
+        ``proxyClusterUuid``; paging by ``offset`` plus ``length`` or ``count``.
+        """
+        if not est.features.pe_proxy:
+            return 403, {"message": "Access denied for the proxied cluster."}, {}
+        cluster_uuid = query.get("proxyClusterUuid")
+        cluster = next((c for c in est.clusters if c["uuid"] == cluster_uuid), None)
+        if cluster is None:
+            return 404, {"message": f"Cluster {cluster_uuid} is not registered."}, {}
+        what = path[len("/PrismGateway/services/rest/v2.0/"):].strip("/")
+        offset = _int(query.get("offset"), 0)
+        count = min(_int(query.get("length") or query.get("count"), 20), 500)
+        items: list[dict[str, Any]]
+        if what == "vms":
+            disks = query.get("include_vm_disk_config") == "true"
+            nics = query.get("include_vm_nic_config") == "true"
+            items = [r.pe_vm_v2(v, disks, nics) for v in est.vms
+                     if v["cluster_uuid"] == cluster_uuid]
+        elif what == "networks":
+            if cluster["hypervisor"] == "ESXi":
+                items = [r.pe_port_group_v2(p) for p in est.port_groups
+                         if p["cluster_uuid"] == cluster_uuid]
+            else:
+                items = [r.pe_network_v2(s) for s in est.subnets
+                         if s["cluster_uuid"] == cluster_uuid]
+        else:
+            return 404, {"message": f"Not found: {path}"}, {}
+        return 200, r.v2_list(_page(items, offset, count), len(items), offset), {}
 
     def _v3_list(self, est: PcEstate, kind: str, body: dict[str, Any]) -> Response:
         offset = _int(body.get("offset"), 0)
@@ -281,6 +329,8 @@ class MockApi:
             rows = est.hosts
         elif etype == "mh_vm" and est.features.groups_mh_vm:
             rows = _mh_vm_rows(est, str(body.get("filter_criteria") or ""))
+        elif etype in ("virtual_nic", "virtual_disk") and est.features.groups_mh_vm:
+            rows = _vm_part_rows(est, etype, str(body.get("filter_criteria") or ""))
         else:
             return 400, {"message": f"Unsupported groups query for {etype}"}, {}
         page = _page(rows, offset, count)
@@ -551,8 +601,10 @@ def _mh_vm_rows(est: PcEstate, criteria: str) -> list[dict[str, Any]]:
             "memory_size_bytes": str(v["memory"]),
             "power_state": str(v["power"]).lower(), "is_cvm": "0", "vm_type": "kGuestVM",
             "host_name": None, "node": v["host_uuid"],
-            "capacity_bytes": str(sum(d["size"] for d in v["disks"])),
+            # Like a real PC: only disks on Nutanix storage containers count.
+            "capacity_bytes": str(sum(d["size"] for d in v["disks"] if d["container_uuid"])),
             "guest_os_name": v["guest_os"],
+            "ip_addresses": [n["ip"] for n in v["nics"] if n["ip"]] or None,
         })
     for c in est.cvms:
         rows.append({
@@ -572,6 +624,37 @@ def _mh_vm_rows(est: PcEstate, criteria: str) -> list[dict[str, Any]]:
             rows = [x for x in rows if x["is_cvm"] in wanted]
         elif key == "cluster":
             rows = [x for x in rows if x["cluster"] in wanted]
+    return rows
+
+
+def _vm_part_rows(est: PcEstate, etype: str, criteria: str) -> list[dict[str, Any]]:
+    """``virtual_nic`` / ``virtual_disk`` groups rows, honouring ``vm=in=a|b``."""
+    wanted: set[str] | None = None
+    for term in criteria.split(";"):
+        if term.startswith("vm=in="):
+            wanted = set(term[len("vm=in="):].split("|"))
+        elif term.startswith("vm=="):
+            wanted = {term[len("vm=="):]}
+    rows: list[dict[str, Any]] = []
+    for v in est.vms:
+        if wanted is not None and v["uuid"] not in wanted:
+            continue
+        if etype == "virtual_nic":
+            for n in v["nics"]:
+                rows.append({"uuid": n["uuid"], "vm": v["uuid"], "mac_address": n["mac"],
+                             "ipv4_addresses": [n["ip"]] if n["ip"] else None,
+                             "connected": "true" if n["connected"] else "false",
+                             "virtual_network": n.get("port_group_uuid") or n["subnet_uuid"]})
+        else:
+            for d in v["disks"]:
+                if not d["container_uuid"]:
+                    continue  # groups knows only disks on Nutanix containers
+                rows.append({"uuid": d["uuid"], "vm": v["uuid"],
+                             "capacity_bytes": str(d["size"]),
+                             "container": d["container_uuid"],
+                             "container_name": d["container_name"],
+                             "disk_address": f"{d['bus'].lower()}.{d['index']}",
+                             "is_cdrom": "0"})
     return rows
 
 

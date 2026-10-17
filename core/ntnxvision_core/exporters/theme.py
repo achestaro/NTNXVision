@@ -153,6 +153,14 @@ def power_label(value: Any) -> str | None:
     return str(value).replace("_", " ").capitalize()
 
 
+def switch_label(value: Any) -> str | None:
+    """A port group's vSphere switch type as a label (STANDARD → Standard, …)."""
+    if is_missing(value):
+        return None
+    return {"STANDARD": "Standard", "DISTRIBUTED": "Distributed",
+            "OPAQUE": "NSX segment"}.get(str(value).upper(), str(value).title())
+
+
 def on_off(value: Any) -> str:
     """Normalise mixed-case feature switches (NONE / off / on / POST_PROCESS)."""
     if is_missing(value):

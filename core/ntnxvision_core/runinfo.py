@@ -316,6 +316,9 @@ def api_routing(env: Any, areas: list[dict[str, Any]],
                 _SUNSET_STOPS)
         elif api == "era":
             add(source, label, "era", "NDB has its own Era API", _SUNSET_OK)
+        elif api == "vcenter":
+            add(source, label, "vcenter", "ESXi details from the VMware vCenter REST API",
+                _SUNSET_OK)
         elif area is not None and area.v4_area:
             verdict = negotiated.get(area.v4_area, "")
             if "not GA" in verdict:
@@ -338,7 +341,7 @@ def api_routing(env: Any, areas: list[dict[str, Any]],
             for sub_label, reason in area.legacy_only:
                 add(source, sub_label, "v3", reason, _SUNSET_STOPS)
 
-    order = {"v4": 0, "era": 1, "v3": 2, "v2": 3}
+    order = {"v4": 0, "era": 1, "vcenter": 2, "v3": 3, "v2": 4}
     host_order = {h: i for i, h in enumerate(sources)}
     rows = []
     for (source, api, reason), labels in sorted(

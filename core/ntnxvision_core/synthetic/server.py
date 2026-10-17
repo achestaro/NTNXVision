@@ -54,7 +54,10 @@ class _Handler(BaseHTTPRequestHandler):
 
     def _serve(self, method: str) -> None:
         parts = urlsplit(self.path)
-        query = dict(parse_qsl(parts.query, keep_blank_values=True))
+        # A repeated parameter (vCenter's ?hosts=a&hosts=b) arrives comma-joined.
+        query: dict[str, str] = {}
+        for key, value in parse_qsl(parts.query, keep_blank_values=True):
+            query[key] = f"{query[key]},{value}" if key in query else value
         length = int(self.headers.get("Content-Length") or 0)
         raw = self.rfile.read(length) if length else b""
         body: Any = None
@@ -66,7 +69,8 @@ class _Handler(BaseHTTPRequestHandler):
         host = self.headers.get(HOST_HEADER) or (self.headers.get("Host") or "").split(":")[0]
         try:
             status, payload, headers = self.server.api.handle(
-                host, method, parts.path, query, body, self.headers.get("Authorization"))
+                host, method, parts.path, query, body, self.headers.get("Authorization"),
+                {k.lower(): v for k, v in self.headers.items()})
         except Exception as exc:  # noqa: BLE001 — a mock bug must surface as a 500, not a hang
             status, payload, headers = 500, {"message": f"mock error: {exc}"}, {}
         data = json.dumps(payload).encode()
@@ -83,6 +87,9 @@ class _Handler(BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:  # noqa: N802
         self._serve("POST")
+
+    def do_DELETE(self) -> None:  # noqa: N802 — vCenter session logout only
+        self._serve("DELETE")
 
 
 class _Server(ThreadingHTTPServer):

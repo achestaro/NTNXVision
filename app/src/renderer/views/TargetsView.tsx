@@ -98,7 +98,9 @@ export function TargetsView({ edit, returnTo }: { edit?: string; returnTo?: 'new
   const rows = useMemo(() => {
     const text = q.trim().toLowerCase();
     const list = (targets ?? []).filter(
-      (t) => !text || [t.name, t.host, t.username, t.ndbHost ?? '', typeLabel(t.mode)].some((v) => v.toLowerCase().includes(text)),
+      (t) =>
+        !text ||
+        [t.name, t.host, t.username, t.ndbHost ?? '', t.vcenterHost ?? '', typeLabel(t.mode)].some((v) => v.toLowerCase().includes(text)),
     );
     const val = (t: SavedConnection): string | number => {
       switch (sort.key) {
@@ -343,7 +345,7 @@ export function TargetsView({ edit, returnTo }: { edit?: string; returnTo?: 'new
                 className: 'mono',
                 style: { fontSize: 12 },
                 render: (t) => {
-                  const full = `${t.host}:${t.port}${t.ndbHost ? ` · NDB ${t.ndbHost}` : ''}${t.insecure ? ' · TLS verification off' : ''}`;
+                  const full = `${t.host}:${t.port}${t.ndbHost ? ` · NDB ${t.ndbHost}` : ''}${t.vcenterHost ? ` · vCenter ${t.vcenterHost}` : ''}${t.insecure ? ' · TLS verification off' : ''}`;
                   return (
                     <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8, maxWidth: '100%' }}>
                       <span className="clip t-addr" title={full}>
@@ -461,6 +463,14 @@ function TargetEditor({
   const [ndbHost, setNdbHost] = useState(target?.ndbHost ?? '');
   const [ndbUser, setNdbUser] = useState(target?.ndbUser ?? 'admin');
   const [ndbPass, setNdbPass] = useState('');
+  const [vcHost, setVcHost] = useState(target?.vcenterHost ?? '');
+  const [vcUser, setVcUser] = useState(target?.vcenterUser ?? 'administrator@vsphere.local');
+  const [vcPass, setVcPass] = useState('');
+  const [vcVerify, setVcVerify] = useState(!(target?.vcenterInsecure ?? false));
+  const [vcTest, setVcTest] = useState<{ ok: boolean; message: string } | null>(null);
+  const [vcTesting, setVcTesting] = useState(false);
+  /** vCenter addresses Prism Central reports for its ESXi clusters (address → cluster names). */
+  const [vcFound, setVcFound] = useState<{ address: string; clusters: string[] }[]>([]);
   const [errors, setErrors] = useState<Errors>({});
   const [saving, setSaving] = useState(false);
   const [test, setTest] = useState<TestState>({ kind: 'idle' });
@@ -480,6 +490,7 @@ function TargetEditor({
     if (!Number.isInteger(portNum) || portNum < 1 || portNum > 65535) e.port = 'Port must be 1 to 65535.';
     if (!username.trim()) e.username = 'Enter a username.';
     if (!isPe && ndbHost.trim() && /\s|\/|^https?:/i.test(ndbHost.trim())) e.ndbHost = 'Enter a host name or IP address only.';
+    if (!isPe && vcHost.trim() && /\s|\/|^https?:/i.test(vcHost.trim())) e.vcenterHost = 'Enter a host name or IP address only.';
     return e;
   };
 
@@ -509,8 +520,57 @@ function TargetEditor({
         targetId: target?.id,
       });
       setTest({ kind: 'done', result });
+      if (result.ok && mode === 'prism_central') void discoverVcenters(insecure);
     } catch (err) {
       setTest({ kind: 'error', message: errorMessage(err) });
+    }
+  };
+
+  /** Ask Prism Central which vCenter its ESXi clusters are registered to (a suggestion). */
+  const discoverVcenters = async (insecure = !verify) => {
+    try {
+      const r = await window.ntnx.listClusters({
+        mode: 'prism_central',
+        host: host.trim(),
+        port: portNum,
+        username: username.trim(),
+        password,
+        insecure,
+        targetId: target?.id,
+      });
+      const byAddress = new Map<string, string[]>();
+      for (const c of r.clusters) {
+        if (!c.vcenter) continue;
+        byAddress.set(c.vcenter, [...(byAddress.get(c.vcenter) ?? []), c.name || c.uuid]);
+      }
+      setVcFound([...byAddress].map(([address, clusters]) => ({ address, clusters })));
+    } catch {
+      setVcFound([]); // a suggestion only: the test result already says what went wrong
+    }
+  };
+
+  const testVcenter = async () => {
+    if (!vcHost.trim()) return;
+    if (!vcPass && !(target?.vcenterHasPassword && vcHost.trim() === target.vcenterHost && vcUser.trim() === target.vcenterUser)) {
+      setVcTest({ ok: false, message: 'Enter the vCenter password to test it.' });
+      return;
+    }
+    setVcTesting(true);
+    try {
+      const r = await window.ntnx.testConnection({
+        mode: 'vcenter',
+        host: vcHost.trim(),
+        port: 443,
+        username: vcUser.trim(),
+        password: vcPass,
+        insecure: !vcVerify,
+        targetId: target?.id,
+      });
+      setVcTest({ ok: r.ok, message: [r.message, r.detail].filter(Boolean).join(' · ') });
+    } catch (err) {
+      setVcTest({ ok: false, message: errorMessage(err) });
+    } finally {
+      setVcTesting(false);
     }
   };
 
@@ -531,6 +591,10 @@ function TargetEditor({
       ndbHost: isPe ? '' : ndbHost.trim(),
       ndbUser: isPe ? undefined : ndbUser.trim(),
       ndbPassword: isPe ? undefined : ndbPass,
+      vcenterHost: isPe ? '' : vcHost.trim(),
+      vcenterUser: isPe ? undefined : vcUser.trim(),
+      vcenterInsecure: isPe ? undefined : !vcVerify,
+      vcenterPassword: isPe ? undefined : vcPass,
     };
     setSaving(true);
     try {
@@ -722,6 +786,104 @@ function TargetEditor({
                   disabled={!ndbHost.trim()}
                 />
               </Field>
+              <div className="span-all eyebrow" style={{ borderTop: '1px solid var(--rule-2)', paddingTop: 12 }}>
+                VMware vCenter (optional, ESXi clusters)
+              </div>
+              {vcFound.length > 0 && !vcFound.some((f) => f.address === vcHost.trim()) && (
+                <Callout
+                  className="span-all"
+                  tone="neutral"
+                  title="Prism Central reports a vCenter"
+                  actions={vcFound.map((f) => (
+                    <Button
+                      key={f.address}
+                      size="sm"
+                      onClick={() => {
+                        setVcHost(f.address);
+                        setVcTest(null);
+                        clear('vcenterHost');
+                      }}
+                    >
+                      Use {f.address}
+                    </Button>
+                  ))}
+                >
+                  {vcFound.map((f) => `${f.address} for ${f.clusters.join(', ')}`).join('; ')}.
+                </Callout>
+              )}
+              <Field
+                id="t-vc"
+                label="vCenter host"
+                className="span-all"
+                error={errors.vcenterHost}
+                hint="Read-only. Adds what Nutanix does not report for ESXi clusters: the datastore of every disk and each port group's switch type."
+              >
+                <input
+                  className="input mono"
+                  placeholder="vcenter.example.com"
+                  value={vcHost}
+                  spellCheck={false}
+                  autoCapitalize="off"
+                  onChange={(e) => {
+                    setVcHost(e.target.value);
+                    setVcTest(null);
+                    clear('vcenterHost');
+                  }}
+                />
+              </Field>
+              <Field id="t-vcu" label="vCenter username">
+                <input
+                  className="input"
+                  value={vcUser}
+                  autoCapitalize="off"
+                  spellCheck={false}
+                  onChange={(e) => {
+                    setVcUser(e.target.value);
+                    setVcTest(null);
+                  }}
+                  disabled={!vcHost.trim()}
+                />
+              </Field>
+              <Field
+                id="t-vcp"
+                label="vCenter password"
+                className="connect-pw"
+                hint={target?.vcenterHasPassword ? 'Saved in your keychain. Leave empty to keep it.' : undefined}
+              >
+                <input
+                  className="input"
+                  type="password"
+                  value={vcPass}
+                  placeholder={target?.vcenterHasPassword ? 'Saved in your keychain' : 'Password'}
+                  onChange={(e) => {
+                    setVcPass(e.target.value);
+                    setVcTest(null);
+                  }}
+                  disabled={!vcHost.trim()}
+                />
+              </Field>
+              <div className="span-all" style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+                <Checkbox
+                  checked={vcVerify}
+                  onChange={(v) => {
+                    setVcVerify(v);
+                    setVcTest(null);
+                  }}
+                  disabled={!vcHost.trim()}
+                >
+                  Verify vCenter TLS certificate
+                </Checkbox>
+                <Button size="sm" icon={PlugIcon} onClick={() => void testVcenter()} disabled={!vcHost.trim() || vcTesting}>
+                  Test vCenter
+                </Button>
+                {mode === 'prism_central' && host.trim() && (
+                  <Button size="sm" onClick={() => void discoverVcenters()}>
+                    Find from Prism Central
+                  </Button>
+                )}
+              </div>
+              {vcTesting && <Loading label="Testing vCenter…" />}
+              {vcTest && <Callout className="span-all" tone={vcTest.ok ? 'ok' : 'error'} title={vcTest.message} />}
             </>
           )}
         </div>

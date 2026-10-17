@@ -87,6 +87,7 @@ export const OBJECT_TYPE_MARK: Record<string, NutanixMarkName> = {
   storage_containers: 'enterprise-storage',
   volume_groups: 'generic-storage',
   subnets: 'network',
+  port_groups: 'network',
   vpcs: 'sdn',
   floating_ips: 'router',
   images: 'vm-template',

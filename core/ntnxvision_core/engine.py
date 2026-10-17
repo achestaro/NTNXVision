@@ -9,7 +9,7 @@ NDB is optional and runs against a separate Era endpoint when credentials are su
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from datetime import datetime, timezone
 from functools import partial
 from typing import Any
@@ -18,12 +18,14 @@ from ntnxvision_core.api import PrismConnection, PrismCredentials
 from ntnxvision_core.api.element_client import ElementConnection, ElementCredentials
 from ntnxvision_core.api.errors import NutanixApiError
 from ntnxvision_core.api.ndb_client import NdbConnection, NdbCredentials
-from ntnxvision_core.areas import AREAS, NDB_AREA, Area
+from ntnxvision_core.api.vcenter_client import VcenterConnection, VcenterCredentials
+from ntnxvision_core.areas import AREAS, NDB_AREA, VCENTER_AREA, Area
 from ntnxvision_core.areas import select as select_areas
 from ntnxvision_core.cancel import CancelToken, RunCancelled
 from ntnxvision_core.collectors.base import Collector
 from ntnxvision_core.collectors.element import ELEMENT_STEPS
 from ntnxvision_core.collectors.ndb import collect_ndb
+from ntnxvision_core.collectors.vcenter import enrich_from_vcenter
 from ntnxvision_core.compat import check_aos, check_prism_central
 from ntnxvision_core.models import (
     ClusterScope,
@@ -50,6 +52,7 @@ def collect_environment(
     cancel: CancelToken | None = None,
     tracker: RunTracker | None = None,
     clusters: list[str] | None = None,
+    vcenter_creds: VcenterCredentials | None = None,
 ) -> Environment:
     """Connect to Prism Central and run the selected collectors into an Environment.
 
@@ -66,7 +69,9 @@ def collect_environment(
       Environment (see `ntnxvision_core.scope`). The scope is recorded on the result.
 
     If `ndb_creds` is provided, an additional NDB step runs against the Era control
-    plane after the Prism Central collectors.
+    plane after the Prism Central collectors. If `vcenter_creds` is provided, a vCenter
+    step then fills what Nutanix cannot say about the ESXi clusters in scope
+    (`collectors.vcenter`); its failure is isolated like any collector's.
     """
     if collectors is not None:
         run_areas = [a for a in AREAS if a.collector in collectors]
@@ -82,7 +87,8 @@ def collect_environment(
         prism_central=PrismCentral(host=creds.host),
     )
 
-    planned = [*run_areas, *([NDB_AREA] if ndb_creds else [])]
+    planned = [*run_areas, *([NDB_AREA] if ndb_creds else []),
+               *([VCENTER_AREA] if vcenter_creds else [])]
     total = len(planned)
 
     with PrismConnection(creds, cancel=cancel) as conn:
@@ -106,9 +112,10 @@ def collect_environment(
                     cancel.check()
                 assert area.collector is not None
                 collector = area.collector(conn)
-                _run_area(env, area, idx, total, partial(collector.collect, env),
-                          progress, tracker, conn.negotiated, collector.label,
-                          collector.name, scope=scope)
+                work = _noting_rate_limits(conn, env, collector.name,
+                                           partial(collector.collect, env))
+                _run_area(env, area, idx, total, work, progress, tracker, conn.negotiated,
+                          collector.label, collector.name, scope=scope)
         except RunCancelled:
             if tracker is not None:
                 tracker.cancel_pending()
@@ -126,6 +133,14 @@ def collect_environment(
             raise RunCancelled("Run cancelled")
         _collect_ndb_step(ndb_creds, env, progress, len(run_areas), total, tracker, cancel)
 
+    if vcenter_creds:
+        if cancel is not None and cancel.cancelled:
+            if tracker is not None:
+                tracker.cancel_pending()
+            raise RunCancelled("Run cancelled")
+        _collect_vcenter_step(vcenter_creds, env, progress, total - 1, total, tracker,
+                              cancel, scope)
+
     _resolve_cross_references(env)
     if scope is not None:
         # Cross-referencing backfills cluster uuids (a VM's from its host): prune once
@@ -133,6 +148,29 @@ def collect_environment(
         scope.prune(env)
         env.cluster_scope = scope.record()
     return env
+
+
+def _noting_rate_limits(conn: Any, env: Environment, note_key: str,
+                        work: Callable[[], None]) -> Callable[[], None]:
+    """`work`, plus a collection note when the shared client had to retry HTTP 429s.
+
+    The retries themselves happen in `PrismConnection._send`; this only makes them
+    visible per area ("ok: 3 request(s) retried after API rate limiting"), because a run
+    that had to back off says something about how loaded the Prism Central was. A note
+    that already mentions rate limiting (the alerts collector counts its own) is kept.
+    """
+    def run() -> None:
+        before = int(getattr(conn, "throttled", 0) or 0)
+        work()
+        retried = int(getattr(conn, "throttled", 0) or 0) - before
+        if retried <= 0:
+            return
+        note = env.collection_notes.get(note_key, "ok")
+        if "rate limit" in note or not (note == "ok" or note.startswith("ok:")):
+            return
+        text = f"{retried:,} request(s) retried after API rate limiting"
+        env.collection_notes[note_key] = f"ok: {text}" if note == "ok" else f"{note}; {text}"
+    return run
 
 
 def _resolve_scope(conn: PrismConnection, clusters: list[str] | None) -> Scope | None:
@@ -364,6 +402,29 @@ def _collect_ndb_step(
         raise
 
 
+def _collect_vcenter_step(
+    vc_creds: VcenterCredentials,
+    env: Environment,
+    progress: ProgressFn | None,
+    idx: int,
+    total: int,
+    tracker: RunTracker | None = None,
+    cancel: CancelToken | None = None,
+    scope: Scope | None = None,
+) -> None:
+    def work() -> None:
+        with VcenterConnection(vc_creds, cancel=cancel) as vc:
+            env.collection_notes["vcenter"] = enrich_from_vcenter(vc, env)
+
+    try:
+        _run_area(env, VCENTER_AREA, idx, total, work, progress, tracker, {},
+                  "vCenter enrichment", "vcenter", api_override="vcenter", scope=scope)
+    except RunCancelled:
+        if tracker is not None:
+            tracker.cancel_pending()
+        raise
+
+
 def _resolve_cross_references(env: Environment) -> None:
     """Fill in host counts on clusters and backfill name/VLAN fields after all data is in."""
     # uuid → name maps used to backfill fields that collectors only had as uuids.
@@ -432,6 +493,8 @@ def _resolve_cross_references(env: Environment) -> None:
                     disk.storage_container_uuid
                 )
 
+    _resolve_port_groups(env, cluster_name_by_uuid)
+
     # Per-host VM counts: v3 hosts/list often omits num_vms — count what we collected.
     vms_per_host: dict[str, int] = {}
     for vm in [*env.vms, *env.system_vms]:
@@ -479,6 +542,34 @@ def _resolve_cross_references(env: Environment) -> None:
     # Roll up protected-VM count from protection policies' category matches is non-trivial;
     # approximate with VMs that carry any category (best-effort until v4 DR SDK).
     env.data_protection.protected_vm_count = sum(1 for v in env.vms if v.categories)
+
+
+def _resolve_port_groups(env: Environment, cluster_names: Mapping[str, str | None]) -> None:
+    """Link ESXi VM NICs and port groups: each NIC's VLAN, each port group's VM count.
+
+    ESXi NICs name their port group (v4 ``portGroupInfo``, or Prism Element's network
+    uuid resolved to a name), and port group names are only unique per cluster, so the
+    match is on (cluster, name).
+    """
+    if not env.port_groups:
+        return
+    by_key: dict[tuple[str, str], Any] = {}
+    for pg in env.port_groups:
+        if not pg.cluster_name and pg.cluster_uuid:
+            pg.cluster_name = cluster_names.get(pg.cluster_uuid)
+        if pg.name:
+            by_key.setdefault((pg.cluster_uuid or "", pg.name), pg)
+    users: dict[int, set[str]] = {}
+    for vm in [*env.vms, *env.system_vms]:
+        for nic in vm.nics:
+            found = by_key.get((vm.cluster_uuid or "", nic.subnet_name or ""))
+            if found is None:
+                continue
+            if nic.vlan_id is None:
+                nic.vlan_id = found.vlan_id
+            users.setdefault(id(found), set()).add(vm.uuid)
+    for pg in env.port_groups:
+        pg.vm_count = len(users.get(id(pg), ()))
 
 
 def _reclassify_pc_vms(env: Environment) -> None:
