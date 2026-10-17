@@ -45,9 +45,9 @@
     "@types/react": "^18.2.0",
     "@types/react-dom": "^18.2.0",
     "@vitejs/plugin-react": "^4.2.0",
-    "concurrently": "^8.2.0",
-    "electron": "^30.0.0",
-    "electron-builder": "^24.13.0",
+    "concurrently": "^9.0.0",
+    "electron": "44.9.0",
+    "electron-builder": "^26.15.3",
     "eslint": "^9.39.4",
     "globals": "^14.0.0",
     "playwright-core": "^1.61.1",
@@ -55,8 +55,8 @@
     "react-dom": "^18.2.0",
     "typescript": "^5.4.0",
     "typescript-eslint": "^8.62.1",
-    "vite": "^5.2.0",
-    "wait-on": "^7.2.0"
+    "vite": "^6.4.4",
+    "wait-on": "^8.0.0"
   },
   "build": {
     "appId": "com.achestaro.ntnxvision",
@@ -123,10 +123,12 @@
       ],
       "icon": "build/icon.ico",
       "legalTrademarks": "NTNXVision",
-      "publisherName": "Alberto Chestaro",
-      "signingHashAlgorithms": [
-        "sha256"
-      ]
+      "signtoolOptions": {
+        "publisherName": "Alberto Chestaro",
+        "signingHashAlgorithms": [
+          "sha256"
+        ]
+      }
     },
     "msi": {
       "upgradeCode": "9EE643E8-FE25-48DF-B14C-CEA7056CF80F",
