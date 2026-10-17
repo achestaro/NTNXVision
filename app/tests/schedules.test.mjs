@@ -647,3 +647,29 @@ test('smtp: params for the sidecar are snake_case', () => {
     zip_attachments: true,
   });
 });
+
+test('R4: smtp migration is discarded on fresh integrity, old deleted when bound exists, TLS toggle moves the password', async () => {
+  // Fresh state: the old entry is deleted, never copied.
+  let secrets = fakeSecrets();
+  let st = new SmtpStore(memIO(undefined), secrets);
+  await st.save(smtpReq());
+  secrets.map.set(SMTP_PASSWORD_ACCOUNT, 'old-example');
+  await st.migrateSecrets(true);
+  assert.equal(secrets.map.size, 0);
+  assert.equal(await st.password(), '');
+  // Bound entry already there: the old one is deleted, the bound one kept.
+  secrets = fakeSecrets();
+  st = new SmtpStore(memIO(undefined), secrets);
+  await st.save(smtpReq({ password: 'current' }));
+  secrets.map.set(SMTP_PASSWORD_ACCOUNT, 'stale');
+  await st.migrateSecrets();
+  assert.equal(secrets.map.has(SMTP_PASSWORD_ACCOUNT), false);
+  assert.equal(await st.password(), 'current');
+  // Only allowUntrusted changes: the password follows.
+  await st.save(smtpReq({ allowUntrusted: true }));
+  assert.equal(await st.password(), 'current');
+  assert.equal(secrets.map.size, 1);
+  // Another field changes without a password: dropped.
+  await st.save(smtpReq({ allowUntrusted: true, host: 'other.example.lab' }));
+  assert.equal(secrets.map.size, 0);
+});

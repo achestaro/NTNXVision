@@ -583,3 +583,42 @@ test('R3-01: a tampered targets.json migrates nothing', async () => {
   assert.equal(sec.map.get('target:a'), 'pw');
   assert.equal([...sec.map.keys()].length, 1);
 });
+
+// ─── R4: migration trust, TLS-bound accounts ───
+
+test('R4-01: fresh integrity state + edited targets.json + old account: nothing released, old deleted', async () => {
+  const file = { version: 2, targets: [{ ...TT[1], name: 'B', host: 'attacker.example.lab', insecure: false, createdAt: 'x', updatedAt: 'x', vcenterHost: 'vc.example.lab', vcenterUser: 'r', vcenterInsecure: false }] };
+  const sec = fakeSecrets({ 'target:b': 'pw', 'target:b:ndb': 'n', 'target:b:vcenter': 'v' });
+  const store = new TargetStore(fakeIO({ current: file }), sec, { newId: ids() });
+  await store.migrateSecrets({ discardUnbound: true });
+  assert.deepEqual([...sec.map.keys()], []);
+  assert.equal(await store.password('b'), null);
+  assert.equal(await store.ndbPassword('b'), null);
+  assert.equal(await store.vcenterPassword('b'), null);
+});
+
+test('R4-02: when the bound account already exists the old unbound one is deleted', async () => {
+  const file = { version: 2, targets: [{ ...TT[1], name: 'B', insecure: false, createdAt: 'x', updatedAt: 'x' }] };
+  const sec = fakeSecrets({ 'target:b': 'stale' });
+  const store = new TargetStore(fakeIO({ current: file }), sec, { newId: ids() });
+  sec.map.set(passwordAccount(store.get('b')), 'current');
+  await store.migrateSecrets();
+  assert.equal(sec.map.has('target:b'), false);
+  assert.equal(await store.password('b'), 'current');
+});
+
+test('R4-03: toggling only TLS verification moves the password; any other change drops it', async () => {
+  const sec = fakeSecrets();
+  const store = new TargetStore(fakeIO(), sec, { newId: ids() });
+  await store.save({ ...base, password: 'pw' });
+  const a1 = passwordAccount(store.get('id-1'));
+  let r = await store.save({ ...base, id: 'id-1', insecure: true });
+  assert.equal(r.target.hasPassword, true);
+  assert.equal(sec.map.has(a1), false);
+  assert.equal(sec.map.get(passwordAccount(store.get('id-1'))), 'pw');
+  assert.equal(await store.password('id-1'), 'pw');
+  r = await store.save({ ...base, id: 'id-1', insecure: true, host: 'other.example.com' });
+  assert.equal(r.target.hasPassword, false);
+  assert.equal(sec.map.size, 0);
+  assert.notEqual(passwordAccount({ id: 'x', mode: 'prism_central', host: 'a', port: 1, username: 'u', insecure: true }), passwordAccount({ id: 'x', mode: 'prism_central', host: 'a', port: 1, username: 'u', insecure: false }));
+});

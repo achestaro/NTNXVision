@@ -11,7 +11,7 @@
 import { BrowserWindow, IpcMain, Menu, MenuItemConstructorOptions, app, protocol, session, shell } from 'electron';
 import { readFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
-import { dirname, extname, join, resolve } from 'node:path';
+import { dirname, extname, isAbsolute, join, resolve } from 'node:path';
 import * as store from './store';
 import { e2eRun, testEnv } from './testhooks';
 import {
@@ -21,6 +21,7 @@ import {
   REVEAL_EXTENSIONS,
   checkExportDir,
   realOrResolved,
+  isUncPath,
   requireLocalAbsolute,
   resolveAppFile,
   resolveOpenable,
@@ -308,8 +309,10 @@ export function wordTemplateFor(v: unknown): string {
   const t = str(v, 'word.template', 4096);
   if (t === 'standard') return t;
   // R3-03: judge the text first. realpath on a UNC path would make Windows contact the share.
-  const abs = requireLocalAbsolute(t, 'word.template');
-  if (!chosenLexical.has(resolve(abs)) || !chosenFiles.has(realOrResolved(abs))) {
+  // A UNC path is fine only when the picker returned exactly it (the user's own choice).
+  const picked = isAbsolute(t) && chosenLexical.has(resolve(t));
+  const abs = picked ? t : requireLocalAbsolute(t, 'word.template');
+  if (!picked || (!isUncPath(abs) && !chosenFiles.has(realOrResolved(abs)))) {
     throw new ValidationError('Choose the Word template again with the file picker.');
   }
   return t;

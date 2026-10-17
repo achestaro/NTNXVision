@@ -325,3 +325,20 @@ test('R2-02: once the schema marker exists a targets.json without a MAC is tampe
   tf.read();
   assert.equal(tf.tampered(), true);
 });
+
+test('R4-01: Integrity.freshlyAdopted is set only when a new key was created', async () => {
+  const mk = () => {
+    const macs = {};
+    return new Integrity({ read: () => macs, write: (m) => Object.assign(macs, m) });
+  };
+  const secrets = { m: new Map(), get: async (a) => secrets.m.get(a) ?? null, set: async (a, v) => void secrets.m.set(a, v) };
+  const first = mk();
+  await first.init(secrets);
+  assert.equal(first.freshlyAdopted, true);
+  const second = mk();
+  await second.init(secrets);
+  assert.equal(second.freshlyAdopted, false);
+  const off = mk();
+  await off.init(secrets, false);
+  assert.equal(off.freshlyAdopted, false);
+});
