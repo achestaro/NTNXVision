@@ -16,6 +16,8 @@
 //             'error'   → listClusters fails (the picker's error state with retry)
 //   scopeNotice: true → compareSnapshots reports different cluster scopes
 //   platform: 'darwin' | 'win32' | 'linux'  ("Show in Finder" / "Show in Explorer" / "Show in folder")
+//   longNotes: true → a run whose notes, version string and API routing carry very long text
+//             and unbroken tokens (URLs, build strings) to check that cards contain them
 (function () {
   const opt = Object.assign({ theme: 'light', accent: 'iris', run: 'hold', test: 'ok', clusters: 'ok', platform: 'darwin' }, window.__STUB__ || {});
   const GB = 1024 ** 3;
@@ -77,7 +79,7 @@
   let connections = opt.empty || opt.noTargets
     ? []
     : [
-        { id: 't-pc01', mode: 'prism_central', host: 'pc01.example.com', username: 'admin', port: 9440, insecure: false, name: 'PC01 Production', ndbHost: 'ndb01.example.com', ndbUser: 'admin', hasPassword: true, ndbHasPassword: true, lastTest: tested('ok', true, 'Connected to Prism Central pc.2024.3', 'pc.2024.3', at(10, 15, 9, 40)) },
+        { id: 't-pc01', mode: 'prism_central', host: 'pc01.example.com', username: 'admin', port: 9440, insecure: false, name: 'PC01 Production', ndbHost: 'ndb01.example.com', ndbUser: 'admin', vcpuRatioOverrides: { 'c-phx-prod-01': 6 }, hasPassword: true, ndbHasPassword: true, lastTest: tested('ok', true, 'Connected to Prism Central pc.2024.3', 'pc.2024.3', at(10, 15, 9, 40)) },
         { id: 't-pc02', mode: 'prism_central', host: 'pc02.example.com', username: 'admin', port: 9440, insecure: false, name: 'PC02 DR site', hasPassword: true, lastTest: tested('ok', true, 'Connected to Prism Central pc.7.3', 'pc.7.3', at(10, 14, 17, 10)) },
         { id: 't-pc03', mode: 'prism_central', host: 'pc03.example.com', username: 'svc-inventory', port: 9440, insecure: false, name: 'PC03 Labs', hasPassword: false, lastTest: tested('auth_failed', false, 'HTTP 401 Unauthorized', null, at(10, 12, 11, 5)) },
         { id: 't-phx', mode: 'prism_element', host: 'phx-dr-01.example.com', username: 'admin', port: 9440, insecure: false, name: 'phx-dr-01', hasPassword: true, lastTest: null },
@@ -154,9 +156,19 @@
       api: s === 'pending' ? null : api,
       objects: s === 'pending' || s === 'running' ? (s === 'running' ? objects : null) : objects,
       duration_ms: s === 'pending' ? null : secs * 1000,
-      detail: s === 'pending' ? null : s === 'running' ? detail : detail || null,
+      detail: s === 'pending' ? null : s === 'running' ? detail : detailOf(id, detail) || null,
     };
   };
+
+  // ── long-text scenario (longNotes) ──
+  const LONG_VER = 'el8.5-release-ganges-7.5.1.1-stable-0123456789abcdef0123456789abcdef01234567';
+  const vmNames = Array.from({ length: 10 }, (_, i) => `app-tier-${String(i + 1).padStart(2, '0')}`).join(', ');
+  const LONG = {
+    vms: `46 VM(s) read from the groups API because the v4 API failed for them: ${vmNames} + 36 more; NICs and per-disk details unavailable; 136 VM(s) skipped: db-tier-01, db-tier-02, db-tier-03, web-frontend-blue-01, web-frontend-green-01 + 131 more`,
+    flow: 'https://192.0.2.10:9440/api/microseg/v4.0/config/service-groups?%24page=5&%24limit=100: {"data":{"error":[{"message":"Failed to perform the operation as the backend service could not be reached","severity":"ERROR","code":"MICROSEG-30001"}]},"$objectType":"microseg.v4.error.ErrorResponse"}',
+    dr: `Recovery plans use v3, which retires Q4 2026; availability zone pc-dr.example.lab reported version ${LONG_VER}`,
+  };
+  const detailOf = (id, d) => (opt.longNotes && LONG[id]) || d;
 
   const listeners = { progress: new Set(), finished: new Set() };
   const emit = (kind, e) => listeners[kind].forEach((cb) => cb(e));
@@ -166,8 +178,8 @@
   const result = (req) => ({
     summary: summary(4, 28, 1214),
     source_type: req.mode || 'prism_central',
-    prism_central: { host: req.host, version: 'pc.2024.3', version_supported: true },
-    warnings: [],
+    prism_central: { host: req.host, version: opt.longNotes ? LONG_VER : 'pc.2024.3', version_supported: true },
+    warnings: opt.longNotes ? [`Flow network security: ${LONG.flow}`] : [],
     collection_notes: { vms: '3 VMs skipped', fvn: 'Not enabled', files: 'Not deployed' },
     snapshot_path: `${DIR}${sep}${req.name}.ntnxsnap.json`,
     snapshot_name: req.name,
@@ -176,7 +188,13 @@
     started_at: new Date(Date.now() - 252000).toISOString(),
     finished_at: new Date().toISOString(),
     duration_ms: 252000,
-    areas: finalAreas().map((a) => (['vms', 'fvn', 'files'].includes(a.id) ? a : { ...a, status: 'collected', detail: null })),
+    areas: finalAreas().map((a) =>
+      ['vms', 'fvn', 'files'].includes(a.id)
+        ? a
+        : opt.longNotes && LONG[a.id]
+          ? { ...a, status: 'notes' }
+          : { ...a, status: 'collected', detail: null },
+    ),
     reports: (req.formats || []).filter((f) => f !== 'pdf').map((f) =>
       f === 'excel'
         ? { format: 'excel', path: `${EXPORT_DIR}${sep}${req.name}.xlsx`, name: `${req.name}.xlsx`, size_bytes: 2.4 * MB, detail: '34 sheets' }
@@ -192,11 +210,11 @@
     ],
     api_routing: [
       { areas: 'Clusters, hosts, storage, VMs, networks, Flow, LCM, licensing + 6 more', api: 'v4', reason: 'v4 SDK served by this Prism Central', after_sunset: { tone: 'ok', label: 'Unaffected' } },
-      { areas: 'Health alerts', api: 'v3', reason: 'v4 alerts endpoint not served on pc.2024.3', after_sunset: { tone: 'ok', label: 'Moves to v4 after a PC upgrade' } },
+      { areas: 'Health alerts', api: 'v3', reason: `v4 alerts endpoint not served on ${opt.longNotes ? LONG_VER : 'pc.2024.3'}`, after_sunset: { tone: 'ok', label: 'Moves to v4 after a PC upgrade' } },
       { areas: 'Recovery plans · availability zones', api: 'v3', reason: 'No v4 equivalent yet', after_sunset: { tone: 'warn', label: 'Stops collecting' } },
       { areas: 'X-Play playbooks · IAM projects', api: 'v3', reason: 'No v4 equivalent yet', after_sunset: { tone: 'warn', label: 'Stops collecting' } },
     ],
-    compat: { version: 'pc.2024.3', supported: true, range: 'pc.2024.1 – 7.5.1.6' },
+    compat: { version: opt.longNotes ? LONG_VER : 'pc.2024.3', supported: true, range: 'pc.2024.1 – 7.5.1.6' },
     scope: req.mode === 'prism_element' ? null : scopeOf(req.clusters || REGISTERED.map((c) => c.uuid)),
   });
 
@@ -210,7 +228,7 @@
         mode: req.mode || 'prism_central',
         host: req.host,
         name: req.name,
-        version: 'pc.2024.3',
+        version: opt.longNotes ? LONG_VER : 'pc.2024.3',
         formats: req.formats || [],
         typical_seconds: 240,
         areas: RUN.map((_, i) => areaObj(i, 'pending')),

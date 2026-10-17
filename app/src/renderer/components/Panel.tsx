@@ -16,7 +16,10 @@ export function Panel({
   );
 }
 
-/** 36 px header strip: 11 px tracked label left, meta/actions right. */
+/**
+ * 36 px header strip: 11 px tracked label left, meta/actions right. A long title or meta
+ * (a host and build string, a folder path) truncates with the full text in its tooltip.
+ */
 export function PanelHeader({
   id,
   title,
@@ -36,12 +39,14 @@ export function PanelHeader({
   return (
     <div className="phead">
       {step !== undefined && <span className="step">{step}</span>}
-      <span className="eyebrow" id={id}>
+      <span className="eyebrow phead-title" id={id} title={typeof title === 'string' ? title : undefined}>
         {title}
       </span>
       <div className="spacer" />
       {meta !== undefined && meta !== null && (
-        <span className="mono t12 muted">{meta}</span>
+        <span className="mono t12 muted phead-meta" title={typeof meta === 'string' ? meta : undefined}>
+          {meta}
+        </span>
       )}
       {children}
     </div>

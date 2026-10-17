@@ -24,7 +24,9 @@ import type {
   TargetSaveResult,
   TargetTestInfo,
   TestConnectionResult,
+  VcpuRatioOverrides,
 } from '../shared/ipc';
+import { MAX_CLUSTER_RATIO, MIN_CLUSTER_RATIO } from '../shared/ipc';
 
 /** A target as written to targets.json. */
 export interface StoredTarget extends ConnectionProfile {
@@ -96,6 +98,21 @@ export function cleanSelection(sel: ClusterSelection | undefined | null): Cluste
   if (!sel || !Array.isArray(sel.selected) || !Array.isArray(sel.known)) return undefined;
   const ids = (xs: unknown[]) => xs.filter((x): x is string => typeof x === 'string' && x.length > 0 && x.length <= 128);
   return { selected: ids(sel.selected), known: ids(sel.known) };
+}
+
+/**
+ * Only uuid → ratio entries in range (MIN_CLUSTER_RATIO to MAX_CLUSTER_RATIO), rounded to
+ * one decimal; undefined when nothing usable is left.
+ */
+export function cleanOverrides(o: unknown): VcpuRatioOverrides | undefined {
+  if (!o || typeof o !== 'object' || Array.isArray(o)) return undefined;
+  const out: VcpuRatioOverrides = {};
+  for (const [uuid, v] of Object.entries(o as Record<string, unknown>)) {
+    if (!uuid || uuid.length > 128 || typeof v !== 'number' || !Number.isFinite(v)) continue;
+    if (v < MIN_CLUSTER_RATIO || v > MAX_CLUSTER_RATIO) continue;
+    out[uuid] = Math.round(v * 10) / 10;
+  }
+  return Object.keys(out).length ? out : undefined;
 }
 
 function port(v: unknown): number {
@@ -294,6 +311,7 @@ export class TargetStore {
       ...(t.ndbHost ? { ndbHost: t.ndbHost, ndbUser: t.ndbUser } : {}),
       ...(t.vcenterHost ? { vcenterHost: t.vcenterHost, vcenterUser: t.vcenterUser, vcenterInsecure: !!t.vcenterInsecure } : {}),
       ...(t.clusterSelection ? { clusterSelection: t.clusterSelection } : {}),
+      ...(t.vcpuRatioOverrides ? { vcpuRatioOverrides: { ...t.vcpuRatioOverrides } } : {}),
       hasPassword: await has(() => this.password(t.id)),
       ndbHasPassword: t.ndbHost ? await has(() => this.ndbPassword(t.id)) : false,
       vcenterHasPassword: t.vcenterHost ? await has(() => this.vcenterPassword(t.id)) : false,
@@ -322,6 +340,8 @@ export class TargetStore {
     const host = req.host.trim();
     // The remembered cluster selection belongs to that Prism Central: kept while it stays.
     const clusterSelection = isPc && prev?.mode === 'prism_central' && prev.host === host ? prev.clusterSelection : undefined;
+    // So do the per-cluster vCPU:pCPU targets (either mode): same endpoint, same clusters.
+    const vcpuRatioOverrides = prev && prev.mode === req.mode && prev.host === host ? prev.vcpuRatioOverrides : undefined;
     const next: StoredTarget = {
       id,
       mode: req.mode,
@@ -335,6 +355,7 @@ export class TargetStore {
         ? { vcenterHost, vcenterUser: str(req.vcenterUser).trim() || 'administrator@vsphere.local', vcenterInsecure: !!req.vcenterInsecure }
         : {}),
       ...(clusterSelection ? { clusterSelection } : {}),
+      ...(vcpuRatioOverrides ? { vcpuRatioOverrides } : {}),
       createdAt: prev?.createdAt ?? now,
       updatedAt: now,
     };
@@ -396,6 +417,24 @@ export class TargetStore {
     const clean = cleanSelection(sel);
     if (!t || t.mode !== 'prism_central' || !clean) return;
     t.clusterSelection = clean;
+    this.persist();
+  }
+
+  /**
+   * Remember the per-cluster vCPU:pCPU targets of a target's last collection. `known` is
+   * every cluster New collection listed: their remembered targets are replaced by
+   * `overrides` (a listed cluster without one goes back to the default); targets of
+   * clusters that were not listed are kept.
+   */
+  rememberRatios(id: string, overrides: VcpuRatioOverrides | undefined, known: string[]): void {
+    const t = this.data().targets.find((x) => x.id === id);
+    if (!t || !Array.isArray(known)) return;
+    const listed = new Set(known.filter((u) => typeof u === 'string'));
+    const kept = Object.entries(t.vcpuRatioOverrides ?? {}).filter(([u]) => !listed.has(u));
+    const next = cleanOverrides({ ...Object.fromEntries(kept), ...(cleanOverrides(overrides) ?? {}) });
+    if (JSON.stringify(next ?? null) === JSON.stringify(t.vcpuRatioOverrides ?? null)) return;
+    if (next) t.vcpuRatioOverrides = next;
+    else delete t.vcpuRatioOverrides;
     this.persist();
   }
 
