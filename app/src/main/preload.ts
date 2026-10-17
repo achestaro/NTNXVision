@@ -29,6 +29,7 @@ import {
   SnapshotFilesExportRequest,
   TargetSaveRequest,
   TestConnectionRequest,
+  TrustCertificateRequest,
 } from '../shared/ipc';
 
 function subscribe<T>(channel: string, cb: (e: T) => void): () => void {
@@ -95,6 +96,7 @@ const api: NtnxApi = {
   listConnections: () => ipcRenderer.invoke(IPC.listConnections),
   saveTarget: (req: TargetSaveRequest) => ipcRenderer.invoke(IPC.saveTarget, req),
   deleteTarget: (id: string) => ipcRenderer.invoke(IPC.deleteTarget, id),
+  trustCertificate: (req: TrustCertificateRequest) => ipcRenderer.invoke(IPC.trustCertificate, req),
   getSettings: () => ipcRenderer.invoke(IPC.getSettings),
   setSettings: (settings: AppSettings) => ipcRenderer.invoke(IPC.setSettings, settings),
 

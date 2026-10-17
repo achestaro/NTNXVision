@@ -14,6 +14,7 @@ import type {
   SnapshotFilesExportRequest,
   TargetSaveRequest,
   TestConnectionRequest,
+  TrustCertificateRequest,
   VcenterRequest,
 } from '../shared/ipc';
 import {
@@ -54,6 +55,7 @@ export function asTestRequest(v: unknown): TestConnectionRequest {
   oneOf(r.mode, 'mode', TEST_MODES);
   endpoint(r, 'request');
   optStr(r.targetId, 'targetId', 128);
+  optStr(r.pinnedCert, 'pinnedCert', 128);
   return r as unknown as TestConnectionRequest;
 }
 
@@ -62,6 +64,7 @@ export function asListClustersRequest(v: unknown): ListClustersRequest {
   oneOf(r.mode, 'mode', MODES);
   endpoint(r, 'request');
   optStr(r.targetId, 'targetId', 128);
+  optStr(r.pinnedCert, 'pinnedCert', 128);
   return r as unknown as ListClustersRequest;
 }
 
@@ -181,7 +184,19 @@ export function asSnapshotFilesExportRequest(v: unknown): SnapshotFilesExportReq
 export function asTargetSaveRequest(v: unknown): TargetSaveRequest {
   const r = obj(v, 'request');
   str(r.id, 'id', 128);
+  optStr(r.pinnedCert, 'pinnedCert', 128);
+  optStr(r.ndbPinnedCert, 'ndbPinnedCert', 128);
+  optStr(r.vcenterPinnedCert, 'vcenterPinnedCert', 128);
+  optBool(r.ndbInsecure, 'ndbInsecure');
   return r as unknown as TargetSaveRequest;
+}
+
+export function asTrustCertificateRequest(v: unknown): TrustCertificateRequest {
+  const r = obj(v, 'request');
+  str(r.targetId, 'targetId', 128);
+  oneOf(r.endpoint, 'endpoint', ['primary', 'ndb', 'vcenter'] as const);
+  str(r.fingerprint, 'fingerprint', 128);
+  return r as unknown as TrustCertificateRequest;
 }
 
 /**

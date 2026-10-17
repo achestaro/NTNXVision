@@ -32,6 +32,7 @@ from ntnxvision_core.api import PrismConnection, PrismCredentials, transport
 from ntnxvision_core.api.element_client import ElementConnection, ElementCredentials
 from ntnxvision_core.api.errors import (
     AuthenticationError,
+    CertificateChanged,
     ConnectionFailed,
     NutanixApiError,
     TlsVerificationFailed,
@@ -61,6 +62,7 @@ def test_connection(params: dict[str, Any]) -> dict[str, Any]:
     username = str(params.get("username") or "")
     password = str(params.get("password") or "")
     insecure = bool(params.get("insecure"))
+    pinned = transport.normalize_fingerprint(params.get("pinned_sha256"))
     base: dict[str, Any] = {
         "product": mode, "name": host,
         "supported_range": AOS_RANGE if mode == "prism_element" else
@@ -72,14 +74,29 @@ def test_connection(params: dict[str, Any]) -> dict[str, Any]:
     if not password:
         return {**base, "status": "auth_failed", "ok": False,
                 "message": "No password. Type one, or save it to the keychain first"}
+    if insecure and pinned is None:
+        # Trust on first use: nothing is sent (least of all the password) to a server
+        # whose certificate the user has not accepted. Describe it so they can decide.
+        cert = describe_certificate(host, port)
+        if cert is None:
+            return {**base, "status": "unreachable", "ok": False,
+                    "message": f"Could not reach {host}:{port} to read its certificate"}
+        return {**base, "status": "trust_required", "ok": False,
+                "message": "This server's certificate has not been trusted yet",
+                "certificate": cert}
     try:
         if mode == "prism_element":
-            return {**base, **_test_pe(host, port, username, password, insecure)}
+            return {**base, **_test_pe(host, port, username, password, insecure, pinned)}
         if mode == "ndb":
-            return {**base, **_test_ndb(host, username, password, insecure)}
+            return {**base, **_test_ndb(host, username, password, insecure, pinned)}
         if mode == "vcenter":
-            return {**base, **_test_vcenter(host, port, username, password, insecure)}
-        return {**base, **_test_pc(host, port, username, password, insecure)}
+            return {**base, **_test_vcenter(host, port, username, password, insecure, pinned)}
+        return {**base, **_test_pc(host, port, username, password, insecure, pinned)}
+    except CertificateChanged:
+        cert = describe_certificate(host, port)
+        return {**base, "status": "cert_changed", "ok": False,
+                "message": "The server certificate changed since you trusted it",
+                "certificate": cert}
     except TlsVerificationFailed as exc:
         cert = describe_certificate(host, port)
         return {**base, "status": "untrusted_cert", "ok": False,
@@ -99,12 +116,12 @@ def test_connection(params: dict[str, Any]) -> dict[str, Any]:
 # ─── Prism Central ─────────────────────────────────────────────────────
 
 
-def _test_pc(host: str, port: int, username: str, password: str, insecure: bool
-             ) -> dict[str, Any]:
+def _test_pc(host: str, port: int, username: str, password: str, insecure: bool,
+             pinned: str | None = None) -> dict[str, Any]:
     from ntnxvision_core.api import v4_client
 
     creds = PrismCredentials(host=host, username=username, password=password, port=port,
-                             verify_ssl=not insecure)
+                             verify_ssl=not insecure, pinned_sha256=pinned)
     with PrismConnection(creds, timeout=TEST_TIMEOUT) as conn:
         version = conn.pc_version
         compat = check_prism_central(version)
@@ -193,10 +210,10 @@ def _v3_exists(conn: PrismConnection, kind: str) -> bool:
 # ─── Prism Element ─────────────────────────────────────────────────────
 
 
-def _test_pe(host: str, port: int, username: str, password: str, insecure: bool
-             ) -> dict[str, Any]:
+def _test_pe(host: str, port: int, username: str, password: str, insecure: bool,
+             pinned: str | None = None) -> dict[str, Any]:
     creds = ElementCredentials(host=host, username=username, password=password, port=port,
-                               verify_ssl=not insecure)
+                               verify_ssl=not insecure, pinned_sha256=pinned)
     with ElementConnection(creds, timeout=TEST_TIMEOUT) as conn:
         info = conn.cluster_info
         name = info.get("name") or host
@@ -231,9 +248,10 @@ def _v2_total(conn: ElementConnection, path: str) -> int | None:
 # ─── NDB ───────────────────────────────────────────────────────────────
 
 
-def _test_ndb(host: str, username: str, password: str, insecure: bool) -> dict[str, Any]:
+def _test_ndb(host: str, username: str, password: str, insecure: bool,
+              pinned: str | None = None) -> dict[str, Any]:
     creds = NdbCredentials(host=host, username=username, password=password,
-                           verify_ssl=not insecure)
+                           verify_ssl=not insecure, pinned_sha256=pinned)
     with NdbConnection(creds, timeout=TEST_TIMEOUT) as conn:
         version = None
         with contextlib.suppress(NutanixApiError):
@@ -253,11 +271,11 @@ def _test_ndb(host: str, username: str, password: str, insecure: bool) -> dict[s
             "api": {"v4": 0, "v3": 0, "v2": 0, "not_deployed": 0}, "certificate": None}
 
 
-def _test_vcenter(host: str, port: int, username: str, password: str, insecure: bool
-                  ) -> dict[str, Any]:
+def _test_vcenter(host: str, port: int, username: str, password: str, insecure: bool,
+                  pinned: str | None = None) -> dict[str, Any]:
     """Log in to vCenter and count its hosts and VMs (GETs; the session is ended)."""
     creds = VcenterCredentials(host=host, username=username, password=password, port=port,
-                               verify_ssl=not insecure)
+                               verify_ssl=not insecure, pinned_sha256=pinned)
     with VcenterConnection(creds, timeout=TEST_TIMEOUT) as vc:
         version = vc.version
         hosts = vms = None

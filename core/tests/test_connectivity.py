@@ -56,8 +56,12 @@ def test_self_signed_certificate_is_described(demo: Any) -> None:
     assert cert["subject"] == cert["issuer"]
     assert len(cert["fingerprint_sha256"].split(":")) == 32
     assert cert["not_after"].endswith("Z")
-    # Skipping verification (lab mode) gets through.
-    assert _pc("selfsigned.demo.local", insecure=True)["status"] == "ok"
+    # Skipping verification (lab mode) asks to trust the certificate first, then gets
+    # through once its fingerprint is pinned (see test_tls_pinning.py).
+    assert _pc("selfsigned.demo.local", insecure=True)["status"] == "trust_required"
+    pinned = _pc("selfsigned.demo.local", insecure=True,
+                 pinned_sha256=cert["fingerprint_sha256"])
+    assert pinned["status"] == "ok"
 
 
 def test_unreachable(demo: Any) -> None:

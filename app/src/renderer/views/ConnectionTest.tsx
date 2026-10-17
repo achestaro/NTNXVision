@@ -32,6 +32,16 @@ export const TEST_OUTCOME: Record<TestConnectionStatus, { tone: Exclude<Tone, 'i
     label: 'Certificate not trusted',
     hint: 'If you trust this certificate, edit the target and turn off TLS verification.',
   },
+  trust_required: {
+    tone: 'warn',
+    label: 'Certificate not trusted yet',
+    hint: 'Open the target, test it and choose Trust this certificate.',
+  },
+  cert_changed: {
+    tone: 'error',
+    label: 'Certificate changed',
+    hint: 'The server presents a different certificate than the one you trusted. Test it again and trust it if you expect the change.',
+  },
   unreachable: { tone: 'error', label: 'Unreachable', hint: 'Check the address, port, firewall and VPN.' },
   error: { tone: 'error', label: 'Failed' },
 };
@@ -62,12 +72,75 @@ export function connectionSummary(test: TestState): {
   return { tone: 'idle', shape: 'outline', short: 'Not tested yet', header: null };
 }
 
+/** The certificate a test presented: who it is for, who issued it, until when, and its SHA-256. */
+export function CertificateDetails({ certificate }: { certificate: NonNullable<TestConnectionResult['certificate']> }): JSX.Element {
+  return (
+    <dl className="grid-kv mono t12" style={{ marginTop: 8, color: 'var(--ink-2)' }}>
+      <div className="kv">
+        <dt>Subject</dt>
+        <dd>{certificate.subject}</dd>
+      </div>
+      <div className="kv">
+        <dt>Issuer</dt>
+        <dd>{certificate.issuer}</dd>
+      </div>
+      {certificate.not_after && (
+        <div className="kv">
+          <dt>Expires</dt>
+          <dd>{certificate.not_after.slice(0, 10)}</dd>
+        </div>
+      )}
+      <div className="kv">
+        <dt>SHA-256</dt>
+        <dd style={{ overflowWrap: 'anywhere' }}>{certificate.fingerprint_sha256}</dd>
+      </div>
+    </dl>
+  );
+}
+
+/**
+ * Trust on first use: with TLS verification off, the app pins the certificate the user
+ * accepts instead of trusting any. `onTrust` stores the fingerprint and tests again.
+ */
+export function TrustCallout({
+  result,
+  host,
+  onTrust,
+}: {
+  result: TestConnectionResult;
+  host: string;
+  onTrust?(fingerprint: string): void;
+}): JSX.Element {
+  const changed = result.status === 'cert_changed';
+  const cert = result.certificate;
+  return (
+    <Callout
+      tone={changed ? 'error' : 'warn'}
+      title={changed ? `The certificate for ${host} changed.` : `Trust the certificate of ${host}?`}
+      actions={
+        cert &&
+        onTrust && (
+          <Button size="sm" variant="primary" onClick={() => onTrust(cert.fingerprint_sha256)}>
+            Trust this certificate
+          </Button>
+        )
+      }
+    >
+      {changed
+        ? 'It is not the certificate you trusted before. That can be a renewed certificate, or someone intercepting the connection. Only trust it if you expect the change.'
+        : 'TLS verification is off for this target, so the app pins the server certificate instead. Nothing, not even the password, has been sent yet. Compare the fingerprint with the one Prism shows, then trust it.'}
+      {cert ? <CertificateDetails certificate={cert} /> : <div className="mono t12">{result.message}</div>}
+    </Callout>
+  );
+}
+
 export function TestOutcome({
   test,
   host,
   port,
   verifyTls,
   onTurnOffVerification,
+  onTrust,
   onRetry,
 }: {
   test: TestState;
@@ -75,6 +148,8 @@ export function TestOutcome({
   port: string;
   verifyTls: boolean;
   onTurnOffVerification(): void;
+  /** Pin the certificate the test presented (trust on first use). */
+  onTrust?(fingerprint: string): void;
   onRetry(): void;
 }): JSX.Element | null {
   if (test.kind === 'error') {
@@ -146,6 +221,9 @@ export function TestOutcome({
           )}
         </Callout>
       );
+    case 'trust_required':
+    case 'cert_changed':
+      return <TrustCallout result={r} host={host} onTrust={onTrust} />;
     case 'unreachable':
       return (
         <Callout tone="error" title={`Can’t reach ${host}:${port}.`} actions={<Button size="sm" onClick={onRetry}>Test again</Button>}>

@@ -269,6 +269,18 @@ export function NewCollectionView({
     void runTest({ insecure: true });
   };
 
+  /** Trust on first use: pin the certificate the test showed, then test again. */
+  const trustCertificate = async (fingerprint: string) => {
+    if (!profile) return;
+    try {
+      setProfiles(await window.ntnx.trustCertificate({ targetId: profile.id, endpoint: 'primary', fingerprint }));
+    } catch (err) {
+      setTest({ kind: 'error', message: errorMessage(err) });
+      return;
+    }
+    void runTest();
+  };
+
   // ── areas ──
   const areas: CollectionArea[] = catalogue.data?.areas ?? [];
   const groups = useMemo(() => {
@@ -301,6 +313,10 @@ export function NewCollectionView({
   if (!isPe && clusterState.kind === 'ready' && clusters.length > 0 && chosenClusters.length === 0)
     blockers.push('Select at least one cluster in step 2.');
   if (clusterState.kind === 'loading') blockers.push('Loading the cluster list…');
+  // With TLS verification off the certificate must be trusted (pinned) first.
+  if (profile && !verifyTls && !profile.pinnedCert) blockers.push('Test the connection in step 1 and trust the certificate.');
+  if (profile && !isPe && ndbOn && profile.ndbInsecure && !profile.ndbPinnedCert) blockers.push('Trust the NDB certificate: edit the target on the Targets page and test NDB.');
+  if (profile && !isPe && vcOn && profile.vcenterInsecure && !profile.vcenterPinnedCert) blockers.push('Trust the vCenter certificate: edit the target on the Targets page and test vCenter.');
   if (badRatios.length) blockers.push('Fix the vCPU:pCPU target per cluster in step 2.');
   const canStart = !isRunning && blockers.length === 0;
 
@@ -532,7 +548,7 @@ export function NewCollectionView({
                   <span className="hint">Checks credentials, version and API support in about 2 s.</span>
                 )}
               </div>
-              <TestOutcome test={test} host={host} port={port} verifyTls={verifyTls} onTurnOffVerification={() => void turnOffVerification()} onRetry={() => void runTest()} />
+              <TestOutcome test={test} host={host} port={port} verifyTls={verifyTls} onTurnOffVerification={() => void turnOffVerification()} onTrust={(fp) => void trustCertificate(fp)} onRetry={() => void runTest()} />
             </div>
           </Panel>
 
