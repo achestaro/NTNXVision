@@ -9,7 +9,7 @@
   allow-unsigned-executable-memory. They belong only to the PyInstaller sidecar, which is
   re-signed with entitlements.sidecar.plist (build/sign-sidecar.js).
 
-  Keychain: keytar uses the legacy SecKeychain APIs against the user's login keychain,
+  Keychain: @napi-rs/keyring (keyring-rs) uses the macOS Security framework against the user's login keychain,
   which needs no entitlement outside the App Sandbox. Do not add keychain-access-groups:
   it requires an embedded provisioning profile and makes a Developer-ID build fail to launch.
 -->

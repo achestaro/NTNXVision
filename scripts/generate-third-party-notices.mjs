@@ -103,6 +103,9 @@ function closure(startDirs) {
     out.set(key, describePkg(dir));
     const deps = { ...(pkg.dependencies ?? {}), ...(pkg.optionalDependencies ?? {}) };
     for (const dep of Object.keys(deps)) {
+      // Per-platform prebuilt binaries: only the host's is installed, so listing it would make
+      // the file differ by machine. They share the main package's license (noted in the intro).
+      if (dep.startsWith('@napi-rs/keyring-')) continue;
       const d = resolvePkgDir(dep, dir);
       if (d) stack.push(d);
     }
@@ -385,7 +388,8 @@ async function main() {
     '## Node modules packaged with the main process',
     '',
     'Production dependencies (and their dependencies) that electron-builder packages into the',
-    'application archive. `keytar` provides OS-keychain access for stored credentials.',
+    'application archive. `@napi-rs/keyring` provides OS-keychain access for stored credentials; its prebuilt',
+    'per-platform binaries (`@napi-rs/keyring-<platform>-<arch>`) carry the same MIT license.',
     '',
     table(main),
     '',

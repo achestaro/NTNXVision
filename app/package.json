@@ -33,7 +33,7 @@
     "notices:check": "node ../scripts/generate-third-party-notices.mjs --check"
   },
   "dependencies": {
-    "keytar": "^7.9.0"
+    "@napi-rs/keyring": "2.1.1"
   },
   "devDependencies": {
     "@electron/notarize": "^2.5.0",
@@ -77,7 +77,7 @@
     ],
     "asar": true,
     "asarUnpack": [
-      "**/node_modules/keytar/**",
+      "**/node_modules/@napi-rs/keyring*/**",
       "**/*.node"
     ],
     "npmRebuild": true,
