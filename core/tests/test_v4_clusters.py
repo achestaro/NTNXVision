@@ -15,7 +15,7 @@ from ntnxvision_core.models import Environment
 
 # Trimmed from a live pc.7.5.1.1 response ($reserved/$objectType noise removed).
 V4_CLUSTER = {
-    "extId": "0006442f-1fc6-3ee1-0000-000000016d34",
+    "extId": "0000d596-d86d-45b7-adae-2662c463d891",
     "name": "lab-cluster-02",
     "nodes": {"numberOfNodes": 1},
     "network": {"externalAddress": {"ipv4": {"value": "198.51.100.232", "prefixLength": 32}}},

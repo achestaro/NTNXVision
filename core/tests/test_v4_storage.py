@@ -9,10 +9,10 @@ from ntnxvision_core.models import Environment
 
 # Trimmed from a live pc.7.5.1.1 response.
 V4_CONTAINER = {
-    "containerExtId": "0371fdd4-ad03-48a4-b263-a3d682012780",
+    "containerExtId": "0000013d-656c-4294-ae18-646f6c45a6e9",
     "name": "flow_data",
     "clusterName": "lab-cluster-01",
-    "clusterExtId": "0006442f-1fc6-3ee1-0000-000000016d34",
+    "clusterExtId": "0000d596-d86d-45b7-adae-2662c463d891",
     "replicationFactor": 2,
     "isCompressionEnabled": True,
     "compressionDelaySecs": 0,

@@ -14,14 +14,14 @@ from ntnxvision_core.api.errors import NutanixApiError
 from ntnxvision_core.collectors.catalog import ImageCollector, OvaCollector, TemplateCollector
 from ntnxvision_core.models import Cluster, Environment
 
-CLUSTER_UUID = "0006442f-1fc6-3ee1-0000-000000016d34"
+CLUSTER_UUID = "0000d596-d86d-45b7-adae-2662c463d891"
 
 V4_IMAGE = {
     "$objectType": "vmm.v4.content.Image",
-    "extId": "5a61e7ff-181d-44cb-85c5-78257ea8c03f",
+    "extId": "00007bdb-6e4c-4bff-ac73-b1ebd624d772",
     "sizeBytes": 6014152704,
     "createTime": "2025-12-08T11:13:47.997818Z",
-    "ownerName": "david.quinney@quinney.dev",
+    "ownerName": "jane.doe@example.lab",
     "name": "Windows Server 2025 Eval",
     "type": "ISO_IMAGE",
     "clusterLocationExtIds": [CLUSTER_UUID],
@@ -45,17 +45,17 @@ V3_IMAGE = {
 
 V4_TEMPLATE = {
     "$objectType": "vmm.v4.content.Template",
-    "extId": "00c7f451-b4ec-4c0f-89da-9ba77701de64",
+    "extId": "0000983c-2904-44a2-a7c1-9384eb7123fb",
     "createTime": "2025-12-11T11:41:23.128537Z",
     "templateName": "Windows Server 2025 Template",
     "createdBy": {
         "$objectType": "vmm.v4.content.TemplateUser",
-        "extId": "868b7755-bb2d-55ef-b757-06a34e92bcf2",
-        "username": "david.quinney@quinney.dev",
+        "extId": "00006647-73f9-4e4f-adc3-8a74a9bfe65e",
+        "username": "jane.doe@example.lab",
     },
     # The list row's vmSpec is trimmed to sizing — no guestTools, so no guest OS.
     "templateVersionSpec": {
-        "extId": "27cceb5c-23b5-482c-882b-492dcad15984",
+        "extId": "00008ec4-9ff9-4c53-a50f-208fa25df43b",
         "isActiveVersion": True,
         "versionName": "Initial Version",
         "clusterLocationExtIds": [CLUSTER_UUID],
@@ -98,7 +98,7 @@ V4_OVA = {
     "diskFormat": "VMDK",
     "createdBy": {
         "$objectType": "iam.v4.authn.User",
-        "username": "david.quinney@quinney.dev",
+        "username": "jane.doe@example.lab",
     },
 }
 
@@ -275,7 +275,7 @@ def test_v4_template_maps_sizing_and_owner_from_the_list_row() -> None:
     # 1 socket x 2 cores; the model's vcpu count is the total, not the socket count.
     assert t.num_vcpus == 2
     assert t.memory_bytes == 8589934592
-    assert t.created_by == "david.quinney@quinney.dev"
+    assert t.created_by == "jane.doe@example.lab"
     # templateVersionSpec on a template *is* its active version.
     assert t.active_version == "Initial Version"
     assert t.api_source == "v4"
