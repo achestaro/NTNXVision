@@ -348,8 +348,10 @@ def disk_key(label: str | None) -> str | None:
 
 
 def usable_ip(ip: str) -> bool:
-    """False for IPv6 link-local addresses, which every NIC has and nobody looks up."""
-    return not ip.lower().startswith("fe80:")
+    """False for link-local addresses (IPv6 fe80::/10, IPv4 169.254/16 self-assigned),
+    which VMware Tools reports alongside the real ones and nobody looks up."""
+    text = ip.strip().lower()
+    return not (text.startswith("fe80:") or text.startswith("169.254."))
 
 
 #: (area id, label, step) in run order. The area ids match the Prism Central collectors'
