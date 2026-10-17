@@ -33,7 +33,7 @@ import { TargetRef, describeFrequency, scheduleSnapshotNames } from '../shared/s
 import { SmtpStore, smtpParams } from './mail';
 import { Job, RetryLater, RunOutcome, ScheduleRunner, ScheduleStore, nextRun, scheduleInfo } from './schedules';
 import { SidecarClient, SidecarError } from './sidecar';
-import { cleanOverrides } from './targets';
+import { cleanOverrides, endpointTls } from './targets';
 import type { StoredTarget } from './targets';
 import * as store from './store';
 import { APP_ICON_PNG, MAC_TEMPLATE_PNG } from './trayIcons';
@@ -285,22 +285,25 @@ export class Scheduler {
   /** A target's connection with its keychain passwords (NDB when the target has one saved). */
   private async connection(t: StoredTarget) {
     const password = (await store.targets.password(t.id)) ?? '';
-    let ndb: { host: string; username: string; password: string } | undefined;
+    // Each endpoint has its own TLS choice; with verification off its trusted certificate is
+    // pinned. A target with none trusted yet fails the run with a message to trust it.
+    const tls = endpointTls(t);
+    let ndb: { host: string; username: string; password: string; insecure: boolean; pinned_sha256?: string } | undefined;
     if (t.mode === 'prism_central' && t.ndbHost) {
       const ndbPassword = (await store.targets.ndbPassword(t.id)) ?? '';
-      if (ndbPassword) ndb = { host: t.ndbHost, username: t.ndbUser || 'admin', password: ndbPassword };
+      if (ndbPassword) ndb = { host: t.ndbHost, username: t.ndbUser || 'admin', password: ndbPassword, insecure: tls.ndb.insecure, pinned_sha256: tls.ndb.pinnedCert };
     }
     // The target's vCenter (ESXi enrichment), as New collection turns it on when one is saved.
-    let vcenter: { host: string; username: string; password: string; insecure: boolean } | undefined;
+    let vcenter: { host: string; username: string; password: string; insecure: boolean; pinned_sha256?: string } | undefined;
     if (t.mode === 'prism_central' && t.vcenterHost) {
       const vcPassword = (await store.targets.vcenterPassword(t.id)) ?? '';
       if (vcPassword) {
-        vcenter = { host: t.vcenterHost, username: t.vcenterUser || 'administrator@vsphere.local', password: vcPassword, insecure: !!t.vcenterInsecure };
+        vcenter = { host: t.vcenterHost, username: t.vcenterUser || 'administrator@vsphere.local', password: vcPassword, insecure: tls.vcenter.insecure, pinned_sha256: tls.vcenter.pinnedCert };
       }
     }
     // Per-cluster vCPU:pCPU targets remembered from the last manual run.
     const overrides = cleanOverrides(t.vcpuRatioOverrides);
-    return { host: t.host, username: t.username, port: t.port, insecure: t.insecure, password, ndb, vcenter, overrides };
+    return { host: t.host, username: t.username, port: t.port, insecure: t.insecure, pinnedCert: tls.primary.pinnedCert, password, ndb, vcenter, overrides };
   }
 
   /**
@@ -319,6 +322,7 @@ export class Scheduler {
         username: t.username,
         password,
         insecure: t.insecure,
+        pinned_sha256: t.insecure ? t.pinnedCert : undefined,
       });
       const picked = new Set(memory.selected);
       const known = new Set(memory.known);
@@ -370,6 +374,7 @@ export class Scheduler {
           password: conn.password,
           port: conn.port,
           insecure: conn.insecure,
+          pinned_sha256: conn.pinnedCert,
           name: names.targets[0],
           unique_name: true,
           areas: areasFor(t.mode),
@@ -397,6 +402,7 @@ export class Scheduler {
             password: c.password,
             port: c.port,
             insecure: c.insecure,
+            pinned_sha256: c.pinnedCert,
             name: names.targets[i],
             ndb: c.ndb,
             vcenter: c.vcenter,

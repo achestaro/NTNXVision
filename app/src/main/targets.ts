@@ -24,6 +24,7 @@ import type {
   TargetSaveResult,
   TargetTestInfo,
   TestConnectionResult,
+  TrustEndpoint,
   VcpuRatioOverrides,
 } from '../shared/ipc';
 import { MAX_CLUSTER_RATIO, MIN_CLUSTER_RATIO } from '../shared/ipc';
@@ -89,6 +90,48 @@ function uniqueName(base: string, username: string, taken: Set<string>): string 
   for (let i = 2; ; i++) if (!taken.has(nameKey(`${base} (${i})`))) return `${base} (${i})`;
 }
 
+const FINGERPRINT = /^([0-9A-Fa-f]{2}:){31}[0-9A-Fa-f]{2}$/;
+
+/** A SHA-256 fingerprint as AA:BB:... (upper case), or undefined when it isn't one. */
+export function cleanFingerprint(v: unknown): string | undefined {
+  return typeof v === 'string' && FINGERPRINT.test(v.trim()) ? v.trim().toUpperCase() : undefined;
+}
+
+/**
+ * The pin to carry from the previous save: the request's own fingerprint when it sent one
+ * ('' clears it), else the saved one while the endpoint is unchanged. Only an endpoint with
+ * TLS verification off has a pin.
+ */
+function nextPin(requested: string | undefined, prev: string | undefined, insecure: boolean, sameEndpoint: boolean): string | undefined {
+  if (!insecure) return undefined;
+  if (requested !== undefined) return cleanFingerprint(requested);
+  return sameEndpoint ? prev : undefined;
+}
+
+/**
+ * The saved certificate pin for a request to one of a target's endpoints (primary PC/PE,
+ * NDB or vCenter), or undefined when the request is not for that endpoint's address.
+ */
+export function savedPin(t: StoredTarget, req: { mode: string; host: string; port: number }): string | undefined {
+  const host = req.host.trim();
+  if (req.mode === 'ndb') return t.ndbHost === host ? t.ndbPinnedCert : undefined;
+  if (req.mode === 'vcenter') return t.vcenterHost === host ? t.vcenterPinnedCert : undefined;
+  return t.mode === req.mode && t.host === host && t.port === req.port ? t.pinnedCert : undefined;
+}
+
+/**
+ * The TLS settings a run sends for each endpoint of a saved target: whether verification
+ * is off and, if so, the pinned fingerprint (undefined = not trusted yet; the core
+ * refuses such a run with a message asking the user to trust the certificate).
+ */
+export function endpointTls(t: StoredTarget) {
+  return {
+    primary: { insecure: t.insecure, pinnedCert: t.insecure ? t.pinnedCert : undefined },
+    ndb: { insecure: !!t.ndbInsecure, pinnedCert: t.ndbInsecure ? t.ndbPinnedCert : undefined },
+    vcenter: { insecure: !!t.vcenterInsecure, pinnedCert: t.vcenterInsecure ? t.vcenterPinnedCert : undefined },
+  };
+}
+
 function str(v: unknown): string {
   return typeof v === 'string' ? v : '';
 }
@@ -136,7 +179,16 @@ export interface MigrationResult {
 export function migrate(current: unknown, legacy: unknown, newId: () => string, now: string): MigrationResult {
   if (current && typeof current === 'object' && Array.isArray((current as TargetsFile).targets)) {
     const targets = (current as TargetsFile).targets.filter((t) => t && typeof t.id === 'string' && str(t.host));
-    return { file: { version: 2, targets }, idMap: {}, changed: targets.length !== (current as TargetsFile).targets.length };
+    // NDB used to inherit the Prism Central's "skip TLS verification" flag. It has its own
+    // flag now: inherit the current value once so existing targets behave as before.
+    let inherited = false;
+    for (const t of targets) {
+      if (t.ndbHost && typeof t.ndbInsecure !== 'boolean') {
+        t.ndbInsecure = !!t.insecure;
+        inherited = true;
+      }
+    }
+    return { file: { version: 2, targets }, idMap: {}, changed: inherited || targets.length !== (current as TargetsFile).targets.length };
   }
   const idMap: Record<string, string> = {};
   const targets: StoredTarget[] = [];
@@ -166,7 +218,7 @@ export function migrate(current: unknown, legacy: unknown, newId: () => string, 
       port: prt,
       username,
       insecure: !!p.insecure,
-      ...(ndbHost ? { ndbHost, ndbUser: str(p.ndbUser).trim() || 'admin' } : {}),
+      ...(ndbHost ? { ndbHost, ndbUser: str(p.ndbUser).trim() || 'admin', ndbInsecure: !!p.insecure } : {}),
       ...(mode === 'prism_central' && cleanSelection(p.clusterSelection) ? { clusterSelection: cleanSelection(p.clusterSelection) } : {}),
       createdAt: now,
       updatedAt: now,
@@ -308,8 +360,11 @@ export class TargetStore {
       port: t.port,
       username: t.username,
       insecure: t.insecure,
-      ...(t.ndbHost ? { ndbHost: t.ndbHost, ndbUser: t.ndbUser } : {}),
-      ...(t.vcenterHost ? { vcenterHost: t.vcenterHost, vcenterUser: t.vcenterUser, vcenterInsecure: !!t.vcenterInsecure } : {}),
+      ...(t.pinnedCert ? { pinnedCert: t.pinnedCert } : {}),
+      ...(t.ndbHost ? { ndbHost: t.ndbHost, ndbUser: t.ndbUser, ndbInsecure: !!t.ndbInsecure, ...(t.ndbPinnedCert ? { ndbPinnedCert: t.ndbPinnedCert } : {}) } : {}),
+      ...(t.vcenterHost
+        ? { vcenterHost: t.vcenterHost, vcenterUser: t.vcenterUser, vcenterInsecure: !!t.vcenterInsecure, ...(t.vcenterPinnedCert ? { vcenterPinnedCert: t.vcenterPinnedCert } : {}) }
+        : {}),
       ...(t.clusterSelection ? { clusterSelection: t.clusterSelection } : {}),
       ...(t.vcpuRatioOverrides ? { vcpuRatioOverrides: { ...t.vcpuRatioOverrides } } : {}),
       hasPassword: await has(() => this.password(t.id)),
@@ -342,6 +397,12 @@ export class TargetStore {
     const clusterSelection = isPc && prev?.mode === 'prism_central' && prev.host === host ? prev.clusterSelection : undefined;
     // So do the per-cluster vCPU:pCPU targets (either mode): same endpoint, same clusters.
     const vcpuRatioOverrides = prev && prev.mode === req.mode && prev.host === host ? prev.vcpuRatioOverrides : undefined;
+    // Certificate pins (trust on first use): one per endpoint, only while that endpoint has
+    // TLS verification off, and only for the address they were trusted for.
+    const pinnedCert = nextPin(req.pinnedCert, prev?.pinnedCert, !!req.insecure, !!prev && prev.mode === req.mode && prev.host === host && prev.port === req.port);
+    const ndbInsecure = req.ndbInsecure ?? prev?.ndbInsecure ?? false;
+    const ndbPinnedCert = ndbHost ? nextPin(req.ndbPinnedCert, prev?.ndbPinnedCert, ndbInsecure, prev?.ndbHost === ndbHost) : undefined;
+    const vcenterPinnedCert = vcenterHost ? nextPin(req.vcenterPinnedCert, prev?.vcenterPinnedCert, !!req.vcenterInsecure, prev?.vcenterHost === vcenterHost) : undefined;
     const next: StoredTarget = {
       id,
       mode: req.mode,
@@ -350,10 +411,13 @@ export class TargetStore {
       port: req.port,
       username: req.username.trim(),
       insecure: !!req.insecure,
-      ...(ndbHost ? { ndbHost, ndbUser: str(req.ndbUser).trim() || 'admin' } : {}),
+      ...(pinnedCert ? { pinnedCert } : {}),
+      ...(ndbHost ? { ndbHost, ndbUser: str(req.ndbUser).trim() || 'admin', ndbInsecure } : {}),
+      ...(ndbPinnedCert ? { ndbPinnedCert } : {}),
       ...(vcenterHost
         ? { vcenterHost, vcenterUser: str(req.vcenterUser).trim() || 'administrator@vsphere.local', vcenterInsecure: !!req.vcenterInsecure }
         : {}),
+      ...(vcenterPinnedCert ? { vcenterPinnedCert } : {}),
       ...(clusterSelection ? { clusterSelection } : {}),
       ...(vcpuRatioOverrides ? { vcpuRatioOverrides } : {}),
       createdAt: prev?.createdAt ?? now,
@@ -436,6 +500,23 @@ export class TargetStore {
     if (next) t.vcpuRatioOverrides = next;
     else delete t.vcpuRatioOverrides;
     this.persist();
+  }
+
+  /**
+   * Trust a certificate for one endpoint of a saved target: the fingerprint a connection
+   * test showed the user. Only for an endpoint with TLS verification off. Returns false
+   * for an unknown target or endpoint, a malformed fingerprint, or verification on.
+   */
+  trust(id: string, endpoint: TrustEndpoint, fingerprint: string): boolean {
+    const t = this.data().targets.find((x) => x.id === id);
+    const fp = cleanFingerprint(fingerprint);
+    if (!t || !fp) return false;
+    if (endpoint === 'primary' && t.insecure) t.pinnedCert = fp;
+    else if (endpoint === 'ndb' && t.ndbHost && t.ndbInsecure) t.ndbPinnedCert = fp;
+    else if (endpoint === 'vcenter' && t.vcenterHost && t.vcenterInsecure) t.vcenterPinnedCert = fp;
+    else return false;
+    this.persist();
+    return true;
   }
 
   /** Remember a target's last connection test (only for the target as saved). */
