@@ -45,7 +45,8 @@ def test_v4_esxi_guest_ips_are_read_from_ipv4_addresses() -> None:
         "extId": "n1", "backingInfo": {"macAddress": "00:50:56:00:00:01", "isConnected": True,
                                        "adapterType": "VMXNET3"},
         "networkInfo": {"portGroupInfo": {"name": "servers_vlan"},
-                        "ipAddressInfo": {"ipv4Addresses": [{"value": "192.0.2.10"}],
+                        "ipAddressInfo": {"ipv4Addresses": [{"value": "169.254.1.2"},
+                                                            {"value": "192.0.2.10"}],
                                           "ipv6Addresses": [{"value": "fe80::1"},
                                                             {"value": "2001:db8::10"}]}}}]}
     nic = _v4_nics(vm)[0]
