@@ -20,13 +20,13 @@ installer is regenerated at package time from that build’s exact dependency se
 
 ## Electron and Chromium
 
-The application runs on **Electron 30.5.1** (MIT, <https://www.electronjs.org/>),
+The application runs on **Electron 44.9.0** (MIT, <https://www.electronjs.org/>),
 which embeds Chromium, Node.js, V8 and their many third-party components. Their full
 license texts are in the `LICENSES.chromium.html` file shipped with the app (macOS:
 `NTNXVision.app/Contents/Resources/`; Windows: the
 installation folder next to `NTNXVision.exe`).
 
-#### electron 30.5.1
+#### electron 44.9.0
 
 License: **MIT** · <https://github.com/electron/electron>
 
@@ -64,7 +64,7 @@ Modules that Vite compiles into the renderer bundle (determined from the actual 
 | [react](#r-react) | 18.3.1 | MIT |
 | [react-dom](#r-react-dom) | 18.3.1 | MIT |
 | [scheduler](#r-scheduler) | 0.23.2 | MIT |
-| [vite](#r-vite) | 5.4.21 | MIT |
+| [vite](#r-vite) | 6.4.4 | MIT |
 
 <a id="r-phosphor-icons-react"></a>
 #### @phosphor-icons/react 2.1.10
@@ -183,7 +183,7 @@ SOFTWARE.
 ```
 
 <a id="r-vite"></a>
-#### vite 5.4.21
+#### vite 6.4.4
 
 License: **MIT** · <https://vite.dev>
 
@@ -2024,6 +2024,18 @@ Run-time Hooks are in the directory
 ./PyInstaller/hooks/rthooks
 
 
+Additional Run-time Modules
+----------------------------------
+
+In addition to run-time hooks, PyInstaller may embed additional run-time
+modules in the final executable. At the time of writing, these include
+the splash-screen module (``pyi_splash``) and modules from utility package
+for run-time hooks (``_pyi_rth_utils``). All these files are licensed under
+the Apache License, Version 2.0, and are located in the following directory:
+
+./PyInstaller/fake-modules
+
+
 The PyInstaller.isolated submodule
 ----------------------------------
 
@@ -2619,30 +2631,30 @@ SOFTWARE.
 | [annotated-types](#py-annotated-types) | 0.8.0 | MIT |
 | [certifi](#py-certifi) | 2026.7.22 | Mozilla Public License 2.0 (MPL 2.0) |
 | [cffi](#py-cffi) | 2.1.1 | MIT-0 |
-| [charset-normalizer](#py-charset-normalizer) | 3.5.1 | MIT |
+| [charset-normalizer](#py-charset-normalizer) | 3.5.2 | MIT |
 | [cryptography](#py-cryptography) | 46.0.7 | Apache-2.0 OR BSD-3-Clause |
 | [defusedxml](#py-defusedxml) | 0.7.1 | Python Software Foundation License |
 | [et_xmlfile](#py-et-xmlfile) | 2.0.0 | MIT License |
-| [fonttools](#py-fonttools) | 4.64.0 | MIT |
-| [fpdf2](#py-fpdf2) | 2.8.8 | LGPL-3.0-only |
-| [idna](#py-idna) | 3.19 | BSD-3-Clause |
+| [fonttools](#py-fonttools) | 4.67.0 | MIT |
+| [fpdf2](#py-fpdf2) | 2.8.9 | LGPL-3.0-only |
+| [idna](#py-idna) | 3.20 | BSD-3-Clause |
 | [lxml](#py-lxml) | 6.1.3 | BSD-3-Clause |
 | [markdown-it-py](#py-markdown-it-py) | 4.2.0 | MIT License |
 | [mdurl](#py-mdurl) | 0.1.2 | MIT License |
 | [openpyxl](#py-openpyxl) | 3.1.5 | MIT License |
 | [pillow](#py-pillow) | 12.3.0 | MIT-CMU |
 | [pycparser](#py-pycparser) | 3.11 | BSD-3-Clause |
-| [pydantic](#py-pydantic) | 2.13.5 | MIT |
-| [pydantic_core](#py-pydantic-core) | 2.46.5 | MIT |
+| [pydantic](#py-pydantic) | 2.14.1 | MIT |
+| [pydantic_core](#py-pydantic-core) | 2.50.1 | MIT |
 | [Pygments](#py-pygments) | 2.21.0 | BSD-2-Clause |
 | [python-docx](#py-python-docx) | 1.2.0 | MIT License |
 | [requests](#py-requests) | 2.34.2 | Apache Software License |
 | [rich](#py-rich) | 14.3.4 | MIT License |
 | [shellingham](#py-shellingham) | 1.5.4 | ISC License (ISCL) |
-| [typer](#py-typer) | 0.27.2 | MIT |
+| [typer](#py-typer) | 0.27.3 | MIT |
 | [typing_extensions](#py-typing-extensions) | 4.16.0 | PSF-2.0 |
 | [typing-inspection](#py-typing-inspection) | 0.4.4 | MIT |
-| [urllib3](#py-urllib3) | 2.7.0 | MIT |
+| [urllib3](#py-urllib3) | 2.8.0 | MIT |
 
 <a id="py-annotated-doc"></a>
 #### annotated-doc 0.0.5
@@ -2760,7 +2772,7 @@ documentation is licensed as follows:
 ```
 
 <a id="py-charset-normalizer"></a>
-#### charset-normalizer 3.5.1
+#### charset-normalizer 3.5.2
 
 License: **MIT** · <https://github.com/jawah/charset_normalizer/blob/master/CHANGELOG.md>
 
@@ -3162,7 +3174,7 @@ PERFORMANCE OF THIS SOFTWARE.
 ```
 
 <a id="py-fonttools"></a>
-#### fonttools 4.64.0
+#### fonttools 4.67.0
 
 License: **MIT** · <http://github.com/fonttools/fonttools>
 
@@ -3191,7 +3203,7 @@ SOFTWARE.
 ```
 
 <a id="py-fpdf2"></a>
-#### fpdf2 2.8.8
+#### fpdf2 2.8.9
 
 License: **LGPL-3.0-only** · <https://py-pdf.github.io/fpdf2/>
 
@@ -3364,7 +3376,7 @@ Library.
 ```
 
 <a id="py-idna"></a>
-#### idna 3.19
+#### idna 3.20
 
 License: **BSD-3-Clause** · <https://github.com/kjd/idna>
 
@@ -5173,7 +5185,7 @@ OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ```
 
 <a id="py-pydantic"></a>
-#### pydantic 2.13.5
+#### pydantic 2.14.1
 
 License: **MIT** · <https://github.com/pydantic/pydantic>
 
@@ -5202,7 +5214,7 @@ SOFTWARE.
 ```
 
 <a id="py-pydantic-core"></a>
-#### pydantic_core 2.46.5
+#### pydantic_core 2.50.1
 
 License: **MIT** · <https://github.com/pydantic>
 
@@ -5525,7 +5537,7 @@ OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 ```
 
 <a id="py-typer"></a>
-#### typer 0.27.2
+#### typer 0.27.3
 
 License: **MIT** · <https://github.com/fastapi/typer>
 
@@ -5870,7 +5882,7 @@ SOFTWARE.
 ```
 
 <a id="py-urllib3"></a>
-#### urllib3 2.7.0
+#### urllib3 2.8.0
 
 License: **MIT** · <https://github.com/urllib3/urllib3/blob/main/CHANGES.rst>
 
