@@ -305,7 +305,7 @@ function ResultsBody({
                     header: 'API',
                     render: (x) => (
                       <Badge mono strong>
-                        {x.api === 'v2' ? 'v2.0' : x.api === 'era' ? 'Era' : x.api}
+                        {x.api === 'v2' ? 'v2.0' : x.api === 'era' ? 'Era' : x.api === 'vcenter' ? 'vCenter' : x.api}
                       </Badge>
                     ),
                   },
