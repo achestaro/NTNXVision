@@ -112,6 +112,11 @@ class Features:
     groups_mh_vm: bool = False
     #: LCM reports its own framework as out of date (an LCM "with notes" outcome).
     lcm_framework_stale: bool = False
+    #: Prism Central proxies Prism Element APIs (``proxyClusterUuid``), as real PCs do.
+    #: Off: the proxy answers 403, which leaves only the groups API as an ESXi fallback.
+    pe_proxy: bool = True
+    #: The vCenter Server the ESXi clusters are registered to (v4 managementServer).
+    vcenter_address: str | None = None
 
 
 PROFILES: dict[str, list[ClusterSpec]] = {
@@ -200,6 +205,8 @@ class PcEstate:
     containers: list[dict[str, Any]] = field(default_factory=list)
     vswitches: list[dict[str, Any]] = field(default_factory=list)
     subnets: list[dict[str, Any]] = field(default_factory=list)
+    #: vSphere port groups of the ESXi clusters (not Nutanix subnets).
+    port_groups: list[dict[str, Any]] = field(default_factory=list)
     vms: list[dict[str, Any]] = field(default_factory=list)
     images: list[dict[str, Any]] = field(default_factory=list)
     templates: list[dict[str, Any]] = field(default_factory=list)
@@ -403,10 +410,26 @@ def _networking(est: PcEstate) -> None:
         ci = c["index"]
         base = c["name"].lower()
         if c["hypervisor"] == "ESXi":
-            # ESXi clusters have port groups, not Nutanix subnets; one VLAN for reach.
-            names = [("servers_vlan", 300)]
-        else:
-            names = [("prod", 100), ("dev", 110), ("mgmt", 10), ("dmz", 200), ("vdi", 120)]
+            # ESXi clusters have vSphere port groups, not Nutanix subnets: Prism
+            # Central's subnet APIs list nothing for them (as on the lab PC). Their
+            # Prism Element lists the port groups (v2.0 networks), vCenter their type.
+            for k, (pg_name, vlan, switch) in enumerate([
+                    ("servers_vlan", 300 + ci, "DISTRIBUTED"),
+                    ("VM Network", 0, "STANDARD"),
+                    ("vMotion", 445, "DISTRIBUTED")]):
+                est.port_groups.append({
+                    "uuid": uid(seed, "portgroup", c["name"], pg_name),
+                    "name": pg_name,
+                    "cluster_uuid": c["uuid"],
+                    "cluster_name": c["name"],
+                    "vlan": vlan,
+                    "switch": switch,
+                    "prefix": f"10.{40 + ci}.{k}.0",
+                    "vc_id": (f"dvportgroup-{100 + ci * 10 + k}" if switch == "DISTRIBUTED"
+                              else f"network-{100 + ci * 10 + k}"),
+                })
+            continue
+        names = [("prod", 100), ("dev", 110), ("mgmt", 10), ("dmz", 200), ("vdi", 120)]
         for k, (suffix, vlan) in enumerate(names):
             name = f"{base}-{suffix}"
             est.subnets.append({
@@ -592,6 +615,7 @@ def _vms(est: PcEstate, specs: list[ClusterSpec]) -> None:
     for s in est.subnets:
         if s["cluster_uuid"]:
             subnets_by_cluster.setdefault(s["cluster_uuid"], []).append(s)
+    servers_pg = {p["cluster_uuid"]: p for p in est.port_groups if p["name"] == "servers_vlan"}
     containers_by_cluster: dict[str, list[dict[str, Any]]] = {}
     for ct in est.containers:
         containers_by_cluster.setdefault(ct["cluster_uuid"], []).append(ct)
@@ -636,15 +660,31 @@ def _vms(est: PcEstate, specs: list[ClusterSpec]) -> None:
                 "index": di,
                 "image": (ahv_images[int(d_pick * len(ahv_images))]["uuid"]
                           if di == 0 and ahv_images and d_image < 0.6 else None),
+                "datastore": None,
             })
+        esxi = cluster["hypervisor"] == "ESXi"
+        if esxi and n % 4 == 0:
+            # A scratch disk on the host's local VMFS datastore: no Nutanix storage
+            # container holds it, so v4 leaves it out; Prism Element lists it with a
+            # size only and vCenter names its datastore.
+            disks.append({
+                "uuid": uid(*key, "disk", "local"), "size": 40 * GIB,
+                "container_uuid": None, "container_name": None, "bus": "SCSI",
+                "index": len(disks), "image": None,
+                "datastore": f"{host['name']}-local-ds",
+            })
+        pg = servers_pg.get(cluster["uuid"]) if esxi else None
         ip = None
         if subnet is not None and power == "ON":
             ip = f"{subnet['prefix'].rsplit('.', 1)[0]}.{10 + (n % 240)}"
+        elif pg is not None and power == "ON":
+            ip = f"{pg['prefix'].rsplit('.', 1)[0]}.{10 + (n % 240)}"
         nic = {
             "uuid": uid(*key, "nic", 0),
-            "mac": "50:6b:8d:" + ":".join(f"{b:02x}" for b in mac),
+            "mac": ("00:50:56:" if esxi else "50:6b:8d:") + ":".join(f"{b:02x}" for b in mac),
             "subnet_uuid": subnet["uuid"] if subnet else None,
-            "port_group": "servers_vlan" if cluster["hypervisor"] == "ESXi" else None,
+            "port_group": pg["name"] if pg else None,
+            "port_group_uuid": pg["uuid"] if pg else None,
             "ip": ip,
             "connected": power == "ON",
         }
