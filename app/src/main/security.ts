@@ -11,7 +11,7 @@
 import { BrowserWindow, IpcMain, Menu, MenuItemConstructorOptions, app, protocol, session, shell } from 'electron';
 import { readFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
-import { dirname, extname, join } from 'node:path';
+import { dirname, extname, join, resolve } from 'node:path';
 import * as store from './store';
 import { e2eRun, testEnv } from './testhooks';
 import {
@@ -21,6 +21,7 @@ import {
   REVEAL_EXTENSIONS,
   checkExportDir,
   realOrResolved,
+  requireLocalAbsolute,
   resolveAppFile,
   resolveOpenable,
 } from './pathpolicy';
@@ -246,9 +247,13 @@ export function chosenDirFor(v: unknown): string {
 
 /** Files returned by the file dialog in this session (customer Word templates). */
 const chosenFiles = new Set<string>();
+/** The same files by their lexical absolute path: checked first, before any filesystem call. */
+const chosenLexical = new Set<string>();
 
 export function rememberChosenFile(p: string | null | undefined): void {
-  if (p) chosenFiles.add(realOrResolved(p));
+  if (!p) return;
+  chosenFiles.add(realOrResolved(p));
+  chosenLexical.add(resolve(p));
 }
 
 export function defaultExportDir(): string {
@@ -302,7 +307,9 @@ export function exportDirFor(v: unknown): string | undefined {
 export function wordTemplateFor(v: unknown): string {
   const t = str(v, 'word.template', 4096);
   if (t === 'standard') return t;
-  if (!chosenFiles.has(realOrResolved(t))) {
+  // R3-03: judge the text first. realpath on a UNC path would make Windows contact the share.
+  const abs = requireLocalAbsolute(t, 'word.template');
+  if (!chosenLexical.has(resolve(abs)) || !chosenFiles.has(realOrResolved(abs))) {
     throw new ValidationError('Choose the Word template again with the file picker.');
   }
   return t;

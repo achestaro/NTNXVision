@@ -204,3 +204,40 @@ test('R2-10: test and list-clusters requests accept plain hosts only', () => {
     throwsValidation(() => req.asListClustersRequest({ ...testReq, host }));
   }
 });
+
+// ─── round 3 ───
+
+const srcDir = join(dirname(fileURLToPath(import.meta.url)), '..', 'src', 'main');
+
+test('R3-02: a packaged build exits on every debugger switch form (static check)', () => {
+  const text = readFileSync(join(srcDir, 'main.ts'), 'utf8');
+  const head = text.slice(text.indexOf('DEBUG_SWITCHES'), text.indexOf('registerAppScheme();'));
+  for (const s of ['remote-debugging-port', 'remote-debugging-pipe', 'inspect', 'inspect-brk', 'inspect-port', 'js-flags']) {
+    assert.ok(head.includes(`'${s}'`), s);
+  }
+  assert.ok(/app\.commandLine\.hasSwitch/.test(head) && /app\.isPackaged/.test(head) && /app\.exit\(1\)/.test(head));
+  assert.ok(/win32/.test(head) && /\/i;/.test(head), 'Windows slash forms are matched case-insensitively');
+});
+
+test('R3-03: renderer snapshot paths are UNC-checked before the sidecar sees them', () => {
+  const text = readFileSync(join(srcDir, 'main.ts'), 'utf8');
+  assert.ok(!/str\((snapshotPath|baseline|current), '/.test(text), 'no bare str() on a snapshot path');
+  const fn = text.slice(text.indexOf('function snapshotPathArg('), text.indexOf('function snapshotFileArg('));
+  assert.ok(/requireLocalAbsolute/.test(fn) && /osHandedFiles\.has/.test(fn));
+  for (const bad of ['\\\\host\\share\\a.json', '//host/share/a.json']) {
+    throwsValidation(() => req.asExportRequest({ snapshotPath: bad, formats: ['excel'] }));
+    throwsValidation(() => req.asCompareExportRequest({ baseline: bad, current: '/a/b.json', format: 'excel' }));
+    throwsValidation(() => req.asSnapshotFileExportRequest({ snapshotPath: [bad], destPath: '/a/b.ntnxsnap' }));
+    throwsValidation(() => req.asSnapshotFilesExportRequest({ snapshotPaths: [bad], destDir: '/a' }));
+  }
+  assert.doesNotThrow(() => req.asExportRequest({ snapshotPath: '/a/b.json', formats: ['excel'] }));
+});
+
+test('R3-03: the Word template is judged lexically before realpath (static check)', () => {
+  const text = readFileSync(join(srcDir, 'security.ts'), 'utf8');
+  const fn = text.slice(text.indexOf('export function wordTemplateFor('));
+  const lex = fn.indexOf('requireLocalAbsolute');
+  const real = fn.indexOf('realOrResolved');
+  assert.ok(lex > 0 && real > lex, 'requireLocalAbsolute precedes realOrResolved');
+  assert.ok(fn.indexOf('chosenLexical.has') < real);
+});

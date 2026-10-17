@@ -84,8 +84,14 @@ import { ValidationError, int, oneOf, optStr, str } from './validate';
 
 // A packaged build never honours debugger or engine-flag switches (R2-05): they would let
 // a same-user process attach to the main process, which holds the keychain access.
-const DEBUG_SWITCH = /^--(remote-debugging-port|remote-debugging-pipe|inspect|inspect-brk|inspect-port|js-flags)(=|$)/;
-if (app.isPackaged && process.argv.some((a) => DEBUG_SWITCH.test(a))) {
+const DEBUG_SWITCHES = ['remote-debugging-port', 'remote-debugging-pipe', 'inspect', 'inspect-brk', 'inspect-port', 'js-flags'];
+// Belt and braces: Chromium also accepts "/switch" on Windows, which hasSwitch may not see.
+const WIN_DEBUG_ARG = /^\/(remote-debugging-port|remote-debugging-pipe|inspect|inspect-brk|inspect-port|js-flags)(=|$)/i;
+if (
+  app.isPackaged &&
+  (DEBUG_SWITCHES.some((s) => app.commandLine.hasSwitch(s)) ||
+    (process.platform === 'win32' && process.argv.some((a) => WIN_DEBUG_ARG.test(a))))
+) {
   app.exit(1);
 }
 // The app:// scheme must be registered before the app is ready (B-3).
@@ -161,6 +167,16 @@ function inventorySort(sort: InventorySort | null | undefined): InventorySort | 
 
 function inventoryPage(page: InventoryPage): InventoryPage {
   return { offset: int(page?.offset, 'offset', 0, 10_000_000), limit: int(page?.limit, 'limit', 1, 100_000) };
+}
+
+/**
+ * A snapshot path the renderer names for the sidecar: absolute and never a UNC path (the
+ * sidecar would touch the share before judging it, R3-03). A path the OS handed us is the
+ * user's own action and stays allowed.
+ */
+function snapshotPathArg(p: unknown, name = 'snapshotPath'): string {
+  const raw = str(p, name, 4096);
+  return osHandedFiles.has(raw) ? raw : requireLocalAbsolute(raw, name);
 }
 
 /** An .ntnxsnap path for inspect / import (picked in a dialog, dropped, or opened by the OS). */
@@ -539,7 +555,7 @@ ipc.handle(IPC.cancelRun, (_e, runId: string) => sidecar.call('cancel_run', { ru
 ipc.handle(IPC.getOverview, () => sidecar.call('get_overview'));
 ipc.handle(IPC.listSnapshots, () => sidecar.call('list_snapshots'));
 ipc.handle(IPC.getSnapshot, (_e, snapshotPath: string) =>
-  sidecar.call('get_snapshot', { snapshot: str(snapshotPath, 'snapshotPath', 4096) }),
+  sidecar.call('get_snapshot', { snapshot: snapshotPathArg(snapshotPath) }),
 );
 
 ipc.handle(
@@ -553,7 +569,7 @@ ipc.handle(
     page: InventoryPage,
   ) =>
     sidecar.call('query_inventory', {
-      snapshot: str(snapshotPath, 'snapshotPath', 4096),
+      snapshot: snapshotPathArg(snapshotPath),
       object_type: str(objectType, 'objectType', 64),
       filter: inventoryFilter(filter),
       sort: inventorySort(sort),
@@ -564,7 +580,7 @@ ipc.handle(
 
 ipc.handle(IPC.getObjectDetail, (_e, snapshotPath: string, objectType: string, id: string) =>
   sidecar.call('get_object_detail', {
-    snapshot: str(snapshotPath, 'snapshotPath', 4096),
+    snapshot: snapshotPathArg(snapshotPath),
     object_type: str(objectType, 'objectType', 64),
     id: str(id, 'id', 1024),
     vcpu_ratio: vcpuRatio(),
@@ -572,7 +588,7 @@ ipc.handle(IPC.getObjectDetail, (_e, snapshotPath: string, objectType: string, i
 );
 
 ipc.handle(IPC.compareSnapshots, (_e, baseline: string, current: string) =>
-  sidecar.call('compare_snapshots', { baseline: str(baseline, 'baseline', 4096), current: str(current, 'current', 4096) }),
+  sidecar.call('compare_snapshots', { baseline: snapshotPathArg(baseline, 'baseline'), current: snapshotPathArg(current, 'current') }),
 );
 
 ipc.handle(IPC.exportComparison, (_e, raw: CompareExportRequest) => {
@@ -609,11 +625,11 @@ ipc.handle(IPC.exportSnapshot, (_e, raw: ExportRequest) => {
 });
 
 ipc.handle(IPC.renameSnapshot, (_e, snapshotPath: string, newName: string) =>
-  sidecar.call('rename_snapshot', { snapshot: str(snapshotPath, 'snapshotPath', 4096), new_name: str(newName, 'newName', 512) }),
+  sidecar.call('rename_snapshot', { snapshot: snapshotPathArg(snapshotPath), new_name: str(newName, 'newName', 512) }),
 );
 
 ipc.handle(IPC.deleteSnapshot, (_e, snapshotPath: string) =>
-  sidecar.call('delete_snapshot', { snapshot: str(snapshotPath, 'snapshotPath', 4096) }),
+  sidecar.call('delete_snapshot', { snapshot: snapshotPathArg(snapshotPath) }),
 );
 
 ipc.handle(IPC.clearSnapshots, () => sidecar.call('clear_snapshots'));
