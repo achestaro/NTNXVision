@@ -16,6 +16,8 @@ export const SMTP_PASSWORD_ACCOUNT = 'smtp:password';
 export interface SmtpIO {
   read(): unknown;
   write(settings: SmtpSettings): void;
+  /** email.json failed its integrity check at the last read (SEC-17). */
+  tampered?(): boolean;
 }
 
 const SECURITY: SmtpSecurity[] = ['none', 'starttls', 'ssl'];
@@ -89,6 +91,7 @@ export class SmtpStore {
 
   async info(): Promise<SmtpSettingsInfo> {
     const s = this.settings();
+    if (this.io.tampered?.()) return { ...s, hasPassword: false, configured: false, tampered: true };
     let hasPassword = false;
     try {
       hasPassword = !!(await this.secrets.get(SMTP_PASSWORD_ACCOUNT));
@@ -99,6 +102,7 @@ export class SmtpStore {
   }
 
   async password(): Promise<string> {
+    if (this.io.tampered?.()) return '';
     try {
       return (await this.secrets.get(SMTP_PASSWORD_ACCOUNT)) ?? '';
     } catch {
@@ -133,6 +137,7 @@ export class SmtpStore {
   async testPassword(req: SmtpTestRequest): Promise<string> {
     if (req.password) return req.password;
     const saved = this.settings();
+    if (this.io.tampered?.()) return '';
     const same =
       str(req.host).toLowerCase() === saved.host.toLowerCase() &&
       Number(req.port) === saved.port &&

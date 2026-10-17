@@ -1,6 +1,6 @@
 // Electron main process.
 //
-// Owns the app window, the Python sidecar, secret storage (OS keychain via keytar),
+// Owns the app window, the Python sidecar, secret storage (OS keychain via @napi-rs/keyring),
 // and the IPC handlers that relay renderer requests to the Python core. Every channel
 // is declared in ../shared/ipc.ts; sidecar method shapes are in docs/IPC_CONTRACT.md.
 
@@ -841,6 +841,7 @@ app.whenReady().then(async () => {
   lockPermissions();
   installMenu();
   sidecar.start();
+  await store.initIntegrity();
   await prepareTargets();
   // A first demo launch fills the profile (~5 s) before the UI loads, so it opens on data.
   await seedDemo();

@@ -16,7 +16,7 @@ import type {
   ScheduleTrigger,
   SchedulesState,
 } from '@shared/ipc';
-import { DEFAULT_EMAIL_BODY, DEFAULT_EMAIL_SUBJECT } from '@shared/ipc';
+import { DEFAULT_EMAIL_BODY, DEFAULT_EMAIL_SUBJECT, SCHEDULES_TAMPERED_MESSAGE } from '@shared/ipc';
 import { WEEK_ORDER, addressIssue, describeFrequency, nextRunAfter, parseAddressList, validateSchedule } from '@shared/schedule';
 import {
   Badge,
@@ -243,6 +243,11 @@ export function SchedulesView({ edit }: { edit?: string }): JSX.Element {
       {header}
       <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
         {loadError && <ErrorState title="Couldn’t load the schedules." error={loadError} onRetry={() => void load()} />}
+        {state.tampered && (
+          <Callout tone="warn" title="Schedules are switched off.">
+            {SCHEDULES_TAMPERED_MESSAGE} Nothing in the file runs or sends mail until you edit and save a schedule.
+          </Callout>
+        )}
         {emailCallout}
         {problems.map((s) => (
           <Callout
