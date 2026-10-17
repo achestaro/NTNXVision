@@ -313,3 +313,87 @@ test('a fresh profile writes nothing until a target is saved', () => {
   assert.deepEqual(store.list(), []);
   assert.equal(io.writes, 0);
 });
+
+// ─── TLS trust on first use (certificate pins) ─────────────────────────
+
+const FP1 = Array.from({ length: 32 }, (_, i) => (i + 16).toString(16).toUpperCase()).join(':');
+const FP2 = Array.from({ length: 32 }, (_, i) => (i + 64).toString(16).toUpperCase()).join(':');
+const { savedPin, endpointTls, cleanFingerprint } = require('../dist/main/targets.js');
+
+test('migrate: NDB inherits the Prism Central TLS flag once, from a legacy profile and from an existing file', () => {
+  const legacy = [{ host: 'pc01', port: 9440, username: 'admin', insecure: true, ndbHost: 'ndb01', name: 'A' }];
+  const m = migrate(undefined, legacy, ids(), 'now');
+  assert.equal(m.file.targets[0].ndbInsecure, true);
+  const current = {
+    version: 2,
+    targets: [
+      { id: 'a', mode: 'prism_central', host: 'h', name: 'n', port: 9440, username: 'u', insecure: true, ndbHost: 'ndb', ndbUser: 'e' },
+      { id: 'b', mode: 'prism_central', host: 'h2', name: 'n2', port: 9440, username: 'u', insecure: true, ndbHost: 'ndb', ndbInsecure: false },
+      { id: 'c', mode: 'prism_central', host: 'h3', name: 'n3', port: 9440, username: 'u', insecure: true },
+    ],
+  };
+  const r = migrate(current, [], ids(), 'now');
+  assert.equal(r.changed, true);
+  assert.deepEqual(r.file.targets.map((t) => t.ndbInsecure), [true, false, undefined]);
+  // Second pass changes nothing: the value was inherited once.
+  assert.equal(migrate(r.file, [], ids(), 'now').changed, false);
+});
+
+test('cleanFingerprint accepts only a SHA-256 in colon form', () => {
+  assert.equal(cleanFingerprint(FP1.toLowerCase()), FP1);
+  assert.equal(cleanFingerprint('nope'), undefined);
+  assert.equal(cleanFingerprint(FP1.replace(/:/g, '')), undefined);
+});
+
+test('trust pins the certificate of an insecure endpoint only; verification on refuses', async () => {
+  const store = new TargetStore(fakeIO(), fakeSecrets(), { newId: ids() });
+  await store.save({ ...base, password: 'pw', insecure: true, ndbHost: 'ndb', ndbInsecure: true, vcenterHost: 'vc', vcenterInsecure: false });
+  assert.equal(store.trust('id-1', 'primary', FP1), true);
+  assert.equal(store.trust('id-1', 'ndb', FP2), true);
+  assert.equal(store.trust('id-1', 'vcenter', FP1), false); // vCenter verification is on
+  assert.equal(store.trust('id-1', 'primary', 'garbage'), false);
+  assert.equal(store.trust('nope', 'primary', FP1), false);
+  const t = store.get('id-1');
+  assert.equal(t.pinnedCert, FP1);
+  assert.equal(t.ndbPinnedCert, FP2);
+  assert.equal(t.vcenterPinnedCert, undefined);
+  const saved = (await store.listWithStatus())[0];
+  assert.equal(saved.pinnedCert, FP1);
+  assert.equal(saved.ndbPinnedCert, FP2);
+  assert.equal(saved.ndbInsecure, true);
+});
+
+test('save keeps a pin while the endpoint is unchanged, drops it when the address or TLS choice changes', async () => {
+  const store = new TargetStore(fakeIO(), fakeSecrets(), { newId: ids() });
+  await store.save({ ...base, password: 'pw', insecure: true, pinnedCert: FP1 });
+  assert.equal(store.get('id-1').pinnedCert, FP1);
+  await store.save({ ...base, id: 'id-1', name: 'Renamed', insecure: true });
+  assert.equal(store.get('id-1').pinnedCert, FP1);
+  await store.save({ ...base, id: 'id-1', insecure: true, host: 'other.example.com' });
+  assert.equal(store.get('id-1').pinnedCert, undefined);
+  await store.save({ ...base, id: 'id-1', insecure: true, host: 'other.example.com', pinnedCert: FP2 });
+  assert.equal(store.get('id-1').pinnedCert, FP2);
+  await store.save({ ...base, id: 'id-1', insecure: false, host: 'other.example.com', pinnedCert: FP2 });
+  assert.equal(store.get('id-1').pinnedCert, undefined);
+  // A malformed fingerprint from the renderer is ignored.
+  await store.save({ ...base, id: 'id-1', insecure: true, host: 'other.example.com', pinnedCert: 'zz' });
+  assert.equal(store.get('id-1').pinnedCert, undefined);
+});
+
+test('savedPin and endpointTls resolve the pin per endpoint', async () => {
+  const store = new TargetStore(fakeIO(), fakeSecrets(), { newId: ids() });
+  await store.save({
+    ...base, password: 'pw', insecure: true, pinnedCert: FP1,
+    ndbHost: 'ndb', ndbInsecure: true, ndbPinnedCert: FP2, vcenterHost: 'vc', vcenterInsecure: true,
+  });
+  const t = store.get('id-1');
+  assert.equal(savedPin(t, { mode: 'prism_central', host: 'pc01.example.com', port: 9440 }), FP1);
+  assert.equal(savedPin(t, { mode: 'prism_central', host: 'elsewhere', port: 9440 }), undefined);
+  assert.equal(savedPin(t, { mode: 'prism_central', host: 'pc01.example.com', port: 9441 }), undefined);
+  assert.equal(savedPin(t, { mode: 'ndb', host: 'ndb', port: 443 }), FP2);
+  assert.equal(savedPin(t, { mode: 'vcenter', host: 'vc', port: 443 }), undefined);
+  const tls = endpointTls(t);
+  assert.deepEqual(tls.primary, { insecure: true, pinnedCert: FP1 });
+  assert.deepEqual(tls.ndb, { insecure: true, pinnedCert: FP2 });
+  assert.deepEqual(tls.vcenter, { insecure: true, pinnedCert: undefined });
+});

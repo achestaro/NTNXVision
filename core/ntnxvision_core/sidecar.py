@@ -50,6 +50,7 @@ from ntnxvision_core.api import PrismCredentials
 from ntnxvision_core.api.element_client import ElementCredentials
 from ntnxvision_core.api.errors import NutanixApiError
 from ntnxvision_core.api.ndb_client import NdbCredentials
+from ntnxvision_core.api.transport import require_pin
 from ntnxvision_core.api.vcenter_client import VcenterCredentials
 from ntnxvision_core.cancel import CancelToken, RunCancelled
 from ntnxvision_core.capacity import MAX_VCPU_RATIO, MIN_VCPU_RATIO, apply_targets, valid_ratio
@@ -475,10 +476,16 @@ def _finalize(env: Any, name: str, params: dict[str, Any], *,
 
 
 def _ndb_from(block: dict[str, Any] | None, insecure: bool) -> NdbCredentials | None:
+    """The optional NDB of a target. Its own `insecure` flag wins (NDB has its own
+    certificate); only a caller that sends none inherits the Prism Central's. With
+    verification off the NDB certificate must be pinned (`pinned_sha256`)."""
     ndb = block or {}
     if ndb.get("host") and ndb.get("username"):
+        skip = bool(ndb.get("insecure", insecure))
         return NdbCredentials(host=ndb["host"], username=ndb["username"],
-                              password=ndb.get("password", ""), verify_ssl=not insecure)
+                              password=ndb.get("password", ""), verify_ssl=not skip,
+                              pinned_sha256=require_pin(ndb["host"], skip,
+                                                        ndb.get("pinned_sha256")))
     return None
 
 
@@ -487,10 +494,13 @@ def _vcenter_from(block: dict[str, Any] | None, insecure: bool) -> VcenterCreden
     since a vCenter's certificate is often self-signed where the PC's is not."""
     vc = block or {}
     if vc.get("host") and vc.get("username"):
+        skip = bool(vc.get("insecure", insecure))
         return VcenterCredentials(host=vc["host"], username=vc["username"],
                                   password=vc.get("password", ""),
                                   port=int(vc.get("port") or 443),
-                                  verify_ssl=not bool(vc.get("insecure", insecure)))
+                                  verify_ssl=not skip,
+                                  pinned_sha256=require_pin(vc["host"], skip,
+                                                            vc.get("pinned_sha256")))
     return None
 
 
@@ -543,6 +553,7 @@ def _m_inventory(req_id: Any, params: dict[str, Any]) -> dict[str, Any]:
             password=params["password"],
             port=int(params.get("port", 9440)),
             verify_ssl=not insecure,
+            pinned_sha256=require_pin(params["host"], insecure, params.get("pinned_sha256")),
         )
         name = snapshot_name_for(params.get("name"), unique=bool(params.get("unique_name")))
         overrides = _ratio_overrides_param(params.get("vcpu_ratio_overrides"))
@@ -571,6 +582,8 @@ def _m_inventory_cluster(req_id: Any, params: dict[str, Any]) -> dict[str, Any]:
             password=params["password"],
             port=int(params.get("port", 9440)),
             verify_ssl=not params.get("insecure", False),
+            pinned_sha256=require_pin(params["host"], bool(params.get("insecure", False)),
+                                      params.get("pinned_sha256")),
         )
         name = snapshot_name_for(params.get("name"), unique=bool(params.get("unique_name")))
         overrides = _ratio_overrides_param(params.get("vcpu_ratio_overrides"))
@@ -647,6 +660,7 @@ def _multi(handle: RunHandle, targets: list[dict[str, Any]], params: dict[str, A
                 password=t["password"],
                 port=int(t.get("port", 9440)),
                 verify_ssl=not insecure,
+                pinned_sha256=require_pin(host, insecure, t.get("pinned_sha256")),
             )
             env = collect_environment(creds, ndb_creds=_ndb_from(t.get("ndb"), insecure),
                                       vcenter_creds=_vcenter_from(t.get("vcenter"), insecure),

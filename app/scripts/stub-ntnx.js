@@ -10,7 +10,8 @@
 //   run:      'hold'   → a started collection freezes mid-run (Collecting screen)
 //             'finish' → a started collection completes after ~0.5 s (Results screen)
 //             'fail'   → a started collection fails
-//   test:     'ok' | 'auth_failed' | 'untrusted_cert' | 'unreachable' | 'version_unsupported'
+//   test:     'ok' | 'auth_failed' | 'untrusted_cert' | 'trust_required' | 'cert_changed' | 'unreachable' | 'version_unsupported'
+//             (trust_required answers ok once a certificate is trusted: req.pinnedCert, or trustCertificate on the saved target)
 //   clusters: 'ok'      → listClusters answers 4 clusters (1 for a PE or pc-lab.example.com)
 //             'loading' → listClusters never answers (the picker's loading state)
 //             'error'   → listClusters fails (the picker's error state with retry)
@@ -553,6 +554,21 @@
           },
           300,
         );
+      if (scenario === 'trust_required' || scenario === 'cert_changed') {
+        const saved = req.targetId && connections.find((c) => c.id === req.targetId);
+        const trusted = req.pinnedCert !== undefined ? !!req.pinnedCert : !!(saved && saved.pinnedCert);
+        if (scenario === 'trust_required' && trusted) return delay({ ...base, status: 'ok', ok: true, version: 'pc.2024.3', version_supported: true, message: 'Connected to Prism Central pc.2024.3', detail: '1 cluster · v4 for 14 areas · within supported range', clusters: 1, hosts: 4, vms: 40, api: { v4: 14, v3: 5, v2: 0, not_deployed: 2 } }, 300);
+        return delay(
+          {
+            ...base,
+            status: scenario,
+            ok: false,
+            message: scenario === 'trust_required' ? 'This server certificate has not been trusted yet' : 'The server certificate changed since you trusted it',
+            certificate: { subject: `CN=${host}`, issuer: `CN=${host}`, self_signed: true, fingerprint_sha256: '3A:9F:12:C4:7B:E0:55:91:0D:AA:6C:2E:F1:83:4B:77:19:C0:DE:52:8A:31:6F:0B:E9:44:27:D3:A8:1E:90:6C', not_after: '2027-03-02T00:00:00Z' },
+          },
+          300,
+        );
+      }
       if (scenario === 'unreachable') return delay({ ...base, status: 'unreachable', ok: false, message: 'Connection timed out after 10 s (no route to host)' }, 300);
       if (scenario === 'version_unsupported')
         return delay({ ...base, status: 'version_unsupported', ok: true, version: 'pc.2023.4', version_supported: false, message: 'Connected to Prism Central pc.2023.4', detail: '3 clusters · v3 for 19 areas · outside supported range' }, 300);
@@ -756,6 +772,10 @@
       };
       connections = prev ? connections.map((c) => (c.id === id ? target : c)) : [target, ...connections];
       return delay(() => ({ ok: true, target, targets: connections.slice() }));
+    },
+    trustCertificate: (req) => {
+      connections = connections.map((c) => (c.id === req.targetId ? { ...c, [req.endpoint === 'ndb' ? 'ndbPinnedCert' : req.endpoint === 'vcenter' ? 'vcenterPinnedCert' : 'pinnedCert']: req.fingerprint } : c));
+      return delay(() => connections.slice());
     },
     deleteTarget: (id) => {
       connections = connections.filter((c) => c.id !== id);
