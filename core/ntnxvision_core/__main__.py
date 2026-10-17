@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import getpass
 import os
-from typing import Annotated
+from typing import Annotated, Any
 
 import typer
 from rich.console import Console
@@ -23,6 +23,7 @@ from ntnxvision_core.api import PrismCredentials
 from ntnxvision_core.api.element_client import ElementCredentials
 from ntnxvision_core.api.errors import NutanixApiError
 from ntnxvision_core.api.ndb_client import NdbCredentials
+from ntnxvision_core.api.transport import normalize_fingerprint
 from ntnxvision_core.api.vcenter_client import VcenterCredentials
 from ntnxvision_core.capacity import DEFAULT_VCPU_RATIO
 from ntnxvision_core.engine import (
@@ -37,6 +38,24 @@ from ntnxvision_core.store import SnapshotStore
 
 app = typer.Typer(add_completion=False, help="NTNXVision: Nutanix inventory core.")
 console = Console()
+
+
+def _tls(insecure: bool, pin: str | None = None) -> dict[str, Any]:
+    """TLS keyword arguments for a credentials object, from --insecure and --pin.
+
+    Verification off without a pin is only possible here, on the command line, and says so.
+    """
+    if not insecure:
+        return {}
+    digest = normalize_fingerprint(pin) if pin else None
+    if pin and digest is None:
+        raise typer.BadParameter("--pin must be a SHA-256 fingerprint (64 hex digits)")
+    if digest is not None:
+        return {"pinned_sha256": digest}
+    console.print("[yellow]WARNING: --insecure without --pin: the server certificate is not "
+                  "verified, so anyone on the network path can read the credentials and the "
+                  "data. Use --pin <sha256> to pin the expected certificate.[/yellow]")
+    return {"allow_unpinned": True}
 
 
 @app.callback()
@@ -70,6 +89,8 @@ def inventory(
     password: str = typer.Option(None, help="PC password (prompted if omitted)"),
     port: int = typer.Option(9440, help="PC port"),
     insecure: bool = typer.Option(False, "--insecure", help="Skip TLS verification (lab only)"),
+    pin: str = typer.Option(
+        None, "--pin", help="With --insecure: SHA-256 fingerprint the certificate must match"),
     name: str = typer.Option("environment", help="Snapshot name"),
     formats: str = typer.Option("excel", help="Comma-separated: excel,pdf,word"),
     ndb_host: str = typer.Option(None, help="Optional NDB/Era host to also inventory"),
@@ -83,19 +104,19 @@ def inventory(
     """Connect, collect the full platform inventory, snapshot it, and export."""
     pwd = password or getpass.getpass("Prism Central password: ")
     creds = PrismCredentials(host=host, username=username, password=pwd, port=port,
-                             verify_ssl=not insecure)
+                             verify_ssl=not insecure, **_tls(insecure, pin))
 
     ndb_creds = None
     if ndb_host and ndb_username:
         ndb_pwd = ndb_password or getpass.getpass("NDB password: ")
         ndb_creds = NdbCredentials(host=ndb_host, username=ndb_username,
-                                   password=ndb_pwd, verify_ssl=not insecure)
+                                   password=ndb_pwd, verify_ssl=not insecure, **_tls(insecure))
 
     vc_creds = None
     if vcenter_host and vcenter_username:
         vc_pwd = vcenter_password or getpass.getpass("vCenter password: ")
         vc_creds = VcenterCredentials(host=vcenter_host, username=vcenter_username,
-                                      password=vc_pwd, verify_ssl=not insecure)
+                                      password=vc_pwd, verify_ssl=not insecure, **_tls(insecure))
 
     def progress(idx: int, total: int, label: str, status: str) -> None:
         console.print(f"  [{idx + 1}/{total}] {label}: [dim]{status}[/dim]")
@@ -118,13 +139,15 @@ def cluster(
     password: str = typer.Option(None, help="Cluster password (prompted if omitted)"),
     port: int = typer.Option(9440, help="Prism Element port"),
     insecure: bool = typer.Option(False, "--insecure", help="Skip TLS verification (lab only)"),
+    pin: str = typer.Option(
+        None, "--pin", help="With --insecure: SHA-256 fingerprint the certificate must match"),
     name: str = typer.Option("cluster", help="Snapshot name"),
     formats: str = typer.Option("excel", help="Comma-separated: excel,pdf,word"),
 ) -> None:
     """Connect directly to a cluster's Prism Element (v2.0 API, AOS 6.5–7.5) and inventory it."""
     pwd = password or getpass.getpass("Cluster password: ")
     creds = ElementCredentials(host=host, username=username, password=pwd, port=port,
-                               verify_ssl=not insecure)
+                               verify_ssl=not insecure, **_tls(insecure, pin))
 
     def progress(idx: int, total: int, label: str, status: str) -> None:
         console.print(f"  [{idx + 1}/{total}] {label}: [dim]{status}[/dim]")
@@ -154,6 +177,8 @@ def inventory_multi(
         help="PC password, paired like --username; prompted per host if omitted")] = None,
     port: int = typer.Option(9440, help="PC port (applies to every target)"),
     insecure: bool = typer.Option(False, "--insecure", help="Skip TLS verification (lab only)"),
+    pin: str = typer.Option(
+        None, "--pin", help="With --insecure: SHA-256 fingerprint the certificate must match"),
     formats: str = typer.Option("excel", help="Comma-separated: excel,pdf,word"),
     combine: bool = typer.Option(
         True, "--combine/--no-combine",
@@ -184,12 +209,12 @@ def inventory_multi(
     for i, target in enumerate(host):
         pwd = passwords[i] or getpass.getpass(f"Prism Central password for {target}: ")
         creds = PrismCredentials(host=target, username=usernames[i], password=pwd,
-                                 port=port, verify_ssl=not insecure)
+                                 port=port, verify_ssl=not insecure, **_tls(insecure, pin))
         ndb_creds = None
         if ndb_hosts[i] and ndb_usernames[i]:
             ndb_pwd = ndb_passwords[i] or getpass.getpass(f"NDB password for {ndb_hosts[i]}: ")
             ndb_creds = NdbCredentials(host=ndb_hosts[i], username=ndb_usernames[i],
-                                       password=ndb_pwd, verify_ssl=not insecure)
+                                       password=ndb_pwd, verify_ssl=not insecure, **_tls(insecure))
 
         def progress(idx: int, total: int, label: str, status: str, _t: str = target) -> None:
             console.print(f"  [{_t}] [{idx + 1}/{total}] {label}: [dim]{status}[/dim]")
