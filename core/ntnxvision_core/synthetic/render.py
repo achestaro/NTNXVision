@@ -132,6 +132,11 @@ def cluster_v4(est: PcEstate, c: dict[str, Any]) -> dict[str, Any]:
                if c.get("data_services_ip") else {}),
             "nameServerIpList": [ip4("10.20.1.5"), ip4("10.20.1.6")],
             "ntpServerIpList": [{"fqdn": {"value": "pool.ntp.org"}}],
+            **({"managementServer": {
+                "$objectType": "clustermgmt.v4.config.ManagementServerRef",
+                "ip": ip4(est.features.vcenter_address), "type": "VCENTER",
+                "isDrsEnabled": True, "isRegistered": True, "isInUse": True}}
+               if c["hypervisor"] == "ESXi" and est.features.vcenter_address else {}),
         },
         "config": {
             "clusterFunction": ["AOS"],
@@ -185,6 +190,10 @@ def cluster_v3(est: PcEstate, c: dict[str, Any]) -> dict[str, Any]:
             "operation_mode": "NORMAL",
             "encryption_status": c["encryption"],
             "is_available": True,
+            **({"management_server_list": [{
+                "ip": est.features.vcenter_address, "type": "VCENTER",
+                "status_list": ["REGISTERED", "IN_USE"], "drs_enabled": True}]}
+               if c["hypervisor"] == "ESXi" and est.features.vcenter_address else {}),
         },
         "network": {"external_ip": c["external_ip"],
                     "external_data_services_ip": c.get("data_services_ip"),
@@ -372,14 +381,18 @@ def groups_response(
     for row in rows:
         data = []
         for attr in attrs:
-            # mh_vm rows arrive pre-flattened (mockapi._mh_vm_rows), keyed by attribute.
-            if entity_type == "mh_vm":
+            # mh_vm / virtual_nic / virtual_disk rows arrive pre-flattened (mockapi),
+            # keyed by attribute.
+            if entity_type in ("mh_vm", "virtual_nic", "virtual_disk"):
                 value = row.get(attr)
             else:
                 getter = getters.get(attr)
                 value = getter(row) if getter else None
-            data.append({"name": attr, "values": [{"values": [value] if value is not None
-                                                   else [], "time": 1759309200000000}]})
+            # A multi-valued attribute (a VM's IPs) carries every value in one list.
+            values = (list(value) if isinstance(value, list)
+                      else [value] if value is not None else [])
+            data.append({"name": attr, "values": [{"values": values,
+                                                   "time": 1759309200000000}]})
         results.append({"entity_id": row["uuid"], "data": data})
     return {
         "entity_type": entity_type,
@@ -545,10 +558,10 @@ def vm_v4_esxi(vm: dict[str, Any]) -> dict[str, Any]:
         "extId": n["uuid"],
         "backingInfo": {"macAddress": n["mac"], "isConnected": n["connected"],
                         "adapterType": "VMXNET3"},
-        # Empty while the VM is powered off, as on the lab PC.
+        # Empty while the VM is powered off, as on the lab PC (pc.7.5.1.1 shape).
         "networkInfo": {"portGroupInfo": {"name": n["port_group"] or "servers_vlan"},
-                        "ipAddressInfo": {"ipAddress": [{"value": n["ip"]}]} if n["ip"]
-                        else {}},
+                        "ipAddressInfo": {"ipv4Addresses": [{"value": n["ip"]}]}
+                        if n["ip"] else {}},
     } for n in vm["nics"]]
     return _v4("vmm.v4.esxi.config.Vm", {
         "extId": vm["uuid"],
@@ -560,10 +573,11 @@ def vm_v4_esxi(vm: dict[str, Any]) -> dict[str, Any]:
         "guestOsName": vm["guest_os"],
         "cluster": {"extId": vm["cluster_uuid"]},
         "host": {"extId": vm["host_uuid"]},
+        # Only disks on a Nutanix storage container: v4 leaves the others out.
         "disks": [{"extId": d["uuid"], "diskAddress": {"busType": d["bus"], "index": d["index"]},
                    "backingInfo": {"diskSizeBytes": d["size"],
                                    "storageContainer": {"extId": d["container_uuid"]}}}
-                  for d in vm["disks"]],
+                  for d in vm["disks"] if d["container_uuid"]],
         "nics": nics,
     })
 
@@ -573,6 +587,8 @@ def vm_v3(est: PcEstate | PeEstate, vm: dict[str, Any], intent_uuid: str | None 
     subnets = {s["uuid"]: s for s in est.subnets}
     disk_list = []
     for d in vm["disks"]:
+        if not d["container_uuid"]:
+            continue
         disk: dict[str, Any] = {
             "uuid": d["uuid"],
             "disk_size_bytes": d["size"],
@@ -1188,21 +1204,63 @@ def pe_network_v2(s: dict[str, Any]) -> dict[str, Any]:
 
 
 def pe_vm_v2(vm: dict[str, Any], include_disks: bool, include_nics: bool) -> dict[str, Any]:
+    """A VM as Prism Element v2.0 reports it (directly, or through the PC proxy).
+
+    ESXi VMs carry the VMware guest id, every disk (one on a local datastore has no
+    container uuid) and NICs naming their port group's network uuid, as on the lab PE.
+    """
+    esxi = vm["hypervisor"] == "ESXi"
+    boot: dict[str, Any] = {"hardware_virtualization": False}
+    if vm["boot"] == "UEFI":
+        boot["uefi_boot"] = True
+        if vm["secure_boot"]:
+            boot["secure_boot"] = True
     out: dict[str, Any] = {
         "uuid": vm["uuid"], "name": vm["name"], "power_state": vm["power"].lower(),
         "num_vcpus": vm["sockets"], "num_cores_per_vcpu": vm["cores"],
         "memory_mb": vm["memory"] // MIB, "description": vm["description"],
         "host_uuid": vm["host_uuid"], "vm_gpus": [{"device_name": g} for g in vm["gpus"]],
+        "boot": boot,
     }
+    if esxi:
+        out["guest_os"] = vm["guest_os_id"]
+        out["tools_running_status"] = ("GuestToolsRunning" if vm["power"] == "ON"
+                                       else "GuestToolsNotRunning")
     if include_disks:
-        out["vm_disk_info"] = [{
-            "disk_address": {"vmdisk_uuid": d["uuid"], "device_bus": d["bus"].lower(),
-                             "device_index": d["index"]},
-            "size": d["size"], "storage_container_uuid": d["container_uuid"],
-            "is_cdrom": False,
-        } for d in vm["disks"]]
+        disks: list[dict[str, Any]] = []
+        for d in vm["disks"]:
+            disk: dict[str, Any] = {
+                "disk_address": {"device_uuid": d["uuid"], "vmdisk_uuid": uid(d["uuid"], "vdisk"),
+                             "device_bus": d["bus"].lower(),
+                                 "device_index": d["index"]},
+                "size": d["size"], "is_cdrom": False,
+            }
+            if d["container_uuid"]:
+                disk["storage_container_uuid"] = d["container_uuid"]
+            disks.append(disk)
+        out["vm_disk_info"] = disks
     if include_nics:
-        out["vm_nics"] = [{"mac_address": n["mac"], "network_uuid": n["subnet_uuid"],
-                           "ip_address": n["ip"], "is_connected": n["connected"]}
-                          for n in vm["nics"]]
+        nics = []
+        for n in vm["nics"]:
+            nic: dict[str, Any] = {
+                "mac_address": n["mac"], "nic_uuid": n["uuid"],
+                "network_uuid": n.get("port_group_uuid") or n["subnet_uuid"],
+                "is_connected": n["connected"],
+                "adapter_type": "Vmxnet3" if esxi else None,
+            }
+            if n["ip"]:
+                nic["ip_address"] = n["ip"]
+                nic["ip_addresses"] = [n["ip"]]
+            nics.append(nic)
+        out["vm_nics"] = nics
+    return out
+
+
+def pe_port_group_v2(pg: dict[str, Any]) -> dict[str, Any]:
+    """An ESXi port group in Prism Element's v2.0 ``networks`` (VLAN 0 left out)."""
+    out: dict[str, Any] = {"uuid": pg["uuid"], "name": pg["name"],
+                           "network_type": "external",
+                           "ip_config": {"prefix_length": 0, "ipam_enabled": False}}
+    if pg["vlan"]:
+        out["vlan_id"] = pg["vlan"]
     return out

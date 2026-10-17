@@ -9,7 +9,7 @@ NDB is optional and runs against a separate Era endpoint when credentials are su
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from datetime import datetime, timezone
 from functools import partial
 from typing import Any
@@ -454,6 +454,8 @@ def _resolve_cross_references(env: Environment) -> None:
                     disk.storage_container_uuid
                 )
 
+    _resolve_port_groups(env, cluster_name_by_uuid)
+
     # Per-host VM counts: v3 hosts/list often omits num_vms — count what we collected.
     vms_per_host: dict[str, int] = {}
     for vm in [*env.vms, *env.system_vms]:
@@ -501,6 +503,34 @@ def _resolve_cross_references(env: Environment) -> None:
     # Roll up protected-VM count from protection policies' category matches is non-trivial;
     # approximate with VMs that carry any category (best-effort until v4 DR SDK).
     env.data_protection.protected_vm_count = sum(1 for v in env.vms if v.categories)
+
+
+def _resolve_port_groups(env: Environment, cluster_names: Mapping[str, str | None]) -> None:
+    """Link ESXi VM NICs and port groups: each NIC's VLAN, each port group's VM count.
+
+    ESXi NICs name their port group (v4 ``portGroupInfo``, or Prism Element's network
+    uuid resolved to a name), and port group names are only unique per cluster, so the
+    match is on (cluster, name).
+    """
+    if not env.port_groups:
+        return
+    by_key: dict[tuple[str, str], Any] = {}
+    for pg in env.port_groups:
+        if not pg.cluster_name and pg.cluster_uuid:
+            pg.cluster_name = cluster_names.get(pg.cluster_uuid)
+        if pg.name:
+            by_key.setdefault((pg.cluster_uuid or "", pg.name), pg)
+    users: dict[int, set[str]] = {}
+    for vm in [*env.vms, *env.system_vms]:
+        for nic in vm.nics:
+            found = by_key.get((vm.cluster_uuid or "", nic.subnet_name or ""))
+            if found is None:
+                continue
+            if nic.vlan_id is None:
+                nic.vlan_id = found.vlan_id
+            users.setdefault(id(found), set()).add(vm.uuid)
+    for pg in env.port_groups:
+        pg.vm_count = len(users.get(id(pg), ()))
 
 
 def _reclassify_pc_vms(env: Environment) -> None:

@@ -62,7 +62,7 @@ _DATE = "yyyy-mm-dd"
 #: Every inventory sheet, in workbook order.
 _SPECS = (
     # Phase 1: core infrastructure
-    T.CLUSTERS, T.CAPACITY, T.HOSTS, T.VMS, T.SYSTEM_VMS, T.STORAGE, T.SUBNETS,
+    T.CLUSTERS, T.CAPACITY, T.HOSTS, T.VMS, T.SYSTEM_VMS, T.STORAGE, T.SUBNETS, T.PORT_GROUPS,
     # PC catalog: templates / images / OVAs
     T.TEMPLATES, T.IMAGES, T.OVAS,
     # Phase 2: data protection / DR
