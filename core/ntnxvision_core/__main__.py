@@ -23,6 +23,7 @@ from ntnxvision_core.api import PrismCredentials
 from ntnxvision_core.api.element_client import ElementCredentials
 from ntnxvision_core.api.errors import NutanixApiError
 from ntnxvision_core.api.ndb_client import NdbCredentials
+from ntnxvision_core.api.vcenter_client import VcenterCredentials
 from ntnxvision_core.capacity import DEFAULT_VCPU_RATIO
 from ntnxvision_core.engine import (
     collect_element_environment,
@@ -74,6 +75,10 @@ def inventory(
     ndb_host: str = typer.Option(None, help="Optional NDB/Era host to also inventory"),
     ndb_username: str = typer.Option(None, help="NDB username"),
     ndb_password: str = typer.Option(None, help="NDB password (prompted if host given)"),
+    vcenter_host: str = typer.Option(
+        None, help="Optional vCenter of the ESXi clusters, for ESXi details Nutanix lacks"),
+    vcenter_username: str = typer.Option(None, help="vCenter username"),
+    vcenter_password: str = typer.Option(None, help="vCenter password (prompted if host given)"),
 ) -> None:
     """Connect, collect the full platform inventory, snapshot it, and export."""
     pwd = password or getpass.getpass("Prism Central password: ")
@@ -86,12 +91,19 @@ def inventory(
         ndb_creds = NdbCredentials(host=ndb_host, username=ndb_username,
                                    password=ndb_pwd, verify_ssl=not insecure)
 
+    vc_creds = None
+    if vcenter_host and vcenter_username:
+        vc_pwd = vcenter_password or getpass.getpass("vCenter password: ")
+        vc_creds = VcenterCredentials(host=vcenter_host, username=vcenter_username,
+                                      password=vc_pwd, verify_ssl=not insecure)
+
     def progress(idx: int, total: int, label: str, status: str) -> None:
         console.print(f"  [{idx + 1}/{total}] {label}: [dim]{status}[/dim]")
 
     try:
         console.print(f"[bold]Connecting[/bold] to {host} …")
-        env = collect_environment(creds, progress=progress, ndb_creds=ndb_creds)
+        env = collect_environment(creds, progress=progress, ndb_creds=ndb_creds,
+                                  vcenter_creds=vc_creds)
     except NutanixApiError as exc:
         console.print(f"[red]Collection failed:[/red] {exc}")
         raise typer.Exit(1) from exc

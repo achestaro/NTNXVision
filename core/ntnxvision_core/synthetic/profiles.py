@@ -19,6 +19,8 @@ exercises a different path through the app:
 ``tiny.demo.local``         The ``tiny`` profile (1 cluster, 40 VMs).
 ``down.demo.local``         Never resolves — the unreachable case.
 ``large1..3.demo.local``    Three Prism Centrals of ~6 700 VMs each: the 20 000-VM estate.
+``vcenter.demo.local``      VMware vCenter (vSphere REST) of pc01's ESXi cluster AMS-EDGE-02,
+                            also at 198.51.100.20, the address Prism reports for it.
 ==========================  ===============================================================
 
 Any username works; any non-empty password except ``wrong`` is accepted.
@@ -75,6 +77,12 @@ def demo_targets() -> dict[str, Target]:
     for i in (1, 2, 3):
         targets.append(_pc(f"large{i}.demo.local", "large", "pc.7.3",
                            Features(files=i == 1, objects=i == 2)))
+    # pc01's ESXi cluster is registered to a vCenter, reachable by name or by the address
+    # Prism reports for it; it serves pc01's estate at pc01's current epoch.
+    pc01 = targets[0]
+    for vc_host in (VCENTER_HOST, VCENTER_ADDRESS):
+        targets.append(Target(host=vc_host, kind="vcenter", build=lambda _e: None,
+                              source=pc01))
     return {t.host: t for t in targets}
 
 

@@ -567,7 +567,8 @@ def vm_v4_esxi(vm: dict[str, Any]) -> dict[str, Any]:
         "extId": vm["uuid"],
         "name": vm["name"],
         "powerState": vm["power"],
-        "numCpus": vm["sockets"],
+        # VMware semantics: numCpus is the total vCPU count, not sockets.
+        "numCpus": vm["sockets"] * vm["cores"],
         "numCoresPerSocket": vm["cores"],
         "memorySizeBytes": vm["memory"],
         "guestOsName": vm["guest_os"],
