@@ -350,6 +350,83 @@ const SHOTS = [
     if ((await trigger.getAttribute('aria-label')) !== 'Theme: Light') throw new Error('trigger did not follow Settings');
     if ((await html()) !== 'light') throw new Error('theme not applied');
   }],
+  // Email (SMTP) settings, schedules and the Email dialog.
+  ['settings-email', {}, async (p) => {
+    await rail(p, 'Settings');
+    await p.getByTestId('smtp-test').click();
+    await p.getByText('Test email sent to ntnxvision@example.com.').waitFor();
+    await p.locator('#smtp-host').scrollIntoViewIfNeeded();
+  }, 2300],
+  ['settings-email-test-failed', { smtpTest: 'auth_failed' }, async (p) => {
+    await rail(p, 'Settings');
+    await p.getByTestId('smtp-test').click();
+    await p.getByText('Sign-in failed.').waitFor();
+  }, 2300],
+  ['settings-email-empty', { smtp: 'empty' }, async (p) => {
+    await rail(p, 'Settings');
+    await p.locator('#smtp-host').fill('smtp.example.com');
+    await p.getByTestId('smtp-save').click();
+    await p.getByText('Enter the address mail is sent from.').waitFor();
+  }, 2300],
+  ['schedules', {}, async (p) => {
+    await rail(p, 'Schedules');
+    const over = await p.getByRole('table', { name: 'Schedules' }).evaluate((t) => t.parentElement.scrollWidth - t.parentElement.clientWidth);
+    if (over > 1) throw new Error(`Schedules table overflows by ${over}px`);
+  }],
+  ['schedules-1100', {}, async (p) => {
+    await rail(p, 'Schedules');
+    const over = await p.getByRole('table', { name: 'Schedules' }).evaluate((t) => t.parentElement.scrollWidth - t.parentElement.clientWidth);
+    if (over > 1) throw new Error(`Schedules table overflows by ${over}px`);
+  }, 800, 1100],
+  ['schedules-empty', { schedules: 'empty', smtp: 'empty' }, async (p) => {
+    await rail(p, 'Schedules');
+    await p.getByText('No schedules yet').waitFor();
+  }],
+  ['schedule-editor', {}, async (p) => {
+    await rail(p, 'Schedules');
+    await p.getByRole('button', { name: 'New schedule' }).first().click();
+    const dlg = p.getByRole('dialog');
+    await dlg.locator('#sch-name').fill('Weekly estate report');
+    await dlg.getByRole('button', { name: 'Add another Prism Central' }).click();
+    await dlg.getByRole('button', { name: 'Thursday' }).click();
+    await dlg.locator('#sch-to').fill('ops@example.com, infra-team@example.com');
+  }, 2300],
+  ['schedule-editor-errors', {}, async (p) => {
+    await rail(p, 'Schedules');
+    await p.getByRole('button', { name: 'New schedule' }).first().click();
+    const dlg = p.getByRole('dialog');
+    await dlg.getByRole('button', { name: 'Monday' }).click();
+    await dlg.locator('#sch-to').fill('ops@example, someone');
+    await dlg.getByTestId('schedule-save').click();
+    await dlg.getByText('Enter a name.').waitFor();
+  }, 2300],
+  ['schedule-edit', {}, async (p) => {
+    await rail(p, 'Schedules');
+    await p.getByRole('button', { name: 'Weekly PC01 report', exact: true }).click();
+    await p.getByRole('dialog').getByText('Recent runs').waitFor();
+  }, 1700],
+  ['email-dialog', {}, async (p) => {
+    await rail(p, 'Snapshots');
+    await p.getByRole('button', { name: 'More actions for pc01 Q4 review' }).click();
+    await p.getByRole('menuitem', { name: 'Email reports…' }).click();
+    const dlg = p.getByRole('dialog');
+    await dlg.locator('#em-to').fill('ops@example.com, manager@example.com');
+  }, 1100],
+  ['email-dialog-failed', { email: 'too_large' }, async (p) => {
+    await rail(p, 'Snapshots');
+    await p.getByRole('button', { name: 'More actions for pc01 Q4 review' }).click();
+    await p.getByRole('menuitem', { name: 'Email reports…' }).click();
+    const dlg = p.getByRole('dialog');
+    await dlg.locator('#em-to').fill('ops@example.com');
+    await dlg.getByTestId('email-send').click();
+    await dlg.getByText('Attachments too large.').waitFor();
+  }, 1100],
+  ['email-dialog-not-set-up', { smtp: 'empty' }, async (p) => {
+    await rail(p, 'Snapshots');
+    await p.getByRole('button', { name: 'More actions for pc01 Q4 review' }).click();
+    await p.getByRole('menuitem', { name: 'Email reports…' }).click();
+    await p.getByRole('dialog').getByText('Email isn’t set up.').waitFor();
+  }, 1100],
   ['palette', {}, async (p) => {
     await p.keyboard.press('Meta+k');
     await p.keyboard.type('pc0');
