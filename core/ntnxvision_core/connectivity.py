@@ -34,6 +34,7 @@ from ntnxvision_core.api.errors import (
     AuthenticationError,
     CertificateChanged,
     ConnectionFailed,
+    InvalidHost,
     NutanixApiError,
     TlsVerificationFailed,
 )
@@ -71,6 +72,11 @@ def test_connection(params: dict[str, Any]) -> dict[str, Any]:
     }
     if not host:
         return {**base, "status": "error", "ok": False, "message": "Enter a host name or IP"}
+    try:
+        host = transport.clean_host(host)
+    except InvalidHost as exc:
+        return {**base, "status": "error", "ok": False, "message": str(exc)}
+    base["name"] = host
     if not password:
         return {**base, "status": "auth_failed", "ok": False,
                 "message": "No password. Type one, or save it to the keychain first"}
@@ -310,6 +316,10 @@ def _len_or_none(conn: NdbConnection, path: str) -> int | None:
 
 def describe_certificate(host: str, port: int) -> dict[str, Any] | None:
     """Fetch the server certificate with verification off, purely to describe it."""
+    try:
+        host = transport.clean_host(host)
+    except InvalidHost:
+        return None
     dial_host, dial_port, known = transport.resolve_address(host, port)
     if not known:
         return None
