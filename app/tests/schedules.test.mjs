@@ -554,6 +554,16 @@ test('smtp: a saved password is only used for a test of the saved host and usern
   assert.equal(await st.testPassword({ ...smtpReq({ password: 'typed' }), to: 'ops@example.com' }), 'typed');
 });
 
+test('smtp: the saved password needs the same port, security and certificate setting too', async () => {
+  const st = new SmtpStore(memIO(undefined), fakeSecrets());
+  await st.save(smtpReq({ password: 'saved-example', security: 'starttls', port: 587, allowUntrusted: false }));
+  const t = (o) => st.testPassword({ ...smtpReq({ security: 'starttls', port: 587, allowUntrusted: false, ...o }), to: 'ops@example.com' });
+  assert.equal(await t({}), 'saved-example');
+  assert.equal(await t({ security: 'none' }), '');
+  assert.equal(await t({ port: 25 }), '');
+  assert.equal(await t({ allowUntrusted: true }), '');
+});
+
 test('smtp: params for the sidecar are snake_case', () => {
   const p = smtpParams(normalizeSmtp(smtpReq({ allowUntrusted: true, zipAttachments: true, maxAttachmentMb: 10 })), 'pw');
   assert.deepEqual(p, {
