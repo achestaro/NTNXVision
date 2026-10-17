@@ -36,6 +36,7 @@ answers ``{"cancelled": false}`` — a half-written snapshot is never left behin
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import sys
 import threading
@@ -848,8 +849,18 @@ def _m_clear_snapshots(_req_id: Any, _params: dict[str, Any]) -> dict[str, Any]:
 
 def _resolve_snapshot_path(raw: str) -> Path:
     """Resolve a snapshot path, requiring it to live inside the snapshots directory."""
-    root = snapshots_dir().resolve()
+    # R3-03: judge the text before any filesystem call: resolve() on a UNC path would touch
+    # the network share (Windows sends SMB credentials).
+    if raw.startswith(("\\\\", "//")) or "\0" in raw:
+        raise NutanixApiError("Snapshot path cannot be a network (UNC) path.")
+    base = snapshots_dir()
+    root = base.resolve()
     candidate = Path(raw)
+    if candidate.is_absolute():
+        lexical = os.path.normcase(os.path.normpath(raw))
+        allowed = {os.path.normcase(os.path.normpath(str(r))) for r in (base, root)}
+        if not any(lexical == r or lexical.startswith(r.rstrip(os.sep) + os.sep) for r in allowed):
+            raise NutanixApiError("Snapshot path is outside the snapshots directory.")
     # Bare names are resolved against the snapshots dir; full paths are validated.
     resolved = (candidate if candidate.is_absolute() else root / candidate).resolve()
     if root not in resolved.parents and resolved != root:

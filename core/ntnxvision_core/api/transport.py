@@ -42,7 +42,7 @@ def valid_hostname(host: str | None) -> bool:
     """
     if not host:
         return False
-    if _HOSTNAME_RE.match(host):
+    if _HOSTNAME_RE.fullmatch(host):
         return True
     if "%" in host:
         return False

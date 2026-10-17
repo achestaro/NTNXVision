@@ -31,6 +31,12 @@ import {
   str,
   strArray,
 } from './validate';
+import { requireLocalAbsolute } from './pathpolicy';
+
+/** A snapshot path from the renderer: bounded text, absolute, never a UNC path (R3-03). */
+function snapshotPath(v: unknown, name: string): string {
+  return requireLocalAbsolute(str(v, name, 4096), name);
+}
 
 const MODES = ['prism_central', 'prism_element'] as const;
 const TEST_MODES = ['prism_central', 'prism_element', 'ndb', 'vcenter'] as const;
@@ -145,8 +151,8 @@ export function asMultiCollectionRequest(v: unknown): MultiCollectionRequest {
 
 export function asCompareExportRequest(v: unknown): CompareExportRequest {
   const r = obj(v, 'request');
-  str(r.baseline, 'baseline', 4096);
-  str(r.current, 'current', 4096);
+  snapshotPath(r.baseline, 'baseline');
+  snapshotPath(r.current, 'current');
   oneOf(r.format, 'format', ['excel', 'csv', 'pdf'] as const);
   optStr(r.exportDir, 'exportDir');
   optStr(r.filePrefix, 'filePrefix', 200);
@@ -155,7 +161,7 @@ export function asCompareExportRequest(v: unknown): CompareExportRequest {
 
 export function asExportRequest(v: unknown): ExportRequest {
   const r = obj(v, 'request');
-  str(r.snapshotPath, 'snapshotPath', 4096);
+  snapshotPath(r.snapshotPath, 'snapshotPath');
   formats(r.formats);
   optStr(r.exportDir, 'exportDir');
   optStr(r.filePrefix, 'filePrefix', 200);
@@ -172,8 +178,8 @@ export function asExportRequest(v: unknown): ExportRequest {
 
 export function asSnapshotFileExportRequest(v: unknown): SnapshotFileExportRequest {
   const r = obj(v, 'request');
-  if (Array.isArray(r.snapshotPath)) strArray(r.snapshotPath, 'snapshotPath', 1000, 4096);
-  else str(r.snapshotPath, 'snapshotPath', 4096);
+  if (Array.isArray(r.snapshotPath)) strArray(r.snapshotPath, 'snapshotPath', 1000, 4096).forEach((x) => snapshotPath(x, 'snapshotPath'));
+  else snapshotPath(r.snapshotPath, 'snapshotPath');
   str(r.destPath, 'destPath', 4096);
   optStr(r.password, 'password', 1024);
   optStr(r.note, 'note', 1000);
@@ -182,7 +188,7 @@ export function asSnapshotFileExportRequest(v: unknown): SnapshotFileExportReque
 
 export function asSnapshotFilesExportRequest(v: unknown): SnapshotFilesExportRequest {
   const r = obj(v, 'request');
-  strArray(r.snapshotPaths, 'snapshotPaths', 1000, 4096);
+  strArray(r.snapshotPaths, 'snapshotPaths', 1000, 4096).forEach((x) => snapshotPath(x, 'snapshotPaths'));
   str(r.destDir, 'destDir', 4096);
   optStr(r.password, 'password', 1024);
   optStr(r.note, 'note', 1000);
