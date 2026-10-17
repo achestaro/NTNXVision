@@ -33,7 +33,7 @@ from ntnxvision_core.api.errors import (
     NutanixApiError,
     TlsVerificationFailed,
 )
-from ntnxvision_core.api.transport import new_session
+from ntnxvision_core.api.transport import configure_tls, new_session
 from ntnxvision_core.cancel import CancelToken
 
 DEFAULT_PORT = 443
@@ -55,6 +55,8 @@ class VcenterCredentials:
     password: str
     port: int = DEFAULT_PORT
     verify_ssl: bool = True
+    #: SHA-256 fingerprint of the trusted certificate (only used with verify_ssl off).
+    pinned_sha256: str | None = None
 
     @property
     def base(self) -> str:
@@ -79,7 +81,7 @@ class VcenterConnection:
     def connect(self) -> None:
         if not self.creds.verify_ssl:
             urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
-        self.session.verify = self.creds.verify_ssl
+        configure_tls(self.session, self.creds.verify_ssl, self.creds.pinned_sha256)
         self.session.headers.update({"Accept": "application/json"})
         auth = (self.creds.username, self.creds.password)
         resp = self._login("/api/session", auth)
@@ -120,7 +122,7 @@ class VcenterConnection:
         """End the API session (logout), then the HTTP session. Never raises."""
         if SESSION_HEADER in self.session.headers:
             path = "/api/session" if self.flavor == "api" else "/rest/com/vmware/cis/session"
-            with contextlib.suppress(requests.exceptions.RequestException):
+            with contextlib.suppress(requests.exceptions.RequestException, NutanixApiError):
                 self.session.delete(f"{self.creds.base}{path}", timeout=10)
         self.session.close()
 

@@ -28,6 +28,22 @@ class TlsVerificationFailed(ConnectionFailed):
     """
 
 
+class CertificateNotTrusted(TlsVerificationFailed):
+    """TLS verification is off for an endpoint, but no certificate has been trusted for it
+    yet. Nothing is sent to the server: the user must test the connection and trust the
+    certificate it presents (trust on first use)."""
+
+
+class CertificateChanged(TlsVerificationFailed):
+    """TLS verification is off and a certificate was trusted for the endpoint, but the
+    server now presents a different one. Re-test the connection and trust it again."""
+
+
+class RedirectBlocked(NutanixApiError):
+    """The server answered with an HTTP redirect. Redirects are never followed: a
+    cross-host redirect would carry the credentials or session header along."""
+
+
 class AuthenticationError(NutanixApiError):
     """Credentials were rejected (401 / 403)."""
 
