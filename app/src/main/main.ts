@@ -833,6 +833,7 @@ async function prepareTargets(): Promise<void> {
       store.setSettings({ multiTargetIds: remapIds(store.getSettings().multiTargetIds, idMap, known) });
     }
     await store.targets.migrateSecrets();
+    await store.smtp.migrateSecrets();
   } catch (err) {
     console.error('Target migration failed:', err);
   }
@@ -869,9 +870,9 @@ async function seedDemo(): Promise<void> {
   }
   // The demo keychain lives in memory: give the demo targets their passwords again.
   for (const p of store.targets.list().filter((c) => isDemoHost(c.host))) {
-    await secrets.setSecret(passwordAccount(p.id), DEMO_PASSWORD);
-    if (p.ndbHost && isDemoHost(p.ndbHost)) await secrets.setSecret(ndbAccount(p.id), DEMO_PASSWORD);
-    if (p.vcenterHost && isDemoHost(p.vcenterHost)) await secrets.setSecret(vcenterAccount(p.id), DEMO_PASSWORD);
+    await secrets.setSecret(passwordAccount(p), DEMO_PASSWORD);
+    if (p.ndbHost && isDemoHost(p.ndbHost)) await secrets.setSecret(ndbAccount(p), DEMO_PASSWORD);
+    if (p.vcenterHost && isDemoHost(p.vcenterHost)) await secrets.setSecret(vcenterAccount(p), DEMO_PASSWORD);
   }
   try {
     await sidecar.call('demo_seed', { export_dir: store.getSettings().exportDir });
