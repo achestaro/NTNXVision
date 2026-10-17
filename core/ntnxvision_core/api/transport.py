@@ -26,9 +26,11 @@ from ntnxvision_core.api.errors import (
 )
 
 #: A bare DNS name (labels of letters, digits, hyphens) or an IPv4 address.
+# Labels may contain "_" (not strict DNS, but common in lab and AD names); the target
+# editor (app/src/shared/host.ts) accepts the same set.
 _HOSTNAME_RE = re.compile(
-    r"^(?=.{1,253}$)[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?"
-    r"(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?)*$"
+    r"^(?=.{1,253}$)[A-Za-z0-9_](?:[A-Za-z0-9_-]{0,61}[A-Za-z0-9_])?"
+    r"(?:\.[A-Za-z0-9_](?:[A-Za-z0-9_-]{0,61}[A-Za-z0-9_])?)*$"
 )
 
 
