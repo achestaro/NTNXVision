@@ -129,7 +129,12 @@ AREAS: tuple[Area, ...] = (
 NDB_AREA = Area("ndb", "NDB databases", PLATFORM, None, "ndb",
                 ("database_servers", "databases", "time_machines"), legacy_api="era")
 
-AREAS_BY_ID: dict[str, Area] = {a.id: a for a in (*AREAS, NDB_AREA)}
+#: vCenter enrichment of ESXi clusters runs only when a target has a vCenter configured;
+#: like NDB it is not a checkbox. It adds no objects of its own (it fills ESXi gaps).
+VCENTER_AREA = Area("vcenter", "vCenter enrichment (ESXi)", INFRA, None, "vcenter", (),
+                    legacy_api="vcenter")
+
+AREAS_BY_ID: dict[str, Area] = {a.id: a for a in (*AREAS, NDB_AREA, VCENTER_AREA)}
 
 #: Prism Element (v2.0) mode labels, keyed by area id.
 PE_LABELS = {

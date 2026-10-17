@@ -289,7 +289,9 @@ def _disks(vm: dict[str, Any]) -> list[VirtualDisk]:
                 # `device_uuid` is the id v4 reports as the disk extId (checked on a live
                 # PC); `vmdisk_uuid` names the backing vDisk.
                 uuid=addr.get("device_uuid") or addr.get("vmdisk_uuid"),
-                label=f"{addr.get('device_bus', '')}.{addr.get('device_index', '')}".strip("."),
+                # ESXi reports the controller too ("scsi1:0"); AHV only bus.index.
+                label=addr.get("disk_label") or (
+                    f"{addr.get('device_bus', '')}.{addr.get('device_index', '')}".strip(".")),
                 disk_size_bytes=_as_int(disk.get("size")),
                 storage_container_uuid=disk.get("storage_container_uuid"),
                 bus_type=(addr.get("device_bus") or "").upper() or None,
@@ -322,6 +324,27 @@ def _nics(vm: dict[str, Any], network_names: dict[str, str] | None = None) -> li
             )
         )
     return out
+
+
+def disk_key(label: str | None) -> str | None:
+    """A disk's bus address in one spelling (``scsi1:0``), or None when unknown.
+
+    Accepts ``scsi1:0`` (vSphere, v2.0 ``disk_label``) and ``SCSI.16`` (v4 / v2.0
+    bus.index). On ESXi the SCSI index is global, 16 slots per controller: index 16 is
+    ``scsi1:0`` (checked on the lab PC against v2.0's ``disk_label``).
+    """
+    if not label:
+        return None
+    text = label.strip().lower()
+    if ":" in text:
+        return text
+    bus, _, index = text.partition(".")
+    if not bus or not index.isdigit():
+        return None
+    n = int(index)
+    if bus == "scsi":
+        return f"scsi{n // 16}:{n % 16}"
+    return f"{bus}0:{n}"
 
 
 def usable_ip(ip: str) -> bool:
