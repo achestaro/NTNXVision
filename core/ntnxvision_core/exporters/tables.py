@@ -38,7 +38,14 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
-from ntnxvision_core.capacity import ClusterCapacity, coerce_ratio, compute_environment
+from ntnxvision_core.capacity import (
+    ClusterCapacity,
+    coerce_ratio,
+    compute_environment,
+    target_label,
+    targets_summary,
+    valid_ratio,
+)
 from ntnxvision_core.exporters.theme import on_off, power_label
 from ntnxvision_core.models import Environment
 from ntnxvision_core.numfmt import fmt_ratio
@@ -51,8 +58,12 @@ class Ctx:
 
     def __init__(self, env: Environment, vcpu_ratio: float | None = None) -> None:
         self.env = env
-        #: Target vCPU:pCPU ratio behind the "vCPU Total" capacity columns.
+        #: Target vCPU:pCPU ratio for clusters that recorded none at collection
+        #: (snapshots written before per-cluster targets); see `capacity.cluster_target`.
         self.vcpu_ratio = coerce_ratio(vcpu_ratio)
+        #: The default target of this snapshot: the global setting recorded at
+        #: collection, else the fallback above.
+        self.default_ratio = valid_ratio(env.vcpu_ratio_default) or self.vcpu_ratio
         self._capacity: dict[int, ClusterCapacity] | None = None
         self.cluster_by_uuid = {c.uuid: c for c in env.clusters if c.uuid}
         # Prism Element mode inventories exactly one cluster, and its v2.0 payloads leave
@@ -95,6 +106,12 @@ class Ctx:
         if self._capacity is None:
             self._capacity = compute_environment(self.env, self.vcpu_ratio)
         return self._capacity.get(id(cluster))
+
+    def targets_text(self) -> str:
+        """The vCPU:pCPU target(s) behind the capacity figures, as one phrase for the
+        reports ("a 4.0 : 1 vCPU:pCPU target", or the default plus custom ones)."""
+        caps = [k for c in self.env.clusters if (k := self.capacity(c)) is not None]
+        return targets_summary(caps, self.default_ratio)
 
     def vm_policy(self, vm: Any) -> str | None:
         if vm.protection_policy:
@@ -269,6 +286,12 @@ def _cap(field: str) -> Getter:
     return get
 
 
+def _target(c: Any, x: Ctx) -> str | None:
+    """The cluster's target ratio and where it came from: "6.0 : 1 (custom)"."""
+    cap = x.capacity(c)
+    return target_label(cap.target_ratio, cap.target_custom) if cap is not None else None
+
+
 def _int_or_none(value: Any) -> int | None:
     return None if value is None else int(round(value))
 
@@ -334,7 +357,7 @@ CAPACITY = TableSpec(
         Col("cvm", "CVM vCPUs", _cap("cvm_vcpus")),
         Col("usable", "Usable Cores", _cap("usable_cores")),
         Col("usable_n1", "Usable Cores N-1", _cap("usable_cores_n1")),
-        Col("target", "Target vCPU:pCore", _cap("target_ratio"), excel=ratio_text),
+        Col("target", "Target vCPU:pCore", _target),
         Col("vcpu_total", "vCPU Total", lambda c, x: _int_or_none(_cap("vcpu_total")(c, x))),
         Col("vcpu_total_n1", "vCPU Total N-1",
             lambda c, x: _int_or_none(_cap("vcpu_total_n1")(c, x))),
