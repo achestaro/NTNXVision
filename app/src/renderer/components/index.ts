@@ -3,6 +3,7 @@ export { Button, buttonClass } from './Button';
 export type { ButtonProps, ButtonVariant } from './Button';
 export { Callout } from './Callout';
 export { Checkbox, CheckboxBox, FormatCard } from './Checkbox';
+export { ClampText } from './ClampText';
 export { DataTable } from './DataTable';
 export type { Column, SortState } from './DataTable';
 export { ConfirmDialog, Dialog, DialogFooter } from './Dialog';
