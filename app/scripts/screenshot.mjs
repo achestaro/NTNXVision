@@ -64,8 +64,32 @@ const targetsFit = async (page) => {
   }));
   if (m.over > 1 || m.left) throw new Error(`Targets table overflows by ${m.over}px (scrollLeft ${m.left}, panel ${m.box}): ${m.cols}`);
 };
+/**
+ * No card on the page is wider than its box: panels, callouts, the page header and the
+ * figure strip contain long notes, URLs and version strings (they wrap or clamp) instead
+ * of running past their right border. Names the offenders if not.
+ */
+const cardsFit = async (page) => {
+  const bad = await page.evaluate(() =>
+    [...document.querySelectorAll('.main .panel, .main .ph, .main .callout, .main .figs, .main .scroll-x, .main .phead')]
+      .map((el) => ({
+        what: `${el.className.split(' ')[0]} "${(el.getAttribute('aria-labelledby') && document.getElementById(el.getAttribute('aria-labelledby'))?.textContent) || el.textContent.slice(0, 40)}"`,
+        over: el.scrollWidth - el.clientWidth,
+      }))
+      .filter((m) => m.over > 1),
+  );
+  if (bad.length) throw new Error(`content overflows its card: ${bad.map((b) => `${b.what} by ${b.over}px`).join('; ')}`);
+};
+const finishRun = async (p) => {
+  await rail(p, 'New collection');
+  await p.getByTestId('cluster-list').waitFor();
+  await p.getByLabel('Snapshot name').fill('pc01 week 3');
+  await p.getByRole('button', { name: /Start collection/ }).click();
+  await p.getByRole('heading', { name: 'Collection complete' }).waitFor();
+  await p.waitForTimeout(5200); // let the toast auto-dismiss
+};
 
-// name, stub options, steps, viewport height
+// name, stub options, steps, viewport height, viewport width
 const SHOTS = [
   // Targets page (CRUD) and how New collection / Multiple PCs pick targets.
   ['targets', {}, async (p) => {
@@ -147,7 +171,7 @@ const SHOTS = [
     await rail(p, 'Multiple PCs');
     await p.getByRole('heading', { name: 'Add a Prism Central target first' }).waitFor();
   }],
-  ['overview', {}, async () => {}],
+  ['overview', {}, async (p) => cardsFit(p)],
   ['overview-empty', { empty: true }, async () => {}],
   ['new', {}, async (p) => rail(p, 'New collection'), 1180],
   ['new-tested', {}, async (p) => {
@@ -201,6 +225,32 @@ const SHOTS = [
     await rail(p, 'New collection');
     await p.locator('#saved').selectOption('t-phx');
   }, 1180],
+  // Step 2's per-cluster vCPU:pCPU target: collapsed (one remembered custom target),
+  // expanded with a custom and an invalid value, and Prism Element's single cluster.
+  ['new-ratio', {}, async (p) => {
+    await rail(p, 'New collection');
+    await p.getByTestId('ratio-count').waitFor();
+    await p.getByTestId('ratio-overrides').scrollIntoViewIfNeeded();
+  }, 1180],
+  ['new-ratio-open', {}, async (p) => {
+    await rail(p, 'New collection');
+    await p.getByTestId('ratio-toggle').click();
+    await p.getByTestId('ratio-PHX-PROD-02').fill('8.5');
+    await p.getByTestId('ratio-overrides').scrollIntoViewIfNeeded();
+  }, 1180],
+  ['new-ratio-error', {}, async (p) => {
+    await rail(p, 'New collection');
+    await p.getByTestId('ratio-toggle').click();
+    await p.getByTestId('ratio-AMS-EDGE-02').fill('0.5');
+    await p.getByTestId('ratio-error').waitFor();
+    await p.getByTestId('ratio-overrides').scrollIntoViewIfNeeded();
+  }, 1180],
+  ['new-ratio-pe', {}, async (p) => {
+    await rail(p, 'New collection');
+    await p.locator('#saved').selectOption('t-phx');
+    await p.getByTestId('ratio-toggle').click();
+    await p.getByTestId('ratio-list').waitFor();
+  }, 1180],
   ...['auth_failed', 'untrusted_cert', 'unreachable', 'version_unsupported'].map((t) => [
     `new-${t.replace('_', '-')}`,
     { test: t },
@@ -225,7 +275,39 @@ const SHOTS = [
     await p.getByRole('button', { name: /Start collection/ }).click();
     await p.getByRole('heading', { name: 'Collection complete' }).waitFor();
     await p.waitForTimeout(5200); // let the toast auto-dismiss
+    await cardsFit(p);
   }],
+  // Long notes, a URL note, a long PC build string in the header and API routing: every
+  // card contains its text (wrapped, long notes clamped with Show more) at 1,440 and 1,100.
+  ['results-long', { run: 'finish', longNotes: true }, async (p) => {
+    await finishRun(p);
+    await cardsFit(p);
+  }, 1100],
+  ['results-long-1100', { run: 'finish', longNotes: true }, async (p) => {
+    await finishRun(p);
+    await cardsFit(p);
+  }, 1300, 1100],
+  ['results-long-api-1100', { run: 'finish', longNotes: true }, async (p) => {
+    await finishRun(p);
+    await p.getByRole('region', { name: 'API routing and compatibility' }).scrollIntoViewIfNeeded();
+    await cardsFit(p);
+  }, 900, 1100],
+  ['results-long-expanded', { run: 'finish', longNotes: true }, async (p) => {
+    await finishRun(p);
+    const notes = p.getByRole('region', { name: 'Collection notes' });
+    const more = notes.getByRole('button', { name: 'Show more' });
+    if ((await more.count()) < 2) throw new Error('long notes should be clamped with Show more');
+    await more.first().click();
+    await notes.getByRole('button', { name: 'Show less' }).waitFor();
+    await cardsFit(p);
+  }, 1100, 1100],
+  ['collecting-long', { run: 'hold', longNotes: true }, async (p) => {
+    await rail(p, 'New collection');
+    await p.getByLabel('Snapshot name').fill('pc01 week 3');
+    await p.getByRole('button', { name: /Start collection/ }).click();
+    await p.getByText('Nutanix Objects running').waitFor();
+    await cardsFit(p);
+  }, 1000, 1100],
   ['inventory', {}, async (p) => {
     await rail(p, 'Inventory');
     // Inventory opens on Clusters; the VM scene needs Virtual machines first.

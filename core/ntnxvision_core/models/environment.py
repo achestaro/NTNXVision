@@ -102,6 +102,10 @@ class VirtualDisk(_Base):
     bus_type: str | None = None  # SCSI / SATA / IDE / PCI / NVME
     is_cdrom: bool = False
     source_image: str | None = None
+    #: The vSphere datastore holding the disk (ESXi). Set for disks outside a Nutanix
+    #: storage container (a local VMFS volume, a foreign NFS export), which Nutanix
+    #: reports with a size but no container; read from vCenter when it is connected.
+    datastore: str | None = None
 
 
 # ─── VMs ───────────────────────────────────────────────────────────────
@@ -245,6 +249,29 @@ class Subnet(SourcedObject):
     api_source: str = "v4"
 
 
+class PortGroup(SourcedObject):
+    """A vSphere port group on an ESXi cluster.
+
+    Not a Nutanix subnet: Prism Central's subnet APIs (v3 and v4) list none for an ESXi
+    cluster, whose VMs attach to vSwitch / distributed switch port groups instead. The
+    cluster's Prism Element still knows them (v2.0 ``networks``, read through the Prism
+    Central proxy) with their VLAN; vCenter, when connected, adds the switch type.
+    """
+
+    uuid: str
+    name: str | None = None
+    cluster_uuid: str | None = None
+    cluster_name: str | None = None
+    vlan_id: int | None = None
+    #: STANDARD / DISTRIBUTED / OPAQUE (an NSX segment), from vCenter.
+    switch_type: str | None = None
+    #: Prism Element's network type (external / internal).
+    network_type: str | None = None
+    #: VMs with a NIC on the port group (filled from the collected VMs).
+    vm_count: int | None = None
+    api_source: str = "v2.0"
+
+
 # ─── Clusters ──────────────────────────────────────────────────────────
 
 
@@ -264,7 +291,18 @@ class Cluster(SourcedObject):
     encryption_enabled: bool | None = None
     is_lts: bool | None = None
     operation_mode: str | None = None
+    #: The vCenter Server an ESXi cluster is registered to, as Prism reports it (v4
+    #: ``network.managementServer``, v3 ``management_server_list``); None for AHV.
+    vcenter_address: str | None = None
     api_source: str = "v4"
+    #: The vCPU:pCPU target the capacity figures use for this cluster, recorded when it
+    #: was collected (see `capacity.apply_targets`): a per-cluster override chosen in New
+    #: collection, else the global setting at the time. None on snapshots written before
+    #: per-cluster targets existed; those fall back to the configured setting.
+    vcpu_ratio_target: float | None = None
+    #: True when `vcpu_ratio_target` is a per-cluster override, False when it is the
+    #: global default (None when no target was recorded).
+    vcpu_ratio_custom: bool | None = None
 
 
 # ─── Licensing summary ─────────────────────────────────────────────────
@@ -788,6 +826,8 @@ class Environment(_Base):
     system_vms: list[VirtualMachine] = Field(default_factory=list)
     storage_containers: list[StorageContainer] = Field(default_factory=list)
     subnets: list[Subnet] = Field(default_factory=list)
+    #: vSphere port groups of ESXi clusters (their networks are not Nutanix subnets).
+    port_groups: list[PortGroup] = Field(default_factory=list)
     licenses: list[LicenseInfo] = Field(default_factory=list)
     # ─ Prism Central inventory objects ─
     templates: list[Template] = Field(default_factory=list)
@@ -844,6 +884,11 @@ class Environment(_Base):
     #: selection existed, and combined runs, whose per-PC runs collected every cluster).
     cluster_scope: ClusterScope | None = None
 
+    #: The global vCPU:pCPU target (the Settings value) when this run was collected:
+    #: clusters without an override use it. None on older snapshots and on combined runs
+    #: whose Prism Centrals were collected with different values.
+    vcpu_ratio_default: float | None = None
+
     #: Metadata of the collection run that produced this snapshot — per-area outcome,
     #: API routing, compatibility, duration, reports (see `runinfo.build_run_metadata`).
     #: None on snapshots written before it existed; the UI then shows the summary only.
@@ -870,6 +915,7 @@ class Environment(_Base):
             "ovas": len(self.ovas),
             "storage_containers": len(self.storage_containers),
             "subnets": len(self.subnets),
+            "port_groups": len(self.port_groups),
             "licenses": len(self.licenses),
             "protection_policies": len(self.protection_policies),
             "recovery_plans": len(self.recovery_plans),

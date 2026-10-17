@@ -28,7 +28,7 @@ import { useRun } from '../lib/run';
 import { useRouter } from '../lib/router';
 import { useConfirmShortcut } from '../lib/keyboard';
 import { testOutcome } from './ConnectionTest';
-import { NA, REPORT_EXT, errorMessage, fmtCount, reportFileName, sanitizeSnapshotName, snapshotNameIssue, targetLabel, tildify } from '../lib/format';
+import { NA, REPORT_EXT, errorMessage, fmtCount, plural, reportFileName, sanitizeSnapshotName, snapshotNameIssue, targetLabel, tildify } from '../lib/format';
 
 type RowTest =
   | { kind: 'idle' }
@@ -45,7 +45,11 @@ interface Row {
   name: string;
   ndbHost?: string;
   ndbUser?: string;
+  vcenterHost?: string;
+  vcenterUser?: string;
   hasPassword: boolean;
+  /** Per-cluster vCPU:pCPU targets remembered from New collection (applied by the main process). */
+  customRatios: number;
   /** A one-run password when the keychain has none (never saved). */
   password: string;
   test: RowTest;
@@ -61,7 +65,10 @@ function fromConnection(c: SavedConnection): Row {
     name: c.name,
     ndbHost: c.ndbHost,
     ndbUser: c.ndbUser,
+    vcenterHost: c.vcenterHost,
+    vcenterUser: c.vcenterUser,
     hasPassword: c.hasPassword,
+    customRatios: Object.keys(c.vcpuRatioOverrides ?? {}).length,
     password: '',
     test: { kind: 'idle' },
   };
@@ -205,6 +212,8 @@ export function MultiPCView(): JSX.Element {
           name: targetSnapshot(r),
           // The NDB password comes from the target's keychain entry (main process).
           ndb: r.ndbHost ? { host: r.ndbHost, username: r.ndbUser ?? 'admin', password: '' } : undefined,
+          // Likewise the vCenter of the target's ESXi clusters, when it has one.
+          vcenter: r.vcenterHost ? { host: r.vcenterHost, username: r.vcenterUser ?? '', password: '' } : undefined,
         })),
         formats,
         exportDir: dir || undefined,
@@ -433,6 +442,12 @@ export function MultiPCView(): JSX.Element {
                 <div className="hint">Each object keeps its source Prism Central. Needs 2 or more successful targets.</div>
               </div>
             </div>
+            <p className="hint" data-testid="multi-ratio-hint" style={{ margin: 0 }}>
+              Capacity figures use the vCPU:pCPU target from Settings
+              {all.some((r) => r.customRatios > 0)
+                ? `, and the per-cluster targets saved from New collection (${plural(all.reduce((n, r) => n + r.customRatios, 0), 'cluster')}).`
+                : '. Set per-cluster targets in New collection.'}
+            </p>
             {combine && (
               <Field id="cn" label="Combined snapshot name">
                 <input

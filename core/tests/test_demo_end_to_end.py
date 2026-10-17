@@ -42,7 +42,8 @@ def test_collect_snapshot_export_compare(demo: Any, tmp_path: Path) -> None:
 
     # The realistic edge cases all surfaced.
     by_id = {a["id"]: a for a in tracker.final_areas()}
-    assert by_id["vms"]["status"] == "notes" and "3 VM(s) skipped" in by_id["vms"]["detail"]
+    assert by_id["vms"]["status"] == "notes"
+    assert "3 ESXi VM(s) read from Prism Element" in by_id["vms"]["detail"]
     assert by_id["files"]["status"] == "skipped"
     assert by_id["alerts"]["status"] == "notes"  # one page retried after a 429
     assert by_id["objects"]["api"] == "v3"  # v4 objects service down (503)

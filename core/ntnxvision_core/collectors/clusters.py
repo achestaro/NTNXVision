@@ -72,6 +72,7 @@ class ClusterCollector(Collector):
                     num_nodes=(entity.get("nodes") or {}).get("numberOfNodes"),
                     external_ip=_v4_ipv4(network.get("externalAddress")),
                     data_services_ip=_v4_ipv4(network.get("externalDataServiceIp")),
+                    vcenter_address=v4_vcenter(network),
                     timezone=config.get("timezone"),
                     encryption_enabled=encryption.get(uuid),
                     is_lts=config.get("isLts"),
@@ -135,6 +136,7 @@ class ClusterCollector(Collector):
                     num_nodes=len(config.get("node_list", []) or []) or None,
                     external_ip=network.get("external_ip"),
                     data_services_ip=network.get("external_data_services_ip") or None,
+                    vcenter_address=v3_vcenter(config),
                     timezone=config.get("timezone"),
                     encryption_enabled=_encryption_enabled(config.get("encryption_status")),
                     operation_mode=config.get("operation_mode"),
@@ -161,6 +163,34 @@ def _v4_ipv4(address: Any) -> str | None:
         return None
     value = ipv4.get("value")
     return value if isinstance(value, str) else None
+
+
+def v4_vcenter(network: Any) -> str | None:
+    """The vCenter an ESXi cluster is registered to, from v4 ``network.managementServer``.
+
+    Verified on a live pc.7.5.1.1: ``{"ip": {"ipv4": {"value": ...}}, "type": "VCENTER",
+    "isRegistered": true, ...}``. AHV clusters have no management server.
+    """
+    if not isinstance(network, dict):
+        return None
+    server = network.get("managementServer")
+    if not isinstance(server, dict) or str(server.get("type") or "VCENTER") != "VCENTER":
+        return None
+    ip = server.get("ip") or {}
+    fqdn = (server.get("fqdn") or {}).get("value") if isinstance(server.get("fqdn"), dict) \
+        else None
+    return _v4_ipv4(ip) or ((ip.get("ipv6") or {}).get("value") if isinstance(ip, dict)
+                            else None) or fqdn
+
+
+def v3_vcenter(config: Any) -> str | None:
+    """The same from v3's ``config.management_server_list`` (type ``VCENTER``)."""
+    for server in (config or {}).get("management_server_list") or []:
+        if isinstance(server, dict) and str(server.get("type") or "").upper() == "VCENTER":
+            ip = server.get("ip")
+            if isinstance(ip, str) and ip:
+                return ip
+    return None
 
 
 def _encryption_enabled(status: Any) -> bool | None:

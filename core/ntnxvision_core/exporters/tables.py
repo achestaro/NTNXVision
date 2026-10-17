@@ -38,8 +38,15 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
-from ntnxvision_core.capacity import ClusterCapacity, coerce_ratio, compute_environment
-from ntnxvision_core.exporters.theme import on_off, power_label
+from ntnxvision_core.capacity import (
+    ClusterCapacity,
+    coerce_ratio,
+    compute_environment,
+    target_label,
+    targets_summary,
+    valid_ratio,
+)
+from ntnxvision_core.exporters.theme import on_off, power_label, switch_label
 from ntnxvision_core.models import Environment
 from ntnxvision_core.numfmt import fmt_ratio
 
@@ -51,8 +58,12 @@ class Ctx:
 
     def __init__(self, env: Environment, vcpu_ratio: float | None = None) -> None:
         self.env = env
-        #: Target vCPU:pCPU ratio behind the "vCPU Total" capacity columns.
+        #: Target vCPU:pCPU ratio for clusters that recorded none at collection
+        #: (snapshots written before per-cluster targets); see `capacity.cluster_target`.
         self.vcpu_ratio = coerce_ratio(vcpu_ratio)
+        #: The default target of this snapshot: the global setting recorded at
+        #: collection, else the fallback above.
+        self.default_ratio = valid_ratio(env.vcpu_ratio_default) or self.vcpu_ratio
         self._capacity: dict[int, ClusterCapacity] | None = None
         self.cluster_by_uuid = {c.uuid: c for c in env.clusters if c.uuid}
         # Prism Element mode inventories exactly one cluster, and its v2.0 payloads leave
@@ -95,6 +106,12 @@ class Ctx:
         if self._capacity is None:
             self._capacity = compute_environment(self.env, self.vcpu_ratio)
         return self._capacity.get(id(cluster))
+
+    def targets_text(self) -> str:
+        """The vCPU:pCPU target(s) behind the capacity figures, as one phrase for the
+        reports ("a 4.0 : 1 vCPU:pCPU target", or the default plus custom ones)."""
+        caps = [k for c in self.env.clusters if (k := self.capacity(c)) is not None]
+        return targets_summary(caps, self.default_ratio)
 
     def vm_policy(self, vm: Any) -> str | None:
         if vm.protection_policy:
@@ -269,6 +286,12 @@ def _cap(field: str) -> Getter:
     return get
 
 
+def _target(c: Any, x: Ctx) -> str | None:
+    """The cluster's target ratio and where it came from: "6.0 : 1 (custom)"."""
+    cap = x.capacity(c)
+    return target_label(cap.target_ratio, cap.target_custom) if cap is not None else None
+
+
 def _int_or_none(value: Any) -> int | None:
     return None if value is None else int(round(value))
 
@@ -306,6 +329,8 @@ CLUSTERS = TableSpec(
         Col("data_services_ip", "Data Services IP", _a("data_services_ip"),
             label="Data Services IP", kind="mono", search=True, diff="Data Services IP",
             grid=False),
+        Col("vcenter", "vCenter", _a("vcenter_address"), label="vCenter", kind="mono",
+            search=True, diff="vCenter", grid=False),
         Col("encryption", "Encryption", _a("encryption_enabled"), excel=yes_no,
             label="Encryption", kind="status", cell=bool_cell("On", "Off"), facet=True,
             diff="encryption"),
@@ -334,7 +359,7 @@ CAPACITY = TableSpec(
         Col("cvm", "CVM vCPUs", _cap("cvm_vcpus")),
         Col("usable", "Usable Cores", _cap("usable_cores")),
         Col("usable_n1", "Usable Cores N-1", _cap("usable_cores_n1")),
-        Col("target", "Target vCPU:pCore", _cap("target_ratio"), excel=ratio_text),
+        Col("target", "Target vCPU:pCore", _target),
         Col("vcpu_total", "vCPU Total", lambda c, x: _int_or_none(_cap("vcpu_total")(c, x))),
         Col("vcpu_total_n1", "vCPU Total N-1",
             lambda c, x: _int_or_none(_cap("vcpu_total_n1")(c, x))),
@@ -479,6 +504,24 @@ SUBNETS = TableSpec(
         Col("api", "API", _a("api_source")),
     ),
     id=lambda s: s.uuid, name=lambda s: s.name or s.uuid, where=lambda s: s.cluster_name,
+    note_keys=("subnets",), sources=True, group=INFRA,
+)
+
+PORT_GROUPS = TableSpec(
+    "port_groups", "Port Groups", "ESXi port groups", "Port group", "port groups",
+    lambda e: e.port_groups,
+    (
+        Col("name", "Name", _a("name"), label="Name", kind="name", search=True),
+        Col("cluster", "Cluster", _cluster, label="Cluster", facet=True, search=True),
+        Col("vlan", "VLAN", _a("vlan_id"), label="VLAN", kind="number", diff="VLAN"),
+        Col("switch", "Switch", _a("switch_type"), excel=switch_label, label="Switch",
+            cell=lambda v: switch_label(v), facet=True, diff="switch type"),
+        Col("vms", "VMs", _a("vm_count"), label="VMs", kind="number"),
+        Col("network_type", "Network Type", _a("network_type")),
+        Col("uuid", "UUID", _a("uuid")),
+        Col("api", "API", _a("api_source")),
+    ),
+    id=lambda p: p.uuid, name=lambda p: p.name or p.uuid, where=lambda p: p.cluster_name,
     note_keys=("subnets",), sources=True, group=INFRA,
 )
 
@@ -1002,7 +1045,8 @@ LICENSES = TableSpec(
 
 #: Every spec, keyed by type id.
 SPECS: dict[str, TableSpec] = {s.type: s for s in (
-    CLUSTERS, HOSTS, VMS, SYSTEM_VMS, STORAGE, SUBNETS, CATALOG, TEMPLATES, IMAGES, OVAS,
+    CLUSTERS, HOSTS, VMS, SYSTEM_VMS, STORAGE, SUBNETS, PORT_GROUPS, CATALOG, TEMPLATES,
+    IMAGES, OVAS,
     PROTECTION_POLICIES, RECOVERY_PLANS, AVAILABILITY_ZONES, REMOTE_SITES, ALERTS, LCM,
     SECURITY_POLICIES, CATEGORIES, SERVICE_GROUPS, ADDRESS_GROUPS, VPCS, FLOATING_IPS,
     FILE_SERVERS, FILE_SHARES, OBJECT_STORES, BUCKETS, VOLUME_GROUPS, DATABASES,
@@ -1011,7 +1055,8 @@ SPECS: dict[str, TableSpec] = {s.type: s for s in (
 
 #: The Inventory screen's object-type list, in display order (groups as in the contract).
 INVENTORY_TYPES: list[str] = [
-    "clusters", "hosts", "vms", "system_vms", "storage_containers", "subnets", "images",
+    "clusters", "hosts", "vms", "system_vms", "storage_containers", "subnets", "port_groups",
+    "images",
     "protection_policies", "recovery_plans", "security_policies", "vpcs",
     "object_stores", "volume_groups", "file_servers", "databases",
     "users", "roles", "licenses", "lcm_entities", "alerts", "playbooks",
@@ -1019,7 +1064,8 @@ INVENTORY_TYPES: list[str] = [
 
 #: Object types Compare diffs, in report order.
 COMPARE_TYPES: list[str] = [
-    "clusters", "hosts", "storage_containers", "subnets", "vms", "images_only", "templates",
+    "clusters", "hosts", "storage_containers", "subnets", "port_groups", "vms", "images_only",
+    "templates",
     "protection_policies", "recovery_plans", "security_policies", "vpcs", "file_servers",
     "object_stores", "volume_groups", "databases", "users", "roles", "lcm_entities",
     "licenses", "playbooks",

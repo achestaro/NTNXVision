@@ -4,14 +4,15 @@
 //
 // Identity: every target has a stable id (a UUID) that never changes when the target is
 // renamed or its address, port or username is edited. Its keychain entries are keyed by
-// that id ("target:<id>" and "target:<id>:ndb"), so an edit never has to move a secret and
+// that id ("target:<id>", "target:<id>:ndb", "target:<id>:vcenter"), so an edit never has
+// to move a secret and
 // can't orphan one. Targets saved before this scheme had the id "host:port:username" and
 // a keychain entry "username@host" shared by every profile with that host and username;
 // `migrate` gives them new ids and `migrateSecrets` copies each password to its target's
 // own entry, then removes the old shared entry once nothing still needs it.
 //
 // Passwords never touch the JSON file and never go back to the renderer: it only learns
-// hasPassword / ndbHasPassword.
+// hasPassword / ndbHasPassword / vcenterHasPassword.
 
 import type {
   ClusterSelection,
@@ -23,7 +24,9 @@ import type {
   TargetSaveResult,
   TargetTestInfo,
   TestConnectionResult,
+  VcpuRatioOverrides,
 } from '../shared/ipc';
+import { MAX_CLUSTER_RATIO, MIN_CLUSTER_RATIO } from '../shared/ipc';
 
 /** A target as written to targets.json. */
 export interface StoredTarget extends ConnectionProfile {
@@ -57,6 +60,8 @@ export interface SecretsIO {
 
 export const passwordAccount = (id: string): string => `target:${id}`;
 export const ndbAccount = (id: string): string => `target:${id}:ndb`;
+/** The optional vCenter of a Prism Central target (ESXi enrichment). */
+export const vcenterAccount = (id: string): string => `target:${id}:vcenter`;
 /** The keychain account used before targets had stable ids. */
 export const legacyAccount = (host: string, username: string): string => `${username}@${host}`;
 
@@ -93,6 +98,21 @@ export function cleanSelection(sel: ClusterSelection | undefined | null): Cluste
   if (!sel || !Array.isArray(sel.selected) || !Array.isArray(sel.known)) return undefined;
   const ids = (xs: unknown[]) => xs.filter((x): x is string => typeof x === 'string' && x.length > 0 && x.length <= 128);
   return { selected: ids(sel.selected), known: ids(sel.known) };
+}
+
+/**
+ * Only uuid → ratio entries in range (MIN_CLUSTER_RATIO to MAX_CLUSTER_RATIO), rounded to
+ * one decimal; undefined when nothing usable is left.
+ */
+export function cleanOverrides(o: unknown): VcpuRatioOverrides | undefined {
+  if (!o || typeof o !== 'object' || Array.isArray(o)) return undefined;
+  const out: VcpuRatioOverrides = {};
+  for (const [uuid, v] of Object.entries(o as Record<string, unknown>)) {
+    if (!uuid || uuid.length > 128 || typeof v !== 'number' || !Number.isFinite(v)) continue;
+    if (v < MIN_CLUSTER_RATIO || v > MAX_CLUSTER_RATIO) continue;
+    out[uuid] = Math.round(v * 10) / 10;
+  }
+  return Object.keys(out).length ? out : undefined;
 }
 
 function port(v: unknown): number {
@@ -183,6 +203,10 @@ export function validate(req: TargetSaveRequest, existing: StoredTarget[]): Part
   if (req.mode === 'prism_central' && ndbHost && /\s|\/|^https?:/i.test(ndbHost)) {
     e.ndbHost = 'Enter a host name or IP address only.';
   }
+  const vcenterHost = str(req.vcenterHost).trim();
+  if (req.mode === 'prism_central' && vcenterHost && /\s|\/|^https?:/i.test(vcenterHost)) {
+    e.vcenterHost = 'Enter a host name or IP address only.';
+  }
   if (!MODES.includes(req.mode)) e.form = 'Choose Prism Central or Prism Element.';
   return e;
 }
@@ -259,6 +283,10 @@ export class TargetStore {
     return this.data().targets.some((x) => x.id === id) ? this.secrets.get(ndbAccount(id)) : null;
   }
 
+  async vcenterPassword(id: string): Promise<string | null> {
+    return this.data().targets.some((x) => x.id === id) ? this.secrets.get(vcenterAccount(id)) : null;
+  }
+
   /** The targets as the renderer sees them: no secrets, only whether they are saved. */
   async listWithStatus(): Promise<SavedConnection[]> {
     return Promise.all(this.data().targets.map((t) => this.toSaved(t)));
@@ -281,9 +309,12 @@ export class TargetStore {
       username: t.username,
       insecure: t.insecure,
       ...(t.ndbHost ? { ndbHost: t.ndbHost, ndbUser: t.ndbUser } : {}),
+      ...(t.vcenterHost ? { vcenterHost: t.vcenterHost, vcenterUser: t.vcenterUser, vcenterInsecure: !!t.vcenterInsecure } : {}),
       ...(t.clusterSelection ? { clusterSelection: t.clusterSelection } : {}),
+      ...(t.vcpuRatioOverrides ? { vcpuRatioOverrides: { ...t.vcpuRatioOverrides } } : {}),
       hasPassword: await has(() => this.password(t.id)),
       ndbHasPassword: t.ndbHost ? await has(() => this.ndbPassword(t.id)) : false,
+      vcenterHasPassword: t.vcenterHost ? await has(() => this.vcenterPassword(t.id)) : false,
       lastTest: t.lastTest ?? null,
     };
   }
@@ -304,10 +335,13 @@ export class TargetStore {
     const id = prev?.id ?? this.newId();
     const isPc = req.mode === 'prism_central';
     const ndbHost = isPc ? str(req.ndbHost).trim() : '';
+    const vcenterHost = isPc ? str(req.vcenterHost).trim() : '';
     const now = this.now();
     const host = req.host.trim();
     // The remembered cluster selection belongs to that Prism Central: kept while it stays.
     const clusterSelection = isPc && prev?.mode === 'prism_central' && prev.host === host ? prev.clusterSelection : undefined;
+    // So do the per-cluster vCPU:pCPU targets (either mode): same endpoint, same clusters.
+    const vcpuRatioOverrides = prev && prev.mode === req.mode && prev.host === host ? prev.vcpuRatioOverrides : undefined;
     const next: StoredTarget = {
       id,
       mode: req.mode,
@@ -317,7 +351,11 @@ export class TargetStore {
       username: req.username.trim(),
       insecure: !!req.insecure,
       ...(ndbHost ? { ndbHost, ndbUser: str(req.ndbUser).trim() || 'admin' } : {}),
+      ...(vcenterHost
+        ? { vcenterHost, vcenterUser: str(req.vcenterUser).trim() || 'administrator@vsphere.local', vcenterInsecure: !!req.vcenterInsecure }
+        : {}),
       ...(clusterSelection ? { clusterSelection } : {}),
+      ...(vcpuRatioOverrides ? { vcpuRatioOverrides } : {}),
       createdAt: prev?.createdAt ?? now,
       updatedAt: now,
     };
@@ -337,6 +375,8 @@ export class TargetStore {
       }
       if (ndbHost && req.ndbPassword) await this.secrets.set(ndbAccount(id), req.ndbPassword);
       if (!ndbHost && prev?.ndbHost) await this.secrets.delete(ndbAccount(id));
+      if (vcenterHost && req.vcenterPassword) await this.secrets.set(vcenterAccount(id), req.vcenterPassword);
+      if (!vcenterHost && prev?.vcenterHost) await this.secrets.delete(vcenterAccount(id));
     } catch (err) {
       return {
         ok: false,
@@ -359,7 +399,7 @@ export class TargetStore {
     if (i >= 0) {
       const [gone] = targets.splice(i, 1);
       this.persist();
-      for (const account of [passwordAccount(id), ndbAccount(id)]) {
+      for (const account of [passwordAccount(id), ndbAccount(id), vcenterAccount(id)]) {
         try {
           await this.secrets.delete(account);
         } catch {
@@ -377,6 +417,24 @@ export class TargetStore {
     const clean = cleanSelection(sel);
     if (!t || t.mode !== 'prism_central' || !clean) return;
     t.clusterSelection = clean;
+    this.persist();
+  }
+
+  /**
+   * Remember the per-cluster vCPU:pCPU targets of a target's last collection. `known` is
+   * every cluster New collection listed: their remembered targets are replaced by
+   * `overrides` (a listed cluster without one goes back to the default); targets of
+   * clusters that were not listed are kept.
+   */
+  rememberRatios(id: string, overrides: VcpuRatioOverrides | undefined, known: string[]): void {
+    const t = this.data().targets.find((x) => x.id === id);
+    if (!t || !Array.isArray(known)) return;
+    const listed = new Set(known.filter((u) => typeof u === 'string'));
+    const kept = Object.entries(t.vcpuRatioOverrides ?? {}).filter(([u]) => !listed.has(u));
+    const next = cleanOverrides({ ...Object.fromEntries(kept), ...(cleanOverrides(overrides) ?? {}) });
+    if (JSON.stringify(next ?? null) === JSON.stringify(t.vcpuRatioOverrides ?? null)) return;
+    if (next) t.vcpuRatioOverrides = next;
+    else delete t.vcpuRatioOverrides;
     this.persist();
   }
 

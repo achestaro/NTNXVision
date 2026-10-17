@@ -25,7 +25,8 @@ from ntnxvision_core.synthetic.profiles import make_resolver
 
 HOST = "groups.demo.local"
 PW = {"username": "admin", "password": "demo"}
-FEATURES = Features(esxi_bad_vms=2, groups_mh_vm=True)
+# No Prism Element proxy: the groups API is the only fallback left (the last resort).
+FEATURES = Features(esxi_bad_vms=2, groups_mh_vm=True, pe_proxy=False)
 AUTH = "Basic YWRtaW46ZGVtbw=="  # admin:demo
 
 # The lab row for edge-vm-02, as `v3_groups` flattens it.
@@ -104,8 +105,16 @@ def test_skipped_vms_are_recovered_with_their_groups_fields(groups_pc: Any) -> N
         assert vm.memory_bytes == raw["memory"]
         assert vm.power_state == raw["power"]
         assert vm.guest_os == raw["guest_os"]
-        assert vm.total_disk_bytes == sum(d["size"] for d in raw["disks"])
-        assert vm.nics == [] and vm.disks == []
+        # groups knows only the disks on Nutanix containers, like a real PC.
+        on_containers = [d for d in raw["disks"] if d["container_uuid"]]
+        assert vm.total_disk_bytes == sum(d["size"] for d in on_containers)
+        assert len(vm.disks) == len(on_containers)
+        assert {d.storage_container_uuid for d in vm.disks} == {
+            d["container_uuid"] for d in on_containers}
+        # NICs from `virtual_nic`: MAC, connection and guest IPs.
+        assert [n.mac_address for n in vm.nics] == [n["mac"] for n in raw["nics"]]
+        assert [ip for n in vm.nics for ip in n.ip_addresses] == [
+            n["ip"] for n in raw["nics"] if n["ip"]]
         # The host name is resolved from the groups `node` uuid by the engine.
         assert vm.host_name == raw["host_name"]
     # Nothing else was read from groups, and nothing went missing.
@@ -114,8 +123,11 @@ def test_skipped_vms_are_recovered_with_their_groups_fields(groups_pc: Any) -> N
     assert len(env.vms) == len(user_vms)
     note = env.collection_notes["vms"]
     names = ", ".join(sorted((v["name"] for v in bad), key=str.casefold))
-    assert note == (f"ok: 2 VM(s) read from the groups API because the v4 API failed for "
-                    f"them: {names}; NICs and per-disk details unavailable")
+    esxi_name = next(c["name"] for c in est.clusters if c["hypervisor"] == "ESXi")
+    assert note == (f"ok: Prism Element could not be read for {esxi_name} (HTTP 403), so "
+                    "ESXi disks outside Nutanix containers, boot type and port group "
+                    "VLANs may be missing; 2 VM(s) read from the groups API because no "
+                    f"other API returned them: {names}")
     assert "—" not in note
 
 
@@ -155,13 +167,18 @@ def test_capacity_counts_recovered_vms(groups_pc: Any) -> None:
     cap = compute_environment(env)[id(esxi)]
     raw = [v for v in est.vms if v["cluster_uuid"] == esxi.uuid]
     assert cap.provisioned_vcpus == sum(v["sockets"] * v["cores"] for v in raw)
-    assert cap.provisioned_disk_bytes == sum(d["size"] for v in raw for d in v["disks"])
+    # Without Prism Element the disks outside Nutanix containers are not known.
+    assert cap.provisioned_disk_bytes == sum(d["size"] for v in raw for d in v["disks"]
+                                             if d["container_uuid"])
 
 
-def test_demo_pc_without_mh_vm_keeps_the_skip_note(demo: Any) -> None:
-    """pc01's groups API rejects mh_vm: today's behaviour, skip + note."""
+def test_demo_pc_recovers_from_prism_element_before_groups(demo: Any) -> None:
+    """pc01 proxies Prism Element: the three VMs v4 fails on are read whole from it,
+    and the groups API (which pc01 rejects for mh_vm) is never needed."""
     env = collect_environment(PrismCredentials(host="pc01.demo.local", **PW))
-    assert "3 VM(s) skipped" in env.collection_notes["vms"]
+    note = env.collection_notes["vms"]
+    assert note.startswith("ok: 3 ESXi VM(s) read from Prism Element")
+    assert "skipped" not in note
     assert not any(v.api_source == GROUPS_PARTIAL_SOURCE for v in env.vms)
 
 
@@ -192,7 +209,7 @@ class _Conn:
         # The scope's `$filter` probe: this PC does not filter VMs server-side.
         raise NutanixApiError("HTTP 400", status_code=400)
 
-    def v3_list(self, kind: str) -> list[dict[str, Any]]:
+    def v3_list(self, kind: str, **_kw: Any) -> list[dict[str, Any]]:
         return []
 
     def v3_groups(self, entity: str, attrs: list[str], **kw: Any) -> list[dict[str, Any]]:
@@ -238,8 +255,8 @@ def test_only_missing_non_cvm_vms_are_added() -> None:
     assert next(v for v in env.vms if v.name == "web-01").api_source == "v4"
     assert ("mh_vm", "is_cvm==0") in conn.queries
     assert env.collection_notes["vms"].startswith(
-        "ok: 2 VM(s) read from the groups API because the v4 API failed for them: "
-        "edge-vm-01, edge-vm-02;")
+        "ok: 2 VM(s) read from the groups API because no other API returned them: "
+        "edge-vm-01, edge-vm-02")
 
 
 def test_groups_failure_keeps_the_skip_note() -> None:
