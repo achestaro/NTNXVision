@@ -50,7 +50,7 @@ jobs:
       - name: eslint
         working-directory: app
         run: |
-          npm ci --ignore-scripts --no-audit --no-fund   # lint needs no native keytar build
+          npm ci --ignore-scripts --no-audit --no-fund   # lint needs no native module
           npm run lint
       # Python deps float within ranges, so a new upstream release can legitimately drift the
       # file; flag it here (non-blocking). Each build regenerates the copy it ships.
