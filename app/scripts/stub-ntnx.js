@@ -16,6 +16,10 @@
 //             'error'   → listClusters fails (the picker's error state with retry)
 //   scopeNotice: true → compareSnapshots reports different cluster scopes
 //   platform: 'darwin' | 'win32' | 'linux'  ("Show in Finder" / "Show in Explorer" / "Show in folder")
+//   smtp:     'configured' (default) | 'empty' → Settings > Email filled in or not set up
+//   smtpTest: 'ok' (default) | an EmailStatus ('auth_failed', 'untrusted_cert', 'unreachable', …) → Send test email
+//   email:    'ok' (default) | an EmailStatus ('too_large', 'recipient_rejected', …) → Email dialog send
+//   schedules: 'samples' (default) | 'empty'
 (function () {
   const opt = Object.assign({ theme: 'light', accent: 'iris', run: 'hold', test: 'ok', clusters: 'ok', platform: 'darwin' }, window.__STUB__ || {});
   const GB = 1024 ** 3;
@@ -91,6 +95,83 @@
     exportDir: '',
     author: 'Alberto Chestaro',
     multiTargetIds: ['t-pc01', 't-pc02', 't-pc03'],
+  };
+
+
+  // ── email (SMTP) and schedules ──
+  let smtp = opt.smtp === 'empty' || opt.empty
+    ? { host: '', port: 587, security: 'starttls', username: '', fromAddress: '', fromName: 'NTNXVision', allowUntrusted: false, maxAttachmentMb: 20, zipAttachments: false, hasPassword: false, configured: false }
+    : { host: 'smtp.example.com', port: 587, security: 'starttls', username: 'ntnxvision@example.com', fromAddress: 'ntnxvision@example.com', fromName: 'NTNXVision', allowUntrusted: false, maxAttachmentMb: 20, zipAttachments: false, hasPassword: true, configured: true };
+  const EMAIL_FAIL = {
+    auth_failed: ['The server rejected the username or password.', '535 5.7.8 Authentication credentials invalid'],
+    auth_required: ['The server requires sign-in. Enter a username and password.', '530 5.7.0 Authentication required'],
+    tls_error: ['The secure connection failed. Check the Security setting for this port.', '[SSL: WRONG_VERSION_NUMBER] wrong version number'],
+    untrusted_cert: ['The server’s certificate is not trusted. Turn on Allow untrusted certificate if you trust this server.', 'certificate verify failed: self-signed certificate'],
+    unreachable: ['Can’t connect to smtp.example.com:587. The connection was refused.', '[Errno 61] Connection refused'],
+    timeout: ['smtp.example.com:587 did not answer within 20 s.', 'timed out'],
+    recipient_rejected: ['The server refused 1 recipient.', '550 5.1.1 User unknown'],
+    sender_rejected: ['The server refused the From address.', '553 5.7.1 Sender address rejected'],
+    too_large: ['Attachments total 34.2 MB, over the 20 MB limit. Turn on Zip attachments, choose fewer formats or raise the limit in Settings > Email.', null],
+    not_configured: ['Set up the mail server in Settings > Email first.', null],
+    invalid: ['Check the email settings.', null],
+    error: ['The server closed the connection.', 'Connection unexpectedly closed'],
+  };
+  const emailFail = (status, extra = {}) => ({ ok: false, status, message: EMAIL_FAIL[status]?.[0] ?? 'Email failed.', detail: EMAIL_FAIL[status]?.[1] ?? null, ...extra });
+
+  const nextAt = (match, hh, mm) => {
+    const d = new Date();
+    for (let i = 0; i < 40; i++) {
+      const c = new Date(d.getFullYear(), d.getMonth(), d.getDate() + i, hh, mm);
+      if (c > d && match(c)) return c.toISOString();
+    }
+    return null;
+  };
+  const runRec = (id, trigger, status, when, message, extra = {}) => ({ id, trigger, status, startedAt: when, finishedAt: when, message, ...extra });
+  let schedules = opt.schedules === 'empty' || opt.empty
+    ? []
+    : [
+        {
+          id: 's-weekly', name: 'Weekly PC01 report', enabled: true, targetIds: ['t-pc01'], combine: false, formats: ['excel', 'pdf'],
+          to: ['ops@example.com', 'infra-team@example.com'], cc: ['manager@example.com'], subject: 'NTNXVision report: {target} ({date})', body: 'Attached are the NTNXVision reports for {target}.\n\n{summary}\n',
+          frequency: { kind: 'weekly', days: [1, 4], time: '07:00' }, createdAt: at(9, 1, 9, 0), updatedAt: at(9, 1, 9, 0), anchor: at(10, 16, 7, 0),
+          history: [
+            runRec('r3', 'scheduled', 'ok', at(10, 16, 7, 4), 'Emailed 2 reports to 3 recipients', { snapshots: ['Weekly PC01 report-6'] }),
+            runRec('r2', 'catch_up', 'ok', at(10, 13, 8, 31), 'Emailed 2 reports to 3 recipients', { snapshots: ['Weekly PC01 report-5'] }),
+            runRec('r1', 'manual', 'failed', at(10, 9, 15, 12), 'Email failed: the server rejected the username or password.', { stage: 'email' }),
+          ],
+          state: 'idle', problems: [], nextRun: nextAt((c) => [1, 4].includes(c.getDay()), 7, 0),
+        },
+        {
+          id: 's-monthly', name: 'Monthly estate review', enabled: true, targetIds: ['t-pc01', 't-pc02', 't-pc03'], combine: true, formats: ['excel', 'word'],
+          sections: ['executive_summary', 'clusters_hosts', 'workloads_storage', 'data_protection'],
+          to: ['architecture@example.com'], cc: [], subject: 'Monthly estate review ({date})', body: 'Monthly NTNXVision estate review.\n\n{summary}\n',
+          frequency: { kind: 'monthly', day: 1, time: '06:30' }, createdAt: at(8, 20, 10, 0), updatedAt: at(9, 2, 10, 0), anchor: at(10, 1, 6, 30),
+          history: [
+            runRec('m2', 'scheduled', 'failed', at(10, 1, 6, 41), 'Collection failed: pc03.example.com unreachable', { stage: 'collect' }),
+            runRec('m1', 'scheduled', 'ok', at(9, 1, 6, 52), 'Emailed 2 reports to 1 recipient', { snapshots: ['Monthly estate review'] }),
+          ],
+          state: 'idle', problems: [], nextRun: nextAt((c) => c.getDate() === 1, 6, 30),
+        },
+        {
+          id: 's-daily', name: 'Nightly DR cluster', enabled: false, targetIds: ['t-phx'], combine: false, formats: ['excel'],
+          to: ['dr-oncall@example.com'], cc: [], subject: 'NTNXVision report: {target} ({date})', body: 'Attached are the NTNXVision reports for {target}.\n',
+          frequency: { kind: 'daily', time: '22:00' }, createdAt: at(10, 2, 12, 0), updatedAt: at(10, 2, 12, 0), anchor: at(10, 2, 12, 0),
+          history: [], state: 'idle', problems: [], nextRun: null,
+        },
+      ];
+  for (const s of schedules) s.lastRun = s.history[0] ?? null;
+  const schedListeners = new Set();
+  const schedState = () => ({ schedules: schedules.map((s) => ({ ...s })), background: schedules.some((s) => s.enabled), loginItemSupported: true });
+  const pushSched = () => {
+    const st = schedState();
+    schedListeners.forEach((cb) => cb(st));
+    return st;
+  };
+  const stubNext = (s) => {
+    if (!s.enabled) return null;
+    const [hh, mm] = s.frequency.time.split(':').map(Number);
+    const f = s.frequency;
+    return nextAt((c) => (f.kind === 'daily' ? true : f.kind === 'weekly' ? f.days.includes(c.getDay()) : c.getDate() === Math.min(f.day, 28)), hh, mm);
   };
 
   // ── collection areas ──
@@ -662,6 +743,57 @@
       connections = connections.filter((c) => c.id !== id);
       return delay(() => connections.slice());
     },
+    getSmtpSettings: () => delay(() => ({ ...smtp })),
+    saveSmtpSettings: (req) => {
+      const errors = {};
+      if (req.host && !req.fromAddress) errors.fromAddress = 'Enter the address mail is sent from.';
+      if (Object.keys(errors).length) return delay({ ok: false, errors, settings: { ...smtp } });
+      const { password, clearPassword, ...rest } = req;
+      smtp = { ...rest, hasPassword: clearPassword ? false : !!password || smtp.hasPassword, configured: !!(rest.host && rest.fromAddress) };
+      return delay(() => ({ ok: true, settings: { ...smtp } }));
+    },
+    testSmtp: (req) =>
+      delay(() => (!opt.smtpTest || opt.smtpTest === 'ok'
+        ? { ok: true, status: 'ok', message: `Sent to ${req.to}`, detail: `${req.host}:${req.port} · ${req.security === 'ssl' ? 'SSL/TLS' : req.security === 'starttls' ? 'STARTTLS' : 'no encryption'} · 250 2.0.0 OK queued`, recipients: [req.to] }
+        : emailFail(opt.smtpTest)), 400),
+    emailSnapshot: (req) =>
+      delay(() => {
+        const name = req.snapshotPaths[0].split(/[\\/]/).pop().replace(/\.ntnxsnap.*$/, '');
+        const ext = { excel: 'xlsx', pdf: 'pdf', word: 'docx' };
+        const files = req.formats.map((f) => ({ format: f, name: `${name}-2026-10-17.${ext[f]}`, path: `${EXPORT_DIR}${sep}${name}-2026-10-17.${ext[f]}`, size_bytes: 2.4 * MB }));
+        if (opt.email && opt.email !== 'ok') return emailFail(opt.email, { files });
+        return { ok: true, status: 'ok', message: `Sent to ${req.to.length + req.cc.length} recipients`, recipients: [...req.to, ...req.cc], attachments: files.map((f) => ({ name: f.name, size_bytes: f.size_bytes })), files };
+      }, 600),
+    listSchedules: () => delay(schedState),
+    saveSchedule: (req) => {
+      const errors = {};
+      if (schedules.some((x) => x.id !== req.id && x.name.toLowerCase() === req.name.trim().toLowerCase())) errors.name = 'Another schedule already uses this name.';
+      if (Object.keys(errors).length) return delay({ ok: false, errors, schedules: schedState().schedules });
+      const now = new Date().toISOString();
+      const prev = schedules.find((x) => x.id === req.id);
+      const id = req.id || 's-' + Math.random().toString(36).slice(2, 10);
+      const s = { ...(prev ?? { createdAt: now, history: [], lastRun: null, state: 'idle', problems: [] }), ...req, id, updatedAt: now, anchor: now };
+      s.nextRun = stubNext(s);
+      schedules = prev ? schedules.map((x) => (x.id === id ? s : x)) : [...schedules, s];
+      const st = pushSched();
+      return delay(() => ({ ok: true, schedule: { ...s }, schedules: st.schedules }));
+    },
+    deleteSchedule: (id) => {
+      schedules = schedules.filter((x) => x.id !== id);
+      return delay(pushSched);
+    },
+    setScheduleEnabled: (id, enabled) => {
+      schedules = schedules.map((x) => (x.id === id ? { ...x, enabled, nextRun: stubNext({ ...x, enabled }) } : x));
+      return delay(pushSched);
+    },
+    runScheduleNow: (id) => {
+      const s = schedules.find((x) => x.id === id);
+      if (!s) return fail('That schedule no longer exists.');
+      s.state = 'running';
+      s.lastRun = { id: 'r-now', trigger: 'manual', status: 'running', stage: 'collect', startedAt: new Date().toISOString(), message: 'Collecting…' };
+      return delay(pushSched);
+    },
+    onSchedulesChanged: (cb) => (schedListeners.add(cb), () => schedListeners.delete(cb)),
     getSettings: () => delay(() => ({ ...settings })),
     setSettings: (s) => {
       settings = { ...settings, ...s };

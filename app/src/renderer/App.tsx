@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { SettingsProvider, useSettings } from './lib/settings';
 import { RouterProvider, useRouter } from './lib/router';
 import { RunProvider } from './lib/run';
+import { ScheduleRefresh } from './lib/scheduleRefresh';
 import { isMod, isTyping, moveTableFocus } from './lib/keyboard';
 import { ToastProvider } from './components/Toast';
 import { CommandBar } from './shell/CommandBar';
@@ -11,6 +12,8 @@ import { ShortcutsPopover } from './shell/ShortcutsPopover';
 import { ALL_NAV } from './shell/nav';
 import { ExportDialogProvider } from './views/ExportDialog';
 import { SnapshotTransferProvider } from './views/SnapshotTransfer';
+import { EmailDialogProvider } from './views/EmailDialog';
+import { SchedulesView } from './views/SchedulesView';
 import { OverviewView } from './views/OverviewView';
 import { NewCollectionView } from './views/NewCollectionView';
 import { CollectingView } from './views/CollectingView';
@@ -29,11 +32,14 @@ export function App(): JSX.Element {
       <RouterProvider>
         <ToastProvider>
           <RunProvider>
-            <ExportDialogProvider>
-              <SnapshotTransferProvider>
-                <Shell />
-              </SnapshotTransferProvider>
-            </ExportDialogProvider>
+            <EmailDialogProvider>
+              <ExportDialogProvider>
+                <SnapshotTransferProvider>
+                  <ScheduleRefresh />
+                  <Shell />
+                </SnapshotTransferProvider>
+              </ExportDialogProvider>
+            </EmailDialogProvider>
           </RunProvider>
         </ToastProvider>
       </RouterProvider>
@@ -127,6 +133,8 @@ function Shell(): JSX.Element {
         return <NewCollectionView key={route.connectionId ?? route.mode ?? 'new'} connectionId={route.connectionId} mode={route.mode} />;
       case 'multi':
         return <MultiPCView />;
+      case 'schedules':
+        return <SchedulesView key={route.edit ?? ''} edit={route.edit} />;
       case 'targets':
         return <TargetsView key={`${route.edit ?? ''}|${route.returnTo ?? ''}`} edit={route.edit} returnTo={route.returnTo} />;
       case 'collecting':
