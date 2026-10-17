@@ -59,7 +59,9 @@ if (-not (Test-Path $venvPy)) {
   Invoke-Checked $py[0] @pyArgs
 }
 Invoke-Checked $venvPy -m pip install --quiet --upgrade pip
-Invoke-Checked $venvPy -m pip install --quiet -e '.[dev]'
+# Hash-pinned build deps (requirements-build.lock), then the project itself without deps.
+Invoke-Checked $venvPy -m pip install --quiet --require-hashes -r requirements-build.lock
+Invoke-Checked $venvPy -m pip install --quiet --no-deps -e .
 
 if (-not $SkipTests) {
   Step 'Core tests'
