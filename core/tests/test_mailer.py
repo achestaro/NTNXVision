@@ -315,3 +315,37 @@ def test_sink_cli_prints_its_port() -> None:
     finally:
         proc.kill()
         proc.wait(timeout=10)
+
+
+# ─── SEC-10 / SEC-23 ───────────────────────────────────────────────────
+
+
+def test_no_login_over_cleartext_to_a_remote_server() -> None:
+    c = cfg(25, host="192.0.2.25", username="mailer", password=PASSWORD)
+    with pytest.raises(mailer.MailError) as ei:
+        mailer._connect(c)
+    assert ei.value.status == "auth_failed"
+    assert "STARTTLS or SSL/TLS" in str(ei.value)
+    assert PASSWORD not in str(ei.value)
+    assert "\u2014" not in str(ei.value)
+    r = mailer.send_test(c, "ops@example.com")
+    assert not r["ok"] and r["status"] == "auth_failed"
+
+
+def test_cleartext_is_fine_without_a_login_or_on_loopback() -> None:
+    for host in ("127.0.0.1", "127.9.9.9", "localhost", "::1", "[::1]"):
+        assert mailer.is_loopback_host(host)
+    assert not mailer.is_loopback_host("192.0.2.25")
+    assert not mailer.is_loopback_host("mail.example.lab")
+    mailer._guard_cleartext_auth(cfg(25, host="192.0.2.25"))  # no username: allowed
+    mailer._guard_cleartext_auth(cfg(25, host="127.0.0.1", username="u", password="p"))
+
+
+def test_subject_is_one_capped_line() -> None:
+    ctx = {"summary": "Summary:\nsnap-a: 3 VMs\r\nsnap-b: 4 VMs", "target": "pc01"}
+    s = mailer.render_subject("Report {target}\n{summary}", ctx)
+    assert "\n" not in s and "\r" not in s
+    assert s == "Report pc01 Summary: snap-a: 3 VMs snap-b: 4 VMs"
+    assert len(mailer.render_subject("x" * 500, {})) == mailer.MAX_SUBJECT
+    msg = mailer.build_message(cfg(25), ["a@example.com"], [], "a\nBcc: evil@example.com", "b")
+    assert "\n" not in str(msg["Subject"])

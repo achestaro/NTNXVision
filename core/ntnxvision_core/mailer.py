@@ -15,6 +15,7 @@ Demo mode never sends real email: any server other than the local loopback is re
 
 from __future__ import annotations
 
+import ipaddress
 import mimetypes
 import re
 import shutil
@@ -168,6 +169,16 @@ def render_template(text: str, ctx: dict[str, Any]) -> str:
     return _PLACEHOLDER.sub(sub, text or "")
 
 
+MAX_SUBJECT = 200
+
+
+def render_subject(text: str, ctx: dict[str, Any]) -> str:
+    """A rendered subject on one line: whitespace runs (newlines included) become single
+    spaces and the result is capped, so a multi-snapshot {summary} cannot break the header."""
+    one = " ".join(render_template(text, ctx).split())
+    return one[:MAX_SUBJECT].rstrip()
+
+
 def fmt_size(n: int) -> str:
     """Binary size with comma grouping: 34.2 MB, 1,024 KB."""
     value = float(n)
@@ -196,7 +207,7 @@ def build_message(cfg: SmtpConfig, to: list[str], cc: list[str], subject: str, b
     msg["To"] = ", ".join(to)
     if cc:
         msg["Cc"] = ", ".join(cc)
-    msg["Subject"] = subject
+    msg["Subject"] = " ".join(subject.split())
     msg["Date"] = formatdate(localtime=True)
     domain = cfg.from_address.rsplit("@", 1)[-1] if "@" in cfg.from_address else None
     msg["Message-ID"] = make_msgid(domain=domain)
@@ -272,7 +283,29 @@ def _reply(code: int, raw: Any) -> str:
     return f"{code} {text}".strip()
 
 
+def is_loopback_host(host: str) -> bool:
+    """True for localhost and any 127.0.0.0/8 or ::1 address."""
+    h = (host or "").strip().strip("[]").lower()
+    if h == "localhost":
+        return True
+    try:
+        return ipaddress.ip_address(h).is_loopback
+    except ValueError:
+        return False
+
+
+def _guard_cleartext_auth(cfg: SmtpConfig) -> None:
+    """Never send a sign-in over an unencrypted connection to a non-local server."""
+    if cfg.username and cfg.security == "none" and not is_loopback_host(cfg.host):
+        raise MailError(
+            "auth_failed",
+            "This server needs STARTTLS or SSL/TLS to sign in safely. Choose one of them, or "
+            "clear the username to send without signing in.",
+            detail=f"{cfg.host}:{cfg.port} · Security: None")
+
+
 def _connect(cfg: SmtpConfig) -> smtplib.SMTP:
+    _guard_cleartext_auth(cfg)
     ctx = _context(cfg)
     server: smtplib.SMTP
     if cfg.security == "ssl":
