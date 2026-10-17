@@ -33,7 +33,7 @@ import { TargetRef, describeFrequency, scheduleSnapshotNames } from '../shared/s
 import { SmtpStore, smtpParams } from './mail';
 import { Job, RetryLater, RunOutcome, ScheduleRunner, ScheduleStore, nextRun, scheduleInfo } from './schedules';
 import { SidecarClient, SidecarError } from './sidecar';
-import { cleanOverrides, endpointTls } from './targets';
+import { cleanOverrides, endpointTls, TARGETS_TAMPERED_MESSAGE } from './targets';
 import type { StoredTarget } from './targets';
 import * as store from './store';
 import { wordTemplateFor } from './security';
@@ -287,6 +287,8 @@ export class Scheduler {
 
   /** A target's connection with its keychain passwords (NDB when the target has one saved). */
   private async connection(t: StoredTarget) {
+    // Saved targets edited outside the app release no passwords: fail with the reason.
+    if (store.targets.tampered) throw new Error(TARGETS_TAMPERED_MESSAGE);
     const password = (await store.targets.password(t.id)) ?? '';
     // Each endpoint has its own TLS choice; with verification off its trusted certificate is
     // pinned. A target with none trusted yet fails the run with a message to trust it.

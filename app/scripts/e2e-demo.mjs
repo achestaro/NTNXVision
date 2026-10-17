@@ -332,7 +332,7 @@ try {
     await dialog.locator('#t-host').fill('https://pc01.demo.local/');
     await dialog.getByRole('button', { name: 'Add target' }).click();
     await dialog.getByText('Enter a name.').waitFor();
-    await dialog.getByText(/without https:\/\/ or a path/).waitFor();
+    await dialog.getByText(/no https:\/\/, user@, path/).waitFor();
     await targetsShot('e2e-target-form-errors');
     // Test from the form, before saving.
     await dialog.locator('#t-name').fill('Lab PC01');
@@ -577,7 +577,8 @@ try {
   });
 
   await run('targets-edit', async () => {
-    // Rename and change the username: the id stays, so the keychain password follows.
+    // Rename and change the username: the id stays, but the saved password does not follow
+    // an endpoint edit (R2-02), so the editor asks for it again.
     await rail('Targets');
     await targetRow('Lab PC01').getByRole('button', { name: 'Lab PC01', exact: true }).click();
     const dialog = page.getByRole('dialog');
@@ -585,6 +586,8 @@ try {
     await dialog.getByText(/Last tested .* 1 snapshot/).waitFor();
     await dialog.locator('#t-name').fill('Lab PC01 renamed');
     await dialog.locator('#t-user').fill('svc-inventory');
+    await dialog.getByText(/Password needed: you changed the address/).waitFor();
+    await dialog.locator('#t-pw').fill('demo');
     await targetsShot('e2e-target-edit');
     await dialog.getByRole('button', { name: 'Save changes' }).click();
     await dialog.waitFor({ state: 'detached', timeout: 15_000 });
@@ -597,6 +600,32 @@ try {
     await row.getByRole('button', { name: 'Test Lab PC01 renamed' }).click();
     await row.getByText('Verified').waitFor({ timeout: 30_000 });
     if (await targetRow('Lab PC01').count()) throw new Error('the rename left the old target behind');
+  });
+
+  await run('targets-edit-host-password-needed', async () => {
+    // R2-02: editing a saved target's host without a new password removes its keychain
+    // password; the row says "Password needed" and the editor asks for it.
+    await addTarget({ name: 'Temp PC', host: 'pc09.demo.local', password: 'demo' });
+    await targetRow('Temp PC').getByText('Keychain').waitFor();
+    await targetRow('Temp PC').getByRole('button', { name: 'Temp PC', exact: true }).click();
+    const dialog = page.getByRole('dialog');
+    await dialog.getByRole('heading', { name: 'Edit Temp PC' }).waitFor();
+    await dialog.locator('#t-host').fill('pc10.demo.local');
+    await dialog.getByText(/Password needed: you changed the address/).waitFor();
+    await dialog.getByRole('button', { name: 'Save changes' }).click();
+    await dialog.waitFor({ state: 'detached', timeout: 15_000 });
+    await targetRow('Temp PC').getByText('Password needed').waitFor({ timeout: 15_000 });
+    // Typing the password again re-enables it.
+    await targetRow('Temp PC').getByRole('button', { name: 'Temp PC', exact: true }).click();
+    await page.getByRole('dialog').locator('#t-pw').fill('demo');
+    await page.getByRole('dialog').getByRole('button', { name: 'Save changes' }).click();
+    await page.getByRole('dialog').waitFor({ state: 'detached', timeout: 15_000 });
+    await targetRow('Temp PC').getByText('Keychain').waitFor({ timeout: 15_000 });
+    // Clean up.
+    await page.getByRole('button', { name: 'Actions for Temp PC' }).click();
+    await page.getByRole('menuitem', { name: 'Delete…' }).click();
+    await page.getByRole('dialog').getByRole('button', { name: 'Delete target' }).click();
+    await targetRow('Temp PC').waitFor({ state: 'detached' });
   });
 
   await run('targets-vcenter', async () => {

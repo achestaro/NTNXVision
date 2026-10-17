@@ -108,3 +108,28 @@ def test_pdf_with_no_changes(demo: Any, tmp_path: Path) -> None:
     assert out.stat().st_size > 5_000
     wb = load_workbook(export_comparison(env, env, "a", "b", "excel", tmp_path))
     assert wb["Changes"]["A2"].value == "No changes between the two snapshots."
+
+
+def test_csv_neutralises_formulas_and_quotes_per_rfc4180(
+    pair: Any, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """R2-01: formula-like strings get a leading apostrophe, numbers stay numbers, and
+    fields with CR / LF / quotes / commas round-trip through a CSV reader."""
+    from ntnxvision_core import compare as C
+
+    hostile = ["=HYPERLINK(\"http://x\")", "+1+1", "-2+3", "@SUM(A1)", "\tTAB", "\rCR", "\nLF",
+               "＝fullwidth", "＋fw", "－fw", "＠fw", "a,b", "say \"hi\"", "multi\r\nline", "safe"]
+    rows = [["Changed", "VM", h, None, "f", 5, -3.5, "d", "id"] for h in hostile]
+    monkeypatch.setattr(C, "_export_rows", lambda raw: rows)
+    base, cur = pair
+    out = export_comparison(base, cur, "w1", "w2", "csv", tmp_path)
+    with out.open(newline="", encoding="utf-8") as fh:
+        parsed = list(csv.reader(fh))[1:]
+    got = [r[2] for r in parsed]
+    for h, g in zip(hostile, got, strict=True):
+        if h[0] in "=+-@\t\r\n＝＋－＠":
+            assert g == "'" + h
+        else:
+            assert g == h
+    assert parsed[0][3] == NA
+    assert parsed[0][5] == "5" and parsed[0][6] == "-3.5"  # numbers are not prefixed
