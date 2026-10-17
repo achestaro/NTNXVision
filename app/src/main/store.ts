@@ -10,6 +10,8 @@ import { app } from 'electron';
 import { AppSettings } from '../shared/ipc';
 import * as secrets from './secrets';
 import { TargetStore } from './targets';
+import { ScheduleStore } from './schedules';
+import { SmtpStore } from './mail';
 
 function fileFor(name: string): string {
   const dir = app.getPath('userData');
@@ -69,3 +71,23 @@ export function setSettings(settings: AppSettings): AppSettings {
   writeJson(SETTINGS_FILE, merged);
   return merged;
 }
+
+// ─── email and schedules ────────────────────────────────────────────────
+
+/** Settings > Email (email.json, no password: that is in the keychain as smtp:password). */
+export const smtp = new SmtpStore(
+  {
+    read: () => readJson<unknown>('email.json', undefined),
+    write: (settings) => writeJson('email.json', settings),
+  },
+  { get: secrets.getSecret, set: secrets.setSecret, delete: secrets.deleteSecret },
+);
+
+/** Schedules (schedules.json, no secrets). */
+export const schedules = new ScheduleStore(
+  {
+    read: () => readJson<unknown>('schedules.json', undefined),
+    write: (file) => writeJson('schedules.json', file),
+  },
+  { newId: () => randomUUID(), now: () => new Date() },
+);
