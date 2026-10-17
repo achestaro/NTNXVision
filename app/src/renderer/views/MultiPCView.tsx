@@ -395,7 +395,7 @@ export function MultiPCView(): JSX.Element {
               tone="error"
               title={failureTitle(r)}
               actions={
-                r.test.kind === 'done' && r.test.result.status === 'untrusted_cert' ? (
+                r.test.kind === 'done' && ['untrusted_cert', 'trust_required', 'cert_changed'].includes(r.test.result.status) ? (
                   <Button size="sm" onClick={() => editTarget(r.id)}>
                     Edit target…
                   </Button>
@@ -583,6 +583,10 @@ function failureTitle(r: Row): string {
         return `${r.host} rejected the credentials.`;
       case 'untrusted_cert':
         return `The certificate for ${r.host} isn’t trusted.`;
+      case 'trust_required':
+        return `The certificate for ${r.host} hasn’t been trusted yet.`;
+      case 'cert_changed':
+        return `The certificate for ${r.host} changed.`;
       case 'unreachable':
         return `Can’t reach ${r.host}:${r.port}.`;
       default:
@@ -599,6 +603,9 @@ function failureBody(r: Row, others: number): string {
   }
   if (r.test.kind === 'done' && r.test.result.status === 'untrusted_cert') {
     return `Edit the target and turn off certificate verification if you trust it, or remove it.${rest}`;
+  }
+  if (r.test.kind === 'done' && (r.test.result.status === 'trust_required' || r.test.result.status === 'cert_changed')) {
+    return `Edit the target, test it and choose Trust this certificate, or remove it.${rest}`;
   }
   return `Check the address and network, then test again, or remove it.${rest}`;
 }

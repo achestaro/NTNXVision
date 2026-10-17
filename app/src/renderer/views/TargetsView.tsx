@@ -5,7 +5,7 @@
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { MagnifyingGlassIcon, PlugIcon, PlusIcon } from '@phosphor-icons/react';
-import type { ConnectionMode, SavedConnection, SnapshotInfo, TargetField, TargetSaveRequest } from '@shared/ipc';
+import type { ConnectionMode, SavedConnection, SnapshotInfo, TargetField, TargetSaveRequest, TestConnectionResult } from '@shared/ipc';
 import {
   Badge,
   Button,
@@ -30,7 +30,7 @@ import type { MenuItem, SortState } from '../components';
 import { useRouter } from '../lib/router';
 import { useSettings } from '../lib/settings';
 import { NA, errorMessage, fmtAbs, fmtCount, fmtRel, plural, targetLabel } from '../lib/format';
-import { TestOutcome, testOutcome } from './ConnectionTest';
+import { TestOutcome, TrustCallout, testOutcome } from './ConnectionTest';
 import type { TestState } from './ConnectionTest';
 
 /** What the snapshot list says about one target (matched by address). */
@@ -64,6 +64,8 @@ export function TargetsView({ edit, returnTo }: { edit?: string; returnTo?: 'new
   const [q, setQ] = useState('');
   const [sort, setSort] = useState<SortState>({ key: 'name', dir: 'asc' });
   const [editing, setEditing] = useState<SavedConnection | 'new' | null>(null);
+  /** A row test that asks the user to trust (or re-trust) the server certificate. */
+  const [trusting, setTrusting] = useState<{ target: SavedConnection; result: TestConnectionResult } | null>(null);
   const [deleting, setDeleting] = useState<SavedConnection | null>(null);
   const [busyDelete, setBusyDelete] = useState(false);
   const [testing, setTesting] = useState<Set<string>>(new Set());
@@ -142,6 +144,7 @@ export function TargetsView({ edit, returnTo }: { edit?: string; returnTo?: 'new
       });
       // Short: "<name>: <reason>" and one plain next step. The sidecar's technical message
       // is the tooltip (and the editor's test shows it in full).
+      if (r.status === 'trust_required' || r.status === 'cert_changed') setTrusting({ target: t, result: r });
       const o = testOutcome(r.status);
       const reason =
         r.status === 'ok'
@@ -166,6 +169,21 @@ export function TargetsView({ edit, returnTo }: { edit?: string; returnTo?: 'new
         return n;
       });
       void load();
+    }
+  };
+
+  /** Pin the certificate a row test showed, then test the target again. */
+  const trustRow = async (fingerprint: string) => {
+    if (!trusting) return;
+    const t = trusting.target;
+    setTrusting(null);
+    try {
+      setTargets(await window.ntnx.trustCertificate({ targetId: t.id, endpoint: 'primary', fingerprint }));
+      toast.show({ tone: 'ok', title: `Trusted the certificate of ${targetLabel(t)}` });
+      const fresh = { ...t, pinnedCert: fingerprint };
+      await testRow(fresh);
+    } catch (e) {
+      toast.show({ tone: 'error', title: 'Couldn’t trust the certificate', detail: errorMessage(e) });
     }
   };
 
@@ -232,6 +250,23 @@ export function TargetsView({ edit, returnTo }: { edit?: string; returnTo?: 'new
           onClose={() => setEditing(null)}
           onSaved={onSaved}
         />
+      )}
+      {trusting && (
+        <Dialog
+          open
+          onClose={() => setTrusting(null)}
+          width={560}
+          title={`Certificate of ${targetLabel(trusting.target)}`}
+          footer={
+            <div className="dialog-foot">
+              <Button onClick={() => setTrusting(null)}>Close</Button>
+            </div>
+          }
+        >
+          <div style={{ marginTop: 16 }}>
+            <TrustCallout result={trusting.result} host={trusting.target.host} onTrust={(fp) => void trustRow(fp)} />
+          </div>
+        </Dialog>
       )}
       {deleting && (
         <ConfirmDialog
@@ -345,15 +380,18 @@ export function TargetsView({ edit, returnTo }: { edit?: string; returnTo?: 'new
                 className: 'mono',
                 style: { fontSize: 12 },
                 render: (t) => {
-                  const full = `${t.host}:${t.port}${t.ndbHost ? ` · NDB ${t.ndbHost}` : ''}${t.vcenterHost ? ` · vCenter ${t.vcenterHost}` : ''}${t.insecure ? ' · TLS verification off' : ''}`;
+                  const full = `${t.host}:${t.port}${t.ndbHost ? ` · NDB ${t.ndbHost}` : ''}${t.vcenterHost ? ` · vCenter ${t.vcenterHost}` : ''}${t.insecure ? (t.pinnedCert ? ' · TLS verification off, certificate pinned' : ' · TLS verification off, certificate not trusted yet') : ''}`;
                   return (
                     <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8, maxWidth: '100%' }}>
                       <span className="clip t-addr" title={full}>
                         {t.host}:{t.port}
                       </span>
                       {t.insecure && (
-                        <span title="TLS certificate verification is off for this target" style={{ fontFamily: 'var(--font-sans)' }}>
-                          <Status tone="warn">TLS off</Status>
+                        <span
+                          title={t.pinnedCert ? 'TLS verification is off; the server certificate is pinned' : 'TLS verification is off and no certificate is trusted yet. Test the target and trust it.'}
+                          style={{ fontFamily: 'var(--font-sans)' }}
+                        >
+                          <Status tone="warn">{t.pinnedCert ? 'Pinned' : 'Not trusted'}</Status>
                         </span>
                       )}
                     </span>
@@ -463,11 +501,18 @@ function TargetEditor({
   const [ndbHost, setNdbHost] = useState(target?.ndbHost ?? '');
   const [ndbUser, setNdbUser] = useState(target?.ndbUser ?? 'admin');
   const [ndbPass, setNdbPass] = useState('');
+  const [ndbVerify, setNdbVerify] = useState(!(target?.ndbInsecure ?? false));
+  const [ndbTest, setNdbTest] = useState<{ ok: boolean; message: string; result?: TestConnectionResult } | null>(null);
+  const [ndbTesting, setNdbTesting] = useState(false);
+  /** Trusted certificate fingerprints (trust on first use), one per endpoint. */
+  const [pin, setPin] = useState(target?.pinnedCert ?? '');
+  const [ndbPin, setNdbPin] = useState(target?.ndbPinnedCert ?? '');
+  const [vcPin, setVcPin] = useState(target?.vcenterPinnedCert ?? '');
   const [vcHost, setVcHost] = useState(target?.vcenterHost ?? '');
   const [vcUser, setVcUser] = useState(target?.vcenterUser ?? 'administrator@vsphere.local');
   const [vcPass, setVcPass] = useState('');
   const [vcVerify, setVcVerify] = useState(!(target?.vcenterInsecure ?? false));
-  const [vcTest, setVcTest] = useState<{ ok: boolean; message: string } | null>(null);
+  const [vcTest, setVcTest] = useState<{ ok: boolean; message: string; result?: TestConnectionResult } | null>(null);
   const [vcTesting, setVcTesting] = useState(false);
   /** vCenter addresses Prism Central reports for its ESXi clusters (address → cluster names). */
   const [vcFound, setVcFound] = useState<{ address: string; clusters: string[] }[]>([]);
@@ -497,7 +542,7 @@ function TargetEditor({
   const clear = (k: TargetField) => setErrors((x) => ({ ...x, [k]: undefined, form: undefined }));
   const changed = () => setTest({ kind: 'idle' });
 
-  const runTest = async (insecure = !verify) => {
+  const runTest = async (insecure = !verify, pinOverride?: string) => {
     const e = check();
     const connErrors: Errors = { host: e.host, port: e.port, username: e.username };
     if (connErrors.host || connErrors.port || connErrors.username) {
@@ -518,16 +563,17 @@ function TargetEditor({
         password,
         insecure,
         targetId: target?.id,
+        pinnedCert: pinOverride ?? pin,
       });
       setTest({ kind: 'done', result });
-      if (result.ok && mode === 'prism_central') void discoverVcenters(insecure);
+      if (result.ok && mode === 'prism_central') void discoverVcenters(insecure, pinOverride ?? pin);
     } catch (err) {
       setTest({ kind: 'error', message: errorMessage(err) });
     }
   };
 
   /** Ask Prism Central which vCenter its ESXi clusters are registered to (a suggestion). */
-  const discoverVcenters = async (insecure = !verify) => {
+  const discoverVcenters = async (insecure = !verify, pinned = pin) => {
     try {
       const r = await window.ntnx.listClusters({
         mode: 'prism_central',
@@ -537,6 +583,7 @@ function TargetEditor({
         password,
         insecure,
         targetId: target?.id,
+        pinnedCert: pinned,
       });
       const byAddress = new Map<string, string[]>();
       for (const c of r.clusters) {
@@ -549,29 +596,44 @@ function TargetEditor({
     }
   };
 
-  const testVcenter = async () => {
-    if (!vcHost.trim()) return;
-    if (!vcPass && !(target?.vcenterHasPassword && vcHost.trim() === target.vcenterHost && vcUser.trim() === target.vcenterUser)) {
-      setVcTest({ ok: false, message: 'Enter the vCenter password to test it.' });
+  /** Test the NDB or vCenter endpoint of the form (read-only); a certificate to trust is shown. */
+  const testEndpoint = async (kind: 'ndb' | 'vcenter', pinOverride?: string) => {
+    const isNdb = kind === 'ndb';
+    const epHost = (isNdb ? ndbHost : vcHost).trim();
+    const epUser = (isNdb ? ndbUser : vcUser).trim();
+    const epPass = isNdb ? ndbPass : vcPass;
+    if (!epHost) return;
+    const saved = isNdb
+      ? target?.ndbHasPassword && epHost === target.ndbHost && epUser === target.ndbUser
+      : target?.vcenterHasPassword && epHost === target.vcenterHost && epUser === target.vcenterUser;
+    const setResult = isNdb ? setNdbTest : setVcTest;
+    if (!epPass && !saved) {
+      setResult({ ok: false, message: `Enter the ${isNdb ? 'NDB' : 'vCenter'} password to test it.` });
       return;
     }
-    setVcTesting(true);
+    (isNdb ? setNdbTesting : setVcTesting)(true);
     try {
       const r = await window.ntnx.testConnection({
-        mode: 'vcenter',
-        host: vcHost.trim(),
+        mode: kind,
+        host: epHost,
         port: 443,
-        username: vcUser.trim(),
-        password: vcPass,
-        insecure: !vcVerify,
+        username: epUser,
+        password: epPass,
+        insecure: !(isNdb ? ndbVerify : vcVerify),
         targetId: target?.id,
+        pinnedCert: pinOverride ?? (isNdb ? ndbPin : vcPin),
       });
-      setVcTest({ ok: r.ok, message: [r.message, r.detail].filter(Boolean).join(' · ') });
+      setResult({ ok: r.ok, message: [r.message, r.detail].filter(Boolean).join(' · '), result: r });
     } catch (err) {
-      setVcTest({ ok: false, message: errorMessage(err) });
+      setResult({ ok: false, message: errorMessage(err) });
     } finally {
-      setVcTesting(false);
+      (isNdb ? setNdbTesting : setVcTesting)(false);
     }
+  };
+
+  const trustEndpoint = (kind: 'ndb' | 'vcenter', fingerprint: string) => {
+    (kind === 'ndb' ? setNdbPin : setVcPin)(fingerprint);
+    void testEndpoint(kind, fingerprint);
   };
 
   const save = async () => {
@@ -595,6 +657,10 @@ function TargetEditor({
       vcenterUser: isPe ? undefined : vcUser.trim(),
       vcenterInsecure: isPe ? undefined : !vcVerify,
       vcenterPassword: isPe ? undefined : vcPass,
+      ndbInsecure: isPe ? undefined : !ndbVerify,
+      pinnedCert: verify ? '' : pin,
+      ndbPinnedCert: isPe || ndbVerify ? '' : ndbPin,
+      vcenterPinnedCert: isPe || vcVerify ? '' : vcPin,
     };
     setSaving(true);
     try {
@@ -688,6 +754,7 @@ function TargetEditor({
               autoCapitalize="off"
               onChange={(e) => {
                 setHost(e.target.value);
+                setPin('');
                 clear('host');
                 changed();
               }}
@@ -700,6 +767,7 @@ function TargetEditor({
               value={port}
               onChange={(e) => {
                 setPort(e.target.value.replace(/[^0-9]/g, ''));
+                setPin('');
                 clear('port');
                 changed();
               }}
@@ -764,6 +832,8 @@ function TargetEditor({
                   autoCapitalize="off"
                   onChange={(e) => {
                     setNdbHost(e.target.value);
+                    setNdbPin('');
+                    setNdbTest(null);
                     clear('ndbHost');
                   }}
                 />
@@ -782,10 +852,37 @@ function TargetEditor({
                   type="password"
                   value={ndbPass}
                   placeholder={target?.ndbHasPassword ? 'Saved in your keychain' : 'Password'}
-                  onChange={(e) => setNdbPass(e.target.value)}
+                  onChange={(e) => {
+                    setNdbPass(e.target.value);
+                    setNdbTest(null);
+                  }}
                   disabled={!ndbHost.trim()}
                 />
               </Field>
+              <div className="span-all" style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+                <Checkbox
+                  checked={ndbVerify}
+                  onChange={(v) => {
+                    setNdbVerify(v);
+                    setNdbTest(null);
+                  }}
+                  disabled={!ndbHost.trim()}
+                >
+                  Verify NDB TLS certificate
+                </Checkbox>
+                <Button size="sm" icon={PlugIcon} onClick={() => void testEndpoint('ndb')} disabled={!ndbHost.trim() || ndbTesting}>
+                  Test NDB
+                </Button>
+              </div>
+              {ndbTesting && <Loading label="Testing NDB…" />}
+              {ndbTest &&
+                (ndbTest.result && (ndbTest.result.status === 'trust_required' || ndbTest.result.status === 'cert_changed') ? (
+                  <div className="span-all">
+                    <TrustCallout result={ndbTest.result} host={ndbHost.trim()} onTrust={(fp) => trustEndpoint('ndb', fp)} />
+                  </div>
+                ) : (
+                  <Callout className="span-all" tone={ndbTest.ok ? 'ok' : 'error'} title={ndbTest.message} />
+                ))}
               <div className="span-all eyebrow" style={{ borderTop: '1px solid var(--rule-2)', paddingTop: 12 }}>
                 VMware vCenter (optional, ESXi clusters)
               </div>
@@ -826,6 +923,7 @@ function TargetEditor({
                   autoCapitalize="off"
                   onChange={(e) => {
                     setVcHost(e.target.value);
+                    setVcPin('');
                     setVcTest(null);
                     clear('vcenterHost');
                   }}
@@ -873,7 +971,7 @@ function TargetEditor({
                 >
                   Verify vCenter TLS certificate
                 </Checkbox>
-                <Button size="sm" icon={PlugIcon} onClick={() => void testVcenter()} disabled={!vcHost.trim() || vcTesting}>
+                <Button size="sm" icon={PlugIcon} onClick={() => void testEndpoint('vcenter')} disabled={!vcHost.trim() || vcTesting}>
                   Test vCenter
                 </Button>
                 {mode === 'prism_central' && host.trim() && (
@@ -883,7 +981,14 @@ function TargetEditor({
                 )}
               </div>
               {vcTesting && <Loading label="Testing vCenter…" />}
-              {vcTest && <Callout className="span-all" tone={vcTest.ok ? 'ok' : 'error'} title={vcTest.message} />}
+              {vcTest &&
+                (vcTest.result && (vcTest.result.status === 'trust_required' || vcTest.result.status === 'cert_changed') ? (
+                  <div className="span-all">
+                    <TrustCallout result={vcTest.result} host={vcHost.trim()} onTrust={(fp) => trustEndpoint('vcenter', fp)} />
+                  </div>
+                ) : (
+                  <Callout className="span-all" tone={vcTest.ok ? 'ok' : 'error'} title={vcTest.message} />
+                ))}
             </>
           )}
         </div>
@@ -896,6 +1001,10 @@ function TargetEditor({
           onTurnOffVerification={() => {
             setVerify(false);
             void runTest(true);
+          }}
+          onTrust={(fp) => {
+            setPin(fp);
+            void runTest(!verify, fp);
           }}
           onRetry={() => void runTest()}
         />

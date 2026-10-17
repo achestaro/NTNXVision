@@ -504,7 +504,9 @@ def test_inventory_multi_uses_each_targets_own_ndb_credentials() -> None:
         sidecar._m_inventory_multi(1, {
             "targets": [
                 {"host": "pc1.local", "username": "admin", "password": "x", "insecure": True,
-                 "ndb": {"host": "era1.local", "username": "era-admin", "password": "y"}},
+                 "pinned_sha256": "ab" * 32,
+                 "ndb": {"host": "era1.local", "username": "era-admin", "password": "y",
+                         "pinned_sha256": "cd" * 32}},
                 {"host": "pc2.local", "username": "admin", "password": "x"},
             ],
             "combine": False,

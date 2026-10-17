@@ -86,6 +86,17 @@ export interface ConnectionProfile {
   /** Skip TLS verification for the vCenter (often self-signed). */
   vcenterInsecure?: boolean;
   /**
+   * Trust on first use. With TLS verification off the server certificate is pinned
+   * instead of trusted blindly: the SHA-256 fingerprint (AA:BB:...) the user accepted
+   * after a connection test, one per endpoint. A different certificate fails the
+   * connection until the user trusts it again. Fingerprints only, no secrets.
+   */
+  pinnedCert?: string;
+  /** Prism Central only: skip TLS verification for NDB (its own flag, separate from the PC's). */
+  ndbInsecure?: boolean;
+  ndbPinnedCert?: string;
+  vcenterPinnedCert?: string;
+  /**
    * Prism Central only: the cluster selection of the last collection from this target,
    * by cluster uuid, so the next one preselects it. `known` is every cluster listed at
    * the time: a cluster missing from it is new, and new clusters start selected.
@@ -158,6 +169,16 @@ export interface TargetSaveRequest {
   vcenterInsecure?: boolean;
   /** Empty = keep the saved vCenter password. */
   vcenterPassword?: string;
+  /** Prism Central only: skip TLS verification for NDB. */
+  ndbInsecure?: boolean;
+  /**
+   * The certificate fingerprints the user trusted in this form, per endpoint. Absent =
+   * keep the saved one (while that endpoint's address is unchanged); '' = none. A pin is
+   * only kept for an endpoint whose TLS verification is off.
+   */
+  pinnedCert?: string;
+  ndbPinnedCert?: string;
+  vcenterPinnedCert?: string;
 }
 
 export type TargetField = 'name' | 'host' | 'port' | 'username' | 'ndbHost' | 'vcenterHost' | 'form';
@@ -187,6 +208,22 @@ export interface TestConnectionRequest {
   insecure: boolean;
   /** The saved target being tested; its last test is recorded when the fields match it. */
   targetId?: string;
+  /**
+   * The trusted certificate fingerprint to pin when `insecure` is on. Absent = the saved
+   * target's own for this endpoint; '' = none (the test then asks the user to trust it).
+   */
+  pinnedCert?: string;
+}
+
+/** Which endpoint of a saved target a certificate belongs to. */
+export type TrustEndpoint = 'primary' | 'ndb' | 'vcenter';
+
+/** Trust the certificate a connection test showed, for one endpoint of a saved target. */
+export interface TrustCertificateRequest {
+  targetId: string;
+  endpoint: TrustEndpoint;
+  /** SHA-256, AA:BB:... as the test returned it. */
+  fingerprint: string;
 }
 
 /**
@@ -195,6 +232,10 @@ export interface TestConnectionRequest {
  * - version_unsupported connected, but the version is outside the supported range (warn, may proceed)
  * - auth_failed         credentials rejected (401/403)
  * - untrusted_cert      TLS verification failed (self-signed / unknown CA / name mismatch)
+ * - trust_required      verification is off and no certificate is trusted yet: the
+ *                       certificate is shown and nothing (no password) was sent
+ * - cert_changed        verification is off and the server's certificate is not the one
+ *                       that was trusted: re-test and trust it again
  * - unreachable         DNS, refused, timeout, no route
  * - error               anything else
  */
@@ -203,6 +244,8 @@ export type TestConnectionStatus =
   | 'version_unsupported'
   | 'auth_failed'
   | 'untrusted_cert'
+  | 'trust_required'
+  | 'cert_changed'
   | 'unreachable'
   | 'error';
 
@@ -225,7 +268,7 @@ export interface TestConnectionResult {
   hosts?: number | null;
   vms?: number | null;
   api?: { v4: number; v3: number; v2: number; not_deployed: number } | null;
-  /** Present for untrusted_cert. */
+  /** Present for untrusted_cert, trust_required and cert_changed. */
   certificate?: {
     subject: string;
     issuer: string;
@@ -1260,6 +1303,7 @@ export const IPC = {
   takePendingSnapshotFiles: 'app:takePendingSnapshotFiles',
   listConnections: 'store:listConnections',
   saveTarget: 'store:saveTarget',
+  trustCertificate: 'store:trustCertificate',
   deleteTarget: 'store:deleteTarget',
   getSettings: 'store:getSettings',
   setSettings: 'store:setSettings',
@@ -1346,6 +1390,8 @@ export interface NtnxApi {
   saveTarget(req: TargetSaveRequest): Promise<TargetSaveResult>;
   /** Delete a target and its keychain entries. Its snapshots are kept. */
   deleteTarget(id: string): Promise<SavedConnection[]>;
+  /** Pin the certificate a test showed for one endpoint of a saved target; returns the targets. */
+  trustCertificate(req: TrustCertificateRequest): Promise<SavedConnection[]>;
   getSettings(): Promise<AppSettings>;
   setSettings(settings: AppSettings): Promise<AppSettings>;
 

@@ -36,13 +36,14 @@ import {
   TargetSaveRequest,
   TestConnectionRequest,
   TestConnectionResult,
+  TrustCertificateRequest,
 } from '../shared/ipc';
 import { SidecarClient, SidecarError, CANCELLED_CODE, isDemoMode } from './sidecar';
 import { isSmokeRun, runSmoke } from './smoke';
 import * as secrets from './secrets';
 import * as store from './store';
 import { registerLegalHandlers } from './legal';
-import { cleanOverrides, matchesTarget, ndbAccount, passwordAccount, remapIds, vcenterAccount } from './targets';
+import { cleanOverrides, endpointTls, matchesTarget, ndbAccount, passwordAccount, remapIds, savedPin, vcenterAccount } from './targets';
 import { Scheduler } from './scheduler';
 import {
   appPageUrl,
@@ -73,6 +74,7 @@ import {
   asSnapshotFilesExportRequest,
   asTargetSaveRequest,
   asTestRequest,
+  asTrustCertificateRequest,
   cleanSettings,
 } from './requests';
 import { ValidationError, int, oneOf, optStr, str } from './validate';
@@ -297,7 +299,9 @@ async function endpointPassword(req: {
     return same ? ((await store.targets.vcenterPassword(t.id)) ?? '') : '';
   }
   if (req.mode === 'ndb') {
-    return t.ndbHost === host && t.ndbUser === user ? ((await store.targets.ndbPassword(t.id)) ?? '') : '';
+    // NDB has its own TLS flag now (SEC-06), so it must match too.
+    const same = t.ndbHost === host && t.ndbUser === user && req.port === 443 && req.insecure === !!t.ndbInsecure;
+    return same ? ((await store.targets.ndbPassword(t.id)) ?? '') : '';
   }
   if (!matchesTarget(t, req)) return '';
   return (await store.targets.password(t.id)) ?? '';
@@ -322,9 +326,17 @@ async function targetConnection(
     );
   }
   const password = typed || (await store.targets.password(t.id)) || '';
+  // Each endpoint has its own TLS choice; with verification off the trusted certificate is pinned.
+  const tls = endpointTls(t);
   const withNdb =
     t.mode === 'prism_central' && t.ndbHost && ndb
-      ? { host: t.ndbHost, username: t.ndbUser || 'admin', password: ndb.password || (await store.targets.ndbPassword(t.id)) || '' }
+      ? {
+          host: t.ndbHost,
+          username: t.ndbUser || 'admin',
+          password: ndb.password || (await store.targets.ndbPassword(t.id)) || '',
+          insecure: tls.ndb.insecure,
+          pinned_sha256: tls.ndb.pinnedCert,
+        }
       : undefined;
   // The vCenter (ESXi enrichment) is the target's own; the request only switches it on.
   const withVcenter =
@@ -333,10 +345,11 @@ async function targetConnection(
           host: t.vcenterHost,
           username: t.vcenterUser || 'administrator@vsphere.local',
           password: vcenter.password || (await store.targets.vcenterPassword(t.id)) || '',
-          insecure: !!t.vcenterInsecure,
+          insecure: tls.vcenter.insecure,
+          pinned_sha256: tls.vcenter.pinnedCert,
         }
       : undefined;
-  return { mode: t.mode, host: t.host, username: t.username, port: t.port, insecure: t.insecure, password, ndb: withNdb, vcenter: withVcenter };
+  return { mode: t.mode, host: t.host, username: t.username, port: t.port, insecure: t.insecure, pinnedCert: tls.primary.pinnedCert, password, ndb: withNdb, vcenter: withVcenter };
 }
 
 // ─── IPC handlers: sidecar relays ──────────────────────────────────────
@@ -362,6 +375,14 @@ function vcpuRatio(): number | undefined {
   return store.getSettings().vcpuRatio;
 }
 
+/** The certificate pin for a test or listing: the request's own, else the saved target's for that endpoint. */
+function requestPin(req: { targetId?: string; mode?: string; host: string; port: number; insecure: boolean; pinnedCert?: string }): string | undefined {
+  if (!req.insecure) return undefined;
+  if (req.pinnedCert !== undefined) return req.pinnedCert || undefined;
+  const t = store.targets.get(req.targetId);
+  return t ? savedPin(t, { mode: req.mode ?? 'prism_central', host: req.host, port: req.port }) : undefined;
+}
+
 ipc.handle(IPC.testConnection, async (_e, raw: TestConnectionRequest) => {
   const req = asTestRequest(raw);
   assertDemoHost(req.host);
@@ -373,6 +394,7 @@ ipc.handle(IPC.testConnection, async (_e, raw: TestConnectionRequest) => {
     username: req.username,
     password,
     insecure: req.insecure,
+    pinned_sha256: requestPin(req),
   });
   // The Targets page shows each target's last test: record it when this was the target as saved.
   const t = store.targets.get(req.targetId);
@@ -391,6 +413,7 @@ ipc.handle(IPC.listClusters, async (_e, raw: ListClustersRequest) => {
     username: req.username,
     password,
     insecure: req.insecure,
+    pinned_sha256: requestPin(req),
   });
 });
 
@@ -419,6 +442,7 @@ ipc.handle(IPC.startCollection, async (_e, raw: CollectionRequest) => {
     password,
     port: req.port,
     insecure: req.insecure,
+    pinned_sha256: conn.pinnedCert,
     name: req.name,
     areas: req.areas,
     clusters: req.mode === 'prism_central' ? req.clusters : undefined,
@@ -461,6 +485,7 @@ ipc.handle(IPC.startMultiCollection, async (_e, raw: MultiCollectionRequest) => 
       password: t.password,
       port: t.port,
       insecure: t.insecure,
+      pinned_sha256: t.pinnedCert,
       name: t.name,
       ndb: t.ndb,
       vcenter: t.vcenter,
@@ -741,6 +766,13 @@ ipc.handle(IPC.chooseFile, async (_e, filters: FileFilter[]) => {
 
 ipc.handle(IPC.listConnections, () => store.targets.listWithStatus());
 ipc.handle(IPC.saveTarget, (_e, req: TargetSaveRequest) => store.targets.save(asTargetSaveRequest(req)));
+ipc.handle(IPC.trustCertificate, async (_e, raw: TrustCertificateRequest) => {
+  const req = asTrustCertificateRequest(raw);
+  if (!store.targets.trust(req.targetId, req.endpoint, req.fingerprint)) {
+    throw new Error('That certificate can’t be trusted for this target. Check that TLS verification is off for that endpoint.');
+  }
+  return store.targets.listWithStatus();
+});
 ipc.handle(IPC.deleteTarget, async (_e, id: string) => {
   str(id, 'id', 128);
   const remaining = await store.targets.delete(id);
