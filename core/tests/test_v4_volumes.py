@@ -7,16 +7,16 @@ from typing import Any
 from ntnxvision_core.collectors.nus import VolumesCollector
 from ntnxvision_core.models import Cluster, Environment
 
-CLUSTER_UUID = "0006442f-1fc6-3ee1-0000-000000016d34"
+CLUSTER_UUID = "0000d596-d86d-45b7-adae-2662c463d891"
 
 # Trimmed from a live pc.7.5.1.1 response.
 V4_VG = {
-    "extId": "18cb9916-34dd-4294-98f2-1fa94dc44cab",
-    "name": "pvc-ebc7ea2c",
+    "extId": "0000462d-5a56-4787-a215-b5014e40b1c2",
+    "name": "pvc-0000c0de",
     "sharingStatus": "NOT_SHARED",
     # The *full* target name. v3 only had iscsi_target_prefix, which is shared across
     # every group from the same provisioner.
-    "targetName": "ntnx-k8s-18cb9916-34dd-4294-98f2-1fa94dc44cab",
+    "targetName": "ntnx-k8s-0000462d-5a56-4787-a215-b5014e40b1c2",
     "clusterReference": CLUSTER_UUID,
     "storageFeatures": {"flashMode": {"isEnabled": False}},
 }
@@ -24,7 +24,7 @@ V4_VG = {
 V3_VG = {
     "metadata": {"uuid": V4_VG["extId"]},
     "spec": {
-        "name": "pvc-ebc7ea2c",
+        "name": "pvc-0000c0de",
         "resources": {
             "disk_list": [{"disk_size_mib": 1024}, {"disk_size_mib": 2048}],
             "attachment_list": [{"vm_reference": {"uuid": "vm-1"}}],
@@ -68,7 +68,7 @@ def _collect(conn: _Conn) -> Environment:
 
 def test_v4_volume_group_maps_config_fields() -> None:
     vg = _collect(_Conn()).volume_groups[0]
-    assert vg.name == "pvc-ebc7ea2c"
+    assert vg.name == "pvc-0000c0de"
     assert vg.is_shared is False
     assert vg.flash_mode is False
     assert vg.api_source == "v4"
@@ -82,7 +82,7 @@ def test_cluster_name_is_resolved_from_the_uuid_reference() -> None:
 def test_iscsi_target_is_the_full_name_not_the_shared_prefix() -> None:
     """Deliberate change: v3's iscsi_target_prefix repeats across unrelated groups."""
     vg = _collect(_Conn()).volume_groups[0]
-    assert vg.iscsi_target == "ntnx-k8s-18cb9916-34dd-4294-98f2-1fa94dc44cab"
+    assert vg.iscsi_target == "ntnx-k8s-0000462d-5a56-4787-a215-b5014e40b1c2"
     assert vg.iscsi_target != "ntnx-k8s"
 
 

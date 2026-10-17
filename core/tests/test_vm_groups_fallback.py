@@ -1,6 +1,6 @@
 """VMs the v4 API cannot serve are recovered from the groups API, marked partial.
 
-On the lab PC (pc.7.5.1.1) two ESXi VMs (NSX-Edge-01/02) answer HTTP 500 PLAT-10006 on
+On the lab PC (pc.7.5.1.1) two ESXi VMs (edge-vm-01/02) answer HTTP 500 PLAT-10006 on
 every v4 path, list page and single GET alike, and v3 ``vms/list`` has no ESXi VMs at
 all. ``POST /api/nutanix/v3/groups`` for ``mh_vm`` still lists them, so they are read
 from there (core sizing only) instead of being dropped.
@@ -28,13 +28,13 @@ PW = {"username": "admin", "password": "demo"}
 FEATURES = Features(esxi_bad_vms=2, groups_mh_vm=True)
 AUTH = "Basic YWRtaW46ZGVtbw=="  # admin:demo
 
-# The lab row for NSX-Edge-02, as `v3_groups` flattens it.
+# The lab row for edge-vm-02, as `v3_groups` flattens it.
 NSX_EDGE_02 = {
-    "entity_id": "0eea2fbe-b0f7-442b-b4da-4e7fd8f0aa10", "vm_name": "NSX-Edge-02",
-    "cluster_name": "lab-cluster-02", "cluster": "0006443c-2078-0848-0000-000000016d33",
+    "entity_id": "0000d239-fb3d-40fc-acbc-4dc602480eaa", "vm_name": "edge-vm-02",
+    "cluster_name": "lab-cluster-02", "cluster": "0000e44d-bc9d-4f50-a736-cc12243058af",
     "hypervisor_type": "kVMware", "num_vcpus": "4", "memory_size_bytes": "8589934592",
     "power_state": "on", "is_cvm": "0", "vm_type": "kGuestVM", "host_name": None,
-    "node": "3e022c04-d1a3-4d90-85dd-4e7e3ff131c0", "capacity_bytes": "211527139328",
+    "node": "00004427-a27e-4ccc-a6d0-68da4d23b610", "capacity_bytes": "211527139328",
     "guest_os_name": "Ubuntu Linux (64-bit)",
 }
 
@@ -204,9 +204,9 @@ class _Conn:
         return [dict(r) for r in self.groups]
 
 
-NSX_EDGE_01 = {**NSX_EDGE_02, "entity_id": "68ec2993-cf4a-44cb-8f14-0fe7d546c571",
-               "vm_name": "NSX-Edge-01"}
-CVM_ROW = {**NSX_EDGE_02, "entity_id": "cvm-1", "vm_name": "NTNX-16SM60010053-A-CVM",
+NSX_EDGE_01 = {**NSX_EDGE_02, "entity_id": "0000a516-c6bd-4262-a0cf-2897d10e9750",
+               "vm_name": "edge-vm-01"}
+CVM_ROW = {**NSX_EDGE_02, "entity_id": "cvm-1", "vm_name": "NTNX-00XX00000001-A-CVM",
            "is_cvm": "1", "vm_type": "kCVM"}
 AHV_ROW = {**NSX_EDGE_02, "entity_id": "ahv-1", "vm_name": "web-01"}
 
@@ -221,25 +221,25 @@ def test_lab_row_maps_into_the_vm_model() -> None:
     vm = _groups_vm(NSX_EDGE_02, _V3Detail({}, {}))
     assert vm is not None
     assert (vm.uuid, vm.name, vm.cluster_name, vm.cluster_uuid) == (
-        "0eea2fbe-b0f7-442b-b4da-4e7fd8f0aa10", "NSX-Edge-02", "lab-cluster-02",
-        "0006443c-2078-0848-0000-000000016d33")
+        "0000d239-fb3d-40fc-acbc-4dc602480eaa", "edge-vm-02", "lab-cluster-02",
+        "0000e44d-bc9d-4f50-a736-cc12243058af")
     assert (vm.hypervisor, vm.num_vcpus, vm.memory_bytes, vm.power_state) == (
         "ESXi", 4, 8 * 1024**3, "ON")
     assert vm.total_disk_bytes == 211527139328
     assert vm.guest_os == "Ubuntu Linux (64-bit)"
-    assert vm.host_uuid == "3e022c04-d1a3-4d90-85dd-4e7e3ff131c0"
+    assert vm.host_uuid == "00004427-a27e-4ccc-a6d0-68da4d23b610"
     assert vm.vm_type == "USER" and vm.api_source == "v3-groups (partial)"
 
 
 def test_only_missing_non_cvm_vms_are_added() -> None:
     conn = _Conn([NSX_EDGE_01, NSX_EDGE_02, CVM_ROW, AHV_ROW])
     env = _run(conn)
-    assert sorted(v.name for v in env.vms) == ["NSX-Edge-01", "NSX-Edge-02", "web-01"]
+    assert sorted(v.name for v in env.vms) == ["edge-vm-01", "edge-vm-02", "web-01"]
     assert next(v for v in env.vms if v.name == "web-01").api_source == "v4"
     assert ("mh_vm", "is_cvm==0") in conn.queries
     assert env.collection_notes["vms"].startswith(
         "ok: 2 VM(s) read from the groups API because the v4 API failed for them: "
-        "NSX-Edge-01, NSX-Edge-02;")
+        "edge-vm-01, edge-vm-02;")
 
 
 def test_groups_failure_keeps_the_skip_note() -> None:
@@ -253,13 +253,13 @@ def test_groups_failure_keeps_the_skip_note() -> None:
 def test_partly_recovered_reports_the_rest_as_skipped() -> None:
     env = _run(_Conn([NSX_EDGE_01]))
     note = env.collection_notes["vms"]
-    assert "1 VM(s) read from the groups API" in note and "NSX-Edge-01" in note
+    assert "1 VM(s) read from the groups API" in note and "edge-vm-01" in note
     assert "1 VM(s) skipped" in note
 
 
 def test_a_whole_v4_list_failing_is_recovered_too() -> None:
     env = _run(_Conn([NSX_EDGE_01, NSX_EDGE_02, AHV_ROW], esxi_fails=True))
-    assert sorted(v.name for v in env.vms) == ["NSX-Edge-01", "NSX-Edge-02", "web-01"]
+    assert sorted(v.name for v in env.vms) == ["edge-vm-01", "edge-vm-02", "web-01"]
     assert "2 VM(s) read from the groups API" in env.collection_notes["vms"]
 
 
@@ -279,5 +279,5 @@ def test_scoped_query_names_the_selected_clusters_and_prunes_the_rest() -> None:
         [NSX_EDGE_01["cluster"], "c-ahv"])
     env = _run(conn)
     assert ("mh_vm", f"is_cvm==0;cluster=in={NSX_EDGE_01['cluster']}|c-ahv") in conn.queries
-    assert "NSX-Edge-01" in {v.name for v in env.vms}
-    assert "NSX-Edge-02" not in {v.name for v in env.vms}
+    assert "edge-vm-01" in {v.name for v in env.vms}
+    assert "edge-vm-02" not in {v.name for v in env.vms}
