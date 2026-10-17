@@ -769,6 +769,16 @@ try {
     await uxShot('clusters-grid-detail');
   });
 
+  // R2-04: the clipboard permission is allowed for the app page, so "Copy row" works.
+  await run('inventory-copy-row', async () => {
+    await page.getByRole('button', { name: 'Copy as table row' }).click();
+    await page.getByText('Row copied').waitFor({ timeout: 10_000 });
+    if (await page.getByText('Couldn’t copy').count()) throw new Error('Copy row failed');
+    const copied = await page.evaluate(() => navigator.clipboard.readText().catch(() => ''));
+    // readText needs a separate permission the app (rightly) does not grant; only check when readable.
+    if (copied && !copied.includes('\t')) throw new Error(`copied text is not a tab-separated row: ${copied}`);
+  });
+
   await run('inventory', async () => {
     await page.getByRole('navigation', { name: 'Object types' }).getByRole('button', { name: /^Virtual machines/ }).click();
     await page.getByRole('heading', { level: 1, name: 'Virtual machines' }).waitFor({ timeout: 30_000 });

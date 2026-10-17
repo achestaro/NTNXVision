@@ -3,22 +3,25 @@
 //  * Navigation lock: the window may only ever show the app's own page.
 //  * IPC sender check: every handler runs through secureIpc, which rejects calls that did
 //    not come from the main window's top frame showing the app page.
-//  * Permission requests are denied (notifications only, for the app page).
+//  * Permission requests are denied (notifications and clipboard write, for the app page).
 //  * Packaged builds have no DevTools and no reload menu items.
 //  * Test hooks (NTNXVISION_* overrides) are honoured only when the app is not packaged.
 //  * Folders the renderer may point at (open/reveal, export) are decided here.
 
-import { BrowserWindow, IpcMain, Menu, MenuItemConstructorOptions, app, session, shell } from 'electron';
+import { BrowserWindow, IpcMain, Menu, MenuItemConstructorOptions, app, protocol, session, shell } from 'electron';
+import { readFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
-import { dirname, join } from 'node:path';
-import { fileURLToPath, pathToFileURL } from 'node:url';
+import { dirname, extname, join } from 'node:path';
 import * as store from './store';
 import { e2eRun, testEnv } from './testhooks';
 import {
+  APP_HOST,
+  APP_SCHEME,
   OPEN_EXTENSIONS,
   REVEAL_EXTENSIONS,
   checkExportDir,
   realOrResolved,
+  resolveAppFile,
   resolveOpenable,
 } from './pathpolicy';
 import { ValidationError, safeHttpsUrl, str } from './validate';
@@ -29,11 +32,65 @@ const DEV_ORIGIN = 'http://localhost:5273';
 let devServer = false;
 let getWindow: () => BrowserWindow | null = () => null;
 
-export function builtIndexPath(): string {
-  return join(__dirname, '..', 'renderer', 'index.html');
+/** The built renderer (dist/renderer), served to the window through the app:// scheme. */
+export function rendererDir(): string {
+  return join(__dirname, '..', 'renderer');
 }
 
-/** Tell the guards which page the window loads (dev server or the built file). */
+const APP_INDEX_URL = `${APP_SCHEME}://${APP_HOST}/index.html`;
+
+/**
+ * Register the app:// scheme. Must run before the app is ready. A standard, secure scheme
+ * gives the page a real origin (so CSP 'self' means the app's own files, not any local
+ * file) and lets the file:// protocol keep no extra privileges (B-3).
+ */
+export function registerAppScheme(): void {
+  protocol.registerSchemesAsPrivileged([
+    { scheme: APP_SCHEME, privileges: { standard: true, secure: true, supportFetchAPI: true } },
+  ]);
+}
+
+const MIME: Record<string, string> = {
+  '.html': 'text/html; charset=utf-8',
+  '.js': 'text/javascript; charset=utf-8',
+  '.mjs': 'text/javascript; charset=utf-8',
+  '.css': 'text/css; charset=utf-8',
+  '.svg': 'image/svg+xml',
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.gif': 'image/gif',
+  '.ico': 'image/x-icon',
+  '.woff2': 'font/woff2',
+  '.woff': 'font/woff',
+  '.ttf': 'font/ttf',
+  '.json': 'application/json; charset=utf-8',
+  '.map': 'application/json; charset=utf-8',
+};
+
+/** Serve the renderer files for app://ntnxvision/... (GET and HEAD only). */
+export function installAppProtocol(): void {
+  const root = rendererDir();
+  protocol.handle(APP_SCHEME, async (request) => {
+    if (request.method !== 'GET' && request.method !== 'HEAD') return new Response('Method not allowed', { status: 405 });
+    const file = resolveAppFile(request.url, root);
+    if (!file) return new Response('Not found', { status: 404 });
+    try {
+      const body = await readFile(file);
+      return new Response(request.method === 'HEAD' ? null : new Uint8Array(body), {
+        status: 200,
+        headers: {
+          'content-type': MIME[extname(file).toLowerCase()] ?? 'application/octet-stream',
+          'x-content-type-options': 'nosniff',
+        },
+      });
+    } catch {
+      return new Response('Not found', { status: 404 });
+    }
+  });
+}
+
+/** Tell the guards which page the window loads (dev server or the built renderer). */
 export function configureAppPage(opts: { devServer: boolean; window: () => BrowserWindow | null }): void {
   devServer = opts.devServer;
   getWindow = opts.window;
@@ -49,16 +106,18 @@ export function isAppUrl(raw: string | undefined | null): boolean {
     return false;
   }
   if (devServer) return u.origin === DEV_ORIGIN;
-  if (u.protocol !== 'file:') return false;
-  try {
-    return fileURLToPath(u) === builtIndexPath();
-  } catch {
-    return false;
-  }
+  return (
+    u.protocol === `${APP_SCHEME}:` &&
+    u.hostname === APP_HOST &&
+    !u.username &&
+    !u.password &&
+    !u.port &&
+    u.pathname === '/index.html'
+  );
 }
 
 export function appPageUrl(): string {
-  return devServer ? DEV_ORIGIN : pathToFileURL(builtIndexPath()).href;
+  return devServer ? DEV_ORIGIN : APP_INDEX_URL;
 }
 
 // ─── IPC sender validation (SEC-02) ────────────────────────────────────
@@ -121,10 +180,12 @@ export function installGuards(): void {
   });
 }
 
-/** Deny every permission except notifications for the app page (collection-complete alerts). */
+/** Deny every permission except notifications and clipboard write for the app page (collection-complete alerts). */
 export function lockPermissions(): void {
   const ses = session.defaultSession;
-  const allow = (permission: string, url: string | undefined) => permission === 'notifications' && isAppUrl(url);
+  // Notifications (collection-complete alerts) and the sanitized clipboard write ("Copy row").
+  const allowed = new Set(['notifications', 'clipboard-sanitized-write']);
+  const allow = (permission: string, url: string | undefined) => allowed.has(permission) && isAppUrl(url);
   ses.setPermissionRequestHandler((wc, permission, callback, details) => {
     callback(allow(permission, details.requestingUrl || wc.getURL()));
   });
