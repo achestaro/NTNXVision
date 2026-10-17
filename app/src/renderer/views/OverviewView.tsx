@@ -301,7 +301,7 @@ function SavedTargets({
             {
               key: 'host',
               header: 'Target',
-              className: 'nm',
+              className: 'nm wrap',
               render: (c) => (
                 <>
                   {targetLabel(c)}

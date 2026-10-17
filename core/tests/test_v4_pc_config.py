@@ -9,14 +9,14 @@ from ntnxvision_core.collectors.pc_config import PrismCentralConfigCollector
 from ntnxvision_core.models import Environment, Nic, VirtualMachine
 
 FULL_BUILD = (
-    "el8.5-release-ganges-7.5.1.1-stable-3913420c7d0acd705632ce88e39eef1e61a71f6b"
+    "el8.5-release-ganges-7.5.1.1-stable-0000000000000000000000000000000000000000"
 )
-PCVM_NAME = "NTNX-10-13-37-4-PCVM-1763821158"
-PCVM_UUID = "512aaa24-64db-4932-bbc9-75e9efcde1ec"
+PCVM_NAME = "NTNX-198-51-100-4-PCVM-1700000000"
+PCVM_UUID = "000055b2-3402-4aec-a4d3-8c0da8d706ab"
 
 # Trimmed from a live pc.7.5.1.1 `prism/v4.0/config/domain-managers` response.
 DOMAIN_MANAGER: dict[str, Any] = {
-    "extId": "e807ab87-2889-49b8-b883-cd7b4afb2814",
+    "extId": "0000b6a9-8ca6-44e0-a8d4-d8d661d90f4c",
     "isRegisteredWithHostingCluster": True,
     "nodeExtIds": [PCVM_UUID],
     "config": {
@@ -31,21 +31,21 @@ DOMAIN_MANAGER: dict[str, Any] = {
         },
     },
     "network": {
-        "fqdn": "prism.quinney.dev",
+        "fqdn": "prism.example.lab",
         "externalNetworks": [{"ipAddresses": [{"ipv4": {"value": "198.51.100.4"}}]}],
     },
-    "hostingClusterExtId": "0006442f-1fc6-3ee1-0000-000000016d34",
+    "hostingClusterExtId": "0000d596-d86d-45b7-adae-2662c463d891",
 }
 
 # Trimmed from the same PC's own entry in `clustermgmt/v4.0/config/clusters`.
 PC_CLUSTER: dict[str, Any] = {
-    "extId": "e807ab87-2889-49b8-b883-cd7b4afb2814",
+    "extId": "0000b6a9-8ca6-44e0-a8d4-d8d661d90f4c",
     "name": "lab-pc",
     "nodes": {
         "numberOfNodes": 1,
         "nodeList": [
             {
-                "nodeUuid": "18befc86-d570-44ee-a917-ac6333d05e3c",
+                "nodeUuid": "0000e8e3-0063-479f-a57d-0df955a20771",
                 "controllerVmIp": {"ipv4": {"value": "198.51.100.4", "prefixLength": 32}},
             }
         ],
@@ -64,7 +64,7 @@ PC_CLUSTER: dict[str, Any] = {
 }
 
 AOS_CLUSTER: dict[str, Any] = {
-    "extId": "0006442f-1fc6-3ee1-0000-000000016d34",
+    "extId": "0000d596-d86d-45b7-adae-2662c463d891",
     "name": "lab-cluster-01",
     "config": {"clusterFunction": ["AOS", "ONE_NODE"]},
 }

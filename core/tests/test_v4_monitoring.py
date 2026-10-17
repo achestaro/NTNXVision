@@ -15,26 +15,26 @@ from ntnxvision_core.collectors import alerts as alerts_module
 from ntnxvision_core.collectors.alerts import AlertsCollector
 from ntnxvision_core.models import Cluster, Environment
 
-DC1 = "0006442f-1fc6-3ee1-0000-000000016d34"
-DC2 = "0006443c-2078-0848-0000-000000016d33"
-PC = "e807ab87-2889-49b8-b883-cd7b4afb2814"
+DC1 = "0000d596-d86d-45b7-adae-2662c463d891"
+DC2 = "0000e44d-bc9d-4f50-a736-cc12243058af"
+PC = "0000b6a9-8ca6-44e0-a8d4-d8d661d90f4c"
 
 #: A warning about a VM — the common case (2163 of the lab PC's 2425 alerts).
 V4_VM_ALERT = {
-    "extId": "361d8f97-2b9a-4861-a55e-1efdd4fc7381",
+    "extId": "00000721-119c-4b1f-ae1f-0133422b5375",
     "isAcknowledged": False,
     "isAutoResolved": False,
     "isResolved": False,
     "sourceEntity": {
         "type": "vm",
         "name": "ubuntu-server-01",
-        "extId": "1b9a82ea-5644-44ec-b183-f66032f183c1",
+        "extId": "00008707-42e6-4d10-a360-44e241f92f68",
     },
     "affectedEntities": [
         {
             "type": "vm",
             "name": "ubuntu-server-01",
-            "extId": "1b9a82ea-5644-44ec-b183-f66032f183c1",
+            "extId": "00008707-42e6-4d10-a360-44e241f92f68",
         }
     ],
     "title": "Recovery Point Replication Skipped.",
@@ -53,7 +53,7 @@ V4_VM_ALERT = {
 #: An LCM failure. Note the affected cluster carries no `name` at all, and
 #: `classifications` is an explicit null rather than an absent key.
 V4_CLUSTER_ALERT = {
-    "extId": "c95d3ade-1be4-4ad3-8d05-90c394c8eea9",
+    "extId": "000098a8-1845-4dee-af05-1197343e472f",
     "isAcknowledged": False,
     "isAutoResolved": False,
     "isResolved": False,
@@ -74,7 +74,7 @@ V4_CLUSTER_ALERT = {
 #: Raised by Prism Central *about* lab-cluster-01: the two cluster keys disagree, and
 #: `clusterName` names the cluster the alert is about rather than the one that raised it.
 V4_CROSS_CLUSTER_ALERT = {
-    "extId": "a344ca56-20c8-4e6b-b91b-296a6b6436a4",
+    "extId": "00003f04-1c49-4067-a26d-fd8950049813",
     "isAcknowledged": True,
     "isAutoResolved": True,
     "isResolved": True,
@@ -92,7 +92,7 @@ V4_CROSS_CLUSTER_ALERT = {
 #: Same cluster uuid as V4_VM_ALERT, but recorded under the name the cluster had when
 #: the alert fired nine months earlier.
 V4_STALE_NAME_ALERT = {
-    "extId": "02478146-7949-4d35-bd3c-1c3ca6aa93ff",
+    "extId": "0000c4ca-b964-4584-a0f4-98c1d38b934c",
     "isAcknowledged": True,
     "isAutoResolved": True,
     "isResolved": True,
@@ -124,7 +124,7 @@ V3_NESTED_ALERT = {
             "acknowledged_status": {"is_true": False},
         },
     },
-    "metadata": {"uuid": "c95d3ade-1be4-4ad3-8d05-90c394c8eea9", "kind": "alert"},
+    "metadata": {"uuid": "000098a8-1845-4dee-af05-1197343e472f", "kind": "alert"},
     "spec": {},
 }
 
@@ -336,7 +336,7 @@ def test_v3_reads_prism_centrals_nested_alert_shape() -> None:
     uuid and an OTHER severity for all 2424 rows.
     """
     a = _collect(_Conn(v4=False)).alerts[0]
-    assert a.uuid == "c95d3ade-1be4-4ad3-8d05-90c394c8eea9"
+    assert a.uuid == "000098a8-1845-4dee-af05-1197343e472f"
     assert a.title == "Failed to upgrade the cluster"
     assert a.message == "NTNX_LCM_Upgrade_Failure_Alert : Upgrade operation failed."
     assert a.severity == "CRITICAL"

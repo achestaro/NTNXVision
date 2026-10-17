@@ -11,7 +11,7 @@ from ntnxvision_core.models import Cluster, Environment
 # AvailableVersion objects keep the fields the collector actually reads (plus `status`,
 # which it deliberately does not filter on).
 AHV = {
-    "extId": "812ede62-6610-4b0c-bb80-6c260cade676",
+    "extId": "00008cda-3ead-476d-a04c-63dd1a673365",
     "entityClass": "Hypervisor",
     "entityModel": "AHV hypervisor",
     "entityType": "SOFTWARE",
@@ -19,7 +19,7 @@ AHV = {
     # Equal to entityVersion on every live entity: LCM's *current* target, not an offer.
     "targetVersion": "11.0",
     "lastUpdatedTime": "2025-12-11T09:40:36.682668Z",
-    "clusterExtId": "0006442f-1fc6-3ee1-0000-000000016d34",
+    "clusterExtId": "0000d596-d86d-45b7-adae-2662c463d891",
     "availableVersions": [
         {"version": "11.0.0.1", "status": "AVAILABLE", "isEnabled": True, "order": 135},
         {"version": "11.0.0.2", "status": "AVAILABLE", "isEnabled": True, "order": 136},
@@ -28,13 +28,13 @@ AHV = {
 
 # The live FSM entity — source order is jumbled, so `order` is the only sane sort key.
 FSM = {
-    "extId": "3a1f0a4e-6c1f-4f2f-9a4b-2c9f3d0a1b77",
+    "extId": "0000e48f-ac7f-4082-a2e9-4dda5c9eadf0",
     "entityClass": "Core Cluster",
     "entityModel": "FSM",
     "entityType": "SOFTWARE",
     "entityVersion": "5.2.1",
     "targetVersion": "5.2.1",
-    "clusterExtId": "0006442f-1fc6-3ee1-0000-000000016d34",
+    "clusterExtId": "0000d596-d86d-45b7-adae-2662c463d891",
     "availableVersions": [
         {"version": "5.3.0.2", "status": "AVAILABLE", "isEnabled": True, "order": 23},
         {"version": "5.2.1.2", "status": "AVAILABLE", "isEnabled": True, "order": 20},
@@ -45,13 +45,13 @@ FSM = {
 
 # The Prism Central pseudo-cluster, and the second spelling of its class.
 PC_ENTITY = {
-    "extId": "de44eeec-9777-4e1b-b309-0b11ee49dfd2",
+    "extId": "0000c3d0-947e-438d-a1a5-89d461dfc9bd",
     "entityClass": "PC CORE CLUSTER",
     "entityModel": "Network Controller",
     "entityType": "SOFTWARE",
     "entityVersion": "7.0.0",
     "targetVersion": "7.0.0",
-    "clusterExtId": "e807ab87-2889-49b8-b883-cd7b4afb2814",
+    "clusterExtId": "0000b6a9-8ca6-44e0-a8d4-d8d661d90f4c",
     "availableVersions": [
         {"version": "7.0.1", "status": "AVAILABLE", "isEnabled": True, "order": 14},
     ],
@@ -59,13 +59,13 @@ PC_ENTITY = {
 
 # 19 of the 34 live entities look like this: no availableVersions key at all.
 SECURITY_AOS = {
-    "extId": "a69ef20d-21af-4ca9-a9cd-f9c85410f13d",
+    "extId": "0000bb78-93a2-49d3-a905-0b9e2d5cc4e5",
     "entityClass": "Cluster Service",
     "entityModel": "Security AOS",
     "entityType": "SOFTWARE",
     "entityVersion": "security_aos.2022.9",
     "targetVersion": "security_aos.2022.9",
-    "clusterExtId": "0006442f-1fc6-3ee1-0000-000000016d34",
+    "clusterExtId": "0000d596-d86d-45b7-adae-2662c463d891",
 }
 
 STATUS = {
