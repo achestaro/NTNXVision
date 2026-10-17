@@ -74,12 +74,13 @@ export function endpointHash(...fields: (string | number | boolean | undefined)[
   return createHash('sha256').update(fields.map((f) => String(f ?? '')).join('|')).digest('hex').slice(0, 16);
 }
 
-type PrimaryFields = Pick<StoredTarget, 'id' | 'mode' | 'host' | 'port' | 'username'>;
+type PrimaryFields = Pick<StoredTarget, 'id' | 'mode' | 'host' | 'port' | 'username' | 'insecure'>;
 type NdbFields = Pick<StoredTarget, 'id' | 'ndbHost' | 'ndbUser' | 'ndbInsecure'>;
 type VcenterFields = Pick<StoredTarget, 'id' | 'vcenterHost' | 'vcenterUser' | 'vcenterInsecure'>;
 
-/** Bound to mode, host, port and username: change any and the saved password is not found. */
-export const passwordAccount = (t: PrimaryFields): string => `target:${t.id}:${endpointHash(t.mode, t.host, t.port, t.username)}`;
+/** Bound to mode, host, port, username and the TLS choice: change any and the saved password is not found. */
+export const passwordAccount = (t: PrimaryFields): string =>
+  `target:${t.id}:${endpointHash(t.mode, t.host, t.port, t.username, !!t.insecure)}`;
 /** Bound to the NDB host, user and TLS flag (NDB has its own address, not the PC's port). */
 export const ndbAccount = (t: NdbFields): string => `target:${t.id}:ndb:${endpointHash(t.ndbHost, t.ndbUser, !!t.ndbInsecure)}`;
 /** The optional vCenter of a Prism Central target (ESXi enrichment). */
@@ -493,6 +494,11 @@ export class TargetStore {
         if (prev) await this.dropAccounts([prevPw, oldPasswordAccount(id)], passwordAccount(next));
       } else if (primaryChanged) {
         if (prev) await this.dropAccounts([prevPw, oldPasswordAccount(id)]);
+      } else if (prevPw && prevPw !== passwordAccount(next)) {
+        // Only the TLS choice changed: the password follows the endpoint, so move it.
+        const old = (await this.secrets.get(prevPw)) ?? (oldLegacy ? await this.secrets.get(oldLegacy) : null);
+        if (old) await this.secrets.set(passwordAccount(next), old);
+        await this.dropAccounts([prevPw], passwordAccount(next));
       } else if (oldLegacy) {
         // Not moved at startup (keychain locked?): move it now, from the old address.
         const old = await this.secrets.get(oldLegacy);
@@ -628,7 +634,7 @@ export class TargetStore {
    * their own, then remove the shared entries nothing needs any more. A target whose copy
    * fails keeps its flag (and its fallback lookup) and is retried on the next launch.
    */
-  async migrateSecrets(): Promise<{ moved: number; pending: number }> {
+  async migrateSecrets(opts: { discardUnbound?: boolean } = {}): Promise<{ moved: number; pending: number }> {
     const targets = this.data().targets;
     if (this.isTampered) return { moved: 0, pending: targets.filter((x) => x.legacySecret).length };
     let moved = 0;
@@ -648,7 +654,7 @@ export class TargetStore {
     }
     if (done.length) this.persist();
     for (const account of new Set(done)) await this.dropLegacyIfUnused(account);
-    await this.migrateBoundAccounts();
+    await this.migrateBoundAccounts(!!opts.discardUnbound);
     return { moved, pending: targets.filter((x) => x.legacySecret).length };
   }
 
@@ -657,7 +663,7 @@ export class TargetStore {
    * to its current endpoint, then delete the old one. Only runs for a file that passed
    * verification (the caller returns early otherwise). A locked keychain retries next launch.
    */
-  private async migrateBoundAccounts(): Promise<void> {
+  private async migrateBoundAccounts(discard: boolean): Promise<void> {
     for (const t of this.data().targets) {
       const pairs: [string, string][] = [[oldPasswordAccount(t.id), passwordAccount(t)]];
       if (t.ndbHost) pairs.push([oldNdbAccount(t.id), ndbAccount(t)]);
@@ -665,8 +671,10 @@ export class TargetStore {
       for (const [oldAcct, newAcct] of pairs) {
         try {
           const old = await this.secrets.get(oldAcct);
-          if (!old || (await this.secrets.get(newAcct))) continue;
-          await this.secrets.set(newAcct, old);
+          if (!old) continue;
+          // Never copy into an account when files were adopted unchecked, and an existing
+          // bound entry makes the old one dead weight that must not be migrated later.
+          if (!discard && !(await this.secrets.get(newAcct))) await this.secrets.set(newAcct, old);
           await this.secrets.delete(oldAcct);
         } catch {
           /* keychain locked or unavailable: retry next launch */

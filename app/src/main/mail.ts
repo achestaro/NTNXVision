@@ -15,8 +15,8 @@ import { endpointHash, type SecretsIO } from './targets';
 export const SMTP_PASSWORD_ACCOUNT = 'smtp:password';
 
 /** Bound to host, port, security and username: a changed server finds no saved password (R3-01). */
-export function smtpPasswordAccount(s: Pick<SmtpSettings, 'host' | 'port' | 'security' | 'username'>): string {
-  return `smtp:password:${endpointHash(s.host.toLowerCase(), s.port, s.security, s.username)}`;
+export function smtpPasswordAccount(s: Pick<SmtpSettings, 'host' | 'port' | 'security' | 'username' | 'allowUntrusted'>): string {
+  return `smtp:password:${endpointHash(s.host.toLowerCase(), s.port, s.security, s.username, !!s.allowUntrusted)}`;
 }
 
 export interface SmtpIO {
@@ -150,6 +150,11 @@ export class SmtpStore {
       } else if (req.password) {
         await this.secrets.set(nextAcct, req.password);
         for (const a of new Set([savedAcct, SMTP_PASSWORD_ACCOUNT])) if (a !== nextAcct) await this.secrets.delete(a);
+      } else if (savedAcct !== nextAcct) {
+        // Only the untrusted-certificate choice changed: the password follows the server.
+        const old = await this.secrets.get(savedAcct);
+        if (old) await this.secrets.set(nextAcct, old);
+        await this.secrets.delete(savedAcct);
       }
     } catch (err) {
       return {
@@ -166,14 +171,15 @@ export class SmtpStore {
    * Copy the unbound `smtp:password` entry to the account bound to the saved server, then
    * delete it. Skipped when email.json failed verification or the new entry exists.
    */
-  async migrateSecrets(): Promise<void> {
+  async migrateSecrets(discard = false): Promise<void> {
     const s = this.settings();
-    if (this.io.tampered?.() || !s.username) return;
+    if (this.io.tampered?.() || (!s.username && !discard)) return;
     try {
       const old = await this.secrets.get(SMTP_PASSWORD_ACCOUNT);
       const acct = smtpPasswordAccount(s);
-      if (!old || (await this.secrets.get(acct))) return;
-      await this.secrets.set(acct, old);
+      if (!old) return;
+      // Files adopted unchecked never steer a copy; an existing bound entry makes the old dead.
+      if (!discard && !(await this.secrets.get(acct))) await this.secrets.set(acct, old);
       await this.secrets.delete(SMTP_PASSWORD_ACCOUNT);
     } catch {
       /* keychain locked or unavailable: retry next launch */

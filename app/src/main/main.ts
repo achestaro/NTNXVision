@@ -176,14 +176,14 @@ function inventoryPage(page: InventoryPage): InventoryPage {
  */
 function snapshotPathArg(p: unknown, name = 'snapshotPath'): string {
   const raw = str(p, name, 4096);
-  return osHandedFiles.has(raw) ? raw : requireLocalAbsolute(raw, name);
+  return osHandedFiles.has(raw) || dialogPicked.has(raw) ? raw : requireLocalAbsolute(raw, name);
 }
 
 /** An .ntnxsnap path for inspect / import (picked in a dialog, dropped, or opened by the OS). */
 function snapshotFileArg(p: unknown): string {
   const raw = str(p, 'path', 4096);
   // A UNC path is refused when the renderer names it (R2-09), except one the OS handed us.
-  const path = osHandedFiles.has(raw) ? raw : requireLocalAbsolute(raw, 'path');
+  const path = osHandedFiles.has(raw) || dialogPicked.has(raw) ? raw : requireLocalAbsolute(raw, 'path');
   if (!isSnapshotFile(path)) throw new ValidationError('Snapshot files end in .ntnxsnap');
   return path;
 }
@@ -721,7 +721,9 @@ ipc.handle(IPC.chooseSnapshotFiles, async () => {
     properties: ['openFile', 'multiSelections'],
     filters: SNAPSHOT_FILTER,
   });
-  return result.canceled ? [] : result.filePaths;
+  if (result.canceled) return [];
+  for (const f of result.filePaths) dialogPicked.add(f);
+  return result.filePaths;
 });
 
 // .ntnxsnap files handed to the app by the OS (double-click, "Open with", a second
@@ -731,6 +733,8 @@ let rendererWantsFiles = false;
 
 /** Snapshot paths the OS handed to the app (double-click, Open with): the user's own action, UNC included. */
 const osHandedFiles = new Set<string>();
+/** Snapshot files picked in this session's own import dialog: a network share is the user's choice (R4-04). */
+const dialogPicked = new Set<string>();
 
 function snapshotFilesFrom(argv: string[]): string[] {
   return argv
@@ -848,8 +852,11 @@ async function prepareTargets(): Promise<void> {
       const known = new Set(store.targets.list().map((t) => t.id));
       store.setSettings({ multiTargetIds: remapIds(store.getSettings().multiTargetIds, idMap, known) });
     }
-    await store.targets.migrateSecrets();
-    await store.smtp.migrateSecrets();
+    // Files adopted unchecked (new integrity key) must not steer a migration: the old
+    // unbound entries are deleted instead of copied (R4-01).
+    const discard = store.integrityFresh();
+    await store.targets.migrateSecrets({ discardUnbound: discard });
+    await store.smtp.migrateSecrets(discard);
   } catch (err) {
     console.error('Target migration failed:', err);
   }

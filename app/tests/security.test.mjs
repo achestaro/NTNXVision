@@ -241,3 +241,14 @@ test('R3-03: the Word template is judged lexically before realpath (static check
   assert.ok(lex > 0 && real > lex, 'requireLocalAbsolute precedes realOrResolved');
   assert.ok(fn.indexOf('chosenLexical.has') < real);
 });
+
+test('R4-04: dialog-picked UNC paths are trusted, renderer-typed ones are not (static check)', () => {
+  const main = readFileSync(join(srcDir, 'main.ts'), 'utf8');
+  const fn = main.slice(main.indexOf('function snapshotPathArg('), main.indexOf('function showWindow('));
+  assert.ok((fn.match(/dialogPicked\.has/g) ?? []).length === 2 && /requireLocalAbsolute/.test(fn));
+  assert.ok(/dialogPicked\.add/.test(main.slice(main.indexOf('IPC.chooseSnapshotFiles'))));
+  const sec = readFileSync(join(srcDir, 'security.ts'), 'utf8');
+  const wt = sec.slice(sec.indexOf('export function wordTemplateFor('));
+  assert.ok(/chosenLexical\.has/.test(wt) && /requireLocalAbsolute/.test(wt));
+});
+

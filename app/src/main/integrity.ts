@@ -57,6 +57,8 @@ export class Integrity {
   private readonly adopted = new Set<string>();
 
   /** key null = no protection (no keychain). */
+  private fresh = false;
+
   constructor(
     private readonly io: MacIO,
     private key: Buffer | null = null,
@@ -86,11 +88,20 @@ export class Integrity {
       const fresh = randomBytes(32);
       await secrets.set(INTEGRITY_ACCOUNT, fresh.toString('hex'));
       this.key = fresh;
+      this.fresh = true;
       this.adopting = !hadMacs;
     } catch {
       this.key = null;
       this.adopting = false;
     }
+  }
+
+  /**
+   * A new key was created at this launch (no key existed before): the files were adopted
+   * unchecked, so nothing they say may steer a secret migration (R4-01).
+   */
+  get freshlyAdopted(): boolean {
+    return this.fresh;
   }
 
   get active(): boolean {
