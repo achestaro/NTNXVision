@@ -58,7 +58,7 @@ if (-not (Test-Path $venvPy)) {
   $pyArgs = @($py | Select-Object -Skip 1) + @('-m', 'venv', '.venv')
   Invoke-Checked $py[0] @pyArgs
 }
-Invoke-Checked $venvPy -m pip install --quiet --upgrade pip
+Invoke-Checked $venvPy -m pip install --quiet "pip==26.2.1"
 # Hash-pinned build deps (requirements-build.lock), then the project itself without deps.
 Invoke-Checked $venvPy -m pip install --quiet --require-hashes -r requirements-build.lock
 Invoke-Checked $venvPy -m pip install --quiet --no-deps -e .

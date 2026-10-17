@@ -46,7 +46,7 @@ done
 step "Python core venv ($($PY -V))"
 cd "$ROOT/core"
 [[ -x .venv/bin/python ]] || "$PY" -m venv .venv
-.venv/bin/python -m pip install --quiet --upgrade pip
+.venv/bin/python -m pip install --quiet "pip==26.2.1"
 # Hash-pinned build deps (requirements-build.lock), then the project itself without deps.
 .venv/bin/python -m pip install --quiet --require-hashes -r requirements-build.lock
 .venv/bin/python -m pip install --quiet --no-deps -e .
