@@ -141,6 +141,24 @@ const SHOTS = [
     },
     1100,
   ]),
+  // Trust on first use: the certificate with TLS verification off, in the editor and from a
+  // row test (the dialog), and a certificate that changed since it was trusted.
+  ...['trust_required', 'cert_changed'].map((t) => [
+    `targets-test-${t.replace('_', '-')}`,
+    { test: t },
+    async (p) => {
+      await rail(p, 'Targets');
+      await p.getByRole('button', { name: 'Lab PC', exact: true }).click();
+      await p.getByRole('dialog').getByRole('button', { name: 'Test connection' }).click();
+      await p.getByRole('dialog').getByRole('button', { name: 'Trust this certificate' }).waitFor();
+    },
+    1100,
+  ]),
+  ['targets-row-test-trust', { test: 'trust_required' }, async (p) => {
+    await rail(p, 'Targets');
+    await p.getByRole('button', { name: 'Test Lab PC' }).click();
+    await p.getByRole('dialog').getByRole('button', { name: 'Trust this certificate' }).waitFor();
+  }],
   ['targets-row-test-cert', { test: 'untrusted_cert' }, async (p) => {
     await rail(p, 'Targets');
     await p.getByRole('button', { name: 'Test PC01 Production' }).click();
