@@ -45,6 +45,8 @@ interface Row {
   name: string;
   ndbHost?: string;
   ndbUser?: string;
+  vcenterHost?: string;
+  vcenterUser?: string;
   hasPassword: boolean;
   /** A one-run password when the keychain has none (never saved). */
   password: string;
@@ -61,6 +63,8 @@ function fromConnection(c: SavedConnection): Row {
     name: c.name,
     ndbHost: c.ndbHost,
     ndbUser: c.ndbUser,
+    vcenterHost: c.vcenterHost,
+    vcenterUser: c.vcenterUser,
     hasPassword: c.hasPassword,
     password: '',
     test: { kind: 'idle' },
@@ -205,6 +209,8 @@ export function MultiPCView(): JSX.Element {
           name: targetSnapshot(r),
           // The NDB password comes from the target's keychain entry (main process).
           ndb: r.ndbHost ? { host: r.ndbHost, username: r.ndbUser ?? 'admin', password: '' } : undefined,
+          // Likewise the vCenter of the target's ESXi clusters, when it has one.
+          vcenter: r.vcenterHost ? { host: r.vcenterHost, username: r.vcenterUser ?? '', password: '' } : undefined,
         })),
         formats,
         exportDir: dir || undefined,

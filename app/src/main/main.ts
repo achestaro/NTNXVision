@@ -27,6 +27,7 @@ import {
   MultiCollectionRequest,
   MultiInventoryResult,
   NdbRequest,
+  VcenterRequest,
   Platform,
   RunFinishedEvent,
   RunProgressEvent,
@@ -41,7 +42,7 @@ import { isSmokeRun, runSmoke } from './smoke';
 import * as secrets from './secrets';
 import * as store from './store';
 import { registerLegalHandlers } from './legal';
-import { matchesTarget, ndbAccount, passwordAccount, remapIds } from './targets';
+import { matchesTarget, ndbAccount, passwordAccount, remapIds, vcenterAccount } from './targets';
 
 const isDev = !app.isPackaged;
 const demo = isDemoMode();
@@ -145,10 +146,20 @@ function runOutcomeFromError(err: unknown): Pick<RunFinishedEvent, 'outcome' | '
  * keychain password, but only while the request is for that target's own address and
  * username (a stored password is never sent to a host the user is still typing).
  */
-async function endpointPassword(req: { targetId?: string; host: string; username: string; password: string }): Promise<string> {
+async function endpointPassword(req: { targetId?: string; host: string; username: string; password: string; mode?: string }): Promise<string> {
   if (req.password) return req.password;
   const t = store.targets.get(req.targetId);
-  if (!t || t.host !== req.host.trim() || t.username !== req.username.trim()) return '';
+  if (!t) return '';
+  const host = req.host.trim();
+  const user = req.username.trim();
+  // A target's NDB or vCenter endpoint has its own keychain entry.
+  if (req.mode === 'vcenter') {
+    return t.vcenterHost === host && t.vcenterUser === user ? ((await store.targets.vcenterPassword(t.id)) ?? '') : '';
+  }
+  if (req.mode === 'ndb') {
+    return t.ndbHost === host && t.ndbUser === user ? ((await store.targets.ndbPassword(t.id)) ?? '') : '';
+  }
+  if (t.host !== host || t.username !== user) return '';
   return (await store.targets.password(t.id)) ?? '';
 }
 
@@ -156,7 +167,12 @@ async function endpointPassword(req: { targetId?: string; host: string; username
  * A run's connection: always the saved target's details, with its keychain password unless
  * the run overrides it (never saved). Collections only run against saved targets.
  */
-async function targetConnection(targetId: string | undefined, typed: string, ndb: NdbRequest | undefined) {
+async function targetConnection(
+  targetId: string | undefined,
+  typed: string,
+  ndb: NdbRequest | undefined,
+  vcenter?: VcenterRequest | undefined,
+) {
   const t = store.targets.get(targetId);
   if (!t) {
     throw new Error(
@@ -170,7 +186,17 @@ async function targetConnection(targetId: string | undefined, typed: string, ndb
     t.mode === 'prism_central' && t.ndbHost && ndb
       ? { host: t.ndbHost, username: t.ndbUser || 'admin', password: ndb.password || (await store.targets.ndbPassword(t.id)) || '' }
       : undefined;
-  return { mode: t.mode, host: t.host, username: t.username, port: t.port, insecure: t.insecure, password, ndb: withNdb };
+  // The vCenter (ESXi enrichment) is the target's own; the request only switches it on.
+  const withVcenter =
+    t.mode === 'prism_central' && t.vcenterHost && vcenter
+      ? {
+          host: t.vcenterHost,
+          username: t.vcenterUser || 'administrator@vsphere.local',
+          password: vcenter.password || (await store.targets.vcenterPassword(t.id)) || '',
+          insecure: !!t.vcenterInsecure,
+        }
+      : undefined;
+  return { mode: t.mode, host: t.host, username: t.username, port: t.port, insecure: t.insecure, password, ndb: withNdb, vcenter: withVcenter };
 }
 
 // ─── IPC handlers: sidecar relays ──────────────────────────────────────
@@ -208,7 +234,7 @@ ipcMain.handle(IPC.testConnection, async (_e, req: TestConnectionRequest) => {
   });
   // The Targets page shows each target's last test: record it when this was the target as saved.
   const t = store.targets.get(req.targetId);
-  if (t && req.mode !== 'ndb' && matchesTarget(t, req)) store.targets.recordTest(t.id, result);
+  if (t && req.mode !== 'ndb' && req.mode !== 'vcenter' && matchesTarget(t, req)) store.targets.recordTest(t.id, result);
   return result;
 });
 
@@ -228,7 +254,7 @@ ipcMain.handle(IPC.getCollectionAreas, () => sidecar.call('list_areas'));
 
 ipcMain.handle(IPC.startCollection, async (_e, req: CollectionRequest) => {
   const runId = randomUUID();
-  const { password, ...conn } = await targetConnection(req.targetId, req.password, req.ndb);
+  const { password, ...conn } = await targetConnection(req.targetId, req.password, req.ndb, req.vcenter);
   req = { ...req, ...conn };
   // The cluster selection is remembered per saved target (uuids only, never credentials).
   if (req.mode === 'prism_central' && req.clusters && req.knownClusters) {
@@ -249,6 +275,7 @@ ipcMain.handle(IPC.startCollection, async (_e, req: CollectionRequest) => {
     export_dir: req.exportDir || store.getSettings().exportDir,
     file_prefix: filePrefix(req.filePrefix),
     ndb: req.mode === 'prism_central' ? req.ndb : undefined,
+    vcenter: req.mode === 'prism_central' ? req.vcenter : undefined,
     vcpu_ratio: vcpuRatio(),
   });
   legacyRuns.set(id, runId);
@@ -265,7 +292,7 @@ ipcMain.handle(IPC.startMultiCollection, async (_e, req: MultiCollectionRequest)
   const runId = randomUUID();
   // Each target's saved details and password (a typed one-run password wins).
   const resolved = await Promise.all(
-    req.targets.map(async (t) => ({ ...t, ...(await targetConnection(t.targetId, t.password, t.ndb)) })),
+    req.targets.map(async (t) => ({ ...t, ...(await targetConnection(t.targetId, t.password, t.ndb, t.vcenter)) })),
   );
   const { id, promise } = sidecar.callWithId<MultiInventoryResult>('inventory_multi', {
     run_id: runId,
@@ -277,6 +304,7 @@ ipcMain.handle(IPC.startMultiCollection, async (_e, req: MultiCollectionRequest)
       insecure: t.insecure,
       name: t.name,
       ndb: t.ndb,
+      vcenter: t.vcenter,
     })),
     formats: req.formats,
     export_dir: req.exportDir || store.getSettings().exportDir,
@@ -553,7 +581,7 @@ async function prepareTargets(): Promise<void> {
 // demo keychain, so they are re-seeded on every launch).
 const DEMO_PASSWORD = 'demo';
 const DEMO_TARGETS: Omit<TargetSaveRequest, 'password'>[] = [
-  { id: '', mode: 'prism_central', host: 'pc01.demo.local', username: 'admin', port: 9440, insecure: false, name: 'pc01', ndbHost: 'ndb.demo.local', ndbUser: 'admin' },
+  { id: '', mode: 'prism_central', host: 'pc01.demo.local', username: 'admin', port: 9440, insecure: false, name: 'pc01', ndbHost: 'ndb.demo.local', ndbUser: 'admin', vcenterHost: 'vcenter.demo.local', vcenterUser: 'administrator@vsphere.local' },
   { id: '', mode: 'prism_central', host: 'pc02.demo.local', username: 'admin', port: 9440, insecure: false, name: 'pc02' },
   { id: '', mode: 'prism_central', host: 'pc03.demo.local', username: 'admin', port: 9440, insecure: false, name: 'pc03' },
   { id: '', mode: 'prism_element', host: 'pe01.demo.local', username: 'admin', port: 9440, insecure: false, name: 'pe01' },
@@ -567,12 +595,20 @@ async function seedDemo(): Promise<void> {
   if (!demo || e2e) return;
   const isDemoHost = (h: string) => h.toLowerCase().endsWith('.demo.local');
   if (!store.targets.list().some((p) => isDemoHost(p.host))) {
-    for (const t of [...DEMO_TARGETS].reverse()) await store.targets.save({ ...t, password: DEMO_PASSWORD, ndbPassword: t.ndbHost ? DEMO_PASSWORD : undefined });
+    for (const t of [...DEMO_TARGETS].reverse()) {
+      await store.targets.save({
+        ...t,
+        password: DEMO_PASSWORD,
+        ndbPassword: t.ndbHost ? DEMO_PASSWORD : undefined,
+        vcenterPassword: t.vcenterHost ? DEMO_PASSWORD : undefined,
+      });
+    }
   }
   // The demo keychain lives in memory: give the demo targets their passwords again.
   for (const p of store.targets.list().filter((c) => isDemoHost(c.host))) {
     await secrets.setSecret(passwordAccount(p.id), DEMO_PASSWORD);
     if (p.ndbHost && isDemoHost(p.ndbHost)) await secrets.setSecret(ndbAccount(p.id), DEMO_PASSWORD);
+    if (p.vcenterHost && isDemoHost(p.vcenterHost)) await secrets.setSecret(vcenterAccount(p.id), DEMO_PASSWORD);
   }
   try {
     await sidecar.call('demo_seed', { export_dir: store.getSettings().exportDir });

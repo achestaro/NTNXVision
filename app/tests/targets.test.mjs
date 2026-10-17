@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 
 const require = createRequire(import.meta.url);
-const { TargetStore, migrate, remapIds, validate, passwordAccount, ndbAccount, legacyAccount } = require('../dist/main/targets.js');
+const { TargetStore, migrate, remapIds, validate, passwordAccount, ndbAccount, vcenterAccount, legacyAccount } = require('../dist/main/targets.js');
 
 function fakeIO({ current, legacy } = {}) {
   const io = {
@@ -182,6 +182,35 @@ test('delete removes the target and every keychain entry it owns', async () => {
   const rest = await store.delete('id-1');
   assert.deepEqual(rest.map((t) => t.id), ['id-2']);
   assert.deepEqual([...sec.map.keys()].sort(), ['other', passwordAccount('id-2')]);
+});
+
+test('vCenter: its password has its own keychain entry, dropped with the endpoint or the target', async () => {
+  const io = fakeIO();
+  const sec = fakeSecrets();
+  const store = new TargetStore(io, sec, { newId: ids() });
+  const vc = { vcenterHost: 'vc.example.com', vcenterUser: 'reader@vsphere.example', vcenterInsecure: true };
+  let r = await store.save({ ...base, password: 'pw', ...vc, vcenterPassword: 'v' });
+  assert.equal(r.target.vcenterHost, 'vc.example.com');
+  assert.equal(r.target.vcenterInsecure, true);
+  assert.equal(r.target.vcenterHasPassword, true);
+  assert.equal(sec.map.get(vcenterAccount('id-1')), 'v');
+  assert.ok(!JSON.stringify(io.file).includes('"v"'));
+  // An empty password on an update keeps the saved one.
+  r = await store.save({ ...base, id: 'id-1', ...vc });
+  assert.equal(sec.map.get(vcenterAccount('id-1')), 'v');
+  // Removing the vCenter removes its password.
+  r = await store.save({ ...base, id: 'id-1', vcenterHost: '' });
+  assert.equal(r.target.vcenterHost, undefined);
+  assert.equal(sec.map.has(vcenterAccount('id-1')), false);
+  // Prism Element targets have no vCenter.
+  r = await store.save({ ...base, id: 'id-1', mode: 'prism_element', ...vc, vcenterPassword: 'v' });
+  assert.equal(r.target.vcenterHost, undefined);
+  assert.equal(sec.map.has(vcenterAccount('id-1')), false);
+  // Deleting a target deletes its vCenter password too.
+  await store.save({ ...base, id: 'id-1', ...vc, vcenterPassword: 'v' });
+  await store.delete('id-1');
+  assert.equal(sec.map.has(vcenterAccount('id-1')), false);
+  assert.equal(validate({ ...base, vcenterHost: 'https://vc/' }, []).vcenterHost, 'Enter a host name or IP address only.');
 });
 
 test('migrateSecrets copies the shared legacy password to each target, then removes it', async () => {
