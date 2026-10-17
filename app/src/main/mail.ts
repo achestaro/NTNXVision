@@ -126,13 +126,20 @@ export class SmtpStore {
 
   /**
    * The password for a test with the form's values: the typed one, else the saved one, but
-   * only while the host and username are the saved ones (a saved password is never sent
+   * only while the host, port, security mode, username and untrusted-certificate
+   * setting are all the saved ones (a saved password is never sent
    * to a server the user is still typing).
    */
   async testPassword(req: SmtpTestRequest): Promise<string> {
     if (req.password) return req.password;
     const saved = this.settings();
-    if (str(req.host).toLowerCase() !== saved.host.toLowerCase() || str(req.username) !== saved.username) return '';
+    const same =
+      str(req.host).toLowerCase() === saved.host.toLowerCase() &&
+      Number(req.port) === saved.port &&
+      req.security === saved.security &&
+      str(req.username) === saved.username &&
+      (req.allowUntrusted === true) === saved.allowUntrusted;
+    if (!same) return '';
     return this.password();
   }
 }

@@ -33,6 +33,12 @@ function check(f: Form): Errors {
 
 const hasErrors = (e: Errors) => Object.values(e).some(Boolean);
 
+/** True for a server on this computer (sign-in over None is allowed only there). */
+function isLocalHost(h: string): boolean {
+  const x = h.trim().replace(/^\[|\]$/g, '').toLowerCase();
+  return x === 'localhost' || x === '::1' || /^127(\.\d{1,3}){3}$/.test(x);
+}
+
 /** The Email (SMTP) panel. */
 export function EmailSettingsPanel(): JSX.Element {
   const { appInfo } = useSettings();
@@ -107,6 +113,8 @@ export function EmailSettingsPanel(): JSX.Element {
   };
 
   const keychainApplies = !!saved?.hasPassword && !clearPassword && form.host.trim() === saved.host && form.username.trim() === saved.username;
+
+  const unsafeAuth = form.security === 'none' && !!form.username.trim() && !isLocalHost(form.host);
 
   const sendTest = async () => {
     const e = check(form);
@@ -195,6 +203,12 @@ export function EmailSettingsPanel(): JSX.Element {
                       ? 'TLS from the first byte. Usually port 465.'
                       : 'No encryption: only for a relay on your own network. Usually port 25.'}
                 </div>
+                {unsafeAuth && (
+                  <div className="hint below" role="alert" style={{ color: 'var(--error)' }} data-testid="smtp-cleartext-warning">
+                    This server needs STARTTLS or SSL/TLS to sign in safely. Sign-in over None is only allowed for a server on this
+                    computer. Choose STARTTLS or SSL/TLS, or clear the username.
+                  </div>
+                )}
               </div>
               <Field id="smtp-user" label="Username" error={errors.username} hint="Leave empty when the server needs no sign-in." className="email-wide">
                 <input className="input" value={form.username} autoCapitalize="off" spellCheck={false} autoComplete="off" onChange={(e) => set('username', e.target.value)} />
@@ -284,7 +298,7 @@ export function EmailSettingsPanel(): JSX.Element {
             </div>
 
             <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 4 }}>
-              <Button variant="primary" onClick={() => void save()} disabled={saving || !dirty} data-testid="smtp-save">
+              <Button variant="primary" onClick={() => void save()} disabled={saving || !dirty || unsafeAuth} data-testid="smtp-save">
                 Save email settings
               </Button>
               {dirty && <span className="hint">Unsaved changes</span>}
@@ -305,7 +319,7 @@ export function EmailSettingsPanel(): JSX.Element {
                     }}
                   />
                 </Field>
-                <Button icon={EnvelopeSimpleIcon} onClick={() => void sendTest()} disabled={testing} data-testid="smtp-test">
+                <Button icon={EnvelopeSimpleIcon} onClick={() => void sendTest()} disabled={testing || unsafeAuth} data-testid="smtp-test">
                   Send test email
                 </Button>
               </div>
