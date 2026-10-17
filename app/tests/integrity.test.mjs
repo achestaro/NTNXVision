@@ -191,7 +191,7 @@ test('email.json: tamper disables sending, shows the data, re-save restores', as
     delete: async (a) => void secrets.m.delete(a),
   });
   const smtp = mk();
-  const saved = await smtp.save({ host: 'smtp.example.lab', port: 587, security: 'starttls', username: 'u', fromAddress: 'a@example.lab', fromName: 'N', allowUntrusted: false, maxAttachmentMb: 20, zipAttachments: false, password: 'pw' });
+  const saved = await smtp.save({ host: 'smtp.example.lab', port: 587, security: 'starttls', username: 'u', fromAddress: 'a@example.lab', fromName: 'N', allowUntrusted: false, pinnedSha256: '', maxAttachmentMb: 20, zipAttachments: false, password: 'pw' });
   assert.ok(saved.ok);
   assert.equal((await smtp.info()).configured, true);
   assert.equal(await smtp.password(), 'pw');

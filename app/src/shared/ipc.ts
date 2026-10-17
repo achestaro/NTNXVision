@@ -961,6 +961,12 @@ export interface SmtpSettings {
   fromName: string;
   /** Skip certificate verification (self-signed relay). */
   allowUntrusted: boolean;
+  /**
+   * SHA-256 of the server certificate the user trusted (64 lower-case hex digits, or empty).
+   * With `allowUntrusted` a TLS connection is made only when the server's certificate
+   * matches it; set from the "Trust this certificate" button after a test (R2-03).
+   */
+  pinnedSha256: string;
   /** Attachments over this total, in MB, are not sent. */
   maxAttachmentMb: number;
   /** Send every report in one .zip file. */
@@ -979,6 +985,7 @@ export const DEFAULT_SMTP: SmtpSettings = {
   fromAddress: '',
   fromName: 'NTNXVision',
   allowUntrusted: false,
+  pinnedSha256: '',
   maxAttachmentMb: 20,
   zipAttachments: false,
 };
@@ -1049,6 +1056,16 @@ export type EmailStatus =
   | 'invalid'
   | 'error';
 
+/** The certificate a mail server presented (shown before the user trusts it). */
+export interface EmailCertificate {
+  subject: string;
+  issuer: string;
+  self_signed: boolean;
+  /** SHA-256, upper-case hex with colons. */
+  fingerprint_sha256: string;
+  not_after: string | null;
+}
+
 /** Result of test_smtp / send_email (snake_case: straight from the sidecar). */
 export interface EmailResult {
   ok: boolean;
@@ -1068,6 +1085,8 @@ export interface EmailResult {
   files?: ReportFile[];
   /** The rendered subject. */
   subject?: string | null;
+  /** With `untrusted_cert`: the certificate to review and trust (a test sends nothing then). */
+  certificate?: EmailCertificate | null;
 }
 
 /** Email a snapshot's (or several snapshots') reports now (Email dialog). */

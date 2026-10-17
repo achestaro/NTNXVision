@@ -23,6 +23,14 @@ export interface SmtpIO {
 const SECURITY: SmtpSecurity[] = ['none', 'starttls', 'ssl'];
 const HOST = /^[A-Za-z0-9.\-:[\]_]+$/;
 
+const SHA256_HEX = /^[0-9a-f]{64}$/;
+
+/** A SHA-256 fingerprint (colons and case ignored) as 64 lower-case hex digits, else ''. */
+function fingerprint(v: unknown): string {
+  const t = typeof v === 'string' ? v.trim().replace(/:/g, '').toLowerCase() : '';
+  return SHA256_HEX.test(t) ? t : '';
+}
+
 function str(v: unknown, max = 320): string {
   return typeof v === 'string' ? v.trim().slice(0, max) : '';
 }
@@ -41,6 +49,8 @@ export function normalizeSmtp(raw: unknown): SmtpSettings {
     fromAddress: str(r.fromAddress),
     fromName: str(r.fromName, 120).replace(/[\r\n<>"]/g, ''),
     allowUntrusted: r.allowUntrusted === true,
+    // A pin only means something while untrusted certificates are allowed (R2-03).
+    pinnedSha256: r.allowUntrusted === true ? fingerprint(r.pinnedSha256) : '',
     maxAttachmentMb: Number.isFinite(limit) && limit >= 1 && limit <= 500 ? Math.round(limit) : DEFAULT_SMTP.maxAttachmentMb,
     zipAttachments: r.zipAttachments === true,
   };
@@ -74,6 +84,7 @@ export function smtpParams(s: SmtpSettings, password: string): Record<string, un
     from_address: s.fromAddress,
     from_name: s.fromName,
     allow_untrusted: s.allowUntrusted,
+    pinned_sha256: s.pinnedSha256,
     max_attachment_mb: s.maxAttachmentMb,
     zip_attachments: s.zipAttachments,
   };
@@ -114,8 +125,19 @@ export class SmtpStore {
     const errors = validateSmtp(req);
     if (Object.keys(errors).length) return { ok: false, errors, settings: await this.info() };
     const next = normalizeSmtp(req);
+    // R2-02/R2-03: a saved password and certificate pin belong to the server they were
+    // given for. Pointing the settings at another host, port, security mode or username
+    // without typing the password again drops the saved password, and a pin carried over
+    // from the old server is dropped too.
+    const saved = this.settings();
+    const sameServer =
+      next.host.toLowerCase() === saved.host.toLowerCase() &&
+      next.port === saved.port &&
+      next.security === saved.security &&
+      next.username === saved.username;
+    if (!sameServer && next.pinnedSha256 === saved.pinnedSha256) next.pinnedSha256 = '';
     try {
-      if (req.clearPassword || !next.username) await this.secrets.delete(SMTP_PASSWORD_ACCOUNT);
+      if (req.clearPassword || !next.username || (!sameServer && !req.password)) await this.secrets.delete(SMTP_PASSWORD_ACCOUNT);
       else if (req.password) await this.secrets.set(SMTP_PASSWORD_ACCOUNT, req.password);
     } catch (err) {
       return {
