@@ -62,7 +62,7 @@ from ntnxvision_core.paths import demo_enabled, exports_dir, snapshots_dir
 from ntnxvision_core.runinfo import CombinedTracker, RunTracker, build_run_metadata
 from ntnxvision_core.store import SnapshotStore, transfer
 from ntnxvision_core.store import snapshot as snapstore
-from ntnxvision_core.store.names import max_stem_for, safe_name
+from ntnxvision_core.store.names import max_stem_for, safe_name, unique_name
 
 CANCELLED = -32800
 BUSY = -32002
@@ -310,7 +310,8 @@ def _m_demo_info(_req_id: Any, _params: dict[str, Any]) -> dict[str, Any]:
 
 
 def snapshot_name_for(raw: Any, store: SnapshotStore | None = None,
-                      taken: set[str] | None = None, fallback: str | None = None) -> str:
+                      taken: set[str] | None = None, fallback: str | None = None,
+                      *, unique: bool = False) -> str:
     """The snapshot name a collection will be saved under, or `InvalidName`.
 
     The user types the name (no date is added: report files carry the export date).
@@ -321,6 +322,9 @@ def snapshot_name_for(raw: Any, store: SnapshotStore | None = None,
 
     `fallback` (multi-PC API callers that send no name: the host) is used as given and
     never refused; the save then appends -2, -3 rather than replace a snapshot.
+
+    `unique` (scheduled runs, which reuse one name) takes the next free name instead of
+    refusing a taken one: ``name``, ``name-2``, ``name-3``, ... as the store's save does.
     """
     text = str(raw or "").strip()
     store = store or _store()
@@ -331,6 +335,9 @@ def snapshot_name_for(raw: Any, store: SnapshotStore | None = None,
     safe = safe_name(text, max_len=max_stem_for(store.directory), fallback="")
     if not safe:
         raise InvalidName("The snapshot name has no usable characters.")
+    if unique:
+        return unique_name(safe, [*store.taken_names(), *(taken or set())],
+                           max_len=max_stem_for(store.directory))
     if store.name_taken(safe) or safe.casefold() in (taken or set()):
         raise InvalidName(f"A snapshot named '{safe}' already exists. Choose another name.")
     return safe
@@ -503,7 +510,7 @@ def _m_inventory(req_id: Any, params: dict[str, Any]) -> dict[str, Any]:
             port=int(params.get("port", 9440)),
             verify_ssl=not insecure,
         )
-        name = snapshot_name_for(params.get("name"))
+        name = snapshot_name_for(params.get("name"), unique=bool(params.get("unique_name")))
         tracker = RunTracker(_emit_progress, run_id=handle.run_id, mode="prism_central",
                              host=creds.host, name=name, formats=params.get("formats") or [])
         env = collect_environment(creds, ndb_creds=_ndb_from(params.get("ndb"), insecure),
@@ -528,7 +535,7 @@ def _m_inventory_cluster(req_id: Any, params: dict[str, Any]) -> dict[str, Any]:
             port=int(params.get("port", 9440)),
             verify_ssl=not params.get("insecure", False),
         )
-        name = snapshot_name_for(params.get("name"))
+        name = snapshot_name_for(params.get("name"), unique=bool(params.get("unique_name")))
         tracker = RunTracker(_emit_progress, run_id=handle.run_id, mode="prism_element",
                              host=creds.host, name=name, formats=params.get("formats") or [])
         env = collect_element_environment(creds, areas=params.get("areas"),
@@ -559,13 +566,17 @@ def _m_inventory_multi(req_id: Any, params: dict[str, Any]) -> dict[str, Any]:
     try:
         store = _store()
         claimed: set[str] = set()
+        unique = bool(params.get("unique_name"))
         for t in targets:
+            _clusters_param(t)  # a bad per-target cluster list fails before collecting
             t["name"] = snapshot_name_for(t.get("name"), store, claimed,
-                                          fallback=str(t.get("host") or "target"))
+                                          fallback=str(t.get("host") or "target"),
+                                          unique=unique)
             claimed.add(t["name"].casefold())
         if params.get("combine") and len(targets) >= 2:
             params["combined_name"] = snapshot_name_for(params.get("combined_name"), store,
-                                                        claimed, fallback="combined")
+                                                        claimed, fallback="combined",
+                                                        unique=unique)
         return _multi(handle, targets, params)
     finally:
         _runs.end(handle.run_id)
@@ -599,7 +610,7 @@ def _multi(handle: RunHandle, targets: list[dict[str, Any]], params: dict[str, A
             )
             env = collect_environment(creds, ndb_creds=_ndb_from(t.get("ndb"), insecure),
                                       areas=params.get("areas"), cancel=handle.token,
-                                      tracker=tracker)
+                                      tracker=tracker, clusters=_clusters_param(t))
             tracker.finish()
             outcomes[i] = (env, tracker, None)
         except RunCancelled:
@@ -1038,6 +1049,120 @@ def _m_disk_usage(_req_id: Any, _params: dict[str, Any]) -> dict[str, Any]:
     return {"free_bytes": usage.free, "total_bytes": usage.total}
 
 
+# ─── email ─────────────────────────────────────────────────────────────
+
+
+def _m_test_smtp(_req_id: Any, params: dict[str, Any]) -> dict[str, Any]:
+    """Send a test message with the given (possibly unsaved) mail server settings."""
+    from ntnxvision_core import mailer
+
+    try:
+        cfg = mailer.SmtpConfig.from_params(params.get("smtp"))
+    except mailer.MailError as err:
+        return mailer.result(False, err.status, err.message, detail=err.detail)
+    return mailer.send_test(cfg, str(params.get("to") or ""))
+
+
+def _local_day(value: Any) -> str | None:
+    from datetime import datetime
+
+    if not value:
+        return None
+    try:
+        dt = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if dt.tzinfo is not None:
+        dt = dt.astimezone()
+    return dt.strftime("%Y-%m-%d")
+
+
+def _summary_line(summary: dict[str, Any]) -> str:
+    parts = []
+    for key, one, many in (("clusters", "cluster", "clusters"), ("hosts", "host", "hosts"),
+                           ("vms", "VM", "VMs")):
+        n = int(summary.get(key) or 0)
+        parts.append(f"{n:,} {one if n == 1 else many}")
+    return ", ".join(parts)
+
+
+def _m_send_email(_req_id: Any, params: dict[str, Any]) -> dict[str, Any]:
+    """Write a snapshot's (or several snapshots') reports and email them.
+
+    The reports land in the export folder like any export (and stay there when sending
+    fails); SMTP failures come back as a classified result, not a JSON-RPC error.
+    """
+    from datetime import date
+
+    from ntnxvision_core import mailer
+
+    try:
+        cfg = mailer.SmtpConfig.from_params(params.get("smtp"))
+    except mailer.MailError as err:
+        return mailer.result(False, err.status, err.message, detail=err.detail)
+    to = mailer.clean_addresses(params.get("to"))
+    cc = mailer.clean_addresses(params.get("cc"))
+    if not to:
+        return mailer.result(False, "invalid", "Add at least one recipient.")
+    bad = [a for a in to + cc if not mailer.is_valid_address(a)]
+    if bad:
+        return mailer.result(False, "invalid", f"Not an email address: {', '.join(bad)}.",
+                             rejected=bad)
+    raws = params.get("snapshots") or ([params["snapshot"]] if params.get("snapshot") else [])
+    if not raws:
+        return mailer.result(False, "invalid", "Choose a snapshot to email.")
+    formats = list(params.get("formats") or [])
+    if not formats:
+        return mailer.result(False, "invalid", "Choose at least one report format.")
+
+    out_dir = _export_dir_from(params)
+    options = _export_options(params)
+    prefix = _file_prefix(params)
+    files: list[dict[str, Any]] = []
+    errors: dict[str, str] = {}
+    names: list[str] = []
+    metas: list[dict[str, Any]] = []
+    for raw in raws:
+        snap_path = _resolve_snapshot_path(str(raw))
+        env = _cache.get(snap_path)
+        name = snapstore.snapshot_name(snap_path)
+        written, errs = _write_reports(env, name, formats, out_dir, options, prefix=prefix)
+        if written:
+            snapstore.record_exports(snap_path, written)
+        files.extend(written)
+        errors.update({(f"{name} {k}" if len(raws) > 1 else k): v for k, v in errs.items()})
+        names.append(name)
+        metas.append(snapstore.read_meta(snap_path, _cache))
+    if not files:
+        detail = "; ".join(f"{k}: {v}" for k, v in errors.items()) or None
+        return mailer.result(False, "error", "The reports could not be written.", detail=detail)
+
+    context = params.get("context") or {}
+    target = str(context.get("target") or "").strip() or ", ".join(
+        str(m.get("source") or m.get("name") or "") for m in metas)
+    days = sorted(d for d in (_local_day(m.get("collected_at")) for m in metas) if d)
+    if len(metas) == 1:
+        summary = f"Summary: {_summary_line(metas[0].get('summary') or {})}"
+    else:
+        summary = "Summary:\n" + "\n".join(
+            f"{n}: {_summary_line(m.get('summary') or {})}"
+            for n, m in zip(names, metas, strict=True))
+    ctx = {"target": target, "date": days[-1] if days else date.today().isoformat(),
+           "snapshot": ", ".join(names), "summary": summary}
+    subject = mailer.render_template(str(params.get("subject") or ""), ctx).strip() or \
+        f"NTNXVision report: {target}"
+    body = mailer.render_template(str(params.get("body") or ""), ctx)
+    if errors:
+        body += "\n\nNot attached (could not be written): " + ", ".join(errors) + "\n"
+    result = mailer.send_files(cfg, to, cc, subject, body, [Path(f["path"]) for f in files],
+                               zip_name=f"{names[0]}-reports")
+    result["files"] = files
+    if errors:
+        result["detail"] = "; ".join(filter(None, [
+            result.get("detail"), *(f"{k}: {v}" for k, v in errors.items())]))
+    return result
+
+
 _METHODS = {
     "ping": _m_ping,
     "list_areas": _m_list_areas,
@@ -1064,5 +1189,7 @@ _METHODS = {
     "inspect_snapshot_file": _m_inspect_snapshot_file,
     "import_snapshot_file": _m_import_snapshot_file,
     "disk_usage": _m_disk_usage,
+    "test_smtp": _m_test_smtp,
+    "send_email": _m_send_email,
     "demo_seed": _m_demo_seed,
 }
