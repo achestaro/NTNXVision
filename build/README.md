@@ -94,8 +94,10 @@ once, or use Import or drag and drop.
 * **macOS entitlements**: `entitlements.mac.plist` (main executable) and
   `entitlements.inherit.plist` (helpers) grant only `allow-jit`. The frozen sidecar is
   re-signed by `app/build/sign-sidecar.js` (an `afterSign` step, before notarization) with
-  `entitlements.sidecar.plist` (`allow-unsigned-executable-memory`,
-  `disable-library-validation`). Without a signing certificate the hook only seals the app
+  `entitlements.sidecar.plist`, which is empty on purpose (R2-08): every Mach-O in the bundle
+  is signed with the same Team ID, so neither `disable-library-validation` nor
+  `allow-unsigned-executable-memory` is needed (verified with a signed build and
+  `scripts/smoke-sidecar.py`). Without a signing certificate the hook only seals the app
   ad-hoc, because flipping fuses leaves an unsigned arm64 app unlaunchable.
 
 ## Signing and notarization (all optional, env-driven)
@@ -112,8 +114,8 @@ Unsigned builds work. They just trigger Gatekeeper and SmartScreen warnings.
 The notarize hook **skips cleanly** when the three Apple variables aren't all set, or when the
 app isn't signed with a Developer ID Application certificate (for example with the local
 Apple Development identity). Hardened runtime is on, with entitlements in
-`app/build/entitlements.mac.plist` (JIT, unsigned executable memory and library validation
-off for the PyInstaller dylibs, network client). The keychain library needs no keychain entitlement
+`app/build/entitlements.mac.plist` (JIT only) and, for the sidecar, the empty
+`app/build/entitlements.sidecar.plist`. The keychain library needs no keychain entitlement
 because the app isn't sandboxed.
 
 **GitHub Environment secrets** consumed by `.github/workflows/release.yml`: `MAC_CSC_LINK`,

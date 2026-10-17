@@ -503,6 +503,7 @@ const smtpReq = (over = {}) => ({
   fromAddress: 'reports@example.com',
   fromName: 'NTNXVision',
   allowUntrusted: false,
+  pinnedSha256: '',
   maxAttachmentMb: 20,
   zipAttachments: false,
   password: '',
@@ -564,6 +565,42 @@ test('smtp: the saved password needs the same port, security and certificate set
   assert.equal(await t({ allowUntrusted: true }), '');
 });
 
+const PIN = 'ab'.repeat(32);
+
+test('smtp: the certificate pin is kept only with untrusted allowed, and normalized', async () => {
+  const st = new SmtpStore(memIO(undefined), fakeSecrets());
+  const colon = PIN.toUpperCase().replace(/(..)(?!$)/g, '$1:');
+  const r = await st.save(smtpReq({ allowUntrusted: true, pinnedSha256: colon }));
+  assert.equal(r.settings.pinnedSha256, PIN);
+  assert.equal(smtpParams(st.settings(), '').pinned_sha256, PIN);
+  assert.equal((await st.save(smtpReq({ allowUntrusted: true, pinnedSha256: 'nope' }))).settings.pinnedSha256, '');
+  assert.equal((await st.save(smtpReq({ allowUntrusted: false, pinnedSha256: PIN }))).settings.pinnedSha256, '');
+});
+
+test('smtp: changing host, port, security or username drops the saved password and the old pin', async () => {
+  for (const change of [{ host: 'other.example.lab' }, { port: 2525 }, { security: 'ssl' }, { username: 'else@example.com' }]) {
+    const secrets = fakeSecrets();
+    const st = new SmtpStore(memIO(undefined), secrets);
+    await st.save(smtpReq({ password: 'saved-example', allowUntrusted: true, pinnedSha256: PIN }));
+    assert.equal(await st.password(), 'saved-example');
+    // Same pin carried over to the changed server: dropped, and so is the password.
+    const r = await st.save(smtpReq({ ...change, allowUntrusted: true, pinnedSha256: PIN }));
+    assert.ok(r.ok);
+    assert.equal(r.settings.pinnedSha256, '', JSON.stringify(change));
+    assert.equal(r.settings.hasPassword, false, JSON.stringify(change));
+  }
+  // Retyping the password keeps it; a freshly trusted (different) pin is kept; an unchanged server keeps both.
+  const st = new SmtpStore(memIO(undefined), fakeSecrets());
+  await st.save(smtpReq({ password: 'saved-example', allowUntrusted: true, pinnedSha256: PIN }));
+  const other = 'cd'.repeat(32);
+  const moved = await st.save(smtpReq({ host: 'other.example.lab', password: 'new-pw', allowUntrusted: true, pinnedSha256: other }));
+  assert.equal(moved.settings.pinnedSha256, other);
+  assert.equal(await st.password(), 'new-pw');
+  const same = await st.save(smtpReq({ host: 'other.example.lab', password: '', allowUntrusted: true, pinnedSha256: other }));
+  assert.equal(same.settings.pinnedSha256, other);
+  assert.equal(await st.password(), 'new-pw');
+});
+
 test('smtp: params for the sidecar are snake_case', () => {
   const p = smtpParams(normalizeSmtp(smtpReq({ allowUntrusted: true, zipAttachments: true, maxAttachmentMb: 10 })), 'pw');
   assert.deepEqual(p, {
@@ -575,6 +612,7 @@ test('smtp: params for the sidecar are snake_case', () => {
     from_address: 'reports@example.com',
     from_name: 'NTNXVision',
     allow_untrusted: true,
+    pinned_sha256: '',
     max_attachment_mb: 10,
     zip_attachments: true,
   });

@@ -28,7 +28,7 @@ from ntnxvision_core.api.errors import (
     NutanixApiError,
     TlsVerificationFailed,
 )
-from ntnxvision_core.api.transport import configure_tls, new_session
+from ntnxvision_core.api.transport import clean_host, configure_tls, new_session, url_host
 from ntnxvision_core.cancel import CancelToken
 
 DEFAULT_PORT = 9440
@@ -53,10 +53,15 @@ class PrismCredentials:
     verify_ssl: bool = True
     #: SHA-256 fingerprint of the trusted certificate (only used with verify_ssl off).
     pinned_sha256: str | None = None
+    #: Command line only: connect with verification off and no pin (--insecure).
+    allow_unpinned: bool = False
+
+    def __post_init__(self) -> None:
+        self.host = clean_host(self.host)
 
     @property
     def base(self) -> str:
-        return f"https://{self.host}:{self.port}"
+        return f"https://{url_host(self.host)}:{self.port}"
 
 
 @dataclass
@@ -92,7 +97,8 @@ class PrismConnection:
                 "Accept": "application/json",
             }
         )
-        configure_tls(self.session, self.creds.verify_ssl, self.creds.pinned_sha256)
+        configure_tls(self.session, self.creds.verify_ssl, self.creds.pinned_sha256,
+                      allow_unpinned=self.creds.allow_unpinned)
 
         # A cheap authenticated call that exists on every PC: v3 clusters list.
         try:
