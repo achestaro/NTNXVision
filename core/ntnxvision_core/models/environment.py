@@ -265,6 +265,14 @@ class Cluster(SourcedObject):
     is_lts: bool | None = None
     operation_mode: str | None = None
     api_source: str = "v4"
+    #: The vCPU:pCPU target the capacity figures use for this cluster, recorded when it
+    #: was collected (see `capacity.apply_targets`): a per-cluster override chosen in New
+    #: collection, else the global setting at the time. None on snapshots written before
+    #: per-cluster targets existed; those fall back to the configured setting.
+    vcpu_ratio_target: float | None = None
+    #: True when `vcpu_ratio_target` is a per-cluster override, False when it is the
+    #: global default (None when no target was recorded).
+    vcpu_ratio_custom: bool | None = None
 
 
 # ─── Licensing summary ─────────────────────────────────────────────────
@@ -843,6 +851,11 @@ class Environment(_Base):
     #: The registered clusters this run collected (None: snapshots written before cluster
     #: selection existed, and combined runs, whose per-PC runs collected every cluster).
     cluster_scope: ClusterScope | None = None
+
+    #: The global vCPU:pCPU target (the Settings value) when this run was collected:
+    #: clusters without an override use it. None on older snapshots and on combined runs
+    #: whose Prism Centrals were collected with different values.
+    vcpu_ratio_default: float | None = None
 
     #: Metadata of the collection run that produced this snapshot — per-area outcome,
     #: API routing, compatibility, duration, reports (see `runinfo.build_run_metadata`).
