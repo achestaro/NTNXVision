@@ -21,6 +21,7 @@ import {
   ValidationError,
   bool,
   int,
+  isPlainHost,
   num,
   obj,
   oneOf,
@@ -42,8 +43,15 @@ const DENSITIES = ['comfortable', 'compact'] as const;
 const RATIO_MIN = 1;
 const RATIO_MAX = 32;
 
-function endpoint(r: Record<string, unknown>, name: string): void {
-  str(r.host, `${name}.host`, 253);
+/** A host field: a plain host name or IP (no userinfo@, path, ?, #, scheme or spaces). */
+function hostField(v: unknown, name: string): void {
+  const host = str(v, name, 253).trim();
+  if (!isPlainHost(host)) throw new ValidationError(`${name} must be a host name or IP address only`);
+}
+
+function endpoint(r: Record<string, unknown>, name: string, strictHost = false): void {
+  if (strictHost) hostField(r.host, `${name}.host`);
+  else str(r.host, `${name}.host`, 253);
   str(r.username, `${name}.username`, 256);
   str(r.password, `${name}.password`, 1024);
   int(r.port, `${name}.port`, 0, 65535);
@@ -53,7 +61,7 @@ function endpoint(r: Record<string, unknown>, name: string): void {
 export function asTestRequest(v: unknown): TestConnectionRequest {
   const r = obj(v, 'request');
   oneOf(r.mode, 'mode', TEST_MODES);
-  endpoint(r, 'request');
+  endpoint(r, 'request', true);
   optStr(r.targetId, 'targetId', 128);
   optStr(r.pinnedCert, 'pinnedCert', 128);
   return r as unknown as TestConnectionRequest;
@@ -62,7 +70,7 @@ export function asTestRequest(v: unknown): TestConnectionRequest {
 export function asListClustersRequest(v: unknown): ListClustersRequest {
   const r = obj(v, 'request');
   oneOf(r.mode, 'mode', MODES);
-  endpoint(r, 'request');
+  endpoint(r, 'request', true);
   optStr(r.targetId, 'targetId', 128);
   optStr(r.pinnedCert, 'pinnedCert', 128);
   return r as unknown as ListClustersRequest;

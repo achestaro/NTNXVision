@@ -30,6 +30,7 @@ from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill
 
 from ntnxvision_core.capacity import target_label, valid_ratio
+from ntnxvision_core.exporters.csvsafe import neutralize
 from ntnxvision_core.exporters.tables import COMPARE_TYPES, SPECS, Ctx, TableSpec
 from ntnxvision_core.inventory import display, fmt_bytes
 from ntnxvision_core.models import Environment
@@ -560,9 +561,11 @@ def export_comparison(base: Environment, cur: Environment, base_name: str, cur_n
         return ComparisonPdfExporter().export(base, cur, base_name, cur_name, out)
     if fmt == "csv":
         with out.open("w", newline="", encoding="utf-8") as fh:
-            writer = csv.writer(fh)
-            writer.writerow(_HEADERS)
-            writer.writerows([[NA if v is None else v for v in row] for row in rows])
+            # RFC 4180 quoting (csv.writer quotes CR, LF, quotes, commas); formula-like
+            # strings are neutralised by the shared rule in exporters/csvsafe.py.
+            writer = csv.writer(fh, lineterminator="\r\n")
+            writer.writerow([neutralize(h) for h in _HEADERS])
+            writer.writerows([[NA if v is None else neutralize(v) for v in row] for row in rows])
         return out
 
     from ntnxvision_core.exporters import excel as XL

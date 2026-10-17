@@ -15,6 +15,7 @@ Demo mode never sends real email: any server other than the local loopback is re
 
 from __future__ import annotations
 
+import hashlib
 import ipaddress
 import mimetypes
 import re
@@ -32,6 +33,7 @@ from email.utils import formataddr, formatdate, make_msgid
 from pathlib import Path
 from typing import Any
 
+from ntnxvision_core.api import transport
 from ntnxvision_core.paths import demo_enabled
 
 SECURITY_MODES = ("none", "starttls", "ssl")
@@ -56,8 +58,10 @@ class MailError(Exception):
     """A classified failure: `status` is an EmailStatus value."""
 
     def __init__(self, status: str, message: str, detail: str | None = None,
-                 rejected: list[str] | None = None) -> None:
+                 rejected: list[str] | None = None,
+                 certificate: dict[str, Any] | None = None) -> None:
         super().__init__(message)
+        self.certificate = certificate
         self.status = status
         self.message = message
         self.detail = detail
@@ -74,6 +78,9 @@ class SmtpConfig:
     from_address: str = ""
     from_name: str = "NTNXVision"
     allow_untrusted: bool = False
+    #: SHA-256 of the server certificate the user trusted (trust on first use). With
+    #: `allow_untrusted` and TLS, the connection is refused unless the leaf matches it.
+    pinned_sha256: str = ""
     timeout: float = DEFAULT_TIMEOUT
     max_attachment_mb: float = DEFAULT_MAX_MB
     zip_attachments: bool = False
@@ -116,6 +123,8 @@ class SmtpConfig:
             from_address=from_address,
             from_name=str(raw.get("from_name") or "").strip(),
             allow_untrusted=bool(raw.get("allow_untrusted", False)),
+            pinned_sha256=transport.normalize_fingerprint(
+                str(raw.get("pinned_sha256") or "")) or "",
             timeout=float(timeout) if isinstance(timeout, (int, float)) and timeout > 0
             else DEFAULT_TIMEOUT,
             max_attachment_mb=max_mb,
@@ -304,7 +313,66 @@ def _guard_cleartext_auth(cfg: SmtpConfig) -> None:
             detail=f"{cfg.host}:{cfg.port} · Security: None")
 
 
-def _connect(cfg: SmtpConfig) -> smtplib.SMTP:
+def _uses_pin(cfg: SmtpConfig) -> bool:
+    """Untrusted certificates are only accepted pinned, and only when TLS is in use."""
+    return cfg.allow_untrusted and cfg.security != "none"
+
+
+def _peer_der(server: smtplib.SMTP) -> bytes:
+    sock = server.sock
+    der = sock.getpeercert(binary_form=True) if isinstance(sock, ssl.SSLSocket) else None
+    if not der:
+        raise MailError("tls_error", "The server did not present a certificate.")
+    return der
+
+
+def describe_der(der: bytes) -> dict[str, Any]:
+    """Subject, issuer, expiry and SHA-256 of a DER certificate, for the trust prompt."""
+    from datetime import datetime, timezone
+
+    from ntnxvision_core import connectivity
+
+    digest = hashlib.sha256(der).hexdigest()
+    out: dict[str, Any] = {"subject": "", "issuer": "", "self_signed": False,
+                           "fingerprint_sha256": transport.format_fingerprint(digest),
+                           "not_after": None}
+    decoded = connectivity._decode(der)
+    if decoded:
+        out["subject"] = connectivity._dn(decoded.get("subject"))
+        out["issuer"] = connectivity._dn(decoded.get("issuer"))
+        out["self_signed"] = decoded.get("subject") == decoded.get("issuer")
+        not_after = decoded.get("notAfter")
+        if not_after:
+            with suppress(ValueError):
+                ts = ssl.cert_time_to_seconds(not_after)
+                out["not_after"] = datetime.fromtimestamp(ts, timezone.utc).strftime(
+                    "%Y-%m-%dT%H:%M:%SZ")
+    return out
+
+
+def _check_pin(cfg: SmtpConfig, server: smtplib.SMTP) -> None:
+    """Compare the leaf certificate with the pin, after the handshake, before any sign-in."""
+    if not _uses_pin(cfg):
+        return
+    der = _peer_der(server)
+    pin = transport.normalize_fingerprint(cfg.pinned_sha256)
+    if pin is None:
+        raise MailError(
+            "untrusted_cert",
+            "The server's certificate has not been trusted yet. Open Settings > Email, test the "
+            "connection and choose Trust this certificate.",
+            detail=f"{cfg.host}:{cfg.port}", certificate=describe_der(der))
+    if hashlib.sha256(der).hexdigest() != pin:
+        raise MailError(
+            "untrusted_cert",
+            "The server's certificate changed since you trusted it. Nothing was sent. If the "
+            "change is expected, open Settings > Email, test the connection and trust the new "
+            "certificate.",
+            detail=f"{cfg.host}:{cfg.port}", certificate=describe_der(der))
+
+
+def _open(cfg: SmtpConfig) -> smtplib.SMTP:
+    """Connect and finish the TLS handshake (no pin check, no sign-in)."""
     _guard_cleartext_auth(cfg)
     ctx = _context(cfg)
     server: smtplib.SMTP
@@ -320,6 +388,16 @@ def _connect(cfg: SmtpConfig) -> smtplib.SMTP:
                                              "SSL/TLS, or another port.")
             server.starttls(context=ctx)
             server.ehlo()
+    except BaseException:
+        _close(server)
+        raise
+    return server
+
+
+def _connect(cfg: SmtpConfig) -> smtplib.SMTP:
+    server = _open(cfg)
+    try:
+        _check_pin(cfg, server)
         if cfg.username:
             if not server.has_extn("auth"):
                 raise MailError("auth_failed", "The server does not accept a sign-in on this "
@@ -329,6 +407,25 @@ def _connect(cfg: SmtpConfig) -> smtplib.SMTP:
         _close(server)
         raise
     return server
+
+
+def probe_certificate(cfg: SmtpConfig) -> dict[str, Any]:
+    """Fetch the server certificate to show it for trust. Never signs in or sends mail."""
+    try:
+        _guard_demo(cfg)
+        server = _open(cfg)
+        try:
+            der = _peer_der(server)
+        finally:
+            _close(server)
+    except BaseException as exc:  # noqa: BLE001
+        if isinstance(exc, (KeyboardInterrupt, SystemExit)):
+            raise
+        return _failure(classify(exc, cfg), cfg)
+    return result(False, "untrusted_cert",
+                  "Check the server's certificate, then choose Trust this certificate. "
+                  "Nothing was sent and no sign-in was attempted.",
+                  detail=f"{cfg.host}:{cfg.port}", certificate=describe_der(der))
 
 
 def _close(server: smtplib.SMTP) -> None:
@@ -420,6 +517,8 @@ def _failure(err: MailError, cfg: SmtpConfig | None, **extra: Any) -> dict[str, 
     if cfg is not None and detail:
         detail = _scrub(detail, cfg)
     message = _scrub(err.message, cfg) if cfg is not None else err.message
+    if err.certificate is not None:
+        extra["certificate"] = err.certificate
     return result(False, err.status, message, detail=detail, rejected=err.rejected, **extra)
 
 
@@ -462,6 +561,8 @@ def send_test(cfg: SmtpConfig, to: str) -> dict[str, Any]:
     to = (to or "").strip()
     if not is_valid_address(to):
         return result(False, "invalid", "Enter the address the test email goes to.")
+    if _uses_pin(cfg) and transport.normalize_fingerprint(cfg.pinned_sha256) is None:
+        return probe_certificate(cfg)
     security = {"none": "None", "starttls": "STARTTLS", "ssl": "SSL/TLS"}[cfg.security]
     body = (
         "This is a test email from NTNXVision, sent from Settings > Email.\n\n"
