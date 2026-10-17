@@ -8,7 +8,7 @@ const DEV_WS = 'ws://localhost:5273';
 /**
  * Content-Security-Policy for the renderer, injected per mode (SEC-14).
  *
- * Production (the packaged app and `vite build`, loaded from file://): nothing but the app's
+ * Production (the packaged app and `vite build`, served as app://ntnxvision): nothing but the app's
  * own files. `style-src` needs 'unsafe-inline' because React components set inline `style`
  * attributes (about 230 of them), which CSP treats as inline styles; scripts stay strictly
  * 'self' (no inline scripts, no eval). Fonts and images are bundled files (assets are never

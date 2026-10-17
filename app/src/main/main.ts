@@ -49,11 +49,13 @@ import {
   appPageUrl,
   configureAppPage,
   exportDirFor,
+  installAppProtocol,
   installGuards,
   installMenu,
   lockPermissions,
   openExternalSafe,
   openablePath,
+  registerAppScheme,
   rememberChosenDir,
   rememberChosenFile,
   rememberSavePath,
@@ -77,14 +79,30 @@ import {
   asTrustCertificateRequest,
   cleanSettings,
 } from './requests';
+import { isUncPath, requireLocalAbsolute } from './pathpolicy';
 import { ValidationError, int, oneOf, optStr, str } from './validate';
+
+// A packaged build never honours debugger or engine-flag switches (R2-05): they would let
+// a same-user process attach to the main process, which holds the keychain access.
+const DEBUG_SWITCH = /^--(remote-debugging-port|remote-debugging-pipe|inspect|inspect-brk|inspect-port|js-flags)(=|$)/;
+if (app.isPackaged && process.argv.some((a) => DEBUG_SWITCH.test(a))) {
+  app.exit(1);
+}
+// The app:// scheme must be registered before the app is ready (B-3).
+registerAppScheme();
 
 const isDev = !app.isPackaged;
 const demo = isDemoMode();
 // End-to-end tests point the app at an isolated profile and the built renderer.
 // These test hooks are honoured only by an unpackaged app (SEC-07, see testhooks.ts).
 const userDataOverride = testEnv('NTNXVISION_USER_DATA');
-if (userDataOverride) app.setPath('userData', userDataOverride);
+if (userDataOverride) {
+  app.setPath('userData', userDataOverride);
+} else if (demo) {
+  // Demo mode (and its throwaway in-memory keychain) never shares a profile with real use:
+  // its seeded *.demo.local targets and integrity state stay out of the real userData (R2-06).
+  app.setPath('userData', join(app.getPath('appData'), 'NTNXVision-demo'));
+}
 const loadBuiltRenderer = !isDev || testEnv('NTNXVISION_RENDERER') === 'dist' || (isDev && process.argv.includes('--dist'));
 // Automated end-to-end runs: never open Finder/Explorer windows, files or browsers.
 const e2e = e2eRun;
@@ -147,7 +165,7 @@ function inventoryPage(page: InventoryPage): InventoryPage {
 
 /** An .ntnxsnap path for inspect / import (picked in a dialog, dropped, or opened by the OS). */
 function snapshotFileArg(p: unknown): string {
-  const path = str(p, 'path', 4096);
+  const path = requireLocalAbsolute(str(p, 'path', 4096), 'path');
   if (!isSnapshotFile(path)) throw new ValidationError('Snapshot files end in .ntnxsnap');
   return path;
 }
@@ -211,11 +229,8 @@ function createWindow(show = true): void {
     if (scheduler.hideOnClose(mainWindow)) e.preventDefault();
   });
 
-  if (!loadBuiltRenderer) {
-    void mainWindow.loadURL(appPageUrl());
-  } else {
-    void mainWindow.loadFile(join(__dirname, '..', 'renderer', 'index.html'));
-  }
+  // Dev server (http://localhost, HMR) or the built renderer served as app://ntnxvision.
+  void mainWindow.loadURL(appPageUrl());
 }
 
 // ─── progress relay ────────────────────────────────────────────────────
@@ -692,7 +707,7 @@ const pendingSnapshotFiles: string[] = [];
 let rendererWantsFiles = false;
 
 function snapshotFilesFrom(argv: string[]): string[] {
-  return argv.filter((a) => !a.startsWith('-') && isSnapshotFile(a) && existsSync(a) && statSync(a).isFile());
+  return argv.filter((a) => !a.startsWith('-') && !isUncPath(a) && isSnapshotFile(a) && existsSync(a) && statSync(a).isFile());
 }
 
 function openSnapshotFiles(paths: string[]): void {
@@ -870,6 +885,7 @@ if (!primary) {
 app.whenReady().then(async () => {
   if (!primary) return;
   if (isSmokeRun()) return void runSmoke(sidecar); // packaging smoke test, no window
+  installAppProtocol();
   lockPermissions();
   installMenu();
   sidecar.start();
