@@ -1,6 +1,8 @@
 // Credential storage via the OS keychain (Windows Credential Manager / macOS Keychain).
 // Passwords are NEVER written to disk in plaintext by this app.
 
+import { testEnv } from './testhooks';
+
 const SERVICE = 'NTNXVision';
 
 // keytar is a native module; import lazily so a missing build doesn't crash the app.
@@ -17,7 +19,7 @@ try {
 // the OS keychain, so a test run never writes to the developer's real keychain. Nothing
 // is ever persisted to disk either way.
 const memory: Map<string, string> | null =
-  process.env.NTNXVISION_KEYCHAIN === 'memory' ||
+  testEnv('NTNXVISION_KEYCHAIN') === 'memory' ||
   ['1', 'true', 'yes', 'on'].includes((process.env.NTNXVISION_DEMO ?? '').toLowerCase()) ||
   process.argv.includes('--demo')
     ? new Map()

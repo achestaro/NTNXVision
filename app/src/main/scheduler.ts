@@ -36,6 +36,8 @@ import { SidecarClient, SidecarError } from './sidecar';
 import { cleanOverrides } from './targets';
 import type { StoredTarget } from './targets';
 import * as store from './store';
+import { wordTemplateFor } from './security';
+import { bool, obj, optStr, optStrArray, str, strArray } from './validate';
 import { APP_ICON_PNG, MAC_TEMPLATE_PNG } from './trayIcons';
 
 /** JSON-RPC code the sidecar answers when a collection is already running. */
@@ -459,15 +461,24 @@ export class Scheduler {
 
   // ─── IPC ─────────────────────────────────────────────────────────────
 
-  registerHandlers(ipc: IpcMain): void {
+  registerHandlers(ipc: Pick<IpcMain, 'handle'>): void {
     const { mail, sidecar } = this.host;
     ipc.handle(IPC.getSmtpSettings, () => mail.info());
-    ipc.handle(IPC.saveSmtpSettings, (_e, req: SmtpSaveRequest) => mail.save(req));
+    ipc.handle(IPC.saveSmtpSettings, (_e, req: SmtpSaveRequest) => mail.save(obj(req, 'request') as unknown as SmtpSaveRequest));
     ipc.handle(IPC.testSmtp, async (_e, req: SmtpTestRequest) => {
+      obj(req, 'request');
       const password = await mail.testPassword(req);
       return sidecar.call<EmailResult>('test_smtp', { smtp: smtpParams(req, password), to: req.to });
     });
     ipc.handle(IPC.emailSnapshot, async (_e, req: EmailSnapshotRequest) => {
+      obj(req, 'request');
+      strArray(req.snapshotPaths, 'snapshotPaths', 1000, 4096);
+      strArray(req.to, 'to', 500, 320);
+      optStrArray(req.cc, 'cc', 500, 320);
+      optStr(req.subject, 'subject', 1000);
+      optStr(req.body, 'body', 100000);
+      optStr(req.filePrefix, 'filePrefix', 200);
+      if (req.word) wordTemplateFor(req.word.template);
       const smtp = await mail.info();
       if (!smtp.configured) {
         return { ok: false, status: 'not_configured', message: 'Email is not set up. Set up the mail server in Settings > Email.' } satisfies EmailResult;
@@ -493,6 +504,7 @@ export class Scheduler {
 
     ipc.handle(IPC.listSchedules, () => this.state());
     ipc.handle(IPC.saveSchedule, (_e, req: ScheduleSaveRequest) => {
+      obj(req, 'request');
       const res = this.host.schedules.saveSchedule(req, this.targetRefs());
       const state = this.state();
       if (res.ok) this.changed();
@@ -504,18 +516,22 @@ export class Scheduler {
       };
     });
     ipc.handle(IPC.deleteSchedule, (_e, id: string) => {
+      str(id, 'id', 128);
       this.runner.drop(id);
       this.host.schedules.delete(id);
       this.changed();
       return this.state();
     });
     ipc.handle(IPC.setScheduleEnabled, (_e, id: string, enabled: boolean) => {
+      str(id, 'id', 128);
+      bool(enabled, 'enabled');
       if (!this.host.schedules.setEnabled(id, enabled)) throw new Error('That schedule no longer exists.');
       if (!enabled) this.runner.drop(id);
       this.changed();
       return this.state();
     });
     ipc.handle(IPC.runScheduleNow, (_e, id: string) => {
+      str(id, 'id', 128);
       this.runner.runNow(id);
       return this.state();
     });
