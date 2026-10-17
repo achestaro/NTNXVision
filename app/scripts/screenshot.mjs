@@ -528,7 +528,7 @@ let failures = 0;
 for (const theme of themes) {
   for (const [name, opts, steps, height = 1000, width = 1440] of SHOTS) {
     if (only && !only.includes(name)) continue;
-    const ctx = await browser.newContext({ viewport: { width, height }, deviceScaleFactor: 1, bypassCSP: true, colorScheme: theme === 'dark' ? 'dark' : 'light' });
+    const ctx = await browser.newContext({ viewport: { width, height }, deviceScaleFactor: 1, bypassCSP: false, colorScheme: theme === 'dark' ? 'dark' : 'light' });
     const page = await ctx.newPage();
     const errors = [];
     page.on('pageerror', (e) => errors.push(e.message));

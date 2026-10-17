@@ -178,6 +178,15 @@ rule rather than assuming v4 is always available.
   powerMonitor resume, the tray / menu bar (window close hides while a schedule is
   enabled), notifications and Start at login.
 - `main/preload.ts` — exposes the `window.ntnx` bridge (typed by `NtnxApi` in `shared/ipc.ts`).
+  Bundled by esbuild into `dist/main/preload.bundle.js` (`npm run build:preload`) because the
+  window is sandboxed: a sandboxed preload may only `require('electron')`.
+- `main/security.ts` — the hardening layer: navigation lock, `secureIpc` (**every**
+  `ipcMain.handle` must go through it; `tests/security.test.mjs` enforces that), permission
+  deny-all, production menu, and the folders the renderer may open/reveal/export to.
+  `validate.ts` / `requests.ts` type-check IPC arguments, `pathpolicy.ts` is the pure
+  open/reveal/export path policy, `testhooks.ts` gates the `NTNXVISION_*` test overrides to
+  unpackaged apps, `sidecarEnv.ts` is the packaged sidecar's environment allowlist. The
+  renderer CSP is injected per mode by the Vite plugin in `vite.config.ts`.
 - `shared/ipc.ts` — the single source of truth for the IPC contract (channels, request/result
   types, progress events) shared between main and renderer. Update this first when adding a
   new operation, then implement it in both the sidecar (Python) and the main process relay,

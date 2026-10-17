@@ -45,7 +45,9 @@ cd ../app && npm ci && npm run package:mac      # or: npm run package:win (Windo
   `Contents/Resources/sidecar/ntnxvision-sidecar` (macOS) or
   `resources\sidecar\ntnxvision-sidecar.exe` (Windows). The execute bit is restored if it
   was lost, the console window is hidden on Windows, and `NTNXVISION_SIDECAR=<path>`
-  overrides the path for debugging.
+  overrides the path for debugging in an unpackaged app only (a packaged app ignores every
+  `NTNXVISION_*` test override except demo mode, and starts the sidecar with an allowlisted
+  environment).
 
 ## File association (`.ntnxsnap`)
 
@@ -74,6 +76,23 @@ once, or use Import or drag and drop.
   nothing, so bump the version for every release you ship. Downgrades are blocked.
 * Manufacturer comes from `author`, the product name from `productName`, and the icon from
   `app/build/icon.ico`.
+
+## Hardening: fuses and entitlements
+
+* **Electron fuses** (`build.electronFuses` in `app/package.json`): `runAsNode`,
+  `enableNodeOptionsEnvironmentVariable` and `enableNodeCliInspectArguments` off,
+  `enableEmbeddedAsarIntegrityValidation`, `onlyLoadAppFromAsar` and `enableCookieEncryption`
+  on. Verify a build with `npx @electron/fuses read --app release/mac-arm64/NTNXVision.app`.
+  `grantFileProtocolExtraPrivileges` stays at its default (on): the renderer loads from
+  `file://` inside the asar, and turning it off makes that load fail (ERR_FILE_NOT_FOUND).
+  The packaged app therefore cannot be started as plain Node, and `--smoke` does not need
+  that; development runs use the unpackaged Electron, which has the default fuses.
+* **macOS entitlements**: `entitlements.mac.plist` (main executable) and
+  `entitlements.inherit.plist` (helpers) grant only `allow-jit`. The frozen sidecar is
+  re-signed by `app/build/sign-sidecar.js` (an `afterSign` step, before notarization) with
+  `entitlements.sidecar.plist` (`allow-unsigned-executable-memory`,
+  `disable-library-validation`). Without a signing certificate the hook only seals the app
+  ad-hoc, because flipping fuses leaves an unsigned arm64 app unlaunchable.
 
 ## Signing and notarization (all optional, env-driven)
 

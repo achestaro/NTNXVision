@@ -8,6 +8,8 @@ query on a 20,000-VM snapshot to a filtered list comprehension plus one sort.
 
 from __future__ import annotations
 
+import ipaddress
+import re
 import threading
 from collections import OrderedDict
 from typing import Any
@@ -369,11 +371,36 @@ def _clean_label(label: str) -> str:
     return label
 
 
+#: A bare DNS name (labels of letters, digits, hyphens) or an IPv4 address. IPv6 literals are
+#: bracketed by the caller; anything with a scheme, path, port, query or userinfo is refused.
+_HOSTNAME_RE = re.compile(
+    r"^(?=.{1,253}$)[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?)*$"
+)
+
+
+def valid_hostname(host: str | None) -> bool:
+    """True for a plain hostname or IPv4 address (no scheme, path, port or userinfo).
+
+    Snapshot hosts come from files that may have been imported, so a Prism link is built
+    only from a value that cannot redirect the browser elsewhere.
+    """
+    if not host:
+        return False
+    if _HOSTNAME_RE.match(host):
+        return True
+    try:
+        ipaddress.IPv6Address(host)
+    except ValueError:
+        return False
+    return True
+
+
 def _pc_host(env: Environment, obj: Any) -> str | None:
     host = getattr(obj, "source_pc", None) or env.prism_central.host
-    if not host or " " in host:
+    if not valid_hostname(host):
         return None
-    return host
+    assert host is not None
+    return f"[{host}]" if ":" in host else host
 
 
 def _prism_url(env: Environment, obj: Any, page: str) -> str | None:

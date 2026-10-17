@@ -44,17 +44,50 @@ import * as store from './store';
 import { registerLegalHandlers } from './legal';
 import { cleanOverrides, matchesTarget, ndbAccount, passwordAccount, remapIds, vcenterAccount } from './targets';
 import { Scheduler } from './scheduler';
+import {
+  appPageUrl,
+  configureAppPage,
+  exportDirFor,
+  installGuards,
+  installMenu,
+  lockPermissions,
+  openExternalSafe,
+  openablePath,
+  rememberChosenDir,
+  rememberChosenFile,
+  rememberSavePath,
+  savePathFor,
+  chosenDirFor,
+  revealablePath,
+  secureIpc,
+  wordTemplateFor,
+} from './security';
+import { e2eRun, testEnv } from './testhooks';
+import {
+  asCollectionRequest,
+  asCompareExportRequest,
+  asExportRequest,
+  asListClustersRequest,
+  asMultiCollectionRequest,
+  asSnapshotFileExportRequest,
+  asSnapshotFilesExportRequest,
+  asTargetSaveRequest,
+  asTestRequest,
+  cleanSettings,
+} from './requests';
+import { ValidationError, int, oneOf, optStr, str } from './validate';
 
 const isDev = !app.isPackaged;
 const demo = isDemoMode();
 // End-to-end tests point the app at an isolated profile and the built renderer.
-if (process.env.NTNXVISION_USER_DATA) app.setPath('userData', process.env.NTNXVISION_USER_DATA);
-const loadBuiltRenderer =
-  !isDev || process.env.NTNXVISION_RENDERER === 'dist' || process.argv.includes('--dist');
+// These test hooks are honoured only by an unpackaged app (SEC-07, see testhooks.ts).
+const userDataOverride = testEnv('NTNXVISION_USER_DATA');
+if (userDataOverride) app.setPath('userData', userDataOverride);
+const loadBuiltRenderer = !isDev || testEnv('NTNXVISION_RENDERER') === 'dist' || (isDev && process.argv.includes('--dist'));
 // Automated end-to-end runs: never open Finder/Explorer windows, files or browsers.
-const e2e = process.env.NTNXVISION_E2E === '1';
+const e2e = e2eRun;
 // e2e only: the native file dialogs answer from this folder instead of opening.
-const e2eDialogDir = e2e ? process.env.NTNXVISION_E2E_DIALOG_DIR || null : null;
+const e2eDialogDir = e2e ? testEnv('NTNXVISION_E2E_DIALOG_DIR') || null : null;
 const sidecar = new SidecarClient();
 let mainWindow: BrowserWindow | null = null;
 /** Set by a real quit (menu, tray, Cmd+Q): closing the window then closes it. */
@@ -79,7 +112,43 @@ const scheduler = new Scheduler({
   demo,
   e2e,
 });
-scheduler.registerHandlers(ipcMain);
+// Every handler goes through secureIpc: calls not from the app window are rejected (SEC-02).
+const ipc = secureIpc(ipcMain);
+configureAppPage({ devServer: !loadBuiltRenderer, window: () => mainWindow });
+installGuards();
+scheduler.registerHandlers(ipc);
+
+/**
+ * A packaged app launched in demo mode talks only to the built-in synthetic estate: it
+ * refuses any other host, so demo mode cannot be used to reach (or fake) a real target.
+ */
+function assertDemoHost(host: string): void {
+  if (demo && app.isPackaged && !/\.demo\.local$/i.test(host.trim())) {
+    throw new Error('Demo mode only connects to the built-in demo targets (*.demo.local).');
+  }
+}
+
+function inventoryFilter(f: InventoryFilter | undefined): { text: string; facets: Record<string, string> } {
+  const facets: Record<string, string> = {};
+  for (const [k, v] of Object.entries(f?.facets ?? {})) facets[str(k, 'facet', 128)] = str(v, 'facet value', 1024);
+  return { text: str(f?.text ?? '', 'filter text', 1024), facets };
+}
+
+function inventorySort(sort: InventorySort | null | undefined): InventorySort | null {
+  if (sort === null || sort === undefined) return null;
+  return { key: str(sort.key, 'sort key', 128), dir: oneOf(sort.dir, 'sort direction', ['asc', 'desc'] as const) };
+}
+
+function inventoryPage(page: InventoryPage): InventoryPage {
+  return { offset: int(page?.offset, 'offset', 0, 10_000_000), limit: int(page?.limit, 'limit', 1, 100_000) };
+}
+
+/** An .ntnxsnap path for inspect / import (picked in a dialog, dropped, or opened by the OS). */
+function snapshotFileArg(p: unknown): string {
+  const path = str(p, 'path', 4096);
+  if (!isSnapshotFile(path)) throw new ValidationError('Snapshot files end in .ntnxsnap');
+  return path;
+}
 
 function showWindow(): void {
   if (!mainWindow || mainWindow.isDestroyed()) {
@@ -121,13 +190,17 @@ function createWindow(show = true): void {
     backgroundColor: '#0B131B',
     title: demo ? 'NTNXVision · demo data' : 'NTNXVision',
     webPreferences: {
-      preload: join(__dirname, 'preload.js'),
+      // Bundled by esbuild (scripts/bundle-preload.mjs) so it requires only 'electron' and
+      // can run in the sandbox.
+      preload: join(__dirname, 'preload.bundle.js'),
       contextIsolation: true,
       nodeIntegration: false,
-      // The preload is compiled to CJS and requires ../shared/ipc at runtime; sandboxed
-      // preloads can't require relative modules, which would silently drop the bridge.
-      // The renderer only ever loads local content (Vite dev server / bundled files).
-      sandbox: false,
+      sandbox: true,
+      webviewTag: false,
+      navigateOnDragDrop: false,
+      spellcheck: false,
+      // No DevTools in a packaged app (development and e2e keep them).
+      devTools: !app.isPackaged,
     },
   });
   // While a schedule is enabled, closing the window keeps the app in the tray / menu bar.
@@ -137,7 +210,7 @@ function createWindow(show = true): void {
   });
 
   if (!loadBuiltRenderer) {
-    void mainWindow.loadURL('http://localhost:5273');
+    void mainWindow.loadURL(appPageUrl());
   } else {
     void mainWindow.loadFile(join(__dirname, '..', 'renderer', 'index.html'));
   }
@@ -202,20 +275,31 @@ function runOutcomeFromError(err: unknown): Pick<RunFinishedEvent, 'outcome' | '
  * keychain password, but only while the request is for that target's own address and
  * username (a stored password is never sent to a host the user is still typing).
  */
-async function endpointPassword(req: { targetId?: string; host: string; username: string; password: string; mode?: string }): Promise<string> {
+async function endpointPassword(req: {
+  targetId?: string;
+  host: string;
+  port: number;
+  username: string;
+  password: string;
+  mode: string;
+  insecure: boolean;
+}): Promise<string> {
   if (req.password) return req.password;
   const t = store.targets.get(req.targetId);
   if (!t) return '';
   const host = req.host.trim();
   const user = req.username.trim();
-  // A target's NDB or vCenter endpoint has its own keychain entry.
+  // A target's NDB or vCenter endpoint has its own keychain entry. A saved password is
+  // released only to the endpoint exactly as saved: host, port, username, mode and TLS
+  // setting must all match (SEC-05).
   if (req.mode === 'vcenter') {
-    return t.vcenterHost === host && t.vcenterUser === user ? ((await store.targets.vcenterPassword(t.id)) ?? '') : '';
+    const same = t.vcenterHost === host && t.vcenterUser === user && req.port === 443 && req.insecure === !!t.vcenterInsecure;
+    return same ? ((await store.targets.vcenterPassword(t.id)) ?? '') : '';
   }
   if (req.mode === 'ndb') {
     return t.ndbHost === host && t.ndbUser === user ? ((await store.targets.ndbPassword(t.id)) ?? '') : '';
   }
-  if (t.host !== host || t.username !== user) return '';
+  if (!matchesTarget(t, req)) return '';
   return (await store.targets.password(t.id)) ?? '';
 }
 
@@ -257,9 +341,9 @@ async function targetConnection(
 
 // ─── IPC handlers: sidecar relays ──────────────────────────────────────
 
-ipcMain.handle(IPC.ping, () => sidecar.call('ping'));
+ipc.handle(IPC.ping, () => sidecar.call('ping'));
 
-ipcMain.handle(IPC.getAppInfo, (): AppInfo => ({
+ipc.handle(IPC.getAppInfo, (): AppInfo => ({
   version: app.getVersion(),
   platform: process.platform as Platform,
   defaultExportDir: join(homedir(), 'Documents', 'NTNXVision'),
@@ -278,7 +362,9 @@ function vcpuRatio(): number | undefined {
   return store.getSettings().vcpuRatio;
 }
 
-ipcMain.handle(IPC.testConnection, async (_e, req: TestConnectionRequest) => {
+ipc.handle(IPC.testConnection, async (_e, raw: TestConnectionRequest) => {
+  const req = asTestRequest(raw);
+  assertDemoHost(req.host);
   const password = await endpointPassword(req);
   const result = await sidecar.call<TestConnectionResult>('test_connection', {
     mode: req.mode,
@@ -294,7 +380,9 @@ ipcMain.handle(IPC.testConnection, async (_e, req: TestConnectionRequest) => {
   return result;
 });
 
-ipcMain.handle(IPC.listClusters, async (_e, req: ListClustersRequest) => {
+ipc.handle(IPC.listClusters, async (_e, raw: ListClustersRequest) => {
+  const req = asListClustersRequest(raw);
+  assertDemoHost(req.host);
   const password = await endpointPassword(req);
   return sidecar.call('list_clusters', {
     mode: req.mode,
@@ -306,12 +394,15 @@ ipcMain.handle(IPC.listClusters, async (_e, req: ListClustersRequest) => {
   });
 });
 
-ipcMain.handle(IPC.getCollectionAreas, () => sidecar.call('list_areas'));
+ipc.handle(IPC.getCollectionAreas, () => sidecar.call('list_areas'));
 
-ipcMain.handle(IPC.startCollection, async (_e, req: CollectionRequest) => {
+ipc.handle(IPC.startCollection, async (_e, raw: CollectionRequest) => {
+  let req = asCollectionRequest(raw);
+  const exportDir = exportDirFor(req.exportDir);
   const runId = randomUUID();
   const { password, ...conn } = await targetConnection(req.targetId, req.password, req.ndb, req.vcenter);
-  req = { ...req, ...conn };
+  assertDemoHost(conn.host);
+  req = { ...req, ...conn, exportDir };
   // The cluster selection is remembered per saved target (uuids only, never credentials).
   if (req.mode === 'prism_central' && req.clusters && req.knownClusters) {
     store.targets.rememberClusters(req.targetId!, { selected: req.clusters, known: req.knownClusters });
@@ -332,7 +423,7 @@ ipcMain.handle(IPC.startCollection, async (_e, req: CollectionRequest) => {
     areas: req.areas,
     clusters: req.mode === 'prism_central' ? req.clusters : undefined,
     formats: req.formats,
-    export_dir: req.exportDir || store.getSettings().exportDir,
+    export_dir: exportDir || store.getSettings().exportDir,
     file_prefix: filePrefix(req.filePrefix),
     ndb: req.mode === 'prism_central' ? req.ndb : undefined,
     vcenter: req.mode === 'prism_central' ? req.vcenter : undefined,
@@ -352,12 +443,15 @@ ipcMain.handle(IPC.startCollection, async (_e, req: CollectionRequest) => {
   return { runId };
 });
 
-ipcMain.handle(IPC.startMultiCollection, async (_e, req: MultiCollectionRequest) => {
+ipc.handle(IPC.startMultiCollection, async (_e, raw: MultiCollectionRequest) => {
+  const req = asMultiCollectionRequest(raw);
+  const exportDir = exportDirFor(req.exportDir);
   const runId = randomUUID();
   // Each target's saved details and password (a typed one-run password wins).
   const resolved = await Promise.all(
     req.targets.map(async (t) => ({ ...t, ...(await targetConnection(t.targetId, t.password, t.ndb, t.vcenter)) })),
   );
+  resolved.forEach((t) => assertDemoHost(t.host));
   beginManualRun();
   const { id, promise } = sidecar.callWithId<MultiInventoryResult>('inventory_multi', {
     run_id: runId,
@@ -374,7 +468,7 @@ ipcMain.handle(IPC.startMultiCollection, async (_e, req: MultiCollectionRequest)
       vcpu_ratio_overrides: store.targets.get(t.targetId)?.vcpuRatioOverrides,
     })),
     formats: req.formats,
-    export_dir: req.exportDir || store.getSettings().exportDir,
+    export_dir: exportDir || store.getSettings().exportDir,
     file_prefix: filePrefix(req.filePrefix),
     combine: req.combine,
     combined_name: req.combinedName,
@@ -393,15 +487,15 @@ ipcMain.handle(IPC.startMultiCollection, async (_e, req: MultiCollectionRequest)
   return { runId };
 });
 
-ipcMain.handle(IPC.cancelRun, (_e, runId: string) => sidecar.call('cancel_run', { run_id: runId }));
+ipc.handle(IPC.cancelRun, (_e, runId: string) => sidecar.call('cancel_run', { run_id: str(runId, 'runId', 128) }));
 
-ipcMain.handle(IPC.getOverview, () => sidecar.call('get_overview'));
-ipcMain.handle(IPC.listSnapshots, () => sidecar.call('list_snapshots'));
-ipcMain.handle(IPC.getSnapshot, (_e, snapshotPath: string) =>
-  sidecar.call('get_snapshot', { snapshot: snapshotPath }),
+ipc.handle(IPC.getOverview, () => sidecar.call('get_overview'));
+ipc.handle(IPC.listSnapshots, () => sidecar.call('list_snapshots'));
+ipc.handle(IPC.getSnapshot, (_e, snapshotPath: string) =>
+  sidecar.call('get_snapshot', { snapshot: str(snapshotPath, 'snapshotPath', 4096) }),
 );
 
-ipcMain.handle(
+ipc.handle(
   IPC.queryInventory,
   (
     _e,
@@ -412,43 +506,48 @@ ipcMain.handle(
     page: InventoryPage,
   ) =>
     sidecar.call('query_inventory', {
-      snapshot: snapshotPath,
-      object_type: objectType,
-      filter: { text: filter?.text ?? '', facets: filter?.facets ?? {} },
-      sort,
-      page,
+      snapshot: str(snapshotPath, 'snapshotPath', 4096),
+      object_type: str(objectType, 'objectType', 64),
+      filter: inventoryFilter(filter),
+      sort: inventorySort(sort),
+      page: inventoryPage(page),
       vcpu_ratio: vcpuRatio(),
     }),
 );
 
-ipcMain.handle(IPC.getObjectDetail, (_e, snapshotPath: string, objectType: string, id: string) =>
+ipc.handle(IPC.getObjectDetail, (_e, snapshotPath: string, objectType: string, id: string) =>
   sidecar.call('get_object_detail', {
-    snapshot: snapshotPath,
-    object_type: objectType,
-    id,
+    snapshot: str(snapshotPath, 'snapshotPath', 4096),
+    object_type: str(objectType, 'objectType', 64),
+    id: str(id, 'id', 1024),
     vcpu_ratio: vcpuRatio(),
   }),
 );
 
-ipcMain.handle(IPC.compareSnapshots, (_e, baseline: string, current: string) =>
-  sidecar.call('compare_snapshots', { baseline, current }),
+ipc.handle(IPC.compareSnapshots, (_e, baseline: string, current: string) =>
+  sidecar.call('compare_snapshots', { baseline: str(baseline, 'baseline', 4096), current: str(current, 'current', 4096) }),
 );
 
-ipcMain.handle(IPC.exportComparison, (_e, req: CompareExportRequest) =>
-  sidecar.call('export_comparison', {
+ipc.handle(IPC.exportComparison, (_e, raw: CompareExportRequest) => {
+  const req = asCompareExportRequest(raw);
+  const exportDir = exportDirFor(req.exportDir);
+  return sidecar.call('export_comparison', {
     baseline: req.baseline,
     current: req.current,
     format: req.format,
-    export_dir: req.exportDir || store.getSettings().exportDir,
+    export_dir: exportDir || store.getSettings().exportDir,
     file_prefix: filePrefix(req.filePrefix),
-  }),
-);
+  });
+});
 
-ipcMain.handle(IPC.exportSnapshot, (_e, req: ExportRequest) =>
-  sidecar.call('export', {
+ipc.handle(IPC.exportSnapshot, (_e, raw: ExportRequest) => {
+  const req = asExportRequest(raw);
+  const exportDir = exportDirFor(req.exportDir);
+  if (req.word) wordTemplateFor(req.word.template);
+  return sidecar.call('export', {
     snapshot: req.snapshotPath,
     formats: req.formats,
-    export_dir: req.exportDir || store.getSettings().exportDir,
+    export_dir: exportDir || store.getSettings().exportDir,
     file_prefix: filePrefix(req.filePrefix),
     sections: req.sections,
     word: req.word
@@ -459,48 +558,66 @@ ipcMain.handle(IPC.exportSnapshot, (_e, req: ExportRequest) =>
         }
       : undefined,
     vcpu_ratio: req.vcpuRatio ?? vcpuRatio(),
-  }),
+  });
+});
+
+ipc.handle(IPC.renameSnapshot, (_e, snapshotPath: string, newName: string) =>
+  sidecar.call('rename_snapshot', { snapshot: str(snapshotPath, 'snapshotPath', 4096), new_name: str(newName, 'newName', 512) }),
 );
 
-ipcMain.handle(IPC.renameSnapshot, (_e, snapshotPath: string, newName: string) =>
-  sidecar.call('rename_snapshot', { snapshot: snapshotPath, new_name: newName }),
+ipc.handle(IPC.deleteSnapshot, (_e, snapshotPath: string) =>
+  sidecar.call('delete_snapshot', { snapshot: str(snapshotPath, 'snapshotPath', 4096) }),
 );
 
-ipcMain.handle(IPC.deleteSnapshot, (_e, snapshotPath: string) =>
-  sidecar.call('delete_snapshot', { snapshot: snapshotPath }),
-);
-
-ipcMain.handle(IPC.clearSnapshots, () => sidecar.call('clear_snapshots'));
+ipc.handle(IPC.clearSnapshots, () => sidecar.call('clear_snapshots'));
 
 // ─── IPC handlers: snapshot files (.ntnxsnap) ──────────────────────────
 
-ipcMain.handle(IPC.exportSnapshotFile, (_e, req: SnapshotFileExportRequest) =>
-  sidecar.call('export_snapshot_file', {
+ipc.handle(IPC.exportSnapshotFile, (_e, raw: SnapshotFileExportRequest) => {
+  const req = asSnapshotFileExportRequest(raw);
+  const destPath = savePathFor(req.destPath);
+  return sidecar.call('export_snapshot_file', {
     ...(Array.isArray(req.snapshotPath) ? { snapshots: req.snapshotPath } : { snapshot: req.snapshotPath }),
-    dest_path: req.destPath,
+    dest_path: destPath,
     password: req.password || undefined,
     note: req.note || undefined,
     app_version: app.getVersion(),
-  }),
-);
+  });
+});
 
-ipcMain.handle(IPC.exportSnapshotFiles, (_e, req: SnapshotFilesExportRequest) =>
-  sidecar.call('export_snapshot_files', {
+ipc.handle(IPC.exportSnapshotFiles, (_e, raw: SnapshotFilesExportRequest) => {
+  const req = asSnapshotFilesExportRequest(raw);
+  const destDir = chosenDirFor(req.destDir);
+  return sidecar.call('export_snapshot_files', {
     snapshots: req.snapshotPaths,
-    dest_dir: req.destDir,
+    dest_dir: destDir,
     password: req.password || undefined,
     note: req.note || undefined,
     app_version: app.getVersion(),
+  });
+});
+
+ipc.handle(IPC.inspectSnapshotFile, (_e, path: string, password?: string) =>
+  sidecar.call('inspect_snapshot_file', { path: snapshotFileArg(path), password: optStr(password, 'password', 1024) || undefined }),
+);
+
+ipc.handle(IPC.importSnapshotFile, (_e, path: string, onConflict: ImportConflictChoice, password?: string) =>
+  sidecar.call('import_snapshot_file', {
+    path: snapshotFileArg(path),
+    on_conflict: oneOf(onConflict, 'onConflict', ['keep_both', 'replace', 'skip'] as const),
+    password: optStr(password, 'password', 1024) || undefined,
   }),
 );
 
-ipcMain.handle(IPC.inspectSnapshotFile, (_e, path: string, password?: string) =>
-  sidecar.call('inspect_snapshot_file', { path, password: password || undefined }),
-);
-
-ipcMain.handle(IPC.importSnapshotFile, (_e, path: string, onConflict: ImportConflictChoice, password?: string) =>
-  sidecar.call('import_snapshot_file', { path, on_conflict: onConflict, password: password || undefined }),
-);
+/** Dialog file filters: names and bare extensions only. */
+function fileFilters(v: unknown): FileFilter[] {
+  if (!Array.isArray(v) || v.length > 20) throw new ValidationError('filters must be a list');
+  return v.map((f, i) => {
+    const name = str(f?.name, `filters[${i}].name`, 100);
+    const exts = Array.isArray(f?.extensions) ? f.extensions : [];
+    return { name, extensions: exts.map((x: unknown) => str(x, 'extension', 20).replace(/[^A-Za-z0-9*]/g, '')) };
+  });
+}
 
 const SNAPSHOT_FILTER: FileFilter[] = [{ name: 'NTNXVision snapshot', extensions: ['ntnxsnap'] }];
 const isSnapshotFile = (p: string) => /\.ntnxsnap$/i.test(p);
@@ -509,14 +626,15 @@ function defaultFolder(): string {
   return store.getSettings().exportDir || join(homedir(), 'Documents', 'NTNXVision');
 }
 
-ipcMain.handle(IPC.chooseSnapshotSavePath, async (_e, defaultName: string) => {
+ipc.handle(IPC.chooseSnapshotSavePath, async (_e, defaultName: string) => {
+  str(defaultName, 'defaultName', 1024);
   // Never let a snapshot name smuggle a path into the dialog's default.
   const stem = basename(String(defaultName || 'snapshot'))
     .replace(/[<>:"/\\|?*]/g, '_')
     .replace(/\p{Cc}/gu, '_')
     .replace(/\.ntnxsnap$/i, '');
   const name = `${stem || 'snapshot'}.ntnxsnap`;
-  if (e2eDialogDir) return join(e2eDialogDir, name);
+  if (e2eDialogDir) return rememberSavePath(join(e2eDialogDir, name));
   const folder = defaultFolder();
   const result = await dialog.showSaveDialog(mainWindow!, {
     title: 'Export snapshot file',
@@ -525,10 +643,10 @@ ipcMain.handle(IPC.chooseSnapshotSavePath, async (_e, defaultName: string) => {
     properties: ['createDirectory', 'showOverwriteConfirmation'],
   });
   if (result.canceled || !result.filePath) return null;
-  return isSnapshotFile(result.filePath) ? result.filePath : `${result.filePath}.ntnxsnap`;
+  return rememberSavePath(isSnapshotFile(result.filePath) ? result.filePath : `${result.filePath}.ntnxsnap`);
 });
 
-ipcMain.handle(IPC.chooseSnapshotFiles, async () => {
+ipc.handle(IPC.chooseSnapshotFiles, async () => {
   if (e2eDialogDir) {
     return readdirSync(e2eDialogDir)
       .filter(isSnapshotFile)
@@ -567,7 +685,7 @@ function openSnapshotFiles(paths: string[]): void {
   }
 }
 
-ipcMain.handle(IPC.takePendingSnapshotFiles, () => {
+ipc.handle(IPC.takePendingSnapshotFiles, () => {
   rendererWantsFiles = true;
   return pendingSnapshotFiles.splice(0);
 });
@@ -580,55 +698,64 @@ app.on('open-file', (event, path) => {
 
 // ─── IPC handlers: shell ───────────────────────────────────────────────
 
-ipcMain.handle(IPC.revealPath, (_e, p: string) => {
+ipc.handle(IPC.revealPath, (_e, p: string) => {
+  const target = revealablePath(p);
   if (e2e) return;
-  shell.showItemInFolder(p);
+  shell.showItemInFolder(target);
 });
 
-ipcMain.handle(IPC.openPath, async (_e, p: string) => {
+ipc.handle(IPC.openPath, async (_e, p: string) => {
+  const target = openablePath(p);
   if (e2e) return { error: null };
-  const error = await shell.openPath(p);
+  const error = await shell.openPath(target);
   return { error: error || null };
 });
 
-ipcMain.handle(IPC.openExternal, async (_e, url: string) => {
-  // Only web links (Prism Central deep links) — never file:// or custom schemes.
-  if (!/^https:\/\//i.test(url)) throw new Error('Only https links can be opened');
-  if (e2e) return;
-  await shell.openExternal(url);
-});
+// Only web links (Prism Central deep links): parsed, https, no credentials (SEC-05).
+ipc.handle(IPC.openExternal, (_e, url: string) => openExternalSafe(url));
 
-ipcMain.handle(IPC.chooseDirectory, async (_e, title?: string) => {
-  if (e2eDialogDir) return e2eDialogDir;
+ipc.handle(IPC.chooseDirectory, async (_e, title?: string) => {
+  const heading = optStr(title, 'title', 200);
+  if (e2eDialogDir) return rememberChosenDir(e2eDialogDir), e2eDialogDir;
   const result = await dialog.showOpenDialog(mainWindow!, {
     properties: ['openDirectory', 'createDirectory'],
-    title: title || 'Choose where reports are saved',
+    title: heading || 'Choose where reports are saved',
   });
-  return result.canceled ? null : result.filePaths[0] ?? null;
+  const dir = result.canceled ? null : result.filePaths[0] ?? null;
+  rememberChosenDir(dir);
+  return dir;
 });
 
-ipcMain.handle(IPC.chooseFile, async (_e, filters: FileFilter[]) => {
+ipc.handle(IPC.chooseFile, async (_e, filters: FileFilter[]) => {
+  const clean = fileFilters(filters);
   const result = await dialog.showOpenDialog(mainWindow!, {
     properties: ['openFile'],
-    filters,
+    filters: clean,
   });
-  return result.canceled ? null : result.filePaths[0] ?? null;
+  const file = result.canceled ? null : result.filePaths[0] ?? null;
+  rememberChosenFile(file);
+  return file;
 });
 
 // ─── IPC handlers: connection profiles & settings ──────────────────────
 
-ipcMain.handle(IPC.listConnections, () => store.targets.listWithStatus());
-ipcMain.handle(IPC.saveTarget, (_e, req: TargetSaveRequest) => store.targets.save(req));
-ipcMain.handle(IPC.deleteTarget, async (_e, id: string) => {
+ipc.handle(IPC.listConnections, () => store.targets.listWithStatus());
+ipc.handle(IPC.saveTarget, (_e, req: TargetSaveRequest) => store.targets.save(asTargetSaveRequest(req)));
+ipc.handle(IPC.deleteTarget, async (_e, id: string) => {
+  str(id, 'id', 128);
   const remaining = await store.targets.delete(id);
   const ids = store.getSettings().multiTargetIds;
   if (ids?.includes(id)) store.setSettings({ multiTargetIds: ids.filter((x) => x !== id) });
   return remaining;
 });
-ipcMain.handle(IPC.getSettings, () => store.getSettings());
-ipcMain.handle(IPC.setSettings, (_e, settings: AppSettings) => {
+ipc.handle(IPC.getSettings, () => store.getSettings());
+ipc.handle(IPC.setSettings, (_e, raw: AppSettings) => {
+  // Only known keys with valid values are stored; the export folder must be one the app
+  // knows (saved, the default, or picked in a dialog this session).
+  const settings = cleanSettings(raw);
+  if (settings.exportDir) exportDirFor(settings.exportDir);
   const saved = store.setSettings(settings);
-  if (settings && 'startAtLogin' in settings) scheduler.applyLoginItem(saved);
+  if ('startAtLogin' in settings) scheduler.applyLoginItem(saved);
   return saved;
 });
 
@@ -711,6 +838,8 @@ if (!primary) {
 app.whenReady().then(async () => {
   if (!primary) return;
   if (isSmokeRun()) return void runSmoke(sidecar); // packaging smoke test, no window
+  lockPermissions();
+  installMenu();
   sidecar.start();
   await prepareTargets();
   // A first demo launch fills the profile (~5 s) before the UI loads, so it opens on data.
