@@ -87,8 +87,8 @@ once, or use Import or drag and drop.
   `enableNodeOptionsEnvironmentVariable` and `enableNodeCliInspectArguments` off,
   `enableEmbeddedAsarIntegrityValidation`, `onlyLoadAppFromAsar` and `enableCookieEncryption`
   on. Verify a build with `npx @electron/fuses read --app release/mac-arm64/NTNXVision.app`.
-  `grantFileProtocolExtraPrivileges` stays at its default (on): the renderer loads from
-  `file://` inside the asar, and turning it off makes that load fail (ERR_FILE_NOT_FOUND).
+  `grantFileProtocolExtraPrivileges` is expected off once the renderer loads over `app://`;
+  CI (the "Verify Electron fuses" step) fails if it is on or any other fuse differs.
   The packaged app therefore cannot be started as plain Node, and `--smoke` does not need
   that; development runs use the unpackaged Electron, which has the default fuses.
 * **macOS entitlements**: `entitlements.mac.plist` (main executable) and
@@ -116,9 +116,19 @@ Apple Development identity). Hardened runtime is on, with entitlements in
 off for the PyInstaller dylibs, network client). The keychain library needs no keychain entitlement
 because the app isn't sandboxed.
 
-**GitHub repo secrets** consumed by `.github/workflows/release.yml`: `MAC_CSC_LINK`,
+**GitHub Environment secrets** consumed by `.github/workflows/release.yml`: `MAC_CSC_LINK`,
 `MAC_CSC_KEY_PASSWORD`, `APPLE_ID`, `APPLE_APP_SPECIFIC_PASSWORD`, `APPLE_TEAM_ID`,
-`WIN_CSC_LINK`, `WIN_CSC_KEY_PASSWORD`.
+`WIN_CSC_LINK`, `WIN_CSC_KEY_PASSWORD`. Store them as secrets of an Environment named
+`release`, not as repository secrets: the package jobs attach that environment only on `v*`
+tag runs, so pull requests and manual (`workflow_dispatch`) runs from any branch get no
+signing secrets and always build unsigned.
+
+**One-time setup by the repo owner** (CI cannot create it): Settings > Environments > New
+environment `release`; under Deployment branches and tags add a **tag** rule `v*`; optionally
+add Required reviewers so each release build needs an approval; move the seven secrets above
+into it and delete any repository-level copies (a repository secret of the same name would
+still reach every run). Until the environment exists, the first tag run creates it with no
+secrets and fails at the "signing secret is missing" check.
 
 Getting the Apple credentials (Apple Developer Program, $99/yr):
 1. Create a **Developer ID Application** certificate and export it from Keychain Access as a
