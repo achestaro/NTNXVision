@@ -145,6 +145,55 @@ test('every ipcMain handler goes through secureIpc', () => {
   }
 });
 
+test('app:// URLs map to files inside the renderer folder only (B-3)', () => {
+  const root = join(tmpdir(), 'ntnx-renderer-root');
+  const ok = (u) => policy.resolveAppFile(u, root);
+  assert.equal(ok('app://ntnxvision/index.html'), join(root, 'index.html'));
+  assert.equal(ok('app://ntnxvision/'), join(root, 'index.html'));
+  assert.equal(ok('app://ntnxvision/assets/a%20b.js'), join(root, 'assets', 'a b.js'));
+  // The URL parser already collapses a literal dot-dot; the result stays inside the root.
+  assert.equal(ok('app://ntnxvision/../etc/passwd'), join(root, 'etc', 'passwd'));
+  assert.equal(ok('app://ntnxvision/%2e%2e/etc/passwd'), join(root, 'etc', 'passwd'));
+  for (const bad of [
+    'app://ntnxvision/assets/..%2f..%2fx',
+    'app://ntnxvision/assets/..%5c..%5cx',
+    'app://ntnxvision/a%00.js',
+    'app://other/index.html',
+    'app://user@ntnxvision/index.html',
+    'file:///etc/passwd',
+    'https://ntnxvision/index.html',
+    'not a url',
+  ]) {
+    assert.equal(ok(bad), null, bad);
+  }
+});
+
+test('UNC paths are rejected before any filesystem access (R2-09)', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'ntnx-unc-'));
+  for (const bad of ['\\\\attacker\\share\\x.pdf', '//attacker/share/x.pdf', '\\\\?\\C:\\x.pdf']) {
+    throwsValidation(() => policy.resolveOpenable(bad, [dir], { extensions: policy.OPEN_EXTENSIONS, dirOk: false }));
+    assert.equal(policy.isUncPath(bad), true);
+  }
+  assert.equal(policy.isUncPath('/Users/a/x.pdf'), false);
+  // A path outside the allowed folders is refused lexically, even though it exists.
+  throwsValidation(() =>
+    policy.resolveOpenable(join(dir, '..', 'elsewhere.pdf'), [dir], { extensions: policy.OPEN_EXTENSIONS, dirOk: false }),
+  );
+});
+
+test('OS-handed snapshot files are not UNC-filtered; renderer paths are (R2-09)', () => {
+  const dir = join(dirname(fileURLToPath(import.meta.url)), '..', 'src', 'main');
+  const text = readFileSync(join(dir, 'main.ts'), 'utf8');
+  const fn = text.slice(text.indexOf('function snapshotFilesFrom('), text.indexOf('function openSnapshotFiles('));
+  assert.ok(!/isUncPath/.test(fn), 'snapshotFilesFrom must not reject UNC paths');
+  assert.ok(/osHandedFiles\.add/.test(fn), 'OS-handed files are remembered');
+  const arg = text.slice(text.indexOf('function snapshotFileArg('), text.indexOf('function showWindow('));
+  assert.ok(/requireLocalAbsolute/.test(arg) && /osHandedFiles\.has/.test(arg));
+  // The pure policy still refuses UNC for anything else.
+  assert.throws(() => policy.requireLocalAbsolute('\\\\host\\share\\a.ntnxsnap', 'path'));
+  assert.equal(policy.requireLocalAbsolute('/Users/a/a.ntnxsnap', 'path'), '/Users/a/a.ntnxsnap');
+});
+
 test('R2-10: test and list-clusters requests accept plain hosts only', () => {
   for (const host of ['pc01', 'pc01.example.lab', '192.0.2.10', 'fd00::1']) {
     assert.doesNotThrow(() => req.asTestRequest({ ...testReq, host }), host);

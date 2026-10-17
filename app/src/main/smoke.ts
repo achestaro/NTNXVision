@@ -12,7 +12,7 @@ export function isSmokeRun(): boolean {
   return process.argv.includes('--smoke') || process.env.NTNXVISION_SMOKE === '1';
 }
 
-export async function runSmoke(sidecar: SidecarClient): Promise<void> {
+export async function runSmoke(sidecar: SidecarClient, checkRenderer: () => Promise<string>): Promise<void> {
   const report: Record<string, unknown> = {
     smoke: 'ntnxvision',
     version: app.getVersion(),
@@ -36,6 +36,13 @@ export async function runSmoke(sidecar: SidecarClient): Promise<void> {
     if ((report.ping as { pong?: boolean })?.pong !== true) ok = false;
   } catch (err) {
     report.ping = String(err);
+    ok = false;
+  }
+  // The real window settings load the built renderer over app://, it renders, no CSP violation.
+  try {
+    report.renderer = await checkRenderer();
+  } catch (err) {
+    report.renderer = String(err);
     ok = false;
   }
   report.ok = ok;
