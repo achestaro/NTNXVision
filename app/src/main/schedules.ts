@@ -24,6 +24,7 @@ import type {
   ScheduleSaveRequest,
   ScheduleTrigger,
 } from '../shared/ipc';
+import { SCHEDULES_TAMPERED_MESSAGE } from '../shared/ipc';
 import {
   HISTORY_MAX,
   TargetRef,
@@ -43,6 +44,8 @@ export interface SchedulesFile {
 export interface SchedulesIO {
   read(): unknown;
   write(file: SchedulesFile): void;
+  /** schedules.json failed its integrity check when it was read (SEC-17). */
+  tampered?(): boolean;
 }
 
 export interface StoreDeps {
@@ -106,6 +109,7 @@ const sameTiming = (a: ScheduleFrequency, b: ScheduleFrequency) => JSON.stringif
 
 export class ScheduleStore {
   private file: SchedulesFile | null = null;
+  private changedOutside = false;
 
   constructor(
     private readonly io: SchedulesIO,
@@ -115,12 +119,15 @@ export class ScheduleStore {
   private load(): SchedulesFile {
     if (this.file) return this.file;
     const raw = this.io.read() as Partial<SchedulesFile> | undefined;
+    // Edited outside the app: keep the data to review, but nothing in it may run.
+    this.changedOutside = this.io.tampered?.() ?? false;
     const now = this.deps.now().toISOString();
     const schedules: Schedule[] = [];
     for (const s of Array.isArray(raw?.schedules) ? raw!.schedules : []) {
       if (!s || typeof s !== 'object' || typeof s.id !== 'string' || !s.id) continue;
       schedules.push({
         ...normalizeDefinition(s),
+        enabled: this.changedOutside ? false : normalizeDefinition(s).enabled,
         id: s.id,
         createdAt: str(s.createdAt) || now,
         updatedAt: str(s.updatedAt) || now,
@@ -132,8 +139,24 @@ export class ScheduleStore {
     return this.file;
   }
 
+  /** The file was changed outside the app: schedules are shown but never run until re-saved. */
+  get tampered(): boolean {
+    this.load();
+    return this.changedOutside;
+  }
+
+  /** Bookkeeping writes (anchors, run history) never re-sign a file changed outside the app. */
   private save(): void {
-    this.io.write(this.load());
+    const file = this.load();
+    if (this.changedOutside) return;
+    this.io.write(file);
+  }
+
+  /** A deliberate change by the user: the current content, all switched off, becomes the baseline. */
+  private saveByUser(): void {
+    this.load();
+    this.changedOutside = false;
+    this.save();
   }
 
   list(): Schedule[] {
@@ -161,12 +184,12 @@ export class ScheduleStore {
       // New timing or a schedule switched back on: slots before now are not owed.
       const reanchor = !sameTiming(existing.frequency, def.frequency) || (def.enabled && !existing.enabled);
       Object.assign(existing, def, { updatedAt: now, anchor: reanchor ? now : existing.anchor });
-      this.save();
+      this.saveByUser();
       return { ok: true, schedule: existing };
     }
     const schedule: Schedule = { ...def, id: this.deps.newId(), createdAt: now, updatedAt: now, anchor: now, history: [] };
     file.schedules.push(schedule);
-    this.save();
+    this.saveByUser();
     return { ok: true, schedule };
   }
 
@@ -175,7 +198,7 @@ export class ScheduleStore {
     const before = file.schedules.length;
     file.schedules = file.schedules.filter((s) => s.id !== id);
     if (file.schedules.length === before) return false;
-    this.save();
+    this.saveByUser();
     return true;
   }
 
@@ -186,7 +209,7 @@ export class ScheduleStore {
     s.enabled = enabled;
     s.updatedAt = this.deps.now().toISOString();
     if (enabled) s.anchor = s.updatedAt;
-    this.save();
+    this.saveByUser();
     return true;
   }
 
@@ -351,6 +374,7 @@ export class ScheduleRunner {
 
   /** Run a schedule now (enabled or not). False when it is already queued or running. */
   runNow(id: string): boolean {
+    if (this.deps.store.tampered) throw new Error(SCHEDULES_TAMPERED_MESSAGE);
     if (!this.deps.store.get(id)) throw new Error('That schedule no longer exists.');
     const ok = this.enqueue({ scheduleId: id, trigger: 'manual', slot: null });
     if (ok) this.deps.changed();

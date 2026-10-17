@@ -82,6 +82,27 @@ _SPECS = (
 )
 
 
+def xl_text(wb: Workbook) -> None:
+    """Force every string cell to be stored as text, never as a formula.
+
+    openpyxl turns any string starting with "=" into a formula cell; snapshot data
+    (VM names, descriptions, notes) is attacker-influenced, so before saving every
+    cell whose type is formula is switched to a string and given the quote prefix
+    (Excel then also keeps it text when edited). Numbers and dates are untouched.
+    Dangerous leading characters (= + - @ tab CR LF and the fullwidth forms) are
+    all covered because no string cell can be evaluated once typed as 's'."""
+    for ws in wb.worksheets:
+        for row in ws.iter_rows():
+            for cell in row:
+                v = cell.value
+                if isinstance(v, str) and (cell.data_type == "f" or v[:1] in _FORMULA_LEAD):
+                    cell.data_type = "s"
+                    cell.quotePrefix = True
+
+
+_FORMULA_LEAD = ("=", "+", "-", "@", "\t", "\r", "\n", "\uff1d", "\uff0b", "\uff0d", "\uff20")
+
+
 class ExcelExporter:
     #: Number of sheets written by the last export (for the "34 sheets" report detail).
     sheet_count: int = 0
@@ -108,6 +129,7 @@ class ExcelExporter:
 
         out = Path(path)
         out.parent.mkdir(parents=True, exist_ok=True)
+        xl_text(wb)
         wb.save(out)
         self.sheet_count = len(wb.sheetnames)
         return out

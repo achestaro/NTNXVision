@@ -15,7 +15,8 @@
     "dev:electron:demo": "npx wait-on http://localhost:5273 dist/main/main.js && npx electron . --demo",
     "build": "npm run build:renderer && npm run build:main",
     "build:renderer": "npx vite build",
-    "build:main": "npx tsc -p tsconfig.main.json",
+    "build:main": "npx tsc -p tsconfig.main.json && npm run build:preload",
+    "build:preload": "esbuild src/main/preload.ts --bundle --platform=node --format=cjs --target=node20 --external:electron --outfile=dist/main/preload.bundle.js",
     "start": "npx electron .",
     "demo": "npm run build && npx electron . --demo --dist",
     "lint": "npx eslint . --ext .ts,.tsx",
@@ -32,7 +33,7 @@
     "notices:check": "node ../scripts/generate-third-party-notices.mjs --check"
   },
   "dependencies": {
-    "keytar": "^7.9.0"
+    "@napi-rs/keyring": "2.1.1"
   },
   "devDependencies": {
     "@electron/notarize": "^2.5.0",
@@ -45,9 +46,10 @@
     "@types/react": "^18.2.0",
     "@types/react-dom": "^18.2.0",
     "@vitejs/plugin-react": "^4.2.0",
-    "concurrently": "^8.2.0",
-    "electron": "^30.0.0",
-    "electron-builder": "^24.13.0",
+    "concurrently": "^9.0.0",
+    "electron": "44.9.0",
+    "electron-builder": "^26.15.3",
+    "esbuild": "0.25.12",
     "eslint": "^9.39.4",
     "globals": "^14.0.0",
     "playwright-core": "^1.61.1",
@@ -55,8 +57,8 @@
     "react-dom": "^18.2.0",
     "typescript": "^5.4.0",
     "typescript-eslint": "^8.62.1",
-    "vite": "^5.2.0",
-    "wait-on": "^7.2.0"
+    "vite": "^6.4.4",
+    "wait-on": "^8.0.0"
   },
   "build": {
     "appId": "com.achestaro.ntnxvision",
@@ -70,11 +72,12 @@
     "files": [
       "dist/**/*",
       "!dist/**/*.map",
+      "!dist/main/preload.js",
       "package.json"
     ],
     "asar": true,
     "asarUnpack": [
-      "**/node_modules/keytar/**",
+      "**/node_modules/@napi-rs/keyring*/**",
       "**/*.node"
     ],
     "npmRebuild": true,
@@ -101,7 +104,7 @@
         ]
       }
     ],
-    "afterSign": "build/notarize.js",
+    "afterSign": "build/after-sign.js",
     "fileAssociations": [
       {
         "ext": "ntnxsnap",
@@ -123,10 +126,12 @@
       ],
       "icon": "build/icon.ico",
       "legalTrademarks": "NTNXVision",
-      "publisherName": "Alberto Chestaro",
-      "signingHashAlgorithms": [
-        "sha256"
-      ]
+      "signtoolOptions": {
+        "publisherName": "Alberto Chestaro",
+        "signingHashAlgorithms": [
+          "sha256"
+        ]
+      }
     },
     "msi": {
       "upgradeCode": "9EE643E8-FE25-48DF-B14C-CEA7056CF80F",
@@ -158,7 +163,7 @@
       "hardenedRuntime": true,
       "gatekeeperAssess": false,
       "entitlements": "build/entitlements.mac.plist",
-      "entitlementsInherit": "build/entitlements.mac.plist",
+      "entitlementsInherit": "build/entitlements.inherit.plist",
       "notarize": false,
       "minimumSystemVersion": "11.0",
       "darkModeSupport": true,
@@ -172,6 +177,14 @@
     "dmg": {
       "title": "${productName} ${version}",
       "writeUpdateInfo": false
+    },
+    "electronFuses": {
+      "runAsNode": false,
+      "enableCookieEncryption": true,
+      "enableNodeOptionsEnvironmentVariable": false,
+      "enableNodeCliInspectArguments": false,
+      "enableEmbeddedAsarIntegrityValidation": true,
+      "onlyLoadAppFromAsar": true
     }
   }
 }

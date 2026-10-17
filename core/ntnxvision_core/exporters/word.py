@@ -392,6 +392,13 @@ class WordExporter:
 # ─── helpers: layout ──────────────────────────────────────────────────────
 
 
+#: Customer Word template ceilings (a real template is well under a few MB).
+MAX_TEMPLATE_BYTES = 25 * 1024**2
+MAX_TEMPLATE_UNPACKED = 200 * 1024**2
+_TEMPLATE_MAX_MEMBERS = 2000
+_TEMPLATE_MAX_RATIO = 200
+
+
 def _text_width(doc: DocumentObject) -> int:
     s = doc.sections[-1]
     return int(s.page_width or Inches(8.5)) - int(s.left_margin or 0) - int(s.right_margin or 0)
@@ -712,10 +719,25 @@ def load_template(template: str) -> DocumentObject:
         raise FileNotFoundError(f"Word template not found: {src}")
     if src.suffix.lower() not in (".dotx", ".docx"):
         raise ValueError("A Word template must be a .dotx or .docx file")
+    if src.stat().st_size > MAX_TEMPLATE_BYTES:
+        raise ValueError(f"The Word template is too large (over "
+                         f"{MAX_TEMPLATE_BYTES // 1024**2} MB).")
     with tempfile.TemporaryDirectory() as tmp:
         work = Path(tmp) / "template.docx"
-        with zipfile.ZipFile(src) as zin, zipfile.ZipFile(work, "w", zipfile.ZIP_DEFLATED) as zout:
-            for item in zin.infolist():
+        try:
+            zin_ctx = zipfile.ZipFile(src)
+        except zipfile.BadZipFile as exc:
+            raise ValueError("The Word template is not a valid .dotx or .docx file") from exc
+        with zin_ctx as zin, zipfile.ZipFile(work, "w", zipfile.ZIP_DEFLATED) as zout:
+            infos = zin.infolist()
+            if len(infos) > _TEMPLATE_MAX_MEMBERS or \
+                    sum(i.file_size for i in infos) > MAX_TEMPLATE_UNPACKED:
+                raise ValueError("The Word template is too large or has too many parts to open.")
+            for item in infos:
+                if item.file_size > 1024**2 and item.file_size > _TEMPLATE_MAX_RATIO * max(
+                        item.compress_size, 1):
+                    raise ValueError("The Word template looks like a compression bomb; "
+                                     "not opened.")
                 data = zin.read(item.filename)
                 if item.filename == "[Content_Types].xml":
                     data = data.replace(
