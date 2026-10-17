@@ -32,6 +32,7 @@ from ntnxvision_core.exporters.theme import (
     plural,
     power_label,
     report_date,
+    switch_label,
     tone_for,
 )
 from ntnxvision_core.models import Environment
@@ -197,7 +198,7 @@ class Report:
 MONO_HEADERS = frozenset({
     "AOS", "Version", "Current Version", "Current", "Available Versions", "Active Version",
     "IP Prefix", "IP address(es)", "IP Addresses", "Gateway", "VLAN", "Routable Prefixes",
-    "NCC Version", "API", "External IP", "Data Services IP",
+    "NCC Version", "API", "External IP", "Data Services IP", "vCenter",
 })
 
 
@@ -355,7 +356,7 @@ def deployment(cfg: Any) -> str | None:
 
 _OUTCOME = {"collected": "Collected", "notes": "Collected with notes", "skipped": "Skipped",
             "failed": "Failed", "cancelled": "Cancelled"}
-_API_LABEL = {"v2": "v2.0", "era": "Era"}
+_API_LABEL = {"v2": "v2.0", "era": "Era", "vcenter": "vCenter"}
 
 
 def run_areas(env: Environment) -> list[dict[str, Any]]:
@@ -727,12 +728,12 @@ class _Builder:
                 "Prism Central and its registered clusters.")))
         ch.add("Clusters Overview", make_table(
             ["Cluster", "AOS", "Hypervisor", "Nodes", "RF", "Encryption", "External IP",
-             "Data Services IP"],
+             "Data Services IP", "vCenter"],
             [[c.name, c.aos_version, ", ".join(c.hypervisor_types), c.num_nodes,
               c.redundancy_factor, "Yes" if c.encryption_enabled else "No", c.external_ip,
-              c.data_services_ip]
+              c.data_services_ip, c.vcenter_address]
              for c in env.clusters],
-            "Registered clusters", self.src(env.clusters)))
+            "Registered clusters", self.src(env.clusters), prune=("vCenter",)))
         return ch
 
     def physical_design(self) -> Chapter:
@@ -944,6 +945,12 @@ class _Builder:
             [[s.name, self.cluster(s), s.subnet_type, s.vlan_id, s.virtual_switch, s.ip_prefix,
               s.vpc_name] for s in env.subnets],
             "Subnets", self.src(env.subnets), prune=("VPC", "vSwitch", "IP Prefix")), *figs)
+        ch.add("ESXi Port Groups", make_table(
+            ["Port Group", "Cluster", "VLAN", "Switch", "VMs"],
+            [[p.name, self.cluster(p), p.vlan_id, switch_label(p.switch_type), p.vm_count]
+             for p in env.port_groups],
+            "vSphere port groups of the ESXi clusters", self.src(env.port_groups),
+            prune=("Switch",)))
         vpc_fig = diagrams.vpc_topology(env)
         ch.add("Virtual Networking (VPCs)", make_table(
             ["VPC", "Subnets", "External Subnets", "Routable Prefixes", "Routes",

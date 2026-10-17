@@ -1,10 +1,17 @@
-"""Subnet collector (v3 `subnets/list`)."""
+"""Subnet collector (v3 `subnets/list`), plus the port groups of ESXi clusters.
+
+ESXi VMs attach to vSphere port groups, which no Prism Central subnet API lists; they
+are read per ESXi cluster from its Prism Element (v2.0 ``networks`` through the PC
+proxy, see `collectors.esxi`) into `Environment.port_groups`.
+"""
 
 from __future__ import annotations
 
 from typing import Any
 
 from ntnxvision_core.collectors.base import Collector
+from ntnxvision_core.collectors.element import port_group_from_v2
+from ntnxvision_core.collectors.esxi import PeReadError, esxi_clusters, pe_networks
 from ntnxvision_core.models import Subnet
 
 
@@ -40,7 +47,26 @@ class SubnetCollector(Collector):
                     api_source="v3",
                 )
             )
-        env.collection_notes[self.name] = "ok"
+        failed = self._port_groups(env)
+        env.collection_notes[self.name] = (
+            "ok: port groups unavailable for " + "; ".join(failed) if failed else "ok")
+
+    def _port_groups(self, env: Any) -> list[str]:
+        """Port groups of the in-scope ESXi clusters, from Prism Element v2.0 via PC.
+
+        Prism Central's subnet APIs list nothing for an ESXi cluster. Returns
+        "<cluster> (<reason>)" for every cluster whose networks could not be read.
+        """
+        failed: list[str] = []
+        for uuid, name in esxi_clusters(self.conn, env):
+            try:
+                networks = pe_networks(self.conn, uuid)
+            except PeReadError as exc:
+                failed.append(f"{name or uuid} ({exc})")
+                continue
+            for net in networks:
+                env.port_groups.append(port_group_from_v2(net, uuid, name))
+        return failed
 
     def _vswitch_names(self) -> dict[str, str]:
         """uuid → virtual switch name, best-effort via the v4 networking API.
