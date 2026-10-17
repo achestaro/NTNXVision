@@ -80,6 +80,9 @@ export function NewCollectionView({
   const [ndbOn, setNdbOn] = useState(false);
   const [ndbHost, setNdbHost] = useState('');
   const [ndbUser, setNdbUser] = useState('admin');
+  const [vcOn, setVcOn] = useState(false);
+  const [vcHost, setVcHost] = useState('');
+  const [vcUser, setVcUser] = useState('');
 
   const [fmt, setFmt] = useState<Record<ExportFormat, boolean>>({ excel: true, pdf: false, word: false });
   const [name, setName] = useState('');
@@ -140,6 +143,9 @@ export function NewCollectionView({
     setNdbOn(!!p.ndbHost);
     setNdbHost(p.ndbHost ?? '');
     setNdbUser(p.ndbUser ?? 'admin');
+    setVcOn(!!p.vcenterHost);
+    setVcHost(p.vcenterHost ?? '');
+    setVcUser(p.vcenterUser ?? '');
     setTest({ kind: 'idle' });
     resetClusters();
     setErrors({});
@@ -307,6 +313,8 @@ export function NewCollectionView({
         filePrefix: prefix,
         // The NDB password comes from the target's keychain entry (main process).
         ndb: !isPe && ndbOn && ndbHost ? { host: ndbHost, username: ndbUser, password: '' } : undefined,
+        // So do the vCenter's details and password (ESXi enrichment).
+        vcenter: !isPe && vcOn && vcHost ? { host: vcHost, username: vcUser, password: '' } : undefined,
       });
       if (prefix !== (settings.filePrefix ?? '')) void update({ filePrefix: prefix });
     } catch (err) {
@@ -437,6 +445,12 @@ export function NewCollectionView({
                     <div className="kv">
                       <dt>NDB</dt>
                       <dd className={ndbHost ? 'mono' : 'dash'}>{ndbHost || NA}</dd>
+                    </div>
+                  )}
+                  {!isPe && (
+                    <div className="kv">
+                      <dt>vCenter</dt>
+                      <dd className={vcHost ? 'mono' : 'dash'}>{vcHost || NA}</dd>
                     </div>
                   )}
                   <div className="kv">
@@ -595,6 +609,17 @@ export function NewCollectionView({
                     {ndbHost
                       ? `${ndbHost} as ${ndbUser}, from the target`
                       : 'Add an NDB endpoint to this target on the Targets page to include it'}
+                  </div>
+                </div>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                <Switch checked={vcOn && !isPe && !!vcHost} onChange={setVcOn} labelledBy="vcLbl" disabled={isPe || !vcHost} />
+                <div id="vcLbl">
+                  <div style={{ fontWeight: 500 }}>VMware vCenter (ESXi clusters)</div>
+                  <div className="hint">
+                    {vcHost
+                      ? `${vcHost} as ${vcUser}, from the target: disk datastores and port group switch types`
+                      : 'Add the vCenter of your ESXi clusters to this target on the Targets page to include it'}
                   </div>
                 </div>
               </div>

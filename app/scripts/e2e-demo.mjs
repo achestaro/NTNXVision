@@ -449,14 +449,34 @@ try {
     if (await targetRow('Lab PC01').count()) throw new Error('the rename left the old target behind');
   });
 
+  await run('targets-vcenter', async () => {
+    // pc01's ESXi cluster reports its vCenter: the editor suggests it, tests it, saves it.
+    await rail('Targets');
+    await targetRow('Lab PC01 renamed').getByRole('button', { name: 'Lab PC01 renamed', exact: true }).click();
+    const dialog = page.getByRole('dialog');
+    await dialog.getByRole('heading', { name: 'Edit Lab PC01 renamed' }).waitFor();
+    await dialog.getByRole('button', { name: 'Find from Prism Central' }).click();
+    await dialog.getByRole('button', { name: 'Use 198.51.100.20' }).click({ timeout: 30_000 });
+    if ((await dialog.locator('#t-vc').inputValue()) !== '198.51.100.20') throw new Error('suggestion not applied');
+    await dialog.locator('#t-vcp').fill('demo');
+    await dialog.getByRole('button', { name: 'Test vCenter' }).click();
+    await dialog.getByText(/Connected to vCenter 8\.0\.2/).waitFor({ timeout: 30_000 });
+    await targetsShot('e2e-target-vcenter');
+    await dialog.getByRole('button', { name: 'Save changes' }).click();
+    await dialog.waitFor({ state: 'detached', timeout: 15_000 });
+  });
+
   await run('second-collection', async () => {
     await fillTarget('Lab PC01 renamed', '', 'pc01-week2');
     await clustersListed(4);
     await page.getByTestId('cluster-toggle-all').click(); // every cluster this time
     if ((await clusterCount()) !== '4 / 4') throw new Error(`selection ${await clusterCount()}`);
+    // The target's vCenter is on for this run (ESXi enrichment).
+    await page.getByText('198.51.100.20 as administrator@vsphere.local, from the target', { exact: false }).waitFor();
     await startButton().click();
     await heading('Collection complete', 180_000);
     await page.getByTestId('results-scope').getByText('Scope: All 4 clusters').waitFor();
+    await page.getByText('vCenter enrichment (ESXi)').first().waitFor({ timeout: 15_000 });
   });
 
   await run('saved-target-renamed', async () => {
