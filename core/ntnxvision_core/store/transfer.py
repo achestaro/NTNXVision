@@ -613,6 +613,21 @@ _ENV_MIGRATIONS: dict[int, Callable[[dict[str, Any], dict[str, Any]], dict[str, 
 }
 
 
+#: Longest free-text string kept from an imported snapshot; longer ones are truncated.
+MAX_TEXT_CHARS = 16_384
+
+
+def cap_strings(value: Any, limit: int = MAX_TEXT_CHARS) -> Any:
+    """Truncate over-long strings (with an ellipsis) anywhere in parsed snapshot JSON."""
+    if isinstance(value, str):
+        return value if len(value) <= limit else value[:limit - 1] + "\u2026"
+    if isinstance(value, list):
+        return [cap_strings(v, limit) for v in value]
+    if isinstance(value, dict):
+        return {k: cap_strings(v, limit) for k, v in value.items()}
+    return value
+
+
 def migrate_environment(data: Any, entry: dict[str, Any]) -> Environment:
     if not isinstance(data, dict):
         raise InvalidSnapshotFile("The snapshot in the file is not valid.")
@@ -625,7 +640,7 @@ def migrate_environment(data: Any, entry: dict[str, Any]) -> Environment:
         data = _ENV_MIGRATIONS[schema](data, entry)
         schema = data["schema_version"]
     try:
-        env = Environment.model_validate(data)
+        env = Environment.model_validate(cap_strings(data))
     except ValueError as exc:
         raise InvalidSnapshotFile("The snapshot in the file is not valid.") from exc
     if env.snapshot_id != entry["snapshot_id"]:

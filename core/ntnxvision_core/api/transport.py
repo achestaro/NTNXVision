@@ -10,8 +10,11 @@ sends requests for the synthetic demo hostnames to the local mock Nutanix server
 from __future__ import annotations
 
 from collections.abc import Callable
+from typing import Any
 
 import requests
+
+from ntnxvision_core.api.errors import NutanixApiError
 
 #: Installed by demo mode: given a fresh session, mount whatever adapters it needs.
 _session_hook: Callable[[requests.Session], None] | None = None
@@ -19,8 +22,46 @@ _session_hook: Callable[[requests.Session], None] | None = None
 _address_hook: Callable[[str, int], tuple[str, int, bool]] | None = None
 
 
+#: Largest API response body accepted (after decompression). Real estates page their
+#: lists, so a single response is far below this; the cap stops a hostile or broken
+#: endpoint from exhausting memory.
+MAX_RESPONSE_BYTES = 64 * 1024 * 1024
+
+
+class BoundedSession(requests.Session):
+    """A session that refuses response bodies larger than `max_bytes`."""
+
+    max_bytes: int = MAX_RESPONSE_BYTES
+
+    def send(self, request: requests.PreparedRequest, **kwargs: Any) -> requests.Response:
+        stream = kwargs.get("stream", False)
+        kwargs["stream"] = True
+        resp = super().send(request, **kwargs)
+        if stream:
+            return resp
+        limit = self.max_bytes
+        mb = limit // (1024 * 1024)
+
+        def too_big() -> NutanixApiError:
+            resp.close()
+            return NutanixApiError(
+                f"Response from {request.url} is larger than the {mb} MB limit; not read.",
+                status_code=resp.status_code)
+
+        declared = resp.headers.get("Content-Length", "")
+        if declared.isdigit() and int(declared) > limit:
+            raise too_big()
+        body = bytearray()
+        for chunk in resp.iter_content(chunk_size=65536):
+            body.extend(chunk)
+            if len(body) > limit:
+                raise too_big()
+        resp._content = bytes(body)
+        return resp
+
+
 def new_session() -> requests.Session:
-    session = requests.Session()
+    session = BoundedSession()
     if _session_hook is not None:
         _session_hook(session)
     return session
