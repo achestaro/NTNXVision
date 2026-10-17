@@ -111,3 +111,11 @@ def test_only_the_cli_passes_allow_unpinned() -> None:
                  if p.name not in ("__main__.py", "transport.py")
                  and "allow_unpinned=True" in p.read_text()]
     assert offenders == []
+
+
+def test_underscore_labels_are_accepted_like_the_target_editor() -> None:
+    from ntnxvision_core.api.transport import valid_hostname
+
+    assert valid_hostname("lab_pc.example.lab")
+    assert valid_hostname("pc_01")
+    assert not valid_hostname("pc_01@198.51.100.7")
