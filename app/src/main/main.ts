@@ -43,6 +43,7 @@ import * as secrets from './secrets';
 import * as store from './store';
 import { registerLegalHandlers } from './legal';
 import { cleanOverrides, matchesTarget, ndbAccount, passwordAccount, remapIds, vcenterAccount } from './targets';
+import { Scheduler } from './scheduler';
 
 const isDev = !app.isPackaged;
 const demo = isDemoMode();
@@ -56,15 +57,63 @@ const e2e = process.env.NTNXVISION_E2E === '1';
 const e2eDialogDir = e2e ? process.env.NTNXVISION_E2E_DIALOG_DIR || null : null;
 const sidecar = new SidecarClient();
 let mainWindow: BrowserWindow | null = null;
+/** Set by a real quit (menu, tray, Cmd+Q): closing the window then closes it. */
+let quitting = false;
+/** Collections the user started that are still running (scheduled runs wait for them). */
+let manualRuns = 0;
+
+const scheduler = new Scheduler({
+  sidecar,
+  mail: store.smtp,
+  schedules: store.schedules,
+  manualBusy: () => manualRuns > 0,
+  showWindow: () => showWindow(),
+  revealIfHidden: () => {
+    if (mainWindow && !mainWindow.isDestroyed() && !mainWindow.isVisible()) showWindow();
+  },
+  send: (channel, payload) => send(channel, payload),
+  quit: () => {
+    quitting = true;
+    app.quit();
+  },
+  demo,
+  e2e,
+});
+scheduler.registerHandlers(ipcMain);
+
+function showWindow(): void {
+  if (!mainWindow || mainWindow.isDestroyed()) {
+    createWindow();
+    return;
+  }
+  if (mainWindow.isMinimized()) mainWindow.restore();
+  mainWindow.show();
+  mainWindow.focus();
+}
+
+/** A collection the user started: scheduled runs wait for it, and it can't overlap one. */
+function beginManualRun(): void {
+  if (scheduler.runner.isActive()) {
+    const name = scheduler.runningName();
+    throw new Error(`The scheduled collection ${name ? `"${name}" ` : ''}is running. Start again when it finishes.`);
+  }
+  manualRuns += 1;
+}
+
+function endManualRun(): void {
+  manualRuns = Math.max(0, manualRuns - 1);
+  if (!manualRuns) scheduler.kick();
+}
 
 function send(channel: string, payload: unknown): void {
   if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send(channel, payload);
 }
 
-function createWindow(): void {
+function createWindow(show = true): void {
   // A new renderer asks for queued snapshot files once it has mounted.
   rendererWantsFiles = false;
   mainWindow = new BrowserWindow({
+    show,
     width: 1440,
     height: 900,
     minWidth: 1024,
@@ -80,6 +129,11 @@ function createWindow(): void {
       // The renderer only ever loads local content (Vite dev server / bundled files).
       sandbox: false,
     },
+  });
+  // While a schedule is enabled, closing the window keeps the app in the tray / menu bar.
+  mainWindow.on('close', (e) => {
+    if (quitting || !mainWindow) return;
+    if (scheduler.hideOnClose(mainWindow)) e.preventDefault();
   });
 
   if (!loadBuiltRenderer) {
@@ -106,6 +160,8 @@ function legacyStatus(status: string): { status: AreaStatus; detail: string | nu
 sidecar.on('progress', (params: Record<string, any>) => {
   if (params && typeof params.type === 'string') {
     const { run_id, ...rest } = params;
+    // Scheduled runs report on the Schedules page, not as the renderer's active run.
+    if (scheduler.isScheduledRun(run_id)) return;
     send(IPC.progress, { ...rest, runId: run_id ?? params.runId } as RunProgressEvent);
     return;
   }
@@ -264,6 +320,7 @@ ipcMain.handle(IPC.startCollection, async (_e, req: CollectionRequest) => {
   const overrides = cleanOverrides(req.vcpuRatioOverrides);
   if (req.knownClusters) store.targets.rememberRatios(req.targetId!, overrides, req.knownClusters);
   const method = req.mode === 'prism_element' ? 'inventory_cluster' : 'inventory';
+  beginManualRun();
   const { id, promise } = sidecar.callWithId<InventoryResult>(method, {
     run_id: runId,
     host: req.host,
@@ -288,7 +345,10 @@ ipcMain.handle(IPC.startCollection, async (_e, req: CollectionRequest) => {
       finishRun({ runId, outcome: 'completed', multi: false, result });
     })
     .catch((err) => finishRun({ runId, multi: false, ...runOutcomeFromError(err) }))
-    .finally(() => legacyRuns.delete(id));
+    .finally(() => {
+      legacyRuns.delete(id);
+      endManualRun();
+    });
   return { runId };
 });
 
@@ -298,6 +358,7 @@ ipcMain.handle(IPC.startMultiCollection, async (_e, req: MultiCollectionRequest)
   const resolved = await Promise.all(
     req.targets.map(async (t) => ({ ...t, ...(await targetConnection(t.targetId, t.password, t.ndb, t.vcenter)) })),
   );
+  beginManualRun();
   const { id, promise } = sidecar.callWithId<MultiInventoryResult>('inventory_multi', {
     run_id: runId,
     targets: resolved.map((t) => ({
@@ -325,7 +386,10 @@ ipcMain.handle(IPC.startMultiCollection, async (_e, req: MultiCollectionRequest)
       finishRun({ runId, outcome: 'completed', multi: true, multiResult });
     })
     .catch((err) => finishRun({ runId, multi: true, ...runOutcomeFromError(err) }))
-    .finally(() => legacyRuns.delete(id));
+    .finally(() => {
+      legacyRuns.delete(id);
+      endManualRun();
+    });
   return { runId };
 });
 
@@ -562,7 +626,11 @@ ipcMain.handle(IPC.deleteTarget, async (_e, id: string) => {
   return remaining;
 });
 ipcMain.handle(IPC.getSettings, () => store.getSettings());
-ipcMain.handle(IPC.setSettings, (_e, settings: AppSettings) => store.setSettings(settings));
+ipcMain.handle(IPC.setSettings, (_e, settings: AppSettings) => {
+  const saved = store.setSettings(settings);
+  if (settings && 'startAtLogin' in settings) scheduler.applyLoginItem(saved);
+  return saved;
+});
 
 /**
  * Startup: migrate saved connections to targets (once), point settings at the new ids, and
@@ -633,10 +701,8 @@ if (!primary) {
 } else {
   app.on('second-instance', (_e, argv) => {
     openSnapshotFiles(snapshotFilesFrom(argv));
-    if (mainWindow) {
-      if (mainWindow.isMinimized()) mainWindow.restore();
-      mainWindow.focus();
-    }
+    // Also brings back a window hidden in the tray / menu bar.
+    if (mainWindow && app.isReady()) showWindow();
   });
   // Windows and Linux pass the file on the command line of the first launch.
   pendingSnapshotFiles.push(...snapshotFilesFrom(process.argv.slice(1)));
@@ -649,10 +715,12 @@ app.whenReady().then(async () => {
   await prepareTargets();
   // A first demo launch fills the profile (~5 s) before the UI loads, so it opens on data.
   await seedDemo();
-  createWindow();
-  app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow();
-  });
+  // Opened at login with schedules enabled: start in the tray / menu bar, window hidden.
+  createWindow(!scheduler.startHidden());
+  scheduler.applyLoginItem();
+  // Catch up a slot missed while the app was not running (once), then keep time.
+  scheduler.start();
+  app.on('activate', () => showWindow());
 });
 
 app.on('window-all-closed', () => {
@@ -660,4 +728,8 @@ app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit();
 });
 
-app.on('before-quit', () => sidecar.stop());
+app.on('before-quit', () => {
+  quitting = true;
+  scheduler.stop();
+  sidecar.stop();
+});

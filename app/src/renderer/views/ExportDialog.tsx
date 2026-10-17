@@ -18,6 +18,7 @@ import {
 import { REPORT_EXT, errorMessage, fmtAbs, fmtBytes, fmtCount, reportFileName, tildify } from '../lib/format';
 import { revealLabel, useSettings } from '../lib/settings';
 import { useRun } from '../lib/run';
+import { useEmailDialog } from './EmailDialog';
 
 interface OpenOptions {
   formats?: ExportFormat[];
@@ -98,6 +99,7 @@ function ExportDialog({
   const many = snapshotPaths.length > 1;
   const { settings, appInfo, update } = useSettings();
   const { invalidate } = useRun();
+  const emailDialog = useEmailDialog();
   const toast = useToast();
   const [snap, setSnap] = useState<SnapshotDetail | null>(null);
   const [loadErr, setLoadErr] = useState<string | null>(null);
@@ -225,6 +227,18 @@ function ExportDialog({
         <div className="dialog-foot">
           <Button onClick={onClose}>Cancel</Button>
           <span className="dialog-foot-right">
+            {!many && (
+              <Button
+                variant="ghost"
+                onClick={() => {
+                  onClose();
+                  emailDialog.open(snapshotPath, { formats: chosen });
+                }}
+                disabled={busy}
+              >
+                Email…
+              </Button>
+            )}
             <span className="hint">{busy ? 'Exporting…' : n ? 'Takes about 10 s' : 'Choose at least one format'}</span>
             <Button variant="primary" onClick={doExport} disabled={!n || busy} kbd={n ? '⌘↵' : undefined}>
               {n === 0 ? 'Export' : n * snapshotPaths.length === 1 ? 'Export 1 file' : `Export ${fmtCount(n * snapshotPaths.length)} files`}

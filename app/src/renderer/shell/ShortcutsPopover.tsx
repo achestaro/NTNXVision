@@ -35,6 +35,7 @@ export function ShortcutsPopover({ onClose }: { onClose(): void }): JSX.Element 
     ['Go to Targets', ['g', 't']],
     ['Go to New collection', ['g', 'n']],
     ['Go to Multiple PCs', ['g', 'm']],
+    ['Go to Schedules', ['g', 'r']],
     ['Go to Inventory', ['g', 'i']],
     ['Go to Snapshots', ['g', 's']],
     ['Go to Compare', ['g', 'c']],

@@ -31,7 +31,10 @@
 
 import { _electron as electron } from 'playwright-core';
 import electronPath from 'electron';
-import { mkdtemp, mkdir, readdir, writeFile } from 'node:fs/promises';
+import { spawn } from 'node:child_process';
+import { existsSync } from 'node:fs';
+import { mkdtemp, mkdir, readFile, readdir, writeFile } from 'node:fs/promises';
+import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -83,6 +86,57 @@ app.process().stderr?.on('data', (d) => {
   const text = d.toString();
   if (/Traceback|Error/.test(text)) process.stderr.write(`[app] ${text}`);
 });
+
+// A local SMTP sink (127.0.0.1 only) for the email and schedule steps: the core's
+// `smtp-sink` command, writing each message as message-<n>.eml + a parsed message-<n>.json.
+const mailDir = join(profile, 'mail');
+await mkdir(mailDir, { recursive: true });
+const coreDir = resolve(appDir, '..', 'core');
+const venvPython = process.platform === 'win32' ? join(coreDir, '.venv', 'Scripts', 'python.exe') : join(coreDir, '.venv', 'bin', 'python');
+const sink = spawn(existsSync(venvPython) ? venvPython : 'python3', ['-m', 'ntnxvision_core', 'smtp-sink', '--port', '0', '--out', mailDir], {
+  cwd: coreDir,
+  stdio: ['ignore', 'pipe', 'pipe'],
+});
+const sinkPort = await new Promise((res, rej) => {
+  let buf = '';
+  const timer = setTimeout(() => rej(new Error('the SMTP sink did not start')), 30_000);
+  sink.stdout.on('data', (d) => {
+    buf += d.toString();
+    const m = /listening on 127\.0\.0\.1:(\d+)/.exec(buf);
+    if (m) {
+      clearTimeout(timer);
+      res(Number(m[1]));
+    }
+  });
+  sink.on('exit', (code) => rej(new Error(`the SMTP sink exited (${code})`)));
+});
+process.on('exit', () => sink.kill());
+
+/** A port nothing listens on (for the unreachable server case). */
+async function closedPort() {
+  const srv = createServer();
+  await new Promise((r) => srv.listen(0, '127.0.0.1', r));
+  const { port } = srv.address();
+  await new Promise((r) => srv.close(r));
+  return port;
+}
+
+/** The messages the sink received, oldest first (parsed summaries). */
+async function mails() {
+  const files = (await readdir(mailDir)).filter((f) => /^message-\d+\.json$/.test(f));
+  files.sort((a, b) => Number(a.match(/\d+/)[0]) - Number(b.match(/\d+/)[0]));
+  return Promise.all(files.map(async (f) => JSON.parse(await readFile(join(mailDir, f), 'utf-8'))));
+}
+
+async function waitForMails(n, timeout = 60_000) {
+  const t0 = Date.now();
+  for (;;) {
+    const got = await mails();
+    if (got.length >= n) return got;
+    if (Date.now() - t0 > timeout) throw new Error(`expected ${n} emails, the sink has ${got.length}`);
+    await new Promise((r) => setTimeout(r, 250));
+  }
+}
 
 const page = await app.firstWindow();
 await page.setViewportSize({ width: 1440, height: 960 }).catch(() => {});
@@ -858,6 +912,106 @@ try {
     await page.getByText('Q4 multi (PC03)').first().waitFor({ timeout: 15_000 });
     await rail('New collection');
     if ((await savedOptions()).some((o) => o.startsWith('PC03'))) throw new Error('a deleted target is still offered');
+  });
+
+  await run('email-settings-unreachable', async () => {
+    await rail('Settings');
+    await page.locator('#smtp-host').fill('127.0.0.1');
+    await page.getByRole('group', { name: 'Security' }).getByRole('button', { name: 'None', exact: true }).click();
+    await page.locator('#smtp-port').fill(String(await closedPort()));
+    await page.locator('#smtp-from').fill('reports@example.com');
+    await page.locator('#smtp-test-to').fill('ops@example.com');
+    await page.getByTestId('smtp-test').click();
+    await page.getByText(/^Can.t reach the server\./).first().waitFor({ timeout: 30_000 });
+  });
+
+  await run('email-settings-test-ok', async () => {
+    await page.locator('#smtp-port').fill(String(sinkPort));
+    await page.getByTestId('smtp-save').click();
+    await page.getByText('Email settings saved').first().waitFor({ timeout: 15_000 });
+    await page.getByTestId('smtp-test').click();
+    await page.getByText('Test email sent to ops@example.com.').first().waitFor({ timeout: 30_000 });
+    const [m] = await waitForMails(1);
+    if (m.subject !== 'NTNXVision test email') throw new Error(`test subject: ${m.subject}`);
+    if (JSON.stringify(m.rcpt_to) !== JSON.stringify(['ops@example.com'])) throw new Error(`test rcpt: ${m.rcpt_to}`);
+  });
+
+  await run('schedule-create', async () => {
+    await rail('Schedules');
+    await heading('Schedules');
+    await page.getByRole('button', { name: 'New schedule' }).first().click();
+    const dialog = page.getByRole('dialog');
+    await dialog.locator('#sch-name').fill('Nightly Tiny');
+    const value = await dialog.locator('#sch-target option').filter({ hasText: /^Tiny · / }).getAttribute('value');
+    await dialog.locator('#sch-target').selectOption(value);
+    await dialog.getByRole('button', { name: 'Daily', exact: true }).click();
+    await dialog.locator('#sch-time').fill('03:15');
+    await dialog.locator('#sch-to').fill('ops@example.com, noc@example.com');
+    await dialog.locator('#sch-cc').fill('cio@example.com');
+    await dialog.getByTestId('schedule-save').click();
+    await dialog.waitFor({ state: 'detached', timeout: 15_000 });
+    const table = page.getByRole('table', { name: 'Schedules' });
+    await table.getByRole('button', { name: 'Nightly Tiny', exact: true }).waitFor();
+    await table.getByText('Daily at 03:15').waitFor();
+  });
+
+  await run('schedule-run-now', async () => {
+    const before = (await mails()).length;
+    await page.getByRole('button', { name: 'Actions for Nightly Tiny' }).click();
+    await page.getByRole('menuitem', { name: 'Run now' }).click();
+    await page.getByText('Run queued · Nightly Tiny').first().waitFor({ timeout: 15_000 });
+    await page.getByRole('table', { name: 'Schedules' }).getByText(/^Sent /).waitFor({ timeout: 180_000 });
+    const got = await waitForMails(before + 1);
+    const m = got[got.length - 1];
+    if (m.subject !== `NTNXVision report: Tiny (${today})`) throw new Error(`schedule subject: ${m.subject}`);
+    const rcpt = [...m.rcpt_to].sort().join(',');
+    if (rcpt !== 'cio@example.com,noc@example.com,ops@example.com') throw new Error(`schedule rcpt: ${rcpt}`);
+    const names = m.attachments.map((a) => a.filename);
+    if (!names.some((n) => n.endsWith('.xlsx')) || !names.some((n) => n.endsWith('.pdf'))) throw new Error(`attachments: ${names.join(', ')}`);
+    if (!/Snapshot: Nightly Tiny/.test(m.body_text)) throw new Error(`body: ${m.body_text}`);
+    // Saved like any run, under the schedule's date-free name.
+    await rail('Snapshots');
+    await page.getByText('Nightly Tiny', { exact: true }).first().waitFor({ timeout: 15_000 });
+  });
+
+  await run('schedule-run-again-unique-name', async () => {
+    const before = (await mails()).length;
+    await rail('Schedules');
+    await page.getByRole('button', { name: 'Actions for Nightly Tiny' }).click();
+    await page.getByRole('menuitem', { name: 'Run now' }).click();
+    await waitForMails(before + 1, 180_000);
+    await rail('Snapshots');
+    await page.getByText('Nightly Tiny-2', { exact: true }).first().waitFor({ timeout: 15_000 });
+  });
+
+  await run('email-dialog', async () => {
+    const before = (await mails()).length;
+    await page.getByRole('button', { name: 'More actions for Nightly Tiny-2', exact: true }).click();
+    await page.getByRole('menuitem', { name: 'Email reports…' }).click();
+    const dialog = page.getByRole('dialog');
+    await dialog.locator('#em-to').fill('auditor@example.com');
+    await dialog.getByTestId('email-send').click();
+    await page.getByText(/^Emailed \d+ reports · /).first().waitFor({ timeout: 120_000 });
+    const got = await waitForMails(before + 1);
+    const m = got[got.length - 1];
+    if (JSON.stringify(m.rcpt_to) !== JSON.stringify(['auditor@example.com'])) throw new Error(`email rcpt: ${m.rcpt_to}`);
+    if (!m.attachments.length) throw new Error('no attachments');
+  });
+
+  await run('schedule-failure-recorded', async () => {
+    // The mail server is gone: the run collects, then records why the email failed.
+    await rail('Settings');
+    await page.locator('#smtp-port').fill(String(await closedPort()));
+    await page.getByTestId('smtp-save').click();
+    await page.getByText('Email settings saved').first().waitFor({ timeout: 15_000 });
+    await rail('Schedules');
+    await page.getByRole('button', { name: 'Actions for Nightly Tiny' }).click();
+    await page.getByRole('menuitem', { name: 'Run now' }).click();
+    await page.getByRole('table', { name: 'Schedules' }).getByText(/Email failed/).first().waitFor({ timeout: 180_000 });
+    // Switched off: no tray, and closing the window quits again.
+    const sw = page.getByRole('switch', { name: 'Enable Nightly Tiny' });
+    await sw.click();
+    await page.waitForFunction(() => document.querySelector('[role="switch"][aria-label="Enable Nightly Tiny"]')?.getAttribute('aria-checked') === 'false');
   });
 
   await run('overview', async () => {

@@ -20,6 +20,11 @@ import {
   Platform,
   RunFinishedEvent,
   RunProgressEvent,
+  EmailSnapshotRequest,
+  ScheduleSaveRequest,
+  SchedulesState,
+  SmtpSaveRequest,
+  SmtpTestRequest,
   SnapshotFileExportRequest,
   SnapshotFilesExportRequest,
   TargetSaveRequest,
@@ -92,6 +97,18 @@ const api: NtnxApi = {
   deleteTarget: (id: string) => ipcRenderer.invoke(IPC.deleteTarget, id),
   getSettings: () => ipcRenderer.invoke(IPC.getSettings),
   setSettings: (settings: AppSettings) => ipcRenderer.invoke(IPC.setSettings, settings),
+
+  getSmtpSettings: () => ipcRenderer.invoke(IPC.getSmtpSettings),
+  saveSmtpSettings: (req: SmtpSaveRequest) => ipcRenderer.invoke(IPC.saveSmtpSettings, req),
+  testSmtp: (req: SmtpTestRequest) => ipcRenderer.invoke(IPC.testSmtp, req),
+  emailSnapshot: (req: EmailSnapshotRequest) => ipcRenderer.invoke(IPC.emailSnapshot, req),
+
+  listSchedules: () => ipcRenderer.invoke(IPC.listSchedules),
+  saveSchedule: (req: ScheduleSaveRequest) => ipcRenderer.invoke(IPC.saveSchedule, req),
+  deleteSchedule: (id: string) => ipcRenderer.invoke(IPC.deleteSchedule, id),
+  setScheduleEnabled: (id: string, enabled: boolean) => ipcRenderer.invoke(IPC.setScheduleEnabled, id, enabled),
+  runScheduleNow: (id: string) => ipcRenderer.invoke(IPC.runScheduleNow, id),
+  onSchedulesChanged: (cb: (state: SchedulesState) => void) => subscribe(IPC.schedulesChanged, cb),
 };
 
 contextBridge.exposeInMainWorld('ntnx', api);

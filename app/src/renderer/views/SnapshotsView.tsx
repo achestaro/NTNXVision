@@ -29,6 +29,7 @@ import { useRun } from '../lib/run';
 import { revealLabel } from '../lib/settings';
 import { NA, errorMessage, fmtAbs, fmtBytes, fmtCount, tildify } from '../lib/format';
 import { useExportDialog } from './ExportDialog';
+import { useEmailDialog } from './EmailDialog';
 import { ImportedBadge, useSnapshotTransfer } from './SnapshotTransfer';
 
 type Filter = 'all' | SnapshotKind;
@@ -39,6 +40,7 @@ export function SnapshotsView(): JSX.Element {
   const { dataVersion, invalidate } = useRun();
   const exportDialog = useExportDialog();
   const transfer = useSnapshotTransfer();
+  const emailDialog = useEmailDialog();
   const toast = useToast();
   const list = useAsync<SnapshotList>(() => window.ntnx.listSnapshots(), [dataVersion]);
   const [text, setText] = useState('');
@@ -89,6 +91,7 @@ export function SnapshotsView(): JSX.Element {
     { label: 'Browse inventory', onSelect: () => navigate({ screen: 'inventory', snapshot: s.path }) },
     { label: 'Compare with…', onSelect: () => navigate({ screen: 'compare', current: s.path }), disabled: all.length < 2 },
     { label: 'Export snapshot file…', onSelect: () => transfer.exportFile(s) },
+    { label: 'Email reports…', onSelect: () => emailDialog.open(s.path) },
     { label: 'Rename', shortcut: 'F2', onSelect: () => setRenaming(s) },
     { label: revealLabel(), onSelect: () => void window.ntnx.revealPath(s.path) },
     'separator',
