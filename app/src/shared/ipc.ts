@@ -15,7 +15,7 @@
 
 export type ExportFormat = 'excel' | 'pdf' | 'word';
 export type ConnectionMode = 'prism_central' | 'prism_element';
-export type ApiVersion = 'v4' | 'v3' | 'v2' | 'era';
+export type ApiVersion = 'v4' | 'v3' | 'v2' | 'era' | 'vcenter';
 /** Kind of snapshot: one Prism Central, one Prism Element cluster, or several PCs combined. */
 export type SnapshotKind = 'pc' | 'pe' | 'combined';
 export type Platform = 'darwin' | 'win32' | 'linux';
@@ -52,6 +52,19 @@ export interface NdbRequest {
 }
 
 /**
+ * The optional vCenter of a Prism Central target, for ESXi details Nutanix does not
+ * have (disk datastores, port group switch types). Read-only; the password comes from the
+ * target's keychain entry `target:<id>:vcenter` (main process) when left empty.
+ */
+export interface VcenterRequest {
+  host: string;
+  username: string;
+  password: string;
+  /** Skip TLS verification for the vCenter only (it is often self-signed). */
+  insecure?: boolean;
+}
+
+/**
  * A saved target (Targets page). Passwords are NEVER stored here: they live in the OS
  * keychain under the target's stable id (see app/src/main/targets.ts).
  */
@@ -67,6 +80,11 @@ export interface ConnectionProfile {
   name: string;
   ndbHost?: string;
   ndbUser?: string;
+  /** Prism Central only: the vCenter of its ESXi clusters (optional enrichment). */
+  vcenterHost?: string;
+  vcenterUser?: string;
+  /** Skip TLS verification for the vCenter (often self-signed). */
+  vcenterInsecure?: boolean;
   /**
    * Prism Central only: the cluster selection of the last collection from this target,
    * by cluster uuid, so the next one preselects it. `known` is every cluster listed at
@@ -74,7 +92,20 @@ export interface ConnectionProfile {
    * No credentials: uuids only.
    */
   clusterSelection?: ClusterSelection;
+  /**
+   * Per-cluster vCPU:pCPU targets chosen in New collection, by cluster uuid (Prism
+   * Central and Prism Element), so the next collection pre-fills them. Clusters without
+   * an entry use the global setting (AppSettings.vcpuRatio). Numbers only, no credentials.
+   */
+  vcpuRatioOverrides?: VcpuRatioOverrides;
 }
+
+/** Cluster uuid → vCPU:pCPU target (MIN_CLUSTER_RATIO to MAX_CLUSTER_RATIO, one decimal). */
+export type VcpuRatioOverrides = Record<string, number>;
+
+/** Bounds of a vCPU:pCPU target typed in the app (Settings and per cluster). */
+export const MIN_CLUSTER_RATIO = 1;
+export const MAX_CLUSTER_RATIO = 32;
 
 export interface ClusterSelection {
   selected: string[];
@@ -97,6 +128,8 @@ export interface SavedConnection extends ConnectionProfile {
   hasPassword: boolean;
   /** True when the OS keychain holds this target's NDB password. */
   ndbHasPassword?: boolean;
+  /** True when the OS keychain holds this target's vCenter password. */
+  vcenterHasPassword?: boolean;
   lastTest?: TargetTestInfo | null;
 }
 
@@ -119,9 +152,15 @@ export interface TargetSaveRequest {
   ndbUser?: string;
   /** Empty = keep the saved NDB password. */
   ndbPassword?: string;
+  /** Prism Central only; empty removes the vCenter and its saved password. */
+  vcenterHost?: string;
+  vcenterUser?: string;
+  vcenterInsecure?: boolean;
+  /** Empty = keep the saved vCenter password. */
+  vcenterPassword?: string;
 }
 
-export type TargetField = 'name' | 'host' | 'port' | 'username' | 'ndbHost' | 'form';
+export type TargetField = 'name' | 'host' | 'port' | 'username' | 'ndbHost' | 'vcenterHost' | 'form';
 
 export interface TargetSaveResult {
   ok: boolean;
@@ -132,8 +171,11 @@ export interface TargetSaveResult {
 }
 
 export interface TestConnectionRequest {
-  /** 'ndb' tests an NDB (Era) endpoint; port is ignored for it (Era listens on 443). */
-  mode: ConnectionMode | 'ndb';
+  /**
+   * 'ndb' tests an NDB (Era) endpoint, 'vcenter' a VMware vCenter; port is ignored for
+   * both (they listen on 443).
+   */
+  mode: ConnectionMode | 'ndb' | 'vcenter';
   host: string;
   port: number;
   username: string;
@@ -172,7 +214,7 @@ export interface TestConnectionResult {
   message: string;
   /** Mono detail line, e.g. "4 clusters · v4 for 14 areas, v3 for 5 · within supported range". */
   detail?: string | null;
-  product?: ConnectionMode | 'ndb' | null;
+  product?: ConnectionMode | 'ndb' | 'vcenter' | null;
   /** Display name of what answered — cluster name for PE, PC host otherwise. */
   name?: string | null;
   version?: string | null;
@@ -208,6 +250,8 @@ export interface RegisteredClusterInfo {
   num_nodes?: number | null;
   /** "AHV", "ESXi", ... */
   hypervisors: string[];
+  /** The vCenter an ESXi cluster is registered to, as Prism reports it (suggested on Targets). */
+  vcenter?: string | null;
 }
 
 export interface ClusterListResult {
@@ -279,8 +323,19 @@ export interface CollectionRequest {
    * Omitted = every registered cluster. Objects of other clusters are never collected.
    */
   clusters?: string[];
-  /** Every cluster uuid the picker listed, remembered with `clusters` on the saved target. */
+  /**
+   * Every cluster uuid the picker listed (Prism Central and Prism Element), remembered
+   * with `clusters` on the saved target; also the clusters whose remembered vCPU:pCPU
+   * targets `vcpuRatioOverrides` replaces.
+   */
   knownClusters?: string[];
+  /**
+   * Per-cluster vCPU:pCPU targets for this run (cluster uuid → ratio). A listed cluster
+   * without an entry uses the global setting. The run records the effective target on
+   * every cluster in the snapshot, and the main process remembers these on the saved
+   * target. Entries for clusters the run does not collect are ignored by the run.
+   */
+  vcpuRatioOverrides?: VcpuRatioOverrides;
   formats: ExportFormat[];
   /** Ignored: targets are only created and changed on the Targets page. */
   saveCredentials?: boolean;
@@ -288,6 +343,8 @@ export interface CollectionRequest {
   /** Report file name prefix (see ExportRequest.filePrefix). */
   filePrefix?: string;
   ndb?: NdbRequest;
+  /** Optional vCenter enrichment of the ESXi clusters (password from the keychain). */
+  vcenter?: VcenterRequest;
 }
 
 export interface MultiCollectionTarget {
@@ -301,6 +358,12 @@ export interface MultiCollectionTarget {
   /** This target's snapshot name (required; the screen derives it from the run's name). */
   name: string;
   ndb?: NdbRequest;
+  vcenter?: VcenterRequest;
+  /**
+   * Ignored: the main process applies the per-cluster vCPU:pCPU targets remembered on
+   * the saved target (set in New collection); other clusters use the global setting.
+   */
+  vcpuRatioOverrides?: VcpuRatioOverrides;
 }
 
 export interface MultiCollectionRequest {
@@ -420,6 +483,7 @@ export interface InventorySummary {
   vms: number;
   storage_containers: number;
   subnets: number;
+  port_groups?: number;
   licenses: number;
   [key: string]: number | undefined;
 }
@@ -806,8 +870,10 @@ export interface ExportRequest {
     author?: string;
   };
   /**
-   * Target vCPU:pCPU ratio for the cluster capacity figures ("vCPU Total"), recorded in the
-   * report. Omitted = the vcpuRatio setting (DEFAULT_VCPU_RATIO when unset).
+   * Target vCPU:pCPU ratio for the cluster capacity figures ("vCPU Total") of clusters
+   * that recorded none at collection (snapshots from before per-cluster targets). Newer
+   * snapshots always use the per-cluster targets recorded when they were collected.
+   * Omitted = the vcpuRatio setting (DEFAULT_VCPU_RATIO when unset).
    */
   vcpuRatio?: number;
 }
@@ -1106,8 +1172,10 @@ export interface AppSettings {
   /** The last report file name prefix used (Export dialog, New collection, Multiple PCs). */
   filePrefix?: string;
   /**
-   * Target vCPU:pCPU ratio behind the cluster capacity figures ("vCPU Total") in the
-   * Inventory and every report. Unset = DEFAULT_VCPU_RATIO.
+   * The default vCPU:pCPU target behind the cluster capacity figures ("vCPU Total"):
+   * recorded on every cluster a new collection collects unless New collection sets a
+   * per-cluster target, and used for snapshots collected before per-cluster targets
+   * existed. Unset = DEFAULT_VCPU_RATIO.
    */
   vcpuRatio?: number;
   /** Open NTNXVision (in the tray / menu bar) when you sign in, so schedules run. */

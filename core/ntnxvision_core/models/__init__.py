@@ -31,6 +31,7 @@ from ntnxvision_core.models.environment import (
     ObjectStore,
     Ova,
     Playbook,
+    PortGroup,
     PrismCentral,
     PrismCentralConfig,
     Project,
@@ -58,6 +59,7 @@ __all__ = [
     "Environment",
     "ClusterScope",
     "ScopeCluster",
+    "PortGroup",
     "PrismCentral",
     # Multi-Prism-Central (combined) runs
     "SourceEnvironment",

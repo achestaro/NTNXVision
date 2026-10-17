@@ -8,6 +8,7 @@ import {
   Badge,
   Button,
   Callout,
+  ClampText,
   ConfirmDialog,
   DataTable,
   EmptyState,
@@ -197,7 +198,7 @@ function AreaTable({ areas, starting }: { areas: AreaProgress[]; starting: boole
           render: (a) =>
             a.api ? (
               <Badge mono strong>
-                {a.api === 'v2' ? 'v2.0' : a.api === 'era' ? 'Era' : a.api}
+                {a.api === 'v2' ? 'v2.0' : a.api === 'era' ? 'Era' : a.api === 'vcenter' ? 'vCenter' : a.api}
               </Badge>
             ) : null,
         },
@@ -215,7 +216,13 @@ function AreaTable({ areas, starting }: { areas: AreaProgress[]; starting: boole
           style: { color: 'var(--ink-3)' },
           render: (a) => (a.duration_ms === null || a.duration_ms === undefined ? '' : fmtDuration(a.duration_ms)),
         },
-        { key: 'detail', header: 'Detail', className: 'wrap', style: { minWidth: 240 }, render: (a) => a.detail ?? '' },
+        {
+          key: 'detail',
+          header: 'Detail',
+          className: 'wrap',
+          style: { minWidth: 240 },
+          render: (a) => (a.detail ? <ClampText>{a.detail}</ClampText> : ''),
+        },
       ]}
     />
   );

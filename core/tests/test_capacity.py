@@ -6,11 +6,16 @@ import pytest
 
 from ntnxvision_core.capacity import (
     DEFAULT_VCPU_RATIO,
+    apply_targets,
     coerce_ratio,
     compute_cluster,
     compute_environment,
     ratio_or_none,
+    target_label,
+    targets_summary,
+    valid_ratio,
 )
+from ntnxvision_core.compare import raw_changes
 from ntnxvision_core.models import (
     Cluster,
     Environment,
@@ -281,6 +286,75 @@ def test_combined_environment_keeps_same_named_clusters_apart() -> None:
     caps = compute_environment(env)
     assert caps[id(a)].usable_cores == 72 and caps[id(a)].provisioned_vcpus == 0
     assert caps[id(b)].usable_cores == 168 and caps[id(b)].provisioned_vcpus == 12
+
+
+def _three_clusters() -> Environment:
+    env = Environment()
+    env.clusters = [_cluster(3, name=n) for n in ("c1", "c2", "c3")]
+    for n in ("c1", "c2", "c3"):
+        hosts = _hosts([(32, 10 * TB)] * 3, cluster=n)
+        env.hosts += hosts
+        env.system_vms += _cvms(hosts, 8)
+    return env
+
+
+def test_apply_targets_records_default_and_overrides() -> None:
+    env = _three_clusters()
+    apply_targets(env, 5, {"c2-uuid": 6.5, "c3-uuid": 0, "gone-uuid": 3})
+    assert env.vcpu_ratio_default == 5.0
+    got = {c.name: (c.vcpu_ratio_target, c.vcpu_ratio_custom) for c in env.clusters}
+    # An out-of-range override is ignored: that cluster takes the default.
+    assert got == {"c1": (5.0, False), "c2": (6.5, True), "c3": (5.0, False)}
+    caps = {k.cluster_name: k for k in compute_environment(env, 9).values()}
+    assert caps["c2"].target_ratio == 6.5 and caps["c2"].target_custom
+    assert caps["c2"].vcpu_total == 72 * 6.5
+    assert caps["c1"].target_ratio == 5.0 and not caps["c1"].target_custom
+    assert caps["c1"].vcpu_total == 72 * 5.0
+
+
+def test_apply_targets_without_a_setting_uses_the_default() -> None:
+    env = _three_clusters()
+    apply_targets(env)
+    assert env.vcpu_ratio_default == DEFAULT_VCPU_RATIO
+    assert all(c.vcpu_ratio_target == DEFAULT_VCPU_RATIO for c in env.clusters)
+
+
+def test_unrecorded_targets_fall_back_to_the_passed_ratio() -> None:
+    env = _three_clusters()
+    caps = compute_environment(env, 7).values()
+    assert all(k.target_ratio == 7.0 and not k.target_custom for k in caps)
+
+
+def test_target_labels_and_summary() -> None:
+    assert target_label(6, True) == "6.0 : 1 (custom)"
+    assert target_label(4, False) == "4.0 : 1 (default)"
+    assert valid_ratio("2.5") == 2.5 and valid_ratio(True) is None and valid_ratio(0) is None
+    env = _three_clusters()
+    apply_targets(env, 4)
+    caps = list(compute_environment(env).values())
+    assert targets_summary(caps, 4) == "a 4.0 : 1 vCPU:pCPU target"
+    apply_targets(env, 4, {"c3-uuid": 8})
+    caps = list(compute_environment(env).values())
+    assert targets_summary(caps, 4) == ("a 4.0 : 1 vCPU:pCPU target by default and a custom "
+                                        "target on 1 cluster: c3 8.0 : 1")
+    apply_targets(env, 4, {"c2-uuid": 6, "c3-uuid": 8})
+    caps = list(compute_environment(env).values())
+    assert targets_summary(caps, 4).endswith("custom targets on 2 clusters: c2 6.0 : 1, "
+                                             "c3 8.0 : 1")
+    assert "\u2014" not in targets_summary(caps, 4)
+
+
+def test_compare_reports_a_changed_target_only_when_both_recorded() -> None:
+    base, cur = _three_clusters(), _three_clusters()
+    for e in (base, cur):
+        e.collection_notes = {"clusters": "ok"}
+    # Old baseline without recorded targets: nothing to report.
+    apply_targets(cur, 4, {"c2-uuid": 6})
+    assert not [c for c in raw_changes(base, cur) if c["field"] == "vCPU:pCPU target"]
+    apply_targets(base, 4)
+    rows = [c for c in raw_changes(base, cur) if c["field"] == "vCPU:pCPU target"]
+    assert [(r["object"], r["before"], r["after"]) for r in rows] == [
+        ("c2", "4.0 : 1 (default)", "6.0 : 1 (custom)")]
 
 
 def test_coerce_ratio() -> None:

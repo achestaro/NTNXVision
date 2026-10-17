@@ -168,7 +168,8 @@ def test_ratios_live_in_the_detail_pane_not_the_grid(demo: Any) -> None:
     assert "cpu_ratio" not in robo["cells"]
     detail = svc.detail(env, "clusters", robo["id"], vcpu_ratio=6)
     fields = {f["label"]: f["value"] for f in detail["fields"]}
-    assert fields["Target ratio"] == "6.0 : 1"
+    # No target recorded (collected outside the sidecar): the passed ratio, as default.
+    assert fields["Target ratio"] == "6.0 : 1 (default)"
     assert fields["vCPU Total"] == "144 · N-1 N/A"
     assert fields["vCPU:pCore"].endswith(": 1 · N-1 N/A")
     assert fields["Storage ratio"].endswith(" · N-1 N/A")
@@ -187,7 +188,7 @@ def test_reports_render_the_capacity_figures(demo: Any, tmp_path: Path) -> None:
     rows = {r[0]: dict(zip(headers, r, strict=False))
             for r in ws.iter_rows(min_row=2, values_only=True) if r[0] and r[1] is not None}
     robo = rows["SEA-ROBO-01"]
-    assert robo["Target vCPU:pCore"] == "5.0 : 1"
+    assert robo["Target vCPU:pCore"] == "5.0 : 1 (default)"
     assert robo["vCPU Total"] == 120 and robo["vCPU Total N-1"] == "N/A"
     assert str(robo["vCPU:pCore (all VMs)"]).endswith(" : 1")
     legend = [r[0] for r in ws.iter_rows(min_row=2, values_only=True) if r[0]]
@@ -210,6 +211,8 @@ def test_reports_render_the_capacity_figures(demo: Any, tmp_path: Path) -> None:
 
 
 def test_sidecar_passes_the_ratio_through(demo: Any, data_dir: Path) -> None:
+    """A collection records each cluster's target; the detail pane and re-exports use the
+    recorded one whatever ratio they are passed later (the current setting)."""
     run = sc._m_inventory(None, {
         "host": "pc02.demo.local", "username": "admin", "password": "demo", "port": 9440,
         "insecure": False, "name": "cap", "formats": [], "export_dir": str(data_dir)})
@@ -218,9 +221,136 @@ def test_sidecar_passes_the_ratio_through(demo: Any, data_dir: Path) -> None:
     rid = sc._m_query_inventory(None, base)["rows"][0]["id"]
     d4 = sc._m_get_object_detail(None, {**base, "id": rid})
     d8 = sc._m_get_object_detail(None, {**base, "id": rid, "vcpu_ratio": 8})
-    assert {"label": "Target ratio", "value": "4.0 : 1", "mono": True} in d4["fields"]
-    assert {"label": "Target ratio", "value": "8.0 : 1", "mono": True} in d8["fields"]
+    target = {"label": "Target ratio", "value": "4.0 : 1 (default)", "mono": True}
+    assert target in d4["fields"] and target in d8["fields"]
     out = sc._m_export(None, {"snapshot": path, "formats": ["excel"], "vcpu_ratio": 3,
                               "export_dir": str(data_dir / "x")})
     wb = load_workbook(out["paths"]["excel"])
-    assert wb["Capacity"]["H2"].value == "3.0 : 1"
+    assert wb["Capacity"]["H2"].value == "4.0 : 1 (default)"
+
+
+def _robo_uuid() -> str:
+    env = collect_environment(PrismCredentials(host="pc02.demo.local", username="admin",
+                                               password="demo"))
+    return next(c.uuid for c in env.clusters if c.name == "SEA-ROBO-01")
+
+
+def test_per_cluster_targets_are_recorded_and_used(demo: Any, data_dir: Path) -> None:
+    robo_uuid = _robo_uuid()
+    run = sc._m_inventory(None, {
+        "host": "pc02.demo.local", "username": "admin", "password": "demo", "port": 9440,
+        "insecure": False, "name": "custom", "formats": ["excel", "word"],
+        "export_dir": str(data_dir / "out"), "vcpu_ratio": 5,  # Settings value
+        "vcpu_ratio_overrides": {robo_uuid: 6.5}})
+    path = run["snapshot_path"]
+    env = sc._cache.get(path)
+    assert env.vcpu_ratio_default == 5.0
+    by_name = {c.name: c for c in env.clusters}
+    assert by_name["SEA-ROBO-01"].vcpu_ratio_target == 6.5
+    assert by_name["SEA-ROBO-01"].vcpu_ratio_custom is True
+    others = [c for c in env.clusters if c.name != "SEA-ROBO-01"]
+    assert others and all(c.vcpu_ratio_target == 5.0 and c.vcpu_ratio_custom is False
+                          for c in others)
+
+    # Capacity math: the custom target drives vCPU Total (24 usable cores x 6.5).
+    caps = {k.cluster_name: k for k in compute_environment(env, 9).values()}
+    robo = caps["SEA-ROBO-01"]
+    assert robo.target_ratio == 6.5 and robo.target_custom
+    assert robo.vcpu_total == robo.usable_cores * 6.5
+    assert all(caps[c.name].target_ratio == 5.0 for c in others)
+
+    # Detail pane, whatever the current setting.
+    base = {"snapshot": path, "object_type": "clusters", "page": {"limit": 50}}
+    rows = sc._m_query_inventory(None, base)["rows"]
+    rid = next(r["id"] for r in rows if r["cells"]["name"] == "SEA-ROBO-01")
+    detail = sc._m_get_object_detail(None, {**base, "id": rid, "vcpu_ratio": 8})
+    fields = {f["label"]: f["value"] for f in detail["fields"]}
+    assert fields["Target ratio"] == "6.5 : 1 (custom)"
+
+    # Reports written by the run: Capacity sheet, legend, overview, Word.
+    wb = load_workbook(run["exports"]["excel"])
+    ws = wb["Capacity"]
+    headers = [c.value for c in ws[1]]
+    sheet = {r[0]: dict(zip(headers, r, strict=False))
+             for r in ws.iter_rows(min_row=2, values_only=True) if r[0] and r[1] is not None}
+    assert sheet["SEA-ROBO-01"]["Target vCPU:pCore"] == "6.5 : 1 (custom)"
+    assert all(sheet[c.name]["Target vCPU:pCore"] == "5.0 : 1 (default)" for c in others)
+    overview = [str(c.value) for row in wb["Overview"].iter_rows() for c in row if c.value]
+    assert any(v.startswith("5.0 : 1 vCPU:pCPU target by default and a custom target on "
+                            "1 cluster: SEA-ROBO-01 6.5 : 1") for v in overview)
+    text = "\n".join(p.text for p in Document(run["exports"]["word"]).paragraphs)
+    assert "SEA-ROBO-01 6.5 : 1" in text
+    tables = Document(run["exports"]["word"]).tables
+    cpu = next(t for t in tables if any(c.text == "vCPU:pCore N-1" for c in t.rows[0].cells))
+    heads = [c.text for c in cpu.rows[0].cells]
+    assert heads[0] == "Cluster" and "Target" in heads
+    assert any(r.cells[0].text == "SEA-ROBO-01" and
+               r.cells[heads.index("Target")].text == "6.5 : 1 (custom)" for r in cpu.rows)
+
+    # A re-export passed another ratio keeps the recorded targets.
+    out = sc._m_export(None, {"snapshot": path, "formats": ["excel"], "vcpu_ratio": 3,
+                              "export_dir": str(data_dir / "x")})
+    ws = load_workbook(out["paths"]["excel"])["Capacity"]
+    targets = {r[0]: r[headers.index("Target vCPU:pCore")]
+               for r in ws.iter_rows(min_row=2, values_only=True) if r[0] and r[1] is not None}
+    assert targets["SEA-ROBO-01"] == "6.5 : 1 (custom)"
+
+
+def test_bad_overrides_are_refused_before_collecting(demo: Any, data_dir: Path) -> None:
+    import pytest
+
+    from ntnxvision_core.api.errors import NutanixApiError
+
+    for bad in ({"x": 0}, {"x": "six"}, {"x": 100}, ["x"]):
+        with pytest.raises(NutanixApiError):
+            sc._m_inventory(None, {
+                "host": "pc02.demo.local", "username": "admin", "password": "demo",
+                "name": f"bad-{len(str(bad))}", "formats": [],
+                "export_dir": str(data_dir), "vcpu_ratio_overrides": bad})
+
+
+def test_old_snapshots_fall_back_to_the_setting(demo: Any) -> None:
+    """A snapshot without recorded targets uses the ratio passed in (the setting)."""
+    env = collect_environment(PrismCredentials(host="pc02.demo.local", username="admin",
+                                               password="demo"))
+    assert env.vcpu_ratio_default is None
+    assert all(c.vcpu_ratio_target is None for c in env.clusters)
+    caps = compute_environment(env, 7).values()
+    assert all(k.target_ratio == 7.0 and not k.target_custom for k in caps)
+
+
+def test_prism_element_override_matches_the_listed_cluster(demo: Any, data_dir: Path) -> None:
+    """Prism Element mode: the uuid New collection lists is the one the run records."""
+    from ntnxvision_core.clusterlist import list_clusters
+
+    listed = list_clusters({"mode": "prism_element", "host": "pe01.demo.local",
+                            "username": "admin", "password": "demo", "port": 9440})
+    (uuid,) = [c["uuid"] for c in listed["clusters"]]
+    run = sc._m_inventory_cluster(None, {
+        "host": "pe01.demo.local", "username": "admin", "password": "demo", "port": 9440,
+        "name": "pe-custom", "formats": [], "export_dir": str(data_dir),
+        "vcpu_ratio_overrides": {uuid: 3}})
+    env = sc._cache.get(run["snapshot_path"])
+    (cluster,) = env.clusters
+    assert cluster.uuid == uuid
+    assert (cluster.vcpu_ratio_target, cluster.vcpu_ratio_custom) == (3.0, True)
+
+
+def test_multi_pc_targets_carry_their_own_overrides(demo: Any, data_dir: Path) -> None:
+    robo_uuid = _robo_uuid()
+    out = sc._m_inventory_multi(None, {
+        "targets": [
+            {"host": "pc01.demo.local", "username": "admin", "password": "demo",
+             "name": "m-pc01"},
+            {"host": "pc02.demo.local", "username": "admin", "password": "demo",
+             "name": "m-pc02", "vcpu_ratio_overrides": {robo_uuid: 7}},
+        ],
+        "formats": [], "export_dir": str(data_dir), "combine": True,
+        "combined_name": "m-both", "vcpu_ratio": 5, "parallel": False})
+    combined = sc._cache.get(out["combined"]["snapshot_path"])
+    assert combined.vcpu_ratio_default == 5.0
+    targets = {(c.source_pc, c.name): (c.vcpu_ratio_target, c.vcpu_ratio_custom)
+               for c in combined.clusters}
+    assert targets[("pc02.demo.local", "SEA-ROBO-01")] == (7.0, True)
+    assert all(v == (5.0, False) for k, v in targets.items()
+               if k != ("pc02.demo.local", "SEA-ROBO-01"))

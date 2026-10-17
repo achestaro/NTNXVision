@@ -39,7 +39,6 @@ from ntnxvision_core.numfmt import (
     PLAIN_HEADERS,
     excel_number_format,
     fmt_count,
-    fmt_ratio,
 )
 
 GIB = 1024**3
@@ -62,7 +61,7 @@ _DATE = "yyyy-mm-dd"
 #: Every inventory sheet, in workbook order.
 _SPECS = (
     # Phase 1: core infrastructure
-    T.CLUSTERS, T.CAPACITY, T.HOSTS, T.VMS, T.SYSTEM_VMS, T.STORAGE, T.SUBNETS,
+    T.CLUSTERS, T.CAPACITY, T.HOSTS, T.VMS, T.SYSTEM_VMS, T.STORAGE, T.SUBNETS, T.PORT_GROUPS,
     # PC catalog: templates / images / OVAs
     T.TEMPLATES, T.IMAGES, T.OVAS,
     # Phase 2: data protection / DR
@@ -104,7 +103,7 @@ class ExcelExporter:
         self._feature_usage_sheet(wb, env)
         self._notes_sheet(wb, env)
         self._routing_sheet(wb, env)
-        self._overview_sheet(overview, env, opts, written)
+        self._overview_sheet(overview, env, opts, written, ctx.targets_text())
         self._properties(wb, env, opts)
 
         out = Path(path)
@@ -138,7 +137,7 @@ class ExcelExporter:
             return None
         ws = wb[title]
         row = ws.max_row + 2
-        for text in capacity_legend(ctx.vcpu_ratio):
+        for text in capacity_legend(ctx.targets_text()):
             cell = ws.cell(row=row, column=1, value=text)
             cell.font = Font(name=_FONT, size=9, italic=True, color=TH.INK_3)
             row += 1
@@ -147,7 +146,7 @@ class ExcelExporter:
     # ─── sheets ────────────────────────────────────────────────────
 
     def _overview_sheet(self, ws: Worksheet, env: Environment, opts: Any,
-                        written: dict[str, str]) -> None:
+                        written: dict[str, str], targets: str = "") -> None:
         """The workbook's cover: report facts, an inventory index linking every sheet, and
         the collection / API-sunset summary the app shows on Results."""
         from ntnxvision_core.exporters.content import run_areas
@@ -212,8 +211,8 @@ class ExcelExporter:
             ("Prepared For", opts.prepared_for or NA),
             ("Prepared By", opts.author or "NTNXVision"),
             ("Tool Version", f"NTNXVision {env.tool_version}"),
-            ("vCPU:pCPU Target", f"{fmt_ratio(opts.vcpu_ratio)} (cluster capacity figures, "
-                                 "see the Capacity sheet)"),
+            ("vCPU:pCPU Target", f"{targets.removeprefix('a ')} (cluster capacity "
+                                 "figures, see the Capacity sheet)"),
         ]
         row = self._section(ws, 7, "Report details")
         for label, value in details:
@@ -462,12 +461,16 @@ class ExcelExporter:
         return ws.title
 
 
-def capacity_legend(target: float) -> list[str]:
-    """How the capacity figures are calculated (Excel Capacity sheet footnote)."""
+def capacity_legend(targets: str) -> list[str]:
+    """How the capacity figures are calculated (Excel Capacity sheet footnote).
+
+    `targets` is `Ctx.targets_text()`: the target(s) the figures use."""
     return [
         "Usable cores = sum over nodes of (physical cores - CVM vCPUs); hyperthreads are "
         "not counted.",
-        f"vCPU Total = usable cores x the {fmt_ratio(target)} vCPU:pCPU target.",
+        "vCPU Total = usable cores x the cluster's vCPU:pCPU target (Target vCPU:pCore "
+        "column: custom when one was set for that cluster at collection, else the "
+        f"default). This workbook uses {targets}.",
         "Storage Total = sum of node raw storage x 0.95 (5% reserve) / cluster redundancy "
         "factor.",
         "vCPU:pCore = provisioned vCPUs / usable cores. Storage Provisioned:Usable = "

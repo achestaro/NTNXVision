@@ -150,7 +150,7 @@ def advance(host: str) -> bool:
     """Move a demo system one epoch forward (synthetic drift for Compare)."""
     st = _state
     target = st.target(host) if st else None
-    if target is None or target.kind == "ndb":
+    if target is None or target.kind in ("ndb", "vcenter"):
         return False
     target.advance()
     return True

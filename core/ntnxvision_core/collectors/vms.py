@@ -16,21 +16,30 @@ VMs are the richest object type — the core of any RVTools-style inventory.
 
 The hypervisor is recovered from which endpoint answered, since v4 does not carry it.
 
-The ESXi endpoint also 500s on individual unserializable records (two of ~60 on the lab
-PC), which fails any page containing them — hence `v4_list_tolerant`, which salvages the
+The ESXi endpoint also 500s on individual unserializable records (two of 57 on the lab
+PC), which fails any page containing them, hence `v4_list_tolerant`, which salvages the
 rest of the page and counts what it had to skip. Those records fail on every v4 path
-(single GET included, PLAT-10006), so the skipped VMs are then read from the groups API
-(``mh_vm``), which still lists them with their core sizing: they are reported marked
-``v3-groups (partial)`` rather than dropped. Only when that query fails too are they
-skipped with a note.
+(single GET included, PLAT-10006).
+
+**ESXi clusters are completed from their Prism Element** (v2.0 through the Prism Central
+proxy, `collectors.esxi`): the VMs v4 could not serve are read whole, with disks and
+NICs, and every v4 ESXi VM gains what v4 leaves out (disks outside Nutanix storage
+containers, boot firmware, port group VLANs). Only what neither source returns is read
+from the groups API (``mh_vm`` plus ``virtual_nic`` / ``virtual_disk``), marked
+``v3-groups (partial)``; only when that fails too are VMs skipped with a note. Optional
+vCenter enrichment runs later, in the engine (`collectors.vcenter`).
 """
 
 from __future__ import annotations
 
+from collections.abc import Iterable
+from dataclasses import dataclass, field
 from typing import Any
 
 from ntnxvision_core.api.errors import NutanixApiError
 from ntnxvision_core.collectors.base import Collector
+from ntnxvision_core.collectors.element import _map_vm, disk_key, usable_ip
+from ntnxvision_core.collectors.esxi import PeReadError, esxi_clusters, pe_networks, pe_vms
 from ntnxvision_core.collectors.normalize import AHV, ESXI, hypervisor_name
 from ntnxvision_core.models import Nic, VirtualDisk, VirtualMachine
 from ntnxvision_core.numfmt import fmt_count
@@ -46,11 +55,27 @@ V4_VM_ENDPOINTS = (
 GROUPS_VM_ATTRIBUTES = [
     "vm_name", "cluster_name", "cluster", "hypervisor_type", "num_vcpus",
     "memory_size_bytes", "power_state", "is_cvm", "vm_type", "host_name", "node",
-    "capacity_bytes", "guest_os_name",
+    "capacity_bytes", "guest_os_name", "ip_addresses",
 ]
+
+#: groups ``virtual_nic`` / ``virtual_disk`` attributes, for the NICs and disks of a VM
+#: recovered from ``mh_vm`` (attribute names verified on a live pc.7.5.1.1).
+GROUPS_NIC_ATTRIBUTES = ["vm", "mac_address", "ipv4_addresses", "connected",
+                         "virtual_network"]
+GROUPS_DISK_ATTRIBUTES = ["vm", "capacity_bytes", "container", "container_name",
+                          "disk_address", "is_cdrom"]
 
 #: Provenance of a VM recovered from the groups API: core sizing only.
 GROUPS_PARTIAL_SOURCE = "v3-groups (partial)"
+
+
+@dataclass
+class _EsxiResult:
+    """What the Prism Element pass did: VMs added, VMs enriched, clusters it failed on."""
+
+    added: list[VirtualMachine] = field(default_factory=list)
+    enriched: int = 0
+    failed: list[str] = field(default_factory=list)
 
 
 class _V3Detail:
@@ -86,7 +111,9 @@ class VmCollector(Collector):
             note = self._collect_v4(env)
         else:
             self._collect_v3(env)
-            note = "ok"
+            # v3 lists no ESXi VMs (only the odd Prism Central intent): Prism Element
+            # v2.0 through the PC proxy is the only Nutanix source for them here.
+            note = _v4_note(0, [], self._esxi_from_prism_element(env, _V3Detail({}, {})), [])
         self._collect_cvms(env)
         env.collection_notes[self.name] = note
 
@@ -105,17 +132,72 @@ class VmCollector(Collector):
             except NutanixApiError as exc:
                 # One hypervisor's endpoint being absent (404) is normal: a cluster of
                 # the other type simply has none. A server error means that hypervisor's
-                # VMs could not be listed at all, which the groups fallback can repair.
+                # VMs could not be listed at all, which the fallbacks can repair.
                 if exc.status_code is not None and exc.status_code >= 500:
                     failed_lists.append(hypervisor)
                 continue
             skipped_total += skipped
             for entity in entities:
                 self._add_v4_vm(env, entity, hypervisor, detail)
-        recovered: list[VirtualMachine] | None = None
-        if skipped_total or failed_lists:
+        esxi = self._esxi_from_prism_element(env, detail)
+        recovered: list[VirtualMachine] | None = []
+        if (skipped_total > len(esxi.added) or AHV in failed_lists
+                or (ESXI in failed_lists and not esxi.added)):
+            # Last resort, for what neither v4 nor Prism Element could serve.
             recovered = self._recover_from_groups(env, detail)
-        return _v4_note(skipped_total, failed_lists, recovered)
+        return _v4_note(skipped_total, failed_lists, esxi, recovered)
+
+    # ─── ESXi: Prism Element v2.0 through the PC proxy ────────────
+
+    def _esxi_from_prism_element(self, env: Any, detail: _V3Detail) -> _EsxiResult:
+        """Complete the ESXi clusters' VMs from their Prism Element (v2.0 via PC).
+
+        One paged GET of ``vms`` (with disks and NICs) and one of ``networks`` per
+        in-scope ESXi cluster. Every VM v4 already returned keeps its v4 record and gains
+        what v4 leaves out: disks outside Nutanix storage containers, boot firmware, the
+        port group's VLAN and any guest IPs v4 did not report. Every VM Prism Element
+        lists that v4 did not return (the records v4 answers HTTP 500 for) is added
+        whole, marked ``v2.0``. Nothing outside the run's scope is read.
+        """
+        result = _EsxiResult()
+        known = {v.uuid: v for v in [*env.vms, *env.system_vms]}
+        for cluster_uuid, cluster_name in esxi_clusters(self.conn, env):
+            label = cluster_name or cluster_uuid
+            try:
+                rows = pe_vms(self.conn, cluster_uuid)
+            except PeReadError as exc:
+                result.failed.append(f"{label} ({exc})")
+                continue
+            try:
+                networks = {n["uuid"]: n for n in pe_networks(self.conn, cluster_uuid)
+                            if n.get("uuid")}
+            except PeReadError:
+                networks = {}
+            names = {u: str(n.get("name")) for u, n in networks.items() if n.get("name")}
+            for row in rows:
+                pe_vm = _map_vm(row, names, source="v2.0")
+                pe_vm.cluster_uuid = cluster_uuid
+                pe_vm.cluster_name = cluster_name
+                pe_vm.hypervisor = ESXI
+                for nic in pe_vm.nics:
+                    nic.subnet_uuid = None  # a port group, not a Nutanix subnet
+                current = known.get(pe_vm.uuid) or _unique_by_name(
+                    known.values(), pe_vm.name, cluster_uuid, cluster_name)
+                if current is not None:
+                    if _merge_pe_detail(current, pe_vm):
+                        result.enriched += 1
+                    continue
+                extra = detail.for_vm(pe_vm.uuid, pe_vm.name)
+                pe_vm.categories = extra.get("categories") or {}
+                pe_vm.protection_type = extra.get("protection_type")
+                pe_vm.vm_type = _classify_vm(pe_vm.name, {}, {"categories": pe_vm.categories})
+                known[pe_vm.uuid] = pe_vm
+                result.added.append(pe_vm)
+                if pe_vm.vm_type == "USER":
+                    env.vms.append(pe_vm)
+                else:
+                    env.system_vms.append(pe_vm)
+        return result
 
     def _add_v4_vm(
         self,
@@ -136,7 +218,7 @@ class VmCollector(Collector):
             host_uuid=(entity.get("host") or {}).get("extId"),
             power_state=entity.get("powerState"),
             # The two schemas disagree: AHV reports numSockets, ESXi numCpus.
-            num_vcpus=entity.get("numSockets") or entity.get("numCpus"),
+            num_vcpus=entity.get("numSockets") or _esxi_sockets(entity),
             num_cores_per_vcpu=entity.get("numCoresPerSocket"),
             memory_bytes=entity.get("memorySizeBytes"),
             hypervisor=hypervisor,
@@ -161,18 +243,19 @@ class VmCollector(Collector):
             env.system_vms.append(vm)
 
     def _recover_from_groups(self, env: Any, detail: _V3Detail) -> list[VirtualMachine] | None:
-        """Read the VMs v4 could not serve from the groups API (``mh_vm``), partially.
+        """Read the VMs neither v4 nor Prism Element served from the groups API.
 
-        The v4 ESXi endpoint answers HTTP 500 (PLAT-10006) for some individual VMs on
-        every path, list page and single GET alike, and v3 ``vms/list`` does not return
-        ESXi VMs at all. The groups API, the one the Prism UI itself uses, still lists
-        them, with the core sizing attributes but no NICs and no per-disk detail. Every
-        VM it reports that v4 did not is added and marked ``v3-groups (partial)``. The
-        groups ``entity_id`` is the same identifier v4 reports as ``extId``, for ESXi
-        VMs too (checked on the lab PC), so matching is by uuid.
+        The groups API, the one the Prism UI itself uses, still lists VMs the v4 ESXi
+        endpoint answers HTTP 500 for. ``mh_vm`` carries their core sizing and guest
+        IPs; ``virtual_nic`` and ``virtual_disk`` (filtered on the recovered VMs) add
+        their NICs (MAC, IPv4, connection, network) and disks (size, container, bus).
+        Every VM it reports that is not already collected is added and marked
+        ``v3-groups (partial)``. The groups ``entity_id`` is the identifier v4 reports
+        as ``extId``, for ESXi VMs too (checked on the lab PC), so matching is by uuid.
 
-        One read-only query (paged), scoped to the selected clusters. Returns the VMs
-        added, or None when the groups query failed too (the caller keeps the skip note).
+        Read-only queries (POST groups), scoped to the selected clusters. Returns the
+        VMs added, or None when the ``mh_vm`` query failed (the caller keeps the skip
+        note).
         """
         scope = getattr(self.conn, "scope", None)
         flt = "is_cvm==0"
@@ -180,13 +263,12 @@ class VmCollector(Collector):
             flt += ";cluster=in=" + "|".join(sorted(scope.selected))
         try:
             try:
-                rows = self.conn.v3_groups("mh_vm", GROUPS_VM_ATTRIBUTES,
-                                           filter_criteria=flt)
+                rows = self._groups("mh_vm", GROUPS_VM_ATTRIBUTES, flt, ("ip_addresses",))
             except NutanixApiError as exc:
                 if exc.status_code != 400:
                     raise
                 # A PC that rejects the filter syntax: read unfiltered, filter below.
-                rows = self.conn.v3_groups("mh_vm", GROUPS_VM_ATTRIBUTES)
+                rows = self._groups("mh_vm", GROUPS_VM_ATTRIBUTES, None, ("ip_addresses",))
         except Exception:  # noqa: BLE001 — groups unavailable: keep the skip note
             return None
         seen = {v.uuid for v in env.vms} | {v.uuid for v in env.system_vms}
@@ -210,16 +292,95 @@ class VmCollector(Collector):
                 env.vms.append(vm)
             else:
                 env.system_vms.append(vm)
+        if added:
+            self._groups_nics_and_disks(added)
         return added
+
+    def _groups(self, entity: str, attrs: list[str], flt: str | None,
+                multi: tuple[str, ...] = ()) -> list[dict[str, Any]]:
+        kwargs: dict[str, Any] = {}
+        if flt:
+            kwargs["filter_criteria"] = flt
+        if multi:
+            kwargs["multi_valued"] = multi
+        return list(self.conn.v3_groups(entity, attrs, **kwargs))
+
+    def _groups_nics_and_disks(self, vms: list[VirtualMachine]) -> None:
+        """NICs and disks of groups-recovered VMs (``virtual_nic`` / ``virtual_disk``).
+
+        Best-effort: a PC whose groups API does not serve these entity types leaves the
+        VMs with their ``mh_vm`` sizing and guest IPs.
+        """
+        by_uuid = {v.uuid: v for v in vms}
+        flt = "vm=in=" + "|".join(sorted(by_uuid))
+        try:
+            nics = self._groups("virtual_nic", GROUPS_NIC_ATTRIBUTES, flt, ("ipv4_addresses",))
+        except Exception:  # noqa: BLE001 — optional detail
+            nics = []
+        try:
+            disks = self._groups("virtual_disk", GROUPS_DISK_ATTRIBUTES, flt)
+        except Exception:  # noqa: BLE001 — optional detail
+            disks = []
+        nic_rows: dict[str, list[Nic]] = {}
+        for row in nics:
+            vm = by_uuid.get(str(row.get("vm") or ""))
+            if vm is None:
+                continue
+            ips = [str(ip) for ip in row.get("ipv4_addresses") or [] if usable_ip(str(ip))]
+            nic_rows.setdefault(vm.uuid, []).append(Nic(
+                uuid=row.get("entity_id"), mac_address=row.get("mac_address"),
+                subnet_uuid=row.get("virtual_network") or None, ip_addresses=ips,
+                is_connected=_flag(row.get("connected"))))
+        for uuid, vm_nics in nic_rows.items():
+            vm = by_uuid[uuid]
+            # mh_vm's guest IPs belong to some NIC; keep any no NIC row reported.
+            loose = [ip for n in vm.nics for ip in n.ip_addresses
+                     if all(ip not in x.ip_addresses for x in vm_nics)]
+            if loose:
+                vm_nics[0].ip_addresses.extend(loose)
+            vm.nics = vm_nics
+        disk_rows: dict[str, list[VirtualDisk]] = {}
+        for row in disks:
+            vm = by_uuid.get(str(row.get("vm") or ""))
+            if vm is None:
+                continue
+            address = str(row.get("disk_address") or "")
+            bus = address.split(".", 1)[0].upper() if "." in address else None
+            disk_rows.setdefault(vm.uuid, []).append(VirtualDisk(
+                uuid=row.get("entity_id"), label=address or None,
+                disk_size_bytes=_int_or_none(row.get("capacity_bytes")),
+                storage_container_uuid=row.get("container") or None,
+                storage_container_name=row.get("container_name") or None,
+                bus_type=bus, is_cdrom=bool(_flag(row.get("is_cdrom")))))
+        for uuid, vm_disks in disk_rows.items():
+            by_uuid[uuid].disks = vm_disks
+
+    def _v3_vms_in_scope(self) -> list[dict[str, Any]]:
+        scope = getattr(self.conn, "scope", None)
+        if scope is None or not scope.filtering or not scope.selected:
+            return list(self.conn.v3_list("vms"))
+        names = sorted({scope.registered[u].name for u in scope.selected
+                        if scope.registered[u].name})
+        if not names:
+            return list(self.conn.v3_list("vms"))
+        try:
+            return list(self.conn.v3_list(
+                "vms", filter=",".join(f"cluster_name=={n}" for n in names)))
+        except NutanixApiError as exc:
+            if exc.status_code != 400:
+                raise
+            return list(self.conn.v3_list("vms"))
 
     def _v3_detail(self) -> _V3Detail:
         """The fields v4 does not carry, indexed for lookup from a v4 VM.
 
         Best-effort: after the legacy sunset this returns empty and those columns go
-        blank, but the v4 inventory itself is unaffected.
+        blank, but the v4 inventory itself is unaffected. A scoped run asks v3 for the
+        selected clusters' VMs only (FIQL on ``cluster_name``); a PC that rejects the
+        filter is read unfiltered, and only VMs collected from v4 are ever looked up.
         """
         try:
-            entities = self.conn.v3_list("vms")
+            entities = self._v3_vms_in_scope()
         except NutanixApiError:
             return _V3Detail({}, {})
         out: dict[str, dict[str, Any]] = {}
@@ -354,7 +515,9 @@ def _groups_vm(row: dict[str, Any], detail: _V3Detail) -> VirtualMachine | None:
     extra = detail.for_vm(uuid, name)
     categories = extra.get("categories") or {}
     power = row.get("power_state")
+    ips = [ip for ip in _split_ips(row.get("ip_addresses")) if usable_ip(ip)]
     return VirtualMachine(
+        nics=[Nic(ip_addresses=ips)] if ips else [],
         uuid=uuid,
         name=name,
         cluster_name=row.get("cluster_name") or None,
@@ -386,23 +549,118 @@ def _groups_hypervisor(value: Any) -> str | None:
     return {"kkvm": "AHV", "kvmware": "VMware", "khyperv": "Hyper-V"}.get(v.lower(), v)
 
 
-def _v4_note(skipped: int, failed_lists: list[str],
+def _v4_note(skipped: int, failed_lists: list[str], esxi: _EsxiResult,
              recovered: list[VirtualMachine] | None) -> str:
-    """The collection note for a v4 VM run (no em dashes: it reaches the reports)."""
+    """The collection note for a VM run (no em dashes: it reaches the reports).
+
+    Counts only what happened in this run's scope: a VM is reported as skipped only
+    when the v4 API failed for it and neither Prism Element nor the groups API could
+    stand in.
+    """
     parts: list[str] = []
+    if esxi.added:
+        names = names_label(sorted((v.name for v in esxi.added), key=str.casefold), limit=10)
+        parts.append(
+            f"{fmt_count(len(esxi.added))} ESXi VM(s) read from Prism Element (v2.0 "
+            f"through Prism Central) because the v4 API did not return them: {names}")
+    if esxi.failed:
+        parts.append("Prism Element could not be read for " + "; ".join(esxi.failed)
+                     + ", so ESXi disks outside Nutanix containers, boot type and port "
+                     "group VLANs may be missing")
     if recovered:
         names = names_label(sorted((v.name for v in recovered), key=str.casefold), limit=10)
         parts.append(
-            f"{fmt_count(len(recovered))} VM(s) read from the groups API because the v4 "
-            f"API failed for them: {names}; NICs and per-disk details unavailable")
-    remaining = max(0, skipped - len(recovered or []))
+            f"{fmt_count(len(recovered))} VM(s) read from the groups API because no other "
+            f"API returned them: {names}")
+    remaining = max(0, skipped - len(esxi.added) - len(recovered or []))
     if remaining:
         parts.append(
             f"{fmt_count(remaining)} VM(s) skipped: the v4 endpoint returned an internal "
             "error for those individual records")
-    if failed_lists and recovered is None:
+    if failed_lists and recovered is None and not esxi.added:
         parts.append(f"the v4 {' and '.join(failed_lists)} VM list could not be read")
     return "ok: " + "; ".join(parts) if parts else "ok"
+
+
+def _unique_by_name(vms: Iterable[VirtualMachine], name: str, cluster_uuid: str,
+                    cluster_name: str | None) -> VirtualMachine | None:
+    """The one collected VM of that cluster with that name, else None.
+
+    v3 reports an ESXi VM under its Prism Central intent's uuid, not the VM's own, so a
+    v3-path VM is found by name; a name used twice on the cluster matches nothing.
+    """
+    found = [v for v in vms if v.name == name
+             and (v.cluster_uuid == cluster_uuid
+                  or (not v.cluster_uuid and cluster_name and v.cluster_name == cluster_name))]
+    return found[0] if len(found) == 1 else None
+
+
+def _merge_pe_detail(vm: VirtualMachine, pe: VirtualMachine) -> bool:
+    """Fill what the VM's v4 (or v3) record lacks from its Prism Element record.
+
+    Returns True when anything changed. The v4 record stays authoritative for what it
+    has; Prism Element adds the disks v4 omits (those outside a Nutanix storage
+    container: same disk uuid in both APIs), the boot firmware, cores per vCPU, the
+    port group of a NIC and guest IPs v4 did not report (NICs match by uuid, else MAC).
+    """
+    changed = False
+    have = {d.uuid for d in vm.disks if d.uuid}
+    # Same disk in both: v4's disk extId is v2.0's `device_uuid`; the bus address
+    # ("scsi.0") is the fallback key.
+    keys = {disk_key(d.label) for d in vm.disks if not d.is_cdrom} - {None}
+    for disk in pe.disks:
+        if disk.is_cdrom or (disk.uuid and disk.uuid in have):
+            continue
+        key = disk_key(disk.label)
+        if key and key in keys:
+            continue
+        if not disk.uuid and not key:
+            continue  # nothing to tell it apart from a disk v4 already listed
+        vm.disks.append(disk)
+        changed = True
+    for attr in ("boot_type", "num_cores_per_vcpu", "guest_os", "description"):
+        if getattr(vm, attr) in (None, "") and getattr(pe, attr) not in (None, ""):
+            setattr(vm, attr, getattr(pe, attr))
+            changed = True
+    by_uuid = {n.uuid: n for n in pe.nics if n.uuid}
+    by_mac = {(n.mac_address or "").lower(): n for n in pe.nics if n.mac_address}
+    for nic in vm.nics:
+        other = by_uuid.get(nic.uuid or "") or by_mac.get((nic.mac_address or "").lower())
+        if other is None:
+            continue
+        if not nic.subnet_name and other.subnet_name:
+            nic.subnet_name = other.subnet_name
+            changed = True
+        if not nic.ip_addresses and other.ip_addresses:
+            nic.ip_addresses = list(other.ip_addresses)
+            changed = True
+        if not nic.nic_type and other.nic_type:
+            nic.nic_type = other.nic_type
+            changed = True
+    if not vm.nics and pe.nics:
+        vm.nics = pe.nics
+        changed = True
+    return changed
+
+
+def _esxi_sockets(entity: dict[str, Any]) -> int | None:
+    """Sockets of an ESXi VM, so that sockets x cores per socket is its vCPU count.
+
+    VMware's ``numCpus`` is the VM's total vCPUs (vCenter's ``cpu.count`` agrees on the
+    lab), not a socket count like AHV's ``numSockets``; taken as sockets it would count
+    a 4-vCPU VM with 2 cores per socket as 8.
+    """
+    total = entity.get("numCpus")
+    per = entity.get("numCoresPerSocket")
+    if isinstance(total, int) and isinstance(per, int) and per > 1 and total % per == 0:
+        return total // per
+    return total if isinstance(total, int) else None
+
+
+def _flag(value: Any) -> bool | None:
+    if value is None:
+        return None
+    return str(value).strip().lower() in ("1", "true", "yes", "connected")
 
 
 # ─── v4 mappers ────────────────────────────────────────────────────────
@@ -482,10 +740,15 @@ def _v4_nics(entity: dict[str, Any]) -> list[Nic]:
             value = extra.get("value") if isinstance(extra, dict) else None
             if isinstance(value, str) and value not in ips:
                 ips.append(value)
-        for extra in (network.get("ipAddressInfo") or {}).get("ipAddress") or []:
-            value = extra.get("value") if isinstance(extra, dict) else None
-            if isinstance(value, str) and value not in ips:
-                ips.append(value)
+        # ESXi: the guest IPs VMware Tools reports. A live pc.7.5.1.1 names the lists
+        # `ipv4Addresses` / `ipv6Addresses`; `ipAddress` is kept for older builds. Reading
+        # only `ipAddress` left every ESXi VM without an IP address.
+        info = network.get("ipAddressInfo") or {}
+        for key in ("ipv4Addresses", "ipv6Addresses", "ipAddress"):
+            for extra in info.get(key) or []:
+                value = extra.get("value") if isinstance(extra, dict) else None
+                if isinstance(value, str) and value not in ips and usable_ip(value):
+                    ips.append(value)
         port_group = (network.get("portGroupInfo") or {}).get("name")
         out.append(
             Nic(

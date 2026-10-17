@@ -19,6 +19,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
 
+from ntnxvision_core.capacity import target_label
 from ntnxvision_core.exporters import diagrams
 from ntnxvision_core.exporters.diagrams import Diagram
 from ntnxvision_core.exporters.sourcing import source_hosts, sources, with_sources
@@ -31,6 +32,7 @@ from ntnxvision_core.exporters.theme import (
     plural,
     power_label,
     report_date,
+    switch_label,
     tone_for,
 )
 from ntnxvision_core.models import Environment
@@ -196,7 +198,7 @@ class Report:
 MONO_HEADERS = frozenset({
     "AOS", "Version", "Current Version", "Current", "Available Versions", "Active Version",
     "IP Prefix", "IP address(es)", "IP Addresses", "Gateway", "VLAN", "Routable Prefixes",
-    "NCC Version", "API", "External IP", "Data Services IP",
+    "NCC Version", "API", "External IP", "Data Services IP", "vCenter",
 })
 
 
@@ -354,7 +356,7 @@ def deployment(cfg: Any) -> str | None:
 
 _OUTCOME = {"collected": "Collected", "notes": "Collected with notes", "skipped": "Skipped",
             "failed": "Failed", "cancelled": "Cancelled"}
-_API_LABEL = {"v2": "v2.0", "era": "Era"}
+_API_LABEL = {"v2": "v2.0", "era": "Era", "vcenter": "vCenter"}
 
 
 def run_areas(env: Environment) -> list[dict[str, Any]]:
@@ -630,9 +632,9 @@ class _Builder:
             "areas not deployed are listed below rather than shown as empty sections.",
             "Capacities use binary units (GiB and TiB; 1 GiB = 1,073,741,824 bytes), "
             "timestamps are UTC, and N/A marks a value the API did not return.",
-            f"Cluster capacity figures use a {fmt_ratio(self.ctx.vcpu_ratio)} vCPU:pCPU "
-            "target, a 5% storage reserve and the cluster redundancy factor; N-1 assumes "
-            "the loss of the largest node.",
+            f"Cluster capacity figures use {self.ctx.targets_text()}, a 5% storage "
+            "reserve and the cluster redundancy factor; N-1 assumes the loss of the "
+            "largest node.",
         ]
         if (scope := self.scope_sentence()):
             items.append(scope)
@@ -726,12 +728,12 @@ class _Builder:
                 "Prism Central and its registered clusters.")))
         ch.add("Clusters Overview", make_table(
             ["Cluster", "AOS", "Hypervisor", "Nodes", "RF", "Encryption", "External IP",
-             "Data Services IP"],
+             "Data Services IP", "vCenter"],
             [[c.name, c.aos_version, ", ".join(c.hypervisor_types), c.num_nodes,
               c.redundancy_factor, "Yes" if c.encryption_enabled else "No", c.external_ip,
-              c.data_services_ip]
+              c.data_services_ip, c.vcenter_address]
              for c in env.clusters],
-            "Registered clusters", self.src(env.clusters)))
+            "Registered clusters", self.src(env.clusters), prune=("vCenter",)))
         return ch
 
     def physical_design(self) -> Chapter:
@@ -781,7 +783,9 @@ class _Builder:
                 if (k := self.ctx.capacity(c)) is not None and k.nodes]
         if not caps:
             return
-        target = fmt_ratio(self.ctx.vcpu_ratio)
+        targets = self.ctx.targets_text()
+        uniform = not any(k.target_custom for _, k in caps) and \
+            len({k.target_ratio for _, k in caps}) == 1
 
         def num(v: float | None) -> int | None:
             return None if v is None else int(round(v))
@@ -792,8 +796,9 @@ class _Builder:
         lead = Paragraph(
             "Capacity is calculated per cluster from the collected nodes. Usable cores are "
             "the physical cores of every node (hyperthreads not counted) less the vCPUs of "
-            f"its Controller VM; vCPU Total is usable cores at the {target} vCPU:pCPU target "
-            "used for this report. Storage Total is the raw storage of every node x 0.95 "
+            "its Controller VM; vCPU Total is usable cores x the cluster's vCPU:pCPU "
+            "target, recorded when the snapshot was collected (this report uses "
+            f"{targets}). Storage Total is the raw storage of every node x 0.95 "
             "(5% reserve) / the cluster redundancy factor. Oversubscription is provisioned "
             "vCPUs / usable cores, and provisioned VM disk / Storage Total. Provisioned "
             "figures count every VM, powered on or off, including Prism Central; CVMs are "
@@ -804,12 +809,15 @@ class _Builder:
             "clusters are judged on their worst case. It is N/A for one- and two-node "
             "clusters.", "note")
         cpu = make_table(
-            ["Cluster", "Nodes", "Cores", "CVM vCPU", "Usable Cores", "vCPU Total",
-             "vCPU Total N-1", "vCPU Allocated", "vCPU:pCore", "vCPU:pCore N-1"],
+            ["Cluster", "Nodes", "Cores", "CVM vCPU", "Usable Cores", "Target",
+             "vCPU Total", "vCPU Total N-1", "vCPU Allocated", "vCPU:pCore",
+             "vCPU:pCore N-1"],
             [[c.name, k.node_count, k.physical_cores, k.cvm_vcpus, k.usable_cores,
+              target_label(k.target_ratio, k.target_custom),
               num(k.vcpu_total), num(k.vcpu_total_n1), k.provisioned_vcpus,
               fmt_ratio(k.cpu_ratio), fmt_ratio(k.cpu_ratio_n1)] for c, k in caps],
-            f"CPU capacity and oversubscription at a {target} target",
+            f"CPU capacity and oversubscription at {targets}" if uniform
+            else "CPU capacity and oversubscription at each cluster's target",
             self.src([c for c, _ in caps]))
         storage = make_table(
             ["Cluster", "Nodes", "RF", "Raw (TiB)", "Storage Total (TiB)",
@@ -937,6 +945,12 @@ class _Builder:
             [[s.name, self.cluster(s), s.subnet_type, s.vlan_id, s.virtual_switch, s.ip_prefix,
               s.vpc_name] for s in env.subnets],
             "Subnets", self.src(env.subnets), prune=("VPC", "vSwitch", "IP Prefix")), *figs)
+        ch.add("ESXi Port Groups", make_table(
+            ["Port Group", "Cluster", "VLAN", "Switch", "VMs"],
+            [[p.name, self.cluster(p), p.vlan_id, switch_label(p.switch_type), p.vm_count]
+             for p in env.port_groups],
+            "vSphere port groups of the ESXi clusters", self.src(env.port_groups),
+            prune=("Switch",)))
         vpc_fig = diagrams.vpc_topology(env)
         ch.add("Virtual Networking (VPCs)", make_table(
             ["VPC", "Subnets", "External Subnets", "Routable Prefixes", "Routes",

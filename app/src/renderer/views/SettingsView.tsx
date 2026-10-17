@@ -3,7 +3,7 @@
 
 import React, { useState } from 'react';
 import type { Accent, Density, SnapshotList, ThemeMode } from '@shared/ipc';
-import { DEFAULT_VCPU_RATIO } from '@shared/ipc';
+import { DEFAULT_VCPU_RATIO, MAX_CLUSTER_RATIO, MIN_CLUSTER_RATIO } from '@shared/ipc';
 import { Button, Callout, ConfirmDialog, Field, PageHeader, Panel, PanelHeader, Segmented, useToast } from '../components';
 import { useSettings } from '../lib/settings';
 import { useRun } from '../lib/run';
@@ -12,9 +12,10 @@ import { useRouter } from '../lib/router';
 import { BackgroundSettingsPanel, EmailSettingsPanel } from './EmailSettings';
 import { NA, errorMessage, fmtBytes, fmtRatio, plural, tildify } from '../lib/format';
 
-// Bounds for the vCPU:pCPU target (the core accepts 0.1 to 64 and falls back to 4).
-const MIN_RATIO = 1;
-const MAX_RATIO = 32;
+// Bounds for the vCPU:pCPU target (the core accepts 0.1 to 64 and falls back to 4); the
+// per-cluster targets of New collection share them.
+const MIN_RATIO = MIN_CLUSTER_RATIO;
+const MAX_RATIO = MAX_CLUSTER_RATIO;
 
 export function SettingsView(): JSX.Element {
   const { settings, theme, accent, density, appInfo, update, error } = useSettings();
@@ -175,7 +176,7 @@ export function SettingsView(): JSX.Element {
             <Field
               id="set-vcpu-ratio"
               label="vCPU:pCPU target (vCPUs per physical core)"
-              hint={`Each cluster's vCPU Total is its usable cores x ${fmtRatio(savedRatio)}, in the Inventory and in reports (which record the value). Oversubscription ratios do not depend on it.`}
+              hint={`The default for new collections: each cluster's vCPU Total is its usable cores x ${fmtRatio(savedRatio)} unless New collection sets a target for that cluster. A snapshot keeps the targets it was collected with. Oversubscription ratios do not depend on it.`}
               error={ratioError}
             >
               <input

@@ -36,7 +36,8 @@ if TYPE_CHECKING:  # pragma: no cover
 
 #: Environment lists whose objects carry `cluster_uuid` and/or `cluster_name`.
 CLUSTER_BOUND_FIELDS: tuple[str, ...] = (
-    "hosts", "vms", "system_vms", "storage_containers", "subnets", "licenses", "alerts",
+    "hosts", "vms", "system_vms", "storage_containers", "subnets", "port_groups", "licenses",
+    "alerts",
     "lcm_entities", "ovas", "volume_groups", "file_servers", "object_stores", "remote_sites",
 )
 
@@ -59,10 +60,13 @@ class RegisteredCluster:
     aos_version: str | None = None
     num_nodes: int | None = None
     hypervisors: list[str] = field(default_factory=list)
+    #: The vCenter an ESXi cluster is registered to, as Prism reports it.
+    vcenter: str | None = None
 
     def as_dict(self) -> dict[str, Any]:
         return {"uuid": self.uuid, "name": self.name, "aos_version": self.aos_version,
-                "num_nodes": self.num_nodes, "hypervisors": list(self.hypervisors)}
+                "num_nodes": self.num_nodes, "hypervisors": list(self.hypervisors),
+                "vcenter": self.vcenter}
 
 
 def registered_clusters(conn: PrismConnection) -> tuple[list[RegisteredCluster], str]:
@@ -77,6 +81,7 @@ def registered_clusters(conn: PrismConnection) -> tuple[list[RegisteredCluster],
 
 
 def _registered_v4(conn: PrismConnection) -> list[RegisteredCluster]:
+    from ntnxvision_core.collectors.clusters import v4_vcenter
     from ntnxvision_core.collectors.normalize import hypervisor_name
 
     out: list[RegisteredCluster] = []
@@ -95,11 +100,13 @@ def _registered_v4(conn: PrismConnection) -> list[RegisteredCluster]:
             num_nodes=(entity.get("nodes") or {}).get("numberOfNodes"),
             hypervisors=sorted({n for h in (config.get("hypervisorTypes") or [])
                                 if (n := hypervisor_name(h))}),
+            vcenter=v4_vcenter(entity.get("network")),
         ))
     return _sorted(out)
 
 
 def _registered_v3(conn: PrismConnection) -> list[RegisteredCluster]:
+    from ntnxvision_core.collectors.clusters import v3_vcenter
     from ntnxvision_core.collectors.normalize import hypervisor_name
 
     out: list[RegisteredCluster] = []
@@ -122,6 +129,7 @@ def _registered_v3(conn: PrismConnection) -> list[RegisteredCluster]:
             aos_version=nos.get("version") if isinstance(nos, dict) else None,
             num_nodes=len(node_list) or len(servers) or None,
             hypervisors=sorted({n for t in types if t and (n := hypervisor_name(t))}),
+            vcenter=v3_vcenter(config),
         ))
     return _sorted(out)
 
