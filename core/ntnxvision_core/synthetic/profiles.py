@@ -39,6 +39,11 @@ from ntnxvision_core.synthetic.mockapi import Target
 
 DEMO_DOMAIN = ".demo.local"
 
+#: The address pc01's ESXi cluster reports as its vCenter (a documentation range, so it
+#: never reaches a real host); the mock vCenter answers there and at vcenter.demo.local.
+VCENTER_ADDRESS = "198.51.100.20"
+VCENTER_HOST = "vcenter.demo.local"
+
 
 def _pc(host: str, profile: str, version: str, features: Features | None = None,
         tls: str = "ca") -> Target:
@@ -52,7 +57,8 @@ def demo_targets() -> dict[str, Target]:
     targets: list[Target] = [
         _pc("pc01.demo.local", "medium", "pc.2024.3", Features(
             v4_unavailable={"objects"}, v4_absent={"files"}, files=False,
-            alerts_rate_limited=True, esxi_bad_vms=3, lcm_framework_stale=True)),
+            alerts_rate_limited=True, esxi_bad_vms=3, lcm_framework_stale=True,
+            vcenter_address=VCENTER_ADDRESS)),
         _pc("pc02.demo.local", "small", "pc.7.3", Features(
             objects=False, fvn=False, v4_absent={"objects"})),
         _pc("pc03.demo.local", "legacy", "pc.2024.1", Features(files=False, ncm=False)),

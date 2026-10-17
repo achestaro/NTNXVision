@@ -19,6 +19,7 @@ from ntnxvision_core.models import (
     Cluster,
     Host,
     Nic,
+    PortGroup,
     StorageContainer,
     Subnet,
     VirtualDisk,
@@ -138,7 +139,12 @@ def _storage(conn: ElementConnection, env: Any) -> None:
 
 
 def _networks(conn: ElementConnection, env: Any) -> None:
+    esxi = any("ESXi" in (c.hypervisor_types or []) for c in env.clusters)
     for net in conn.v2_list("networks"):
+        if esxi:
+            # An ESXi cluster's networks are vSphere port groups, not Nutanix subnets.
+            env.port_groups.append(port_group_from_v2(net, None))
+            continue
         ip_config = net.get("ip_config", {}) or {}
         env.subnets.append(
             Subnet(
@@ -156,6 +162,26 @@ def _networks(conn: ElementConnection, env: Any) -> None:
     env.collection_notes["subnets"] = "ok"
 
 
+def port_group_from_v2(net: dict[str, Any], cluster_uuid: str | None,
+                       cluster_name: str | None = None) -> PortGroup:
+    """A port group from an ESXi cluster's v2.0 ``networks`` entry.
+
+    v2.0 leaves zero-valued fields out, and the groups API reports VLAN 0 for the same
+    networks whose v2.0 entry has no ``vlan_id`` (checked on the lab PC), so an absent
+    VLAN is 0 (untagged) here.
+    """
+    vlan = net.get("vlan_id")
+    return PortGroup(
+        uuid=str(net.get("uuid") or ""),
+        name=net.get("name"),
+        cluster_uuid=cluster_uuid or net.get("cluster_uuid"),
+        cluster_name=cluster_name,
+        vlan_id=_as_int(vlan) if vlan is not None else 0,
+        network_type=net.get("network_type"),
+        api_source="v2.0",
+    )
+
+
 # ─── VMs ───────────────────────────────────────────────────────────────
 
 
@@ -163,8 +189,16 @@ def _vms(conn: ElementConnection, env: Any) -> None:
     # The v2.0 /vms endpoint omits disk and NIC config unless these include flags are
     # passed, so request them on every page (paginated via v2_list).
     include = {"include_vm_disk_config": "true", "include_vm_nic_config": "true"}
+    names = {n.uuid: n.name for n in [*env.subnets, *env.port_groups] if n.uuid and n.name}
+    esxi = any("ESXi" in (c.hypervisor_types or []) for c in env.clusters)
     for vm in conn.v2_list("vms", extra_params=include):
-        env.vms.append(_map_vm(vm))
+        mapped = _map_vm(vm, names)
+        if esxi:
+            mapped.hypervisor = "ESXi"
+            # Port group NICs: the network uuid names a port group, not a subnet.
+            for nic in mapped.nics:
+                nic.subnet_uuid = None
+        env.vms.append(mapped)
     _cvms(conn, env)
     env.collection_notes["vms"] = "ok"
 
@@ -204,7 +238,16 @@ def _cvms(conn: ElementConnection, env: Any) -> None:
         )
 
 
-def _map_vm(vm: dict[str, Any]) -> VirtualMachine:
+def _map_vm(vm: dict[str, Any], network_names: dict[str, str] | None = None,
+            source: str = "v2.0") -> VirtualMachine:
+    """A VM from a Prism Element v2.0 payload (direct, or through the PC proxy).
+
+    The same mapper serves AHV and ESXi clusters. On ESXi the payload is the most
+    complete Nutanix view of a VM: every disk (also those on a non-Nutanix datastore,
+    which v4 leaves out), every NIC with its port group (``network_uuid``) and the guest
+    IPs VMware Tools reports, the boot firmware and the VMware guest OS id.
+    `network_names` maps a network uuid to its name (subnet or port group).
+    """
     out = VirtualMachine(
         uuid=vm.get("uuid", ""),
         name=vm.get("name", ""),
@@ -213,13 +256,28 @@ def _map_vm(vm: dict[str, Any]) -> VirtualMachine:
         num_cores_per_vcpu=vm.get("num_cores_per_vcpu"),
         memory_bytes=_as_int(vm.get("memory_mb"), scale=1024 * 1024),
         description=vm.get("description"),
+        guest_os=vm.get("guest_os") or None,
         host_uuid=vm.get("host_uuid"),
+        boot_type=v2_boot_type(vm.get("boot")),
         gpus=[g.get("device_name", "") for g in vm.get("vm_gpus", []) or [] if isinstance(g, dict)],
-        api_source="v2.0",
+        api_source=source,
     )
     out.disks = _disks(vm)
-    out.nics = _nics(vm)
+    out.nics = _nics(vm, network_names or {})
     return out
+
+
+def v2_boot_type(boot: Any) -> str | None:
+    """Boot firmware in v3's vocabulary from a v2.0 ``boot`` block.
+
+    v2.0 omits false flags, so a block without ``uefi_boot`` is legacy BIOS; no block
+    at all means the API did not say.
+    """
+    if not isinstance(boot, dict) or not boot:
+        return None
+    if boot.get("uefi_boot"):
+        return "SECURE_BOOT" if boot.get("secure_boot") else "UEFI"
+    return "LEGACY"
 
 
 def _disks(vm: dict[str, Any]) -> list[VirtualDisk]:
@@ -228,7 +286,9 @@ def _disks(vm: dict[str, Any]) -> list[VirtualDisk]:
         addr = disk.get("disk_address", {}) or {}
         out.append(
             VirtualDisk(
-                uuid=addr.get("vmdisk_uuid"),
+                # `device_uuid` is the id v4 reports as the disk extId (checked on a live
+                # PC); `vmdisk_uuid` names the backing vDisk.
+                uuid=addr.get("device_uuid") or addr.get("vmdisk_uuid"),
                 label=f"{addr.get('device_bus', '')}.{addr.get('device_index', '')}".strip("."),
                 disk_size_bytes=_as_int(disk.get("size")),
                 storage_container_uuid=disk.get("storage_container_uuid"),
@@ -239,24 +299,34 @@ def _disks(vm: dict[str, Any]) -> list[VirtualDisk]:
     return out
 
 
-def _nics(vm: dict[str, Any]) -> list[Nic]:
+def _nics(vm: dict[str, Any], network_names: dict[str, str] | None = None) -> list[Nic]:
     out: list[Nic] = []
     for nic in vm.get("vm_nics", []) or []:
-        ips = [nic.get("ip_address")] if nic.get("ip_address") else []
-        ips += [
-            ep.get("ip_address")
-            for ep in nic.get("ip_endpoint_list", []) or []
-            if ep.get("ip_address")
-        ]
+        ips: list[str] = []
+        candidates = [nic.get("ip_address"), *(nic.get("ip_addresses") or []),
+                      *(ep.get("ip_address") for ep in nic.get("ip_endpoint_list", []) or []
+                        if isinstance(ep, dict))]
+        for ip in candidates:
+            if isinstance(ip, str) and ip and ip not in ips and usable_ip(ip):
+                ips.append(ip)
+        network = nic.get("network_uuid")
         out.append(
             Nic(
+                uuid=nic.get("nic_uuid"),
                 mac_address=nic.get("mac_address"),
-                subnet_uuid=nic.get("network_uuid"),
-                ip_addresses=[ip for ip in ips if ip],
+                subnet_uuid=network,
+                subnet_name=(network_names or {}).get(network or ""),
+                ip_addresses=ips,
                 is_connected=nic.get("is_connected"),
+                nic_type=nic.get("adapter_type") or nic.get("model") or None,
             )
         )
     return out
+
+
+def usable_ip(ip: str) -> bool:
+    """False for IPv6 link-local addresses, which every NIC has and nobody looks up."""
+    return not ip.lower().startswith("fe80:")
 
 
 #: (area id, label, step) in run order. The area ids match the Prism Central collectors'
