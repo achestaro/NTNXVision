@@ -12,6 +12,7 @@ import { useSettings } from '../lib/settings';
 import { useRouter } from '../lib/router';
 import { errorMessage } from '../lib/format';
 import { emailStatusTitle } from './emailStatus';
+import { CertificateDetails } from './ConnectionTest';
 
 type Errors = Partial<Record<SmtpField, string>>;
 type Form = Omit<SmtpSettings, 'port' | 'maxAttachmentMb'> & { port: string; maxAttachmentMb: string };
@@ -66,13 +67,15 @@ export function EmailSettingsPanel(): JSX.Element {
   }, []);
 
   const set = <K extends keyof Form>(k: K, v: Form[K]) => {
-    setForm((f) => ({ ...f, [k]: v }));
+    // A trusted certificate belongs to the server it was shown for (R2-03).
+    const resetsPin = k === 'host' || k === 'port' || k === 'username' || (k === 'allowUntrusted' && !v);
+    setForm((f) => ({ ...f, [k]: v, ...(resetsPin ? { pinnedSha256: '' } : {}) }));
     setErrors((x) => ({ ...x, [k]: undefined, form: undefined }));
     setTest(null);
   };
 
   const setSecurity = (sec: SmtpSecurity) => {
-    setForm((f) => ({ ...f, security: sec, port: f.port === String(SMTP_PORTS[f.security]) || !f.port ? String(SMTP_PORTS[sec]) : f.port }));
+    setForm((f) => ({ ...f, security: sec, pinnedSha256: '', port: f.port === String(SMTP_PORTS[f.security]) || !f.port ? String(SMTP_PORTS[sec]) : f.port }));
     setErrors((x) => ({ ...x, port: undefined }));
     setTest(null);
   };
@@ -112,7 +115,7 @@ export function EmailSettingsPanel(): JSX.Element {
     }
   };
 
-  const keychainApplies = !!saved?.hasPassword && !clearPassword && form.host.trim() === saved.host && form.username.trim() === saved.username;
+  const keychainApplies = !!saved?.hasPassword && !clearPassword && form.host.trim() === saved.host && form.username.trim() === saved.username && Number(form.port) === saved.port && form.security === saved.security;
 
   const unsafeAuth = form.security === 'none' && !!form.username.trim() && !isLocalHost(form.host);
 
@@ -138,6 +141,12 @@ export function EmailSettingsPanel(): JSX.Element {
     } finally {
       setTesting(false);
     }
+  };
+
+  const trustCertificate = (fingerprint: string) => {
+    setForm((f) => ({ ...f, pinnedSha256: fingerprint.replace(/:/g, '').toLowerCase() }));
+    setTest(null);
+    toast.show({ tone: 'ok', title: 'Certificate trusted', detail: 'Save the email settings to keep it.' });
   };
 
   const dirty =
@@ -272,6 +281,13 @@ export function EmailSettingsPanel(): JSX.Element {
                 checked={form.allowUntrusted}
                 onChange={(v) => set('allowUntrusted', v)}
               />
+              {form.allowUntrusted && form.security !== 'none' && (
+                <div className="hint below" data-testid="smtp-pin-status">
+                  {form.pinnedSha256
+                    ? `Trusted certificate (SHA-256): ${form.pinnedSha256.toUpperCase().replace(/(..)(?!$)/g, '$1:')}`
+                    : 'No certificate trusted yet. Send a test email to review the server’s certificate, then choose Trust this certificate. Email is not sent until you do.'}
+                </div>
+              )}
               <SwitchRow
                 id="smtp-zip"
                 label="Zip attachments"
@@ -332,7 +348,24 @@ export function EmailSettingsPanel(): JSX.Element {
               <div style={{ marginTop: 12 }} aria-live="polite">
                 {testing && <Loading label="Sending test email…" />}
                 {test && 'error' in test && <Callout tone="error" title="Test email not sent.">{test.error}</Callout>}
-                {test && 'result' in test && <EmailOutcome result={test.result} okTitle={`Test email sent to ${test.to}.`} />}
+                {test && 'result' in test && test.result.status === 'untrusted_cert' && test.result.certificate && form.allowUntrusted ? (
+                  <Callout
+                    tone={form.pinnedSha256 ? 'error' : 'warn'}
+                    title={form.pinnedSha256 ? `The certificate for ${form.host.trim()} changed.` : `Trust the certificate of ${form.host.trim()}?`}
+                    actions={
+                      <Button size="sm" variant="primary" onClick={() => trustCertificate(test.result.certificate!.fingerprint_sha256)} data-testid="smtp-trust">
+                        Trust this certificate
+                      </Button>
+                    }
+                  >
+                    {form.pinnedSha256
+                      ? 'It is not the certificate you trusted before. That can be a renewed certificate, or someone intercepting the connection. Nothing was sent. Only trust it if you expect the change.'
+                      : 'Nothing was sent: no sign-in and no email. Compare the fingerprint with the one your mail administrator gives you, then trust it.'}
+                    <CertificateDetails certificate={test.result.certificate} />
+                  </Callout>
+                ) : (
+                  test && 'result' in test && <EmailOutcome result={test.result} okTitle={`Test email sent to ${test.to}.`} />
+                )}
               </div>
             </div>
           </>

@@ -16,6 +16,7 @@ import type {
   SnapshotList,
   StatusValue,
 } from '@shared/ipc';
+import { toCsv, tsvLine } from '../lib/csv';
 import {
   Badge,
   Button,
@@ -236,11 +237,10 @@ export function InventoryView({
         limit: Math.max(q.matching, 1),
       });
       const cols = all.columns.filter((c) => !hidden[c.key]);
-      const esc = (s: string) => (/[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s);
-      const csv = [
-        cols.map((c) => esc(c.label)).join(','),
-        ...all.rows.map((r) => cols.map((c) => esc(rawCell(r.cells[c.key]))).join(',')),
-      ].join('\n');
+      const csv = toCsv([
+        cols.map((c) => c.label),
+        ...all.rows.map((r) => cols.map((c) => rawCell(r.cells[c.key]))),
+      ]);
       const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
       const a = document.createElement('a');
       a.href = url;
@@ -497,9 +497,10 @@ export function InventoryView({
   );
 }
 
-function rawCell(v: CellValue): string {
+function rawCell(v: CellValue): string | number {
   if (v === null || v === undefined) return '';
   if (isStatus(v)) return v.label;
+  if (typeof v === 'number') return v;
   return String(v);
 }
 
@@ -541,7 +542,7 @@ function DetailPanel({
   const closeRef = useRef<HTMLButtonElement>(null);
   const copyRow = async () => {
     if (!row) return;
-    const line = columns.map((c) => rawCell(row.cells[c.key])).join('\t');
+    const line = tsvLine(columns.map((c) => rawCell(row.cells[c.key])));
     try {
       await navigator.clipboard.writeText(line);
       toast.show({ tone: 'ok', title: 'Row copied', detail: 'Tab-separated, ready to paste into a spreadsheet' });

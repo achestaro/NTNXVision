@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 
 const require = createRequire(import.meta.url);
-const { TargetStore, migrate, remapIds, validate, passwordAccount, ndbAccount, vcenterAccount, legacyAccount, cleanOverrides } = require('../dist/main/targets.js');
+const { TargetStore, TARGETS_TAMPERED_MESSAGE, migrate, remapIds, validate, passwordAccount, ndbAccount, vcenterAccount, legacyAccount, cleanOverrides } = require('../dist/main/targets.js');
 
 function fakeIO({ current, legacy } = {}) {
   const io = {
@@ -108,7 +108,7 @@ test('save: create stores the password in the keychain under the stable id, neve
   assert.ok(!('password' in r.target));
 });
 
-test('save: rename and a new username keep the id and the password (no move, no orphan)', async () => {
+test('save: rename keeps the password; a new username, address or port drops it (R2-02)', async () => {
   const io = fakeIO();
   const sec = fakeSecrets();
   const store = new TargetStore(io, sec, { newId: ids() });
@@ -118,8 +118,14 @@ test('save: rename and a new username keep the id and the password (no move, no 
   assert.equal(r.targets.length, 1);
   assert.equal(r.target.name, 'Renamed');
   assert.equal(r.target.username, 'svc');
-  assert.equal(r.target.hasPassword, true);
-  assert.deepEqual([...sec.map.keys()], [passwordAccount('id-1')]);
+  // The endpoint changed and no new password came with it: the saved one is gone.
+  assert.equal(r.target.hasPassword, false);
+  assert.deepEqual([...sec.map.keys()], []);
+  assert.equal(await store.password('id-1'), null);
+  // A rename alone keeps it.
+  await store.save({ ...base, id: 'id-1', name: 'Renamed', username: 'svc', host: 'pc01b.example.com', port: 9441, password: 'pw' });
+  const r2 = await store.save({ ...base, id: 'id-1', name: 'Renamed again', username: 'svc', host: 'pc01b.example.com', port: 9441, password: '' });
+  assert.equal(r2.target.hasPassword, true);
   assert.equal(await store.password('id-1'), 'pw');
   // A typed password replaces it in place.
   await store.save({ ...base, id: 'id-1', name: 'Renamed', password: 'new' });
@@ -285,13 +291,13 @@ test('migrateSecrets keeps the legacy entry while the keychain is locked, and re
   assert.equal(sec.map.has(legacyAccount('pc01', 'admin')), false);
 });
 
-test('editing a target whose move is still pending moves its password from the old address', async () => {
+test('editing the address of a target whose move is still pending drops the password (R2-02)', async () => {
   const sec = fakeSecrets({ [legacyAccount('pc01', 'admin')]: 'pw1' });
   const store = new TargetStore(fakeIO({ legacy: [{ host: 'pc01', port: 9440, username: 'admin', name: 'A' }] }), sec, { newId: ids() });
   const r = await store.save({ ...base, id: 'id-1', name: 'A', host: 'pc01-new', username: 'svc' });
   assert.equal(r.ok, true);
-  assert.equal(r.target.hasPassword, true);
-  assert.deepEqual([...sec.map.keys()], [passwordAccount('id-1')]);
+  assert.equal(r.target.hasPassword, false);
+  assert.deepEqual([...sec.map.keys()], []);
 });
 
 test('deleting a migrated target drops the shared legacy entry only when unused', async () => {
@@ -396,4 +402,126 @@ test('savedPin and endpointTls resolve the pin per endpoint', async () => {
   assert.deepEqual(tls.primary, { insecure: true, pinnedCert: FP1 });
   assert.deepEqual(tls.ndb, { insecure: true, pinnedCert: FP2 });
   assert.deepEqual(tls.vcenter, { insecure: true, pinnedCert: undefined });
+});
+
+// ─── R2-02: secrets follow the endpoint, never an address edit ───
+
+test('R2-02: changing mode, host, port or username without a password deletes the keychain entry', async () => {
+  for (const change of [{ host: 'evil.example.com' }, { port: 9441 }, { username: 'other' }, { mode: 'prism_element' }]) {
+    const sec = fakeSecrets();
+    const store = new TargetStore(fakeIO(), sec, { newId: ids() });
+    await store.save({ ...base, password: 'pw' });
+    const r = await store.save({ ...base, id: 'id-1', ...change });
+    assert.equal(r.ok, true);
+    assert.equal(r.target.hasPassword, false, JSON.stringify(change));
+    assert.equal(await store.password('id-1'), null);
+    assert.equal(sec.map.size, 0);
+  }
+});
+
+test('R2-02: a new password with the changed endpoint is stored; untouched endpoints keep theirs', async () => {
+  const sec = fakeSecrets();
+  const store = new TargetStore(fakeIO(), sec, { newId: ids() });
+  await store.save({ ...base, password: 'pw' });
+  await store.save({ ...base, id: 'id-1', host: 'pc02.example.com', password: 'pw2' });
+  assert.equal(await store.password('id-1'), 'pw2');
+  await store.save({ ...base, id: 'id-1', host: 'pc02.example.com', insecure: true });
+  assert.equal(await store.password('id-1'), 'pw2');
+});
+
+test('R2-02: NDB and vCenter passwords follow their host, user and TLS setting', async () => {
+  const sec = fakeSecrets();
+  const store = new TargetStore(fakeIO(), sec, { newId: ids() });
+  const full = { ...base, password: 'pw', ndbHost: 'ndb.example.com', ndbUser: 'era', ndbPassword: 'npw', vcenterHost: 'vc.example.com', vcenterUser: 'v@vsphere.local', vcenterPassword: 'vpw' };
+  await store.save(full);
+  // Nothing about the NDB/vCenter endpoints changed: all three kept.
+  await store.save({ ...full, id: 'id-1', password: '', ndbPassword: '', vcenterPassword: '', name: 'Renamed' });
+  assert.equal(await store.ndbPassword('id-1'), 'npw');
+  assert.equal(await store.vcenterPassword('id-1'), 'vpw');
+  // NDB host changes: NDB password dropped, the others stay.
+  let r = await store.save({ ...full, id: 'id-1', password: '', ndbPassword: '', vcenterPassword: '', ndbHost: 'ndb2.example.com' });
+  assert.equal(r.target.ndbHasPassword, false);
+  assert.equal(r.target.vcenterHasPassword, true);
+  assert.equal(r.target.hasPassword, true);
+  // vCenter user changes: dropped.
+  r = await store.save({ ...full, id: 'id-1', password: '', ndbPassword: '', vcenterPassword: '', ndbHost: 'ndb2.example.com', vcenterUser: 'other@vsphere.local' });
+  assert.equal(r.target.vcenterHasPassword, false);
+  // NDB TLS flag flips with no password: dropped too.
+  await store.save({ ...full, id: 'id-1', password: '', ndbPassword: 'n3', vcenterPassword: '', ndbHost: 'ndb2.example.com', vcenterUser: 'other@vsphere.local' });
+  r = await store.save({ ...full, id: 'id-1', password: '', ndbPassword: '', vcenterPassword: '', ndbHost: 'ndb2.example.com', vcenterUser: 'other@vsphere.local', ndbInsecure: true });
+  assert.equal(r.target.ndbHasPassword, false);
+});
+
+test('R2-02: a changed endpoint clears the pin unless the request carries a fresh one', async () => {
+  const fp = Array.from({ length: 32 }, () => 'AB').join(':');
+  const store = new TargetStore(fakeIO(), fakeSecrets(), { newId: ids() });
+  await store.save({ ...base, insecure: true, pinnedCert: fp, password: 'pw' });
+  let r = await store.save({ ...base, id: 'id-1', insecure: true, host: 'pc09.example.com' });
+  assert.equal(r.target.pinnedCert, undefined);
+});
+
+const tamperedIO = (file) => {
+  const io = fakeIO({ current: file });
+  io.tampered = () => io.isTampered;
+  io.isTampered = true;
+  const write = io.write;
+  io.write = (f) => {
+    write(f);
+    io.isTampered = false;
+  };
+  return io;
+};
+
+const twoTargets = () => ({
+  version: 2,
+  targets: [
+    { id: 'a', mode: 'prism_central', name: 'A', host: 'evil.example.com', port: 9440, username: 'admin', insecure: false, createdAt: 'x', updatedAt: 'x' },
+    { id: 'b', mode: 'prism_central', name: 'B', host: 'pc02.example.com', port: 9440, username: 'admin', insecure: false, ndbHost: 'ndb.example.com', ndbInsecure: false, createdAt: 'x', updatedAt: 'x' },
+  ],
+});
+
+test('R2-02: a tampered targets.json releases no passwords and reports the warning', async () => {
+  const sec = fakeSecrets({ [passwordAccount('a')]: 'pwa', [passwordAccount('b')]: 'pwb', [ndbAccount('b')]: 'nb' });
+  const io = tamperedIO(twoTargets());
+  const store = new TargetStore(io, sec, { newId: ids() });
+  assert.equal(store.tampered, true);
+  assert.equal(await store.password('a'), null);
+  assert.equal(await store.ndbPassword('b'), null);
+  assert.equal(await store.vcenterPassword('b'), null);
+  const list = await store.listWithStatus();
+  assert.ok(list.every((t) => !t.hasPassword && t.tamperedMessage === TARGETS_TAMPERED_MESSAGE));
+  assert.equal(TARGETS_TAMPERED_MESSAGE, 'Saved targets were changed outside NTNXVision. Review each target and re-enter its password to re-enable it.');
+  // The app never signs the bad file on its own: no writes from mutators or trust.
+  store.recordTest('a', { status: 'ok', ok: true, message: 'ok' });
+  store.rememberClusters('a', { selected: ['c'], known: ['c'] });
+  assert.equal(io.writes, 0);
+  assert.equal(sec.map.size, 3);
+});
+
+test('R2-02: re-saving a tampered target re-signs the file, keeps only that target\'s new password and forgets the others', async () => {
+  const sec = fakeSecrets({ [passwordAccount('a')]: 'pwa', [passwordAccount('b')]: 'pwb', [ndbAccount('b')]: 'nb' });
+  const io = tamperedIO(twoTargets());
+  const store = new TargetStore(io, sec, { newId: ids() });
+  const r = await store.save({ ...base, id: 'a', name: 'A', host: 'pc01.example.com', password: 'fresh' });
+  assert.equal(r.ok, true);
+  assert.equal(store.tampered, false);
+  assert.equal(io.writes, 1);
+  assert.equal(await store.password('a'), 'fresh');
+  assert.equal(await store.password('b'), null);
+  assert.equal(sec.map.has(ndbAccount('b')), false);
+  // Without a new password the re-saved target does not keep the old secret either.
+  const sec2 = fakeSecrets({ [passwordAccount('a')]: 'pwa' });
+  const s2 = new TargetStore(tamperedIO(twoTargets()), sec2, { newId: ids() });
+  const r2 = await s2.save({ ...base, id: 'a', name: 'A', host: 'evil.example.com', password: '' });
+  assert.equal(r2.target.hasPassword, false);
+});
+
+// ─── R2-10: host validation ───
+
+test('R2-10: validate rejects userinfo, query, fragment, paths, schemes and spaces; accepts hosts and IPs', () => {
+  const bad = ['user@evil.example.com', 'evil.example.com?x=1', 'evil.example.com#f', 'evil.example.com/path', 'https://x', 'a b', 'host:9440', '[fd00::1]'];
+  for (const host of bad) assert.ok(validate({ ...base, host }, []).host, host);
+  for (const host of ['pc01', 'pc01.example.com', '192.0.2.10', 'fd00::1', 'pc_01.lab.example.com']) assert.equal(validate({ ...base, host }, []).host, undefined, host);
+  assert.ok(validate({ ...base, ndbHost: 'a@b' }, []).ndbHost);
+  assert.ok(validate({ ...base, vcenterHost: 'a?b' }, []).vcenterHost);
 });

@@ -157,6 +157,11 @@ def test_starttls_self_signed_untrusted_then_allowed() -> None:
         assert r["status"] == "untrusted_cert" and "Allow untrusted certificate" in r["message"]
         r = mailer.send_test(cfg(s.port, security="starttls", allow_untrusted=True),
                              "user@example.com")
+        # Untrusted is allowed only pinned: the first test shows the certificate (R2-03).
+        assert r["status"] == "untrusted_cert" and not s.messages
+        pin = r["certificate"]["fingerprint_sha256"]
+        r = mailer.send_test(cfg(s.port, security="starttls", allow_untrusted=True,
+                                 pinned_sha256=pin.replace(":", "").lower()), "user@example.com")
         assert r["ok"], r
 
 

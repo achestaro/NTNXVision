@@ -4,6 +4,7 @@
 // through the main process and never come back: the renderer only sees "saved: yes/no".
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { isPlainHost } from '@shared/host';
 import { MagnifyingGlassIcon, PlugIcon, PlusIcon } from '@phosphor-icons/react';
 import type { ConnectionMode, SavedConnection, SnapshotInfo, TargetField, TargetSaveRequest, TestConnectionResult } from '@shared/ipc';
 import {
@@ -326,6 +327,12 @@ export function TargetsView({ edit, returnTo }: { edit?: string; returnTo?: 'new
     <>
       {header}
       {loadError && <ErrorState title="Couldn’t refresh the targets." error={loadError} onRetry={() => void load()} />}
+      {targets.some((t) => t.tamperedMessage) && (
+        <Callout tone="warn" title="Saved targets need review.">
+          <span data-testid="targets-tampered">{targets.find((t) => t.tamperedMessage)?.tamperedMessage}</span> No saved password is used until
+          you open a target, enter its password and choose Save changes.
+        </Callout>
+      )}
       <Panel aria-label="Targets table" className="targets-panel" style={{ minWidth: 0 }}>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, padding: '8px 12px', borderBottom: '1px solid var(--rule)', alignItems: 'center' }}>
           <div className="input-wrap" style={{ flex: '1 1 220px', maxWidth: 320 }}>
@@ -417,7 +424,7 @@ export function TargetsView({ edit, returnTo }: { edit?: string; returnTo?: 'new
                     <Status tone="ok">Keychain</Status>
                   ) : (
                     <Status tone="idle" shape="outline">
-                      Not saved
+                      Password needed
                     </Status>
                   ),
               },
@@ -524,6 +531,10 @@ function TargetEditor({
   const portNum = Number(port);
   /** The stored password applies only while the address and username are unchanged. */
   const keychainApplies = !!target?.hasPassword && host.trim() === target.host && username.trim() === target.username;
+  /** Editing the address, port, username or mode drops the saved password (it follows the endpoint). */
+  const endpointEdited = !!target && (mode !== target.mode || host.trim() !== target.host || portNum !== target.port || username.trim() !== target.username);
+  const ndbEdited = !!target?.ndbHost && (ndbHost.trim() !== target.ndbHost || ndbUser.trim() !== (target.ndbUser ?? 'admin') || !ndbVerify !== !!target.ndbInsecure);
+  const vcEdited = !!target?.vcenterHost && (vcHost.trim() !== target.vcenterHost || vcUser.trim() !== (target.vcenterUser ?? '') || !vcVerify !== !!target.vcenterInsecure);
 
   const check = (): Errors => {
     const e: Errors = {};
@@ -531,11 +542,11 @@ function TargetEditor({
     if (!n) e.name = 'Enter a name.';
     else if (targets.some((t) => t.id !== target?.id && t.name.trim().toLowerCase() === n.toLowerCase())) e.name = 'Another target already uses this name.';
     if (!host.trim()) e.host = 'Enter an address.';
-    else if (/\s|\/|^https?:/i.test(host.trim())) e.host = 'Enter a host name or IP address only, without https:// or a path.';
+    else if (!isPlainHost(host.trim())) e.host = 'Enter a host name or IP address only: no https://, user@, path, ? or #.';
     if (!Number.isInteger(portNum) || portNum < 1 || portNum > 65535) e.port = 'Port must be 1 to 65535.';
     if (!username.trim()) e.username = 'Enter a username.';
-    if (!isPe && ndbHost.trim() && /\s|\/|^https?:/i.test(ndbHost.trim())) e.ndbHost = 'Enter a host name or IP address only.';
-    if (!isPe && vcHost.trim() && /\s|\/|^https?:/i.test(vcHost.trim())) e.vcenterHost = 'Enter a host name or IP address only.';
+    if (!isPe && ndbHost.trim() && !isPlainHost(ndbHost.trim())) e.ndbHost = 'Enter a host name or IP address only.';
+    if (!isPe && vcHost.trim() && !isPlainHost(vcHost.trim())) e.vcenterHost = 'Enter a host name or IP address only.';
     return e;
   };
 
@@ -791,16 +802,18 @@ function TargetEditor({
             label="Password"
             className="connect-pw"
             hint={
-              target?.hasPassword
-                ? 'Saved in your keychain. Leave empty to keep it, or type a new one to replace it.'
-                : 'Saved to your OS keychain, never to disk.'
+              endpointEdited && target?.hasPassword
+                ? 'Password needed: you changed the address, port, username or type, so the saved password will be removed. Type it again.'
+                : target?.hasPassword
+                  ? 'Saved in your keychain. Leave empty to keep it, or type a new one to replace it.'
+                  : 'Saved to your OS keychain, never to disk.'
             }
           >
             <input
               className="input"
               type="password"
               value={password}
-              placeholder={target?.hasPassword ? 'Saved in your keychain' : 'Password'}
+              placeholder={target?.hasPassword && !endpointEdited ? 'Saved in your keychain' : 'Password'}
               onChange={(e) => {
                 setPassword(e.target.value);
                 changed();
@@ -845,13 +858,13 @@ function TargetEditor({
                 id="t-ndbp"
                 label="NDB password"
                 className="connect-pw"
-                hint={target?.ndbHasPassword ? 'Saved in your keychain. Leave empty to keep it.' : undefined}
+                hint={target?.ndbHasPassword ? (ndbEdited ? 'Password needed: the NDB address, username or TLS setting changed. Type it again.' : 'Saved in your keychain. Leave empty to keep it.') : undefined}
               >
                 <input
                   className="input"
                   type="password"
                   value={ndbPass}
-                  placeholder={target?.ndbHasPassword ? 'Saved in your keychain' : 'Password'}
+                  placeholder={target?.ndbHasPassword && !ndbEdited ? 'Saved in your keychain' : 'Password'}
                   onChange={(e) => {
                     setNdbPass(e.target.value);
                     setNdbTest(null);
@@ -946,13 +959,13 @@ function TargetEditor({
                 id="t-vcp"
                 label="vCenter password"
                 className="connect-pw"
-                hint={target?.vcenterHasPassword ? 'Saved in your keychain. Leave empty to keep it.' : undefined}
+                hint={target?.vcenterHasPassword ? (vcEdited ? 'Password needed: the vCenter address, username or TLS setting changed. Type it again.' : 'Saved in your keychain. Leave empty to keep it.') : undefined}
               >
                 <input
                   className="input"
                   type="password"
                   value={vcPass}
-                  placeholder={target?.vcenterHasPassword ? 'Saved in your keychain' : 'Password'}
+                  placeholder={target?.vcenterHasPassword && !vcEdited ? 'Saved in your keychain' : 'Password'}
                   onChange={(e) => {
                     setVcPass(e.target.value);
                     setVcTest(null);
