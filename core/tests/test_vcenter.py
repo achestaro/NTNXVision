@@ -53,9 +53,10 @@ def test_disk_addresses_read_the_same_from_every_api() -> None:
 def test_the_sidecar_reads_an_optional_vcenter_block() -> None:
     assert _vcenter_from(None, False) is None
     assert _vcenter_from({"host": "vc.example.lab"}, False) is None  # no user
-    creds = _vcenter_from({"host": "vc.example.lab", "username": "u", "password": "p"},
-                          True)
+    creds = _vcenter_from({"host": "vc.example.lab", "username": "u", "password": "p",
+                           "pinned_sha256": "ab" * 32}, True)
     assert creds is not None and creds.verify_ssl is False and creds.port == 443
+    assert creds.pinned_sha256 == "ab" * 32
     creds = _vcenter_from({"host": "vc.example.lab", "username": "u", "password": "p",
                            "insecure": False}, True)
     assert creds is not None and creds.verify_ssl is True

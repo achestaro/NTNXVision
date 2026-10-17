@@ -17,6 +17,7 @@ from typing import Any
 from ntnxvision_core.api import PrismConnection, PrismCredentials
 from ntnxvision_core.api.element_client import ElementConnection, ElementCredentials
 from ntnxvision_core.api.errors import AuthenticationError, NutanixApiError
+from ntnxvision_core.api.transport import require_pin
 from ntnxvision_core.scope import element_cluster, registered_clusters
 
 #: Seconds per request: the picker should fail fast rather than hang the form.
@@ -35,16 +36,18 @@ def list_clusters(params: dict[str, Any]) -> dict[str, Any]:
     if not password:
         raise AuthenticationError("No password. Type one, or save it to the keychain first.")
 
+    pin = require_pin(host, insecure, params.get("pinned_sha256"))
+
     if mode == "prism_element":
         creds = ElementCredentials(host=host, username=username, password=password, port=port,
-                                   verify_ssl=not insecure)
+                                   verify_ssl=not insecure, pinned_sha256=pin)
         with ElementConnection(creds, timeout=LIST_TIMEOUT) as conn:
             cluster = element_cluster(conn)
         return {"mode": mode, "host": host, "api": "v2", "version": cluster.aos_version,
                 "clusters": [cluster.as_dict()]}
 
     pc = PrismCredentials(host=host, username=username, password=password, port=port,
-                          verify_ssl=not insecure)
+                          verify_ssl=not insecure, pinned_sha256=pin)
     with PrismConnection(pc, timeout=LIST_TIMEOUT) as conn:
         clusters, api = registered_clusters(conn)
         version = conn.pc_version
