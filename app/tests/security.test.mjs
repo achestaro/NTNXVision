@@ -180,3 +180,16 @@ test('UNC paths are rejected before any filesystem access (R2-09)', () => {
     policy.resolveOpenable(join(dir, '..', 'elsewhere.pdf'), [dir], { extensions: policy.OPEN_EXTENSIONS, dirOk: false }),
   );
 });
+
+test('OS-handed snapshot files are not UNC-filtered; renderer paths are (R2-09)', () => {
+  const dir = join(dirname(fileURLToPath(import.meta.url)), '..', 'src', 'main');
+  const text = readFileSync(join(dir, 'main.ts'), 'utf8');
+  const fn = text.slice(text.indexOf('function snapshotFilesFrom('), text.indexOf('function openSnapshotFiles('));
+  assert.ok(!/isUncPath/.test(fn), 'snapshotFilesFrom must not reject UNC paths');
+  assert.ok(/osHandedFiles\.add/.test(fn), 'OS-handed files are remembered');
+  const arg = text.slice(text.indexOf('function snapshotFileArg('), text.indexOf('function showWindow('));
+  assert.ok(/requireLocalAbsolute/.test(arg) && /osHandedFiles\.has/.test(arg));
+  // The pure policy still refuses UNC for anything else.
+  assert.throws(() => policy.requireLocalAbsolute('\\\\host\\share\\a.ntnxsnap', 'path'));
+  assert.equal(policy.requireLocalAbsolute('/Users/a/a.ntnxsnap', 'path'), '/Users/a/a.ntnxsnap');
+});

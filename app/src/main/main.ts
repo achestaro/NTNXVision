@@ -79,7 +79,7 @@ import {
   asTrustCertificateRequest,
   cleanSettings,
 } from './requests';
-import { isUncPath, requireLocalAbsolute } from './pathpolicy';
+import { requireLocalAbsolute } from './pathpolicy';
 import { ValidationError, int, oneOf, optStr, str } from './validate';
 
 // A packaged build never honours debugger or engine-flag switches (R2-05): they would let
@@ -165,7 +165,9 @@ function inventoryPage(page: InventoryPage): InventoryPage {
 
 /** An .ntnxsnap path for inspect / import (picked in a dialog, dropped, or opened by the OS). */
 function snapshotFileArg(p: unknown): string {
-  const path = requireLocalAbsolute(str(p, 'path', 4096), 'path');
+  const raw = str(p, 'path', 4096);
+  // A UNC path is refused when the renderer names it (R2-09), except one the OS handed us.
+  const path = osHandedFiles.has(raw) ? raw : requireLocalAbsolute(raw, 'path');
   if (!isSnapshotFile(path)) throw new ValidationError('Snapshot files end in .ntnxsnap');
   return path;
 }
@@ -198,6 +200,23 @@ function send(channel: string, payload: unknown): void {
   if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send(channel, payload);
 }
 
+/** The renderer's web preferences (shared by the app window and the packaged smoke check). */
+function windowPreferences(): Electron.WebPreferences {
+  return {
+    // Bundled by esbuild (scripts/bundle-preload.mjs) so it requires only 'electron' and
+    // can run in the sandbox.
+    preload: join(__dirname, 'preload.bundle.js'),
+    contextIsolation: true,
+    nodeIntegration: false,
+    sandbox: true,
+    webviewTag: false,
+    navigateOnDragDrop: false,
+    spellcheck: false,
+    // No DevTools in a packaged app (development and e2e keep them).
+    devTools: !app.isPackaged,
+  };
+}
+
 function createWindow(show = true): void {
   // A new renderer asks for queued snapshot files once it has mounted.
   rendererWantsFiles = false;
@@ -209,19 +228,7 @@ function createWindow(show = true): void {
     minHeight: 640,
     backgroundColor: '#0B131B',
     title: demo ? 'NTNXVision · demo data' : 'NTNXVision',
-    webPreferences: {
-      // Bundled by esbuild (scripts/bundle-preload.mjs) so it requires only 'electron' and
-      // can run in the sandbox.
-      preload: join(__dirname, 'preload.bundle.js'),
-      contextIsolation: true,
-      nodeIntegration: false,
-      sandbox: true,
-      webviewTag: false,
-      navigateOnDragDrop: false,
-      spellcheck: false,
-      // No DevTools in a packaged app (development and e2e keep them).
-      devTools: !app.isPackaged,
-    },
+    webPreferences: windowPreferences(),
   });
   // While a schedule is enabled, closing the window keeps the app in the tray / menu bar.
   mainWindow.on('close', (e) => {
@@ -706,8 +713,16 @@ ipc.handle(IPC.chooseSnapshotFiles, async () => {
 const pendingSnapshotFiles: string[] = [];
 let rendererWantsFiles = false;
 
+/** Snapshot paths the OS handed to the app (double-click, Open with): the user's own action, UNC included. */
+const osHandedFiles = new Set<string>();
+
 function snapshotFilesFrom(argv: string[]): string[] {
-  return argv.filter((a) => !a.startsWith('-') && !isUncPath(a) && isSnapshotFile(a) && existsSync(a) && statSync(a).isFile());
+  return argv
+    .filter((a) => !a.startsWith('-') && isSnapshotFile(a) && existsSync(a) && statSync(a).isFile())
+    .map((a) => {
+      osHandedFiles.add(a);
+      return a;
+    });
 }
 
 function openSnapshotFiles(paths: string[]): void {
@@ -865,6 +880,48 @@ async function seedDemo(): Promise<void> {
   }
 }
 
+/**
+ * Packaged smoke check: a hidden window with the real preferences loads the built renderer
+ * over app://, and the page must have the bridge, a rendered React root and no CSP violation.
+ */
+async function checkRenderer(): Promise<string> {
+  const win = new BrowserWindow({ show: false, width: 1280, height: 800, webPreferences: windowPreferences() });
+  // The page's startup IPC calls are trusted only from the main window: use this one.
+  mainWindow = win;
+  const problems: string[] = [];
+  win.webContents.on('console-message', (...args: unknown[]) => {
+    const first = args[0] as { message?: string } | undefined;
+    const text = typeof first?.message === 'string' ? first.message : String(args[2] ?? '');
+    if (/content security policy|violates the following/i.test(text)) problems.push(text.slice(0, 200));
+  });
+  const loaded = new Promise<void>((resolve, reject) => {
+    win.webContents.once('did-finish-load', () => resolve());
+    win.webContents.once('did-fail-load', (_e, code, desc, url) => reject(new Error(`load failed ${code} ${desc} ${url}`)));
+    setTimeout(() => reject(new Error('renderer did not finish loading in 30 s')), 30_000);
+  });
+  try {
+    void win.loadURL(appPageUrl()).catch(() => undefined);
+    await loaded;
+    const url = win.webContents.getURL();
+    if (!url.startsWith('app://ntnxvision/')) throw new Error(`unexpected page url ${url}`);
+    // The React root renders after the module scripts run: wait for it.
+    const state = (await win.webContents.executeJavaScript(
+      `new Promise((res) => { const t0 = Date.now(); const tick = () => {
+         const root = document.querySelector('#root');
+         if (root && root.children.length > 0) return res({ bridge: typeof window.ntnx === 'object', rendered: true });
+         if (Date.now() - t0 > 20000) return res({ bridge: typeof window.ntnx === 'object', rendered: false });
+         setTimeout(tick, 100); }; tick(); })`,
+    )) as { bridge: boolean; rendered: boolean };
+    if (!state.bridge) throw new Error('window.ntnx is missing');
+    if (!state.rendered) throw new Error('the React root did not render');
+    if (problems.length) throw new Error(`CSP violation: ${problems[0]}`);
+    return 'ok';
+  } finally {
+    mainWindow = null;
+    win.destroy();
+  }
+}
+
 // ─── lifecycle ─────────────────────────────────────────────────────────
 
 // One window per profile: a second launch (Windows: double-clicking a .ntnxsnap while the
@@ -884,7 +941,12 @@ if (!primary) {
 
 app.whenReady().then(async () => {
   if (!primary) return;
-  if (isSmokeRun()) return void runSmoke(sidecar); // packaging smoke test, no window
+  if (isSmokeRun()) {
+    // Packaging smoke test: sidecar, keyring, and a hidden window on the built renderer.
+    installAppProtocol();
+    configureAppPage({ devServer: false, window: () => mainWindow });
+    return void runSmoke(sidecar, checkRenderer);
+  }
   installAppProtocol();
   lockPermissions();
   installMenu();
