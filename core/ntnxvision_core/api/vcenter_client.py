@@ -33,7 +33,7 @@ from ntnxvision_core.api.errors import (
     NutanixApiError,
     TlsVerificationFailed,
 )
-from ntnxvision_core.api.transport import configure_tls, new_session
+from ntnxvision_core.api.transport import clean_host, configure_tls, new_session, url_host
 from ntnxvision_core.cancel import CancelToken
 
 DEFAULT_PORT = 443
@@ -57,11 +57,16 @@ class VcenterCredentials:
     verify_ssl: bool = True
     #: SHA-256 fingerprint of the trusted certificate (only used with verify_ssl off).
     pinned_sha256: str | None = None
+    #: Command line only: connect with verification off and no pin (--insecure).
+    allow_unpinned: bool = False
+
+    def __post_init__(self) -> None:
+        self.host = clean_host(self.host)
 
     @property
     def base(self) -> str:
         port = "" if self.port == 443 else f":{self.port}"
-        return f"https://{self.host}{port}"
+        return f"https://{url_host(self.host)}{port}"
 
 
 @dataclass
@@ -81,7 +86,8 @@ class VcenterConnection:
     def connect(self) -> None:
         if not self.creds.verify_ssl:
             urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
-        configure_tls(self.session, self.creds.verify_ssl, self.creds.pinned_sha256)
+        configure_tls(self.session, self.creds.verify_ssl, self.creds.pinned_sha256,
+                      allow_unpinned=self.creds.allow_unpinned)
         self.session.headers.update({"Accept": "application/json"})
         auth = (self.creds.username, self.creds.password)
         resp = self._login("/api/session", auth)

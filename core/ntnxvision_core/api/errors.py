@@ -39,6 +39,10 @@ class CertificateChanged(TlsVerificationFailed):
     server now presents a different one. Re-test the connection and trust it again."""
 
 
+class InvalidHost(NutanixApiError):
+    """The host is not a plain hostname or IP address."""
+
+
 class RedirectBlocked(NutanixApiError):
     """The server answered with an HTTP redirect. Redirects are never followed: a
     cross-host redirect would carry the credentials or session header along."""
