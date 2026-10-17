@@ -25,7 +25,7 @@ from ntnxvision_core.api.errors import (
     NutanixApiError,
     TlsVerificationFailed,
 )
-from ntnxvision_core.api.transport import new_session
+from ntnxvision_core.api.transport import configure_tls, new_session
 from ntnxvision_core.cancel import CancelToken
 
 DEFAULT_PORT = 9440
@@ -41,6 +41,8 @@ class ElementCredentials:
     password: str
     port: int = DEFAULT_PORT
     verify_ssl: bool = True
+    #: SHA-256 fingerprint of the trusted certificate (only used with verify_ssl off).
+    pinned_sha256: str | None = None
 
     @property
     def base(self) -> str:
@@ -68,7 +70,7 @@ class ElementConnection:
         self.session.headers.update(
             {"Authorization": f"Basic {token}", "Accept": "application/json"}
         )
-        self.session.verify = self.creds.verify_ssl
+        configure_tls(self.session, self.creds.verify_ssl, self.creds.pinned_sha256)
 
         try:
             resp = self.session.get(f"{self.creds.base}/cluster", timeout=self.timeout)
