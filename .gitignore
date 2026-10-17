@@ -12,6 +12,12 @@ credentials.json
 *.key
 *.pfx
 *.crt
+*.p12
+*.cer
+*.mobileprovision
+*.keychain-db
+.npmrc
+*.har
 
 # Collected environment data / snapshots (may contain sensitive topology).
 # Root-anchored on purpose: an unanchored `data/` or `resources/` would silently
@@ -20,6 +26,7 @@ credentials.json
 /snapshots/
 *.snapshot
 *.ntnxsnap
+*.ntnxmeta.json
 /data/
 /exports/
 # local lab run artifacts & downloads (real IPs / usernames / VM names)

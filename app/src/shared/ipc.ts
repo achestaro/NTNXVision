@@ -965,6 +965,10 @@ export interface SmtpSettings {
   zipAttachments: boolean;
 }
 
+/** SEC-17: shown when schedules.json / email.json changed outside the app. */
+export const SCHEDULES_TAMPERED_MESSAGE = 'The schedule file was changed outside NTNXVision. Review and re-save to re-enable.';
+export const EMAIL_TAMPERED_MESSAGE = 'The email settings file was changed outside NTNXVision. Review and re-save to re-enable.';
+
 export const DEFAULT_SMTP: SmtpSettings = {
   host: '',
   port: 587,
@@ -983,8 +987,10 @@ export const SMTP_PORTS: Record<SmtpSecurity, number> = { none: 25, starttls: 58
 export interface SmtpSettingsInfo extends SmtpSettings {
   /** True when the keychain holds the SMTP password. */
   hasPassword: boolean;
-  /** Host and From address are set: sending is possible. */
+  /** Host and From address are set: sending is possible (never while `tampered`). */
   configured: boolean;
+  /** email.json was changed outside the app: shown for review, never used until re-saved. */
+  tampered?: boolean;
 }
 
 export interface SmtpSaveRequest extends SmtpSettings {
@@ -1171,6 +1177,8 @@ export interface SchedulesState {
   background: boolean;
   /** Start at login is available (packaged app; not in demo or test runs). */
   loginItemSupported: boolean;
+  /** schedules.json was changed outside the app: all schedules are off until re-saved. */
+  tampered?: boolean;
 }
 
 // ─── overview ───────────────────────────────────────────────────────────

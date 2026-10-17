@@ -2,11 +2,18 @@ name: Release
 
 # Builds the Windows MSI and the macOS DMG/ZIP (arm64 + x64) with the one-command build
 # scripts, smoke-tests the frozen sidecar and the packaged app on each OS, and uploads the
-# installers. Tags (v*) additionally get a draft GitHub Release with every installer.
+# installers. Tags (v*) additionally get a draft GitHub Release with every installer, a
+# SHA256SUMS file and a build-provenance attestation.
 #
 # Runs only on pull requests into main (to catch issues before the merge), on release
 # tags, and on demand (Actions > Release > Run workflow). Pushes to feature branches
 # do not run it.
+#
+# Security model: the workflow token is read-only by default; only the `release` job (tags
+# only) gets contents: write. Signing secrets are exposed only to tag / manual runs, never
+# to pull requests, and a tag build fails if any signing secret is missing. Every action is
+# pinned by commit SHA (Dependabot keeps them current). Python build deps are installed from
+# the hash-locked core/requirements-build.lock with --require-hashes.
 
 on:
   pull_request:
@@ -16,7 +23,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: release-${{ github.ref }}
@@ -31,18 +38,21 @@ jobs:
     name: Core tests + app lint
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
         with:
           python-version: ${{ env.PYTHON_VERSION }}
           cache: pip
-          cache-dependency-path: core/pyproject.toml
+          cache-dependency-path: core/requirements-build.lock
       - name: pytest
         working-directory: core
         run: |
-          python -m pip install -e ".[dev]"
+          python -m pip install --require-hashes -r requirements-build.lock
+          python -m pip install --no-deps -e .
           python -m pytest -q
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
@@ -50,8 +60,18 @@ jobs:
       - name: eslint
         working-directory: app
         run: |
-          npm ci --ignore-scripts --no-audit --no-fund   # lint needs no native keytar build
+          npm ci --ignore-scripts --no-audit --no-fund   # lint needs no native module
           npm run lint
+      # Shipped (production) dependencies must have no high or critical advisories.
+      - name: npm audit (production, high)
+        working-directory: app
+        run: npm audit --omit=dev --audit-level=high
+      # Informational: the full tree includes build tooling (electron-builder, vite, ...) that
+      # is not shipped and is bumped on its own schedule, so this never blocks a merge.
+      - name: npm audit (full tree, critical, informational)
+        working-directory: app
+        continue-on-error: true
+        run: npm audit --audit-level=critical
       # Python deps float within ranges, so a new upstream release can legitimately drift the
       # file; flag it here (non-blocking). Each build regenerates the copy it ships.
       - name: Third-party notices up to date
@@ -60,6 +80,38 @@ jobs:
         env:
           NTNXVISION_PYTHON: python
         run: npm run notices:check
+
+  # Known-vulnerability scan of the exact (hash-locked) Python set that is frozen into the
+  # sidecar. Fails on any advisory that has a published fix.
+  python-audit:
+    name: Python dependency audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - run: python -m pip install pip-audit==2.10.1
+      - run: pip-audit -r core/requirements-build.lock --disable-pip --no-deps
+
+  # Secret scan of the working tree (not history). The gitleaks binary is pinned by version
+  # and verified against a SHA-256 before it runs.
+  secret-scan:
+    name: Secret scan (gitleaks)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - name: gitleaks (working tree)
+        run: |
+          VER=8.30.1
+          curl -sSfL -o gitleaks.tgz "https://github.com/gitleaks/gitleaks/releases/download/v${VER}/gitleaks_${VER}_linux_x64.tar.gz"
+          echo "551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb  gitleaks.tgz" | sha256sum -c -
+          tar -xzf gitleaks.tgz gitleaks
+          ./gitleaks dir . --redact --no-banner --exit-code 1
 
   # Portable snapshot files must open on the other OS: export a demo snapshot (plain and
   # encrypted) on macOS and on Windows, then import each on the other one.
@@ -72,15 +124,19 @@ jobs:
         os: [macos-latest, windows-latest]
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
         with:
           python-version: ${{ env.PYTHON_VERSION }}
           cache: pip
-          cache-dependency-path: core/pyproject.toml
-      - run: python -m pip install -e core
+          cache-dependency-path: core/requirements-build.lock
+      - run: |
+          python -m pip install --require-hashes -r core/requirements-build.lock
+          python -m pip install --no-deps -e core
       - run: python scripts/snapshot-roundtrip.py export snapshot-out
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: snapshot-${{ runner.os }}
           path: snapshot-out/
@@ -98,14 +154,18 @@ jobs:
           - { os: macos-latest, from: Windows, platform: windows }
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
         with:
           python-version: ${{ env.PYTHON_VERSION }}
           cache: pip
-          cache-dependency-path: core/pyproject.toml
-      - run: python -m pip install -e core
-      - uses: actions/download-artifact@v4
+          cache-dependency-path: core/requirements-build.lock
+      - run: |
+          python -m pip install --require-hashes -r core/requirements-build.lock
+          python -m pip install --no-deps -e core
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           name: snapshot-${{ matrix.from }}
           path: snapshot-in
@@ -137,22 +197,24 @@ jobs:
               app/release/*.zip
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
         with:
           python-version: ${{ env.PYTHON_VERSION }}
           cache: pip
-          cache-dependency-path: core/pyproject.toml
+          cache-dependency-path: core/requirements-build.lock
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
           cache-dependency-path: app/package-lock.json
 
       # electron-builder downloads Electron and (Windows) the WiX toolset; cache both.
-      - uses: actions/cache@v4
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: |
             ~/AppData/Local/electron/Cache
@@ -161,17 +223,29 @@ jobs:
             ~/Library/Caches/electron-builder
           key: electron-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('app/package-lock.json') }}
 
+      # Signing secrets are exposed only to tag and manual runs, never to pull requests (a PR
+      # branch can change the scripts that run here). Tag builds must be signed: they fail
+      # when any secret is absent. PR and manual test builds stay unsigned if none are set.
       - name: Build (macOS)
         if: runner.os == 'macOS'
         env:
-          # All optional. Exported to electron-builder names only when non-empty: an empty
-          # CSC_LINK makes electron-builder treat "" as a certificate path and abort.
-          SEC_CSC_LINK: ${{ secrets.MAC_CSC_LINK }}
-          SEC_CSC_KEY_PASSWORD: ${{ secrets.MAC_CSC_KEY_PASSWORD }}
-          SEC_APPLE_ID: ${{ secrets.APPLE_ID }}
-          SEC_APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
-          SEC_APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          # Exported to electron-builder names only when non-empty: an empty CSC_LINK makes
+          # electron-builder treat "" as a certificate path and abort.
+          SEC_CSC_LINK: ${{ github.event_name != 'pull_request' && secrets.MAC_CSC_LINK || '' }}
+          SEC_CSC_KEY_PASSWORD: ${{ github.event_name != 'pull_request' && secrets.MAC_CSC_KEY_PASSWORD || '' }}
+          SEC_APPLE_ID: ${{ github.event_name != 'pull_request' && secrets.APPLE_ID || '' }}
+          SEC_APPLE_APP_SPECIFIC_PASSWORD: ${{ github.event_name != 'pull_request' && secrets.APPLE_APP_SPECIFIC_PASSWORD || '' }}
+          SEC_APPLE_TEAM_ID: ${{ github.event_name != 'pull_request' && secrets.APPLE_TEAM_ID || '' }}
+          REQUIRE_SIGNING: ${{ startsWith(github.ref, 'refs/tags/') && 'true' || 'false' }}
         run: |
+          if [ "$REQUIRE_SIGNING" = "true" ]; then
+            for v in SEC_CSC_LINK SEC_CSC_KEY_PASSWORD SEC_APPLE_ID SEC_APPLE_APP_SPECIFIC_PASSWORD SEC_APPLE_TEAM_ID; do
+              if [ -z "${!v}" ]; then
+                echo "::error::Release builds must be signed and notarized: the secret behind $v is missing."
+                exit 1
+              fi
+            done
+          fi
           # Sign only with an explicitly provided certificate, never a runner keychain identity.
           export CSC_IDENTITY_AUTO_DISCOVERY=false
           if [ -n "$SEC_CSC_LINK" ]; then
@@ -189,9 +263,18 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         env:
-          SEC_WIN_CSC_LINK: ${{ secrets.WIN_CSC_LINK }}
-          SEC_WIN_CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
+          SEC_WIN_CSC_LINK: ${{ github.event_name != 'pull_request' && secrets.WIN_CSC_LINK || '' }}
+          SEC_WIN_CSC_KEY_PASSWORD: ${{ github.event_name != 'pull_request' && secrets.WIN_CSC_KEY_PASSWORD || '' }}
+          REQUIRE_SIGNING: ${{ startsWith(github.ref, 'refs/tags/') && 'true' || 'false' }}
         run: |
+          if ($env:REQUIRE_SIGNING -eq 'true') {
+            foreach ($v in 'SEC_WIN_CSC_LINK', 'SEC_WIN_CSC_KEY_PASSWORD') {
+              if (-not [Environment]::GetEnvironmentVariable($v)) {
+                Write-Host "::error::Release builds must be signed: the secret behind $v is missing."
+                exit 1
+              }
+            }
+          }
           $env:CSC_IDENTITY_AUTO_DISCOVERY = 'false'
           if ($env:SEC_WIN_CSC_LINK) {
             $env:WIN_CSC_LINK = $env:SEC_WIN_CSC_LINK
@@ -205,7 +288,8 @@ jobs:
           if [ "$RUNNER_OS" = "Windows" ]; then
             BIN=app/release/win-unpacked/resources/sidecar/ntnxvision-sidecar.exe
           else
-            BIN="$(ls -d app/release/mac*/NTNXVision.app | head -1)/Contents/Resources/sidecar/ntnxvision-sidecar"
+            apps=(app/release/mac*/NTNXVision.app)
+            BIN="${apps[0]}/Contents/Resources/sidecar/ntnxvision-sidecar"
           fi
           python scripts/smoke-sidecar.py "$BIN" --ping-only
 
@@ -213,12 +297,12 @@ jobs:
         shell: bash
         run: ls -l app/release/
 
-      # Artifact storage on this repo has hit a stuck "quota" error before; never let an
-      # upload hiccup fail an otherwise good build. The fallback below covers that case.
+      # On tags the release job downloads these, so an upload failure must fail the build.
+      # Elsewhere (PR / manual test builds) artifact storage on this repo has hit a stuck
+      # "quota" error before; never let an upload hiccup fail an otherwise good build.
       - name: Upload installers (workflow artifact)
-        id: upload
-        uses: actions/upload-artifact@v4
-        continue-on-error: true
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        continue-on-error: ${{ !startsWith(github.ref, 'refs/tags/') }}
         with:
           name: ${{ matrix.artifact }}
           path: ${{ matrix.files }}
@@ -226,24 +310,45 @@ jobs:
           retention-days: 14
           compression-level: 0
 
-      - name: Fallback — attach to a draft CI release
-        if: steps.upload.outcome == 'failure' && !startsWith(github.ref, 'refs/tags/')
-        uses: softprops/action-gh-release@v2
+  # Tags only: collect every installer, checksum them, attest provenance and create the draft
+  # GitHub Release. The only job with a write-scoped token.
+  release:
+    name: Publish draft release
+    if: startsWith(github.ref, 'refs/tags/')
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write       # create the draft release
+      id-token: write       # sign the provenance attestation
+      attestations: write   # store the attestation
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
-          tag_name: ci-build-${{ github.run_number }}
-          name: "CI build ${{ github.run_number }} (${{ github.ref_name }})"
-          draft: true
-          prerelease: true
-          fail_on_unmatched_files: true
-          files: ${{ matrix.files }}
-
-      - name: Attach to draft release (tags)
-        if: startsWith(github.ref, 'refs/tags/')
-        uses: softprops/action-gh-release@v2
+          pattern: NTNXVision-*
+          path: dist-release
+          merge-multiple: true
+      - name: SHA256SUMS
+        working-directory: dist-release
+        run: |
+          ls -l
+          sha256sum -- *.msi *.dmg *.zip > SHA256SUMS
+          cat SHA256SUMS
+      - uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2.4.0
+        with:
+          subject-path: |
+            dist-release/*.msi
+            dist-release/*.dmg
+            dist-release/*.zip
+      - name: Attach to draft release
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2.6.2
         with:
           tag_name: ${{ github.ref_name }}
           name: NTNXVision ${{ github.ref_name }}
           draft: true
           generate_release_notes: true
           fail_on_unmatched_files: true
-          files: ${{ matrix.files }}
+          files: |
+            dist-release/*.msi
+            dist-release/*.dmg
+            dist-release/*.zip
+            dist-release/SHA256SUMS

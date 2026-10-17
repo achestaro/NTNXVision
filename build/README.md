@@ -33,19 +33,25 @@ cd ../app && npm ci && npm run package:mac      # or: npm run package:win (Windo
 * **Sidecar architecture = the Python that froze it.** PyInstaller can't cross-compile, so
   each macOS arch is built natively (CI: `macos-latest` arm64, `macos-15-intel` x64). No
   universal build: it would need universal2 wheels for every native dep.
-* **Windows arm64 MSI** contains the arm64 Electron shell and keytar, but the **x64**
+* **Windows arm64 MSI** contains the arm64 Electron shell and @napi-rs/keyring, but the **x64**
   sidecar (no arm64 Python on the CI runner); Windows 11 on ARM runs it under x64
   emulation. electron-builder 24's bundled WiX can't target arm64, so that MSI's own
   package architecture is x64 too. Both are expected.
-* **keytar** is a native N-API module. It's unpacked from the asar
-  (`asarUnpack: **/node_modules/keytar/**`), and electron-builder's `npmRebuild` fetches
-  the prebuilt binary for each target arch at package time (`npm run rebuild:native` does it
-  by hand). The `--smoke` run fails if keytar can't load.
+* **@napi-rs/keyring** (credential storage, replaced the archived keytar) is a native N-API
+  module with prebuilt per-platform binaries (`@napi-rs/keyring-<platform>-<arch>`, no
+  compiler needed). They are unpacked from the asar (`asarUnpack: **/node_modules/@napi-rs/keyring*/**`).
+  It reads and writes the same OS entries keytar did (service `NTNXVision`), so saved
+  passwords keep working after an upgrade; see `app/src/main/keychain.ts`. npm installs only the
+  host's binary package, so `scripts/build-windows.ps1` also installs the x64 and arm64 Windows ones
+  (`npm install --no-save --force`) before packaging. The `--smoke`
+  run fails if it can't load.
 * **Sidecar path** (`app/src/main/sidecar.ts`, `packagedSidecarPath`):
   `Contents/Resources/sidecar/ntnxvision-sidecar` (macOS) or
   `resources\sidecar\ntnxvision-sidecar.exe` (Windows). The execute bit is restored if it
   was lost, the console window is hidden on Windows, and `NTNXVISION_SIDECAR=<path>`
-  overrides the path for debugging.
+  overrides the path for debugging in an unpackaged app only (a packaged app ignores every
+  `NTNXVISION_*` test override except demo mode, and starts the sidecar with an allowlisted
+  environment).
 
 ## File association (`.ntnxsnap`)
 
@@ -75,6 +81,23 @@ once, or use Import or drag and drop.
 * Manufacturer comes from `author`, the product name from `productName`, and the icon from
   `app/build/icon.ico`.
 
+## Hardening: fuses and entitlements
+
+* **Electron fuses** (`build.electronFuses` in `app/package.json`): `runAsNode`,
+  `enableNodeOptionsEnvironmentVariable` and `enableNodeCliInspectArguments` off,
+  `enableEmbeddedAsarIntegrityValidation`, `onlyLoadAppFromAsar` and `enableCookieEncryption`
+  on. Verify a build with `npx @electron/fuses read --app release/mac-arm64/NTNXVision.app`.
+  `grantFileProtocolExtraPrivileges` stays at its default (on): the renderer loads from
+  `file://` inside the asar, and turning it off makes that load fail (ERR_FILE_NOT_FOUND).
+  The packaged app therefore cannot be started as plain Node, and `--smoke` does not need
+  that; development runs use the unpackaged Electron, which has the default fuses.
+* **macOS entitlements**: `entitlements.mac.plist` (main executable) and
+  `entitlements.inherit.plist` (helpers) grant only `allow-jit`. The frozen sidecar is
+  re-signed by `app/build/sign-sidecar.js` (an `afterSign` step, before notarization) with
+  `entitlements.sidecar.plist` (`allow-unsigned-executable-memory`,
+  `disable-library-validation`). Without a signing certificate the hook only seals the app
+  ad-hoc, because flipping fuses leaves an unsigned arm64 app unlaunchable.
+
 ## Signing and notarization (all optional, env-driven)
 
 Unsigned builds work. They just trigger Gatekeeper and SmartScreen warnings.
@@ -90,7 +113,7 @@ The notarize hook **skips cleanly** when the three Apple variables aren't all se
 app isn't signed with a Developer ID Application certificate (for example with the local
 Apple Development identity). Hardened runtime is on, with entitlements in
 `app/build/entitlements.mac.plist` (JIT, unsigned executable memory and library validation
-off for the PyInstaller dylibs, network client). keytar needs no keychain entitlement
+off for the PyInstaller dylibs, network client). The keychain library needs no keychain entitlement
 because the app isn't sandboxed.
 
 **GitHub repo secrets** consumed by `.github/workflows/release.yml`: `MAC_CSC_LINK`,
@@ -126,9 +149,23 @@ pip, npm, and the Electron and electron-builder (WiX) download caches are cached
 ## Smoke testing
 
 * Sidecar: `python scripts/smoke-sidecar.py <path to ntnxvision-sidecar[.exe]> [--ping-only]`
-* Packaged app: `NTNXVision --smoke` (or `NTNXVISION_SMOKE=1`). It loads keytar, pings the
+* Packaged app: `NTNXVision --smoke` (or `NTNXVISION_SMOKE=1`). It loads the keyring module, pings the
   sidecar through the normal `SidecarClient`, prints a JSON line and exits 0 or 1 without
   opening a window. From source: `npm run build && npm run smoke`.
+
+## Security notes
+
+* **Windows**: Credential Manager entries (saved target and SMTP passwords) have no per-app
+  ACL. Any process running as the same Windows user can read them. NTNXVision cannot prevent
+  that. Run it on a dedicated admin workstation account, not on a shared or daily-driver profile.
+* **macOS**: the keychain item's access control is bound to the signed NTNXVision app, so
+  another app asking for the item triggers a prompt. Unsigned local builds do not get that
+  protection.
+* Schedules and email settings (`schedules.json`, `email.json`) are protected against edits
+  outside the app by an HMAC whose key lives in the OS keychain (`integrity:key`). A mismatch
+  disables schedules and mail sending until the user reviews and re-saves them.
+* On macOS/Linux the app's data folders are created owner-only (0700) and the files 0600.
+  On Windows they rely on the per-user ACLs of `%APPDATA%`.
 
 ## Known limitations
 

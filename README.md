@@ -67,7 +67,7 @@ python -m ntnxvision_core --help
 ### Electron app
 ```bash
 cd app
-npm install          # builds keytar (needs Xcode CLT on macOS)
+npm install          # prebuilt native keyring module, no compiler needed
 npm run dev          # compiles main, starts Vite, launches Electron
 ```
 

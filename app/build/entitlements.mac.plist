@@ -1,10 +1,15 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <!--
-  Hardened-runtime entitlements for the app and (entitlementsInherit) every helper and the
-  bundled PyInstaller sidecar. The app is NOT sandboxed (Developer ID distribution).
+  Hardened-runtime entitlements for the Electron app's main executable. This is the minimum
+  Electron needs: V8's JIT. The app is NOT sandboxed (Developer ID distribution), so no
+  network entitlement is needed.
 
-  Keychain: keytar uses the legacy SecKeychain APIs against the user's login keychain,
+  Not granted here on purpose (SEC-12): disable-library-validation and
+  allow-unsigned-executable-memory. They belong only to the PyInstaller sidecar, which is
+  re-signed with entitlements.sidecar.plist (build/sign-sidecar.js).
+
+  Keychain: @napi-rs/keyring (keyring-rs) uses the macOS Security framework against the user's login keychain,
   which needs no entitlement outside the App Sandbox. Do not add keychain-access-groups:
   it requires an embedded provisioning profile and makes a Developer-ID build fail to launch.
 -->
@@ -12,14 +17,6 @@
   <dict>
     <!-- Required for Electron (V8 JIT) under the hardened runtime. -->
     <key>com.apple.security.cs.allow-jit</key>
-    <true/>
-    <!-- The PyInstaller sidecar unpacks/loads its own dylibs at runtime. -->
-    <key>com.apple.security.cs.allow-unsigned-executable-memory</key>
-    <true/>
-    <key>com.apple.security.cs.disable-library-validation</key>
-    <true/>
-    <!-- Outbound HTTPS to Prism Central / Prism Element / NDB (sidecar and renderer). -->
-    <key>com.apple.security.network.client</key>
     <true/>
   </dict>
 </plist>

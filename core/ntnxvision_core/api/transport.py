@@ -16,7 +16,12 @@ from urllib.parse import urlsplit
 
 import requests
 
-from ntnxvision_core.api.errors import CertificateChanged, CertificateNotTrusted, RedirectBlocked
+from ntnxvision_core.api.errors import (
+    CertificateChanged,
+    CertificateNotTrusted,
+    NutanixApiError,
+    RedirectBlocked,
+)
 
 _REDIRECTS = (301, 302, 303, 307, 308)
 _FP_RE = re.compile(r"^[0-9A-Fa-f]{2}(:?[0-9A-Fa-f]{2}){31}$")
@@ -25,6 +30,44 @@ _FP_RE = re.compile(r"^[0-9A-Fa-f]{2}(:?[0-9A-Fa-f]{2}){31}$")
 _session_hook: Callable[[requests.Session], None] | None = None
 #: Installed by demo mode: map (host, port) to the address actually dialled.
 _address_hook: Callable[[str, int], tuple[str, int, bool]] | None = None
+
+
+#: Largest API response body accepted (after decompression). Real estates page their
+#: lists, so a single response is far below this; the cap stops a hostile or broken
+#: endpoint from exhausting memory.
+MAX_RESPONSE_BYTES = 64 * 1024 * 1024
+
+
+class BoundedSession(requests.Session):
+    """A session that refuses response bodies larger than `max_bytes`."""
+
+    max_bytes: int = MAX_RESPONSE_BYTES
+
+    def send(self, request: requests.PreparedRequest, **kwargs: Any) -> requests.Response:
+        stream = kwargs.get("stream", False)
+        kwargs["stream"] = True
+        resp = super().send(request, **kwargs)
+        if stream:
+            return resp
+        limit = self.max_bytes
+        mb = limit // (1024 * 1024)
+
+        def too_big() -> NutanixApiError:
+            resp.close()
+            return NutanixApiError(
+                f"Response from {request.url} is larger than the {mb} MB limit; not read.",
+                status_code=resp.status_code)
+
+        declared = resp.headers.get("Content-Length", "")
+        if declared.isdigit() and int(declared) > limit:
+            raise too_big()
+        body = bytearray()
+        for chunk in resp.iter_content(chunk_size=65536):
+            body.extend(chunk)
+            if len(body) > limit:
+                raise too_big()
+        resp._content = bytes(body)
+        return resp
 
 
 def normalize_fingerprint(value: str | None) -> str | None:
@@ -57,9 +100,10 @@ def require_pin(host: str, insecure: bool, pinned: str | None) -> str | None:
     return digest
 
 
-class GuardedSession(requests.Session):
+class GuardedSession(BoundedSession):
     """The one session type every API client uses.
 
+    * Responses are size-capped (`BoundedSession`).
     * Redirects are never followed (``allow_redirects`` is forced off) and a 3xx answer is
       an error: a redirect to another host would carry the Authorization or vCenter
       session header with it.

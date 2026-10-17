@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import io
 from typing import Any
 
 import pytest
@@ -149,6 +150,7 @@ class _Redirector(BaseAdapter):
         resp = requests.Response()
         resp.status_code = 302
         resp.headers["Location"] = "https://evil.example.net/steal"
+        resp.raw = io.BytesIO(b"")
         resp.url = request.url or ""
         resp.request = request
         return resp
