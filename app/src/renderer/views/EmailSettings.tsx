@@ -5,7 +5,7 @@
 import React, { useEffect, useState } from 'react';
 import { EnvelopeSimpleIcon } from '@phosphor-icons/react';
 import type { EmailResult, SmtpField, SmtpSecurity, SmtpSettings, SmtpSettingsInfo } from '@shared/ipc';
-import { DEFAULT_SMTP, SMTP_PORTS } from '@shared/ipc';
+import { DEFAULT_SMTP, EMAIL_TAMPERED_MESSAGE, SMTP_PORTS } from '@shared/ipc';
 import { isValidEmail } from '@shared/schedule';
 import { Button, Callout, Field, Loading, Panel, PanelHeader, Segmented, Status, Switch, useToast } from '../components';
 import { useSettings } from '../lib/settings';
@@ -163,6 +163,11 @@ export function EmailSettingsPanel(): JSX.Element {
           </Callout>
         )}
         {loadError && <Callout tone="error" title="Couldn’t load the email settings.">{loadError}</Callout>}
+        {saved?.tampered && (
+          <Callout tone="warn" title="Email is switched off.">
+            {EMAIL_TAMPERED_MESSAGE} Check the values below, enter the password again if needed, and save.
+          </Callout>
+        )}
         {errors.form && <Callout tone="error" title={errors.form} />}
         {!saved && !loadError ? (
           <Loading />
