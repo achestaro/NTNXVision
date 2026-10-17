@@ -225,6 +225,32 @@ const SHOTS = [
     await rail(p, 'New collection');
     await p.locator('#saved').selectOption('t-phx');
   }, 1180],
+  // Step 2's per-cluster vCPU:pCPU target: collapsed (one remembered custom target),
+  // expanded with a custom and an invalid value, and Prism Element's single cluster.
+  ['new-ratio', {}, async (p) => {
+    await rail(p, 'New collection');
+    await p.getByTestId('ratio-count').waitFor();
+    await p.getByTestId('ratio-overrides').scrollIntoViewIfNeeded();
+  }, 1180],
+  ['new-ratio-open', {}, async (p) => {
+    await rail(p, 'New collection');
+    await p.getByTestId('ratio-toggle').click();
+    await p.getByTestId('ratio-PHX-PROD-02').fill('8.5');
+    await p.getByTestId('ratio-overrides').scrollIntoViewIfNeeded();
+  }, 1180],
+  ['new-ratio-error', {}, async (p) => {
+    await rail(p, 'New collection');
+    await p.getByTestId('ratio-toggle').click();
+    await p.getByTestId('ratio-AMS-EDGE-02').fill('0.5');
+    await p.getByTestId('ratio-error').waitFor();
+    await p.getByTestId('ratio-overrides').scrollIntoViewIfNeeded();
+  }, 1180],
+  ['new-ratio-pe', {}, async (p) => {
+    await rail(p, 'New collection');
+    await p.locator('#saved').selectOption('t-phx');
+    await p.getByTestId('ratio-toggle').click();
+    await p.getByTestId('ratio-list').waitFor();
+  }, 1180],
   ...['auth_failed', 'untrusted_cert', 'unreachable', 'version_unsupported'].map((t) => [
     `new-${t.replace('_', '-')}`,
     { test: t },
