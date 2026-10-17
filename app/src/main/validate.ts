@@ -72,14 +72,7 @@ export function optStrArray(v: unknown, name: string, maxItems?: number, maxLen?
   return v === undefined || v === null ? undefined : strArray(v, name, maxItems, maxLen);
 }
 
-/** A hostname, IPv4 or bracket-free IPv6 literal: no scheme, path, port, query or userinfo. */
-export function isPlainHost(host: string): boolean {
-  if (!host || host.length > 253) return false;
-  if (/^[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?)*$/.test(host)) {
-    return true;
-  }
-  return /^[0-9A-Fa-f:.]+$/.test(host) && host.includes(':');
-}
+export { isPlainHost } from '../shared/host';
 
 /**
  * Parse a link the app opens in the browser. Only plain https URLs with a host and no
