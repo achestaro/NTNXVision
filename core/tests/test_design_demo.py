@@ -144,10 +144,69 @@ def test_scoped_run_keeps_only_the_selected_clusters_design_data(demo: Any) -> N
         assert items and {o.cluster_uuid for o in items} == {keep}, name
 
 
+def test_scoped_run_keeps_only_the_selected_clusters_registrations(demo: Any) -> None:
+    full, _ = _collect("pc02.demo.local", ["clusters"])
+    keep = next(c.uuid for c in full.clusters if c.name == "SEA-PROD-01")
+    env, _ = _collect("pc02.demo.local", ["pc_config", "storage_containers"],
+                      clusters=[keep])
+    aos = [r for r in env.pc_registrations if r.remote_type == "AOS"]
+    assert [r.remote_uuid for r in aos] == [keep]
+    # The paired Prism Centrals are PC-wide and stay.
+    assert {r.name for r in env.pc_registrations if r.is_remote_pc} == {
+        "pc-dr", "pc01.demo.local"}
+    # The FlashArray belongs to SEA-PROD-02, outside the scope.
+    assert env.external_storages == []
+
+
+def test_object_counts_are_the_areas_main_objects(demo: Any) -> None:
+    env, areas = _collect("pc02.demo.local", ["hosts", "host_networking"])
+    assert areas["hosts"]["objects"] == len(env.hosts)
+    assert areas["host_networking"]["objects"] == len(env.virtual_switches)
+
+
+def test_large1_has_four_node_blocks(demo: Any) -> None:
+    env, _ = _collect("large1.demo.local", ["clusters", "hosts"])
+    assert {len(b.nodes) for b in env.blocks} >= {4}
+    assert {h.block_position for h in env.hosts} == {1, 2, 3, 4}
+    edge = next(c for c in env.clusters if c.name == "EDGE-A")  # 6 nodes, 2 blocks
+    assert edge.fault_domain == "NODE"
+    vdi = next(c for c in env.clusters if c.name == "VDI-A")  # 12 nodes: rack aware
+    assert vdi.fault_domain == "RACK"
+    racks = {b.rack_id for b in env.blocks if b.cluster_name == "VDI-A"}
+    assert racks == {1, 2, 3}
+
+
 def test_design_data_is_deterministic_across_collections(demo: Any) -> None:
     a, _ = _collect("pc02.demo.local", DESIGN_AREAS)
     b, _ = _collect("pc02.demo.local", DESIGN_AREAS)
     assert _design(a) == _design(b)
+
+
+def test_pc01_sync_and_nearsync_policies(demo: Any) -> None:
+    env, _ = _collect("pc01.demo.local", ["clusters", "data_protection", "pc_config"])
+    metro = next(p for p in env.protection_policies if p.name == "Metro-PHX-Sync")
+    assert (metro.replication_type, metro.rpo_seconds) == ("SYNC", 0)
+    assert (metro.source_clusters, metro.target_clusters) == (["PHX-PROD-01"], ["PHX-DR-01"])
+    assert metro.replications[0].sync_auto_suspend_timeout_secs == 10
+    near = next(p for p in env.protection_policies if p.name == "NearSync-PHX-SEA")
+    assert (near.replication_type, near.target_az) == ("NEARSYNC", "pc02.demo.local")
+    peer = next(r for r in env.pc_registrations if r.name == "pc02.demo.local")
+    assert peer.is_remote_pc
+
+
+def test_combined_run_names_the_peer_clusters(demo: Any) -> None:
+    one, _ = _collect("pc01.demo.local", ["clusters", "data_protection", "pc_config"])
+    two, _ = _collect("pc02.demo.local", ["clusters", "data_protection", "pc_config"])
+    near = next(p for p in one.protection_policies if p.name == "NearSync-PHX-SEA")
+    assert near.target_clusters != ["SEA-PROD-01"]  # pc02's cluster: unknown alone
+    combined = combine_environments([one, two])
+    near = next(p for p in combined.protection_policies if p.name == "NearSync-PHX-SEA")
+    assert near.target_clusters == ["SEA-PROD-01"]
+    # Each PC's registration of the other carries the other's own PC uuid.
+    pcs = {s.prism_central.host: s.prism_central.uuid for s in combined.source_environments}
+    regs = {(r.source_pc, r.remote_uuid) for r in combined.pc_registrations if r.is_remote_pc}
+    assert ("pc01.demo.local", pcs["pc02.demo.local"]) in regs
+    assert ("pc02.demo.local", pcs["pc01.demo.local"]) in regs
 
 
 def test_combined_run_keeps_design_data_per_pc(demo: Any) -> None:
