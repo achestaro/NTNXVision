@@ -159,3 +159,28 @@ def _probe(conn: PrismConnection, namespace: V4Namespace) -> str:
     except Exception:  # noqa: BLE001 — a probe must never abort a collection run
         return UNAVAILABLE
     return AVAILABLE
+
+
+def first_served(conn: PrismConnection, candidates: list[str]) -> str | None:
+    """The first of `candidates` (v4 list paths, newest first) this PC serves.
+
+    Collectors stay on ``v4.0`` paths unless a field or endpoint only exists in a newer
+    version (external storage is clustermgmt ``v4.3``, a container's external storage
+    link ``v4.2``). Each path is probed once with ``$limit=1``: a PC that does not serve
+    that version answers 404 (pc.7.5.1.1 does for clustermgmt v4.3). Any error counts
+    as not served, so the caller moves on to the next candidate. Cached on the
+    connection: one request per path per run.
+    """
+    if not v4_is_ga(getattr(conn, "pc_version", None)):
+        return None
+    cache: dict[str, bool] = conn.__dict__.setdefault("_served_paths", {})
+    for path in candidates:
+        if path not in cache:
+            try:
+                conn.v4_get(path, params={"$limit": 1})
+                cache[path] = True
+            except NutanixApiError:
+                cache[path] = False
+        if cache[path]:
+            return path
+    return None

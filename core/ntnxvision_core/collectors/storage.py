@@ -10,6 +10,16 @@ used/free; those live on a separate per-container stats endpoint that requires a
 time-series window (it 400s without one). That would be one request per container for two
 numbers, where the groups API returns them for every container in a single call — so the
 v4 path takes its configuration from v4 and backfills usage from that one groups request.
+
+**External storage.** A container hosted on an external array (Pure FlashArray, Dell
+PowerFlex, Dell PowerStore) names it in ``externalStorageExtId``, a field of clustermgmt
+v4.2, so the containers are read from ``v4.2`` when the PC serves it (``v4.0`` otherwise;
+the other fields are identical). The arrays themselves have a list endpoint only from
+clustermgmt ``v4.3`` (``config/external-storages``); a PC that does not serve it (pc.7.5.1.1
+does not) is asked through the v3 groups API (entity type ``external_storage``) instead.
+An array a container links to but neither source describes is still recorded, by its
+ext id, so the container is never drawn on the cluster's own storage by mistake.
+Credentials in the array config are never read.
 """
 
 from __future__ import annotations
@@ -17,9 +27,20 @@ from __future__ import annotations
 from typing import Any
 
 from ntnxvision_core.api.errors import NutanixApiError
+from ntnxvision_core.api.v4_client import first_served
 from ntnxvision_core.collectors.base import Collector
-from ntnxvision_core.models import StorageContainer
+from ntnxvision_core.models import ExternalStorage, StorageContainer
 from ntnxvision_core.scope import v4_list_scoped
+
+#: Container list paths, newest first: v4.2 adds `externalStorageExtId`.
+CONTAINER_PATHS = ["clustermgmt/v4.2/config/storage-containers",
+                   "clustermgmt/v4.0/config/storage-containers"]
+#: The external storage list exists from clustermgmt v4.3.
+EXTERNAL_STORAGE_PATH = "clustermgmt/v4.3/config/external-storages"
+#: Attributes asked of the v3 groups `external_storage` entity type (the names follow the
+#: v4 model; a PC returns null for an attribute it does not know).
+_EXT_ATTRS = ["name", "provider_type", "cluster", "end_point_address",
+              "total_capacity_bytes", "free_capacity_bytes", "health"]
 
 # Group attributes to request for each storage container.
 _ATTRS = [
@@ -61,13 +82,37 @@ class StorageCollector(Collector):
 
         for row in rows:
             env.storage_containers.append(row)
+        env.external_storages.extend(self._external_storages(rows))
         env.collection_notes[self.name] = "ok"
+
+    # ─── external storage ──────────────────────────────────────────
+
+    def _external_storages(self, containers: list[StorageContainer]) -> list[ExternalStorage]:
+        arrays: list[ExternalStorage] = []
+        if first_served(self.conn, [EXTERNAL_STORAGE_PATH]):
+            arrays = [_array_v4(e) for e in self.conn.v4_list(EXTERNAL_STORAGE_PATH)]
+        else:
+            try:
+                rows = self.conn.v3_groups("external_storage", _EXT_ATTRS)
+            except NutanixApiError:
+                rows = []
+            arrays = [_array_groups(r) for r in rows if r.get("entity_id")]
+        known = {a.uuid for a in arrays}
+        # A container that links to an array neither source described.
+        for ctr in containers:
+            ref = ctr.external_storage_uuid
+            if ref and ref not in known:
+                known.add(ref)
+                arrays.append(ExternalStorage(uuid=ref, cluster_uuid=ctr.cluster_uuid,
+                                              cluster_name=ctr.cluster_name,
+                                              api_source=ctr.api_source))
+        return sorted(arrays, key=lambda a: ((a.name or "").casefold(), a.uuid))
 
     def _via_v4(self) -> list[StorageContainer]:
         usage = self._usage_by_uuid()
         out: list[StorageContainer] = []
-        rows, _ = v4_list_scoped(self.conn, "clustermgmt/v4.0/config/storage-containers",
-                                 "clusterExtId")
+        path = first_served(self.conn, CONTAINER_PATHS) or CONTAINER_PATHS[-1]
+        rows, _ = v4_list_scoped(self.conn, path, "clusterExtId")
         for e in rows:
             uuid = e.get("containerExtId") or ""
             used, free, max_cap = usage.get(uuid, (None, None, None))
@@ -92,6 +137,10 @@ class StorageCollector(Collector):
                     max_capacity_bytes=max_cap or e.get("maxCapacityBytes"),
                     used_bytes=used,
                     free_bytes=free,
+                    external_storage_uuid=e.get("externalStorageExtId") or None,
+                    is_internal=e.get("isInternal"),
+                    storage_pool_uuid=e.get("storagePoolExtId") or None,
+                    is_encrypted=e.get("isEncrypted"),
                     api_source="v4",
                 )
             )
@@ -183,6 +232,59 @@ class StorageCollector(Collector):
                 )
             )
         return out
+
+
+def _address(value: Any) -> str | None:
+    """IPAddressOrFQDN → its address (v4), or a plain string (groups)."""
+    if isinstance(value, str):
+        return value or None
+    if not isinstance(value, dict):
+        return None
+    for key in ("ipv4", "fqdn", "ipv6"):
+        inner = value.get(key)
+        if isinstance(inner, dict) and inner.get("value"):
+            return str(inner["value"])
+    return None
+
+
+def _enum(value: Any) -> str | None:
+    if not isinstance(value, str) or not value or value.startswith("$"):
+        return None
+    return value
+
+
+def _array_v4(e: dict[str, Any]) -> ExternalStorage:
+    config = e.get("config") or {}
+    return ExternalStorage(
+        uuid=str(e.get("extId") or ""),
+        name=e.get("name"),
+        provider_type=_enum(e.get("providerType")),
+        cluster_uuid=e.get("clusterExtId"),
+        endpoint=_address(e.get("endPointAddress")),
+        total_capacity_bytes=_as_int(e.get("totalCapacityBytes")),
+        free_capacity_bytes=_as_int(e.get("freeCapacityBytes")),
+        health=_enum(e.get("health")),
+        # Only the descriptive parts of the provider config; never its credentials.
+        realm_name=config.get("realmName"),
+        pod_name=config.get("podName"),
+        protection_domain_name=config.get("protectionDomainName"),
+        storage_pool_name=config.get("storagePoolName"),
+        api_source="v4",
+    )
+
+
+def _array_groups(r: dict[str, Any]) -> ExternalStorage:
+    return ExternalStorage(
+        uuid=str(r.get("entity_id")),
+        name=r.get("name"),
+        provider_type=_enum(r.get("provider_type")),
+        cluster_uuid=r.get("cluster"),
+        endpoint=_address(r.get("end_point_address")),
+        total_capacity_bytes=_as_int(r.get("total_capacity_bytes")),
+        free_capacity_bytes=_as_int(r.get("free_capacity_bytes")),
+        health=_enum(r.get("health")),
+        api_source="v3-groups",
+    )
 
 
 def _dedup(resources: dict[str, Any]) -> str | None:

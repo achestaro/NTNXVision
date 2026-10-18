@@ -27,6 +27,7 @@ from ntnxvision_core.collectors import (
     FlowNetworkingCollector,
     FlowSecurityCollector,
     HostCollector,
+    HostNetworkCollector,
     IamCollector,
     ImageCollector,
     LcmCollector,
@@ -75,14 +76,18 @@ class Area:
 AREAS: tuple[Area, ...] = (
     Area("clusters", "Clusters", INFRA, ClusterCollector, "clusters", ("clusters",),
          pe_supported=True, v4_area="clusters"),
-    Area("hosts", "Hosts / nodes", INFRA, HostCollector, "hosts", ("hosts",),
+    Area("hosts", "Hosts / nodes", INFRA, HostCollector, "hosts", ("hosts", "blocks", "cvms"),
          pe_supported=True, v4_area="hosts"),
     Area("storage_containers", "Storage containers", INFRA, StorageCollector,
-         "storage_containers", ("storage_containers",), pe_supported=True,
+         "storage_containers", ("storage_containers", "external_storages"), pe_supported=True,
          v4_area="storage_containers"),
     Area("subnets", "Subnets / networks", INFRA, SubnetCollector, "subnets",
          ("subnets", "port_groups"),
          pe_supported=True, v4_area=None),
+    # Runs after hosts: NICs are placed on clusters through their host.
+    Area("host_networking", "Host networking (virtual switches, NICs)", INFRA,
+         HostNetworkCollector, "host_networking", ("virtual_switches", "host_nics"),
+         v4_area="subnets", legacy_api="v2"),
     Area("vms", "Virtual machines", INFRA, VmCollector, "vms", ("vms", "system_vms"),
          pe_supported=True, v4_area="vms"),
     Area("licenses", "Licensing", OPS, LicenseCollector, "licenses", ("licenses",),
@@ -90,7 +95,7 @@ AREAS: tuple[Area, ...] = (
     Area("data_protection", "Data protection / DR", PLATFORM, DataProtectionCollector,
          "data_protection", ("protection_policies", "recovery_plans", "availability_zones"),
          v4_area="dataprotection",
-         legacy_only=(("Recovery plans · availability zones", "No v4 equivalent yet"),)),
+         legacy_only=(("Availability zones", "Collected over v3 in this release"),)),
     Area("alerts", "Health alerts", OPS, AlertsCollector, "alerts", ("alerts",),
          v4_area="monitoring"),
     Area("flow_security", "Flow network security", PLATFORM, FlowSecurityCollector,
@@ -122,7 +127,7 @@ AREAS: tuple[Area, ...] = (
          v4_area="vms"),
     Area("ovas", "OVAs", INFRA, OvaCollector, "ovas", ("ovas",), v4_area="vms"),
     Area("pc_config", "Prism Central configuration", OPS, PrismCentralConfigCollector,
-         "pc_config", (), v4_area="clusters"),
+         "pc_config", ("pc_registrations", "pc_vms"), v4_area="clusters"),
 )
 
 #: NDB runs only when an NDB endpoint is given; it is not a checkbox in the area list.
