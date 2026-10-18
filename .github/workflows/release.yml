@@ -157,7 +157,7 @@ jobs:
           python -m pip install --require-hashes -r core/requirements-build.lock
           python -m pip install --no-deps -e core
       - run: python scripts/snapshot-roundtrip.py export snapshot-out
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: snapshot-${{ runner.os }}
           path: snapshot-out/
@@ -358,7 +358,7 @@ jobs:
       # Elsewhere (PR / manual test builds) artifact storage on this repo has hit a stuck
       # "quota" error before; never let an upload hiccup fail an otherwise good build.
       - name: Upload installers (workflow artifact)
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         continue-on-error: ${{ !startsWith(github.ref, 'refs/tags/') }}
         with:
           name: ${{ matrix.artifact }}
