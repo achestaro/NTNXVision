@@ -21,6 +21,14 @@ to cope with on real systems is reproduced deliberately:
 * **Rate limiting** — the v4 alerts endpoint enforces 2 requests/second with 429s, and
   can be told to 429 once on its second page so the retry note appears.
 * **Products not deployed** — Files / Objects / Flow VN / X-Play / NCM 404 on v3.
+* **v4 minor versions** — ``v4.N`` paths are served up to the namespace's
+  ``Features.v4_minor`` (a newer one 404s, as a pc.7.5.1.1 does for clustermgmt v4.3) and
+  answer like ``v4.0``; external storage exists only from clustermgmt ``v4.3``.
+* **Design data** — host NICs (ESXi ones with name and speed only), virtual switches and
+  uplink bonds, per-cluster CVMs and rackable units, PC products and registrations, v4
+  recovery plans and NearSync capability, v3 ``prism_central`` and service status, the
+  groups ``external_storage`` type, and Prism Element ``cluster`` / ``hosts`` /
+  ``hosts/{uuid}/host_nics`` through the proxy.
 * **Cluster filters** — the v4 VM, storage container and alert lists honour an OData
   ``$filter`` of ``<field> eq '<cluster uuid>'`` terms joined by ``or`` on their cluster
   reference (`FILTERABLE`); any other ``$filter`` is a 400, as a real PC answers for a
@@ -129,6 +137,9 @@ _V4_NAMESPACE_OF = [
     ("clustermgmt/v4.0/config/clusters", "clusters"),
     ("clustermgmt/v4.0/config/hosts", "hosts"),
     ("clustermgmt/v4.0/config/storage-containers", "storage_containers"),
+    ("clustermgmt/v4.0/config/host-nics", "hosts"),
+    ("clustermgmt/v4.0/config/external-storages", "storage_containers"),
+    ("dataprotection/", "dataprotection"),
     ("vmm/", "vms"),
     ("networking/", "subnets"),
     ("volumes/", "volumes"),
@@ -231,9 +242,24 @@ class MockApi:
             return self._v3_list(est, m.group(1), body)
         if method == "POST" and path == "/api/nutanix/v3/groups":
             return self._v3_groups(est, body)
-        if method == "GET" and path.startswith("/api/") and "/v4.0/" in path:
+        if method == "GET" and path.startswith("/api/") and re.search(r"/v4\.\d+/", path):
             return self._v4(target, est, path[len("/api/"):], query)
+        if method == "GET" and path == "/api/nutanix/v3/prism_central":
+            return 200, r.prism_central_v3(est), {}
+        m = re.fullmatch(r"/api/nutanix/v3/services/([a-z_]+)/status", path)
+        if method == "GET" and m:
+            return self._v3_service(est, m.group(1))
         return _not_found_v3(path)
+
+    def _v3_service(self, est: PcEstate, service: str) -> Response:
+        on = {p["name"]: p["enabled"] for p in est.products}
+        status = {"microseg": on.get("FLOW_NETWORK_SECURITY"),
+                  "nucalm": on.get("SELF_SERVICE"),
+                  "disaster_recovery": on.get("NUTANIX_DISASTER_RECOVERY"),
+                  "oss": est.features.objects}.get(service)
+        if status is None:
+            return 404, {"message": f"Unknown service {service}"}, {}
+        return 200, r.service_status_v3(bool(status)), {}
 
     def _pe_proxy(self, est: PcEstate, path: str, query: dict[str, str]) -> Response:
         """Prism Element v2.0 of one registered cluster, through Prism Central.
@@ -252,7 +278,18 @@ class MockApi:
         offset = _int(query.get("offset"), 0)
         count = min(_int(query.get("length") or query.get("count"), 20), 500)
         items: list[dict[str, Any]]
-        if what == "vms":
+        if what == "cluster":
+            return 200, r.pe_cluster_proxy_v2(cluster), {}
+        m = re.fullmatch(r"hosts/([^/]+)/host_nics", what)
+        if m:
+            # v2.0 answers this one with a bare list.
+            return 200, [r.pe_host_nic_v2(n) for n in est.host_nics
+                         if n["host_uuid"] == m.group(1)], {}
+        if what == "hosts":
+            d = self.derived(est)
+            items = [r.pe_host_proxy_v2(h, d.vms_per_host.get(h["uuid"], 0))
+                     for h in est.hosts if h["cluster_uuid"] == cluster_uuid]
+        elif what == "vms":
             disks = query.get("include_vm_disk_config") == "true"
             nics = query.get("include_vm_nic_config") == "true"
             items = [r.pe_vm_v2(v, disks, nics) for v in est.vms
@@ -323,6 +360,8 @@ class MockApi:
         rows: list[dict[str, Any]]
         if etype == "storage_container":
             rows = est.containers
+        elif etype == "external_storage":
+            rows = est.external_storages
         elif etype == "vm" and "is_cvm==1" in str(body.get("filter_criteria") or ""):
             rows = est.cvms
         elif etype == "host":
@@ -346,6 +385,16 @@ class MockApi:
                                   f"$limit must be between 1 and 100, got {limit}"), {}
         if not est.v4_ga:
             return _not_found_v4(path)
+        ver = re.search(r"/v4\.(\d+)/", path)
+        minor = int(ver.group(1)) if ver else 0
+        if minor > est.features.v4_minor.get(path.split("/", 1)[0], 0):
+            # Like a real PC asked for a version it does not serve (a Flask-style 404).
+            return 404, {"message": "The requested URL was not found on the server."}, {}
+        if path.startswith("clustermgmt/") and "/config/external-storages" in path \
+                and minor < 3:
+            return _not_found_v4(path)
+        # Every served minor version answers like v4.0.
+        path = re.sub(r"/v4\.\d+/", "/v4.0/", path, count=1)
         namespace = next((ns for prefix, ns in _V4_NAMESPACE_OF if path.startswith(prefix)),
                          "?")
         f = est.features
@@ -385,6 +434,14 @@ class MockApi:
             "vmm/v4.0/content/ovas": (est.ovas, lambda o: r.ova_v4(est, o)),
             "networking/v4.0/config/subnets": (est.subnets, r.subnet_v4),
             "networking/v4.0/config/virtual-switches": (est.vswitches, r.vswitch_v4),
+            "networking/v4.0/config/uplink-bonds": (est.uplink_bonds, r.uplink_bond_v4),
+            "clustermgmt/v4.0/config/host-nics": (est.host_nics, r.host_nic_v4),
+            "clustermgmt/v4.0/config/external-storages": (est.external_storages,
+                                                           r.external_storage_v4),
+            "datapolicies/v4.0/config/recovery-plans": (est.recovery_plans,
+                                                        r.recovery_plan_v4),
+            "dataprotection/v4.0/config/cluster-capabilities": (est.clusters,
+                                                                r.cluster_capability_v4),
             "networking/v4.0/config/route-tables": (est.vpcs, r.route_table_v4),
             "networking/v4.0/config/routing-policies": (
                 [(v, i) for v in est.vpcs for i in range(v["policies"])],
@@ -446,6 +503,26 @@ class MockApi:
         return 200, r.v4_list(window, len(items), path, page, limit), {}
 
     def _v4_detail(self, est: PcEstate, path: str, page: int, limit: int) -> Response:
+        m = re.fullmatch(r"clustermgmt/v4\.0/config/clusters/([^/]+)/(cvms|rackable-units)",
+                         path)
+        if m:
+            cluster = next((c for c in est.clusters if c["uuid"] == m.group(1)), None)
+            if cluster is None:
+                return _not_found_v4(path)
+            if m.group(2) == "cvms":
+                names = {h["name"] for h in est.hosts if h["cluster_uuid"] == cluster["uuid"]}
+                cvms = [c for c in est.cvms if c["host_name"] in names]
+                return self._v4_page(cvms, lambda c: r.cvm_v4(est, c), path, page, limit)
+            units = [b for b in est.blocks if b["cluster_uuid"] == cluster["uuid"]]
+            return self._v4_page(units, r.rackable_unit_v4, path, page, limit)
+        m = re.fullmatch(r"prism/v4\.0/management/domain-managers/([^/]+)/"
+                         r"(products|registrations)", path)
+        if m:
+            if m.group(1) != est.pc_uuid:
+                return _not_found_v4(path)
+            if m.group(2) == "products":
+                return self._v4_page(est.products, r.pc_products_v4, path, page, limit)
+            return self._v4_page(est.registrations, r.registration_v4, path, page, limit)
         m = re.fullmatch(r"vmm/v4\.0/content/templates/([^/]+)(/versions)?", path)
         if m:
             t = next((x for x in est.templates if x["uuid"] == m.group(1)), None)
