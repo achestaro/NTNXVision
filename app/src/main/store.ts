@@ -95,6 +95,11 @@ export function integrityFresh(): boolean {
   return integrity.freshlyAdopted;
 }
 
+/** Whether the integrity key is loaded (false: no keychain, or it could not be read). */
+export function integrityActive(): boolean {
+  return integrity.active;
+}
+
 export async function initIntegrity(): Promise<void> {
   // The in-memory keychain (demo, e2e) means a throwaway key: skip integrity altogether.
   await integrity.init({ get: secrets.getSecret, set: secrets.setSecret }, storeKind() !== 'memory');

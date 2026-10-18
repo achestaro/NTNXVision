@@ -343,6 +343,9 @@ export class TargetStore {
     this.io.write(this.data());
   }
 
+  /** Set when this launch adopted the files unchecked: legacy shared entries are never released. */
+  private legacyDisabled = false;
+
   /** True while targets.json fails verification: nothing is released until a deliberate re-save. */
   get tampered(): boolean {
     this.data();
@@ -371,7 +374,7 @@ export class TargetStore {
     if (!t || this.isTampered) return null;
     const own = await this.secrets.get(passwordAccount(t));
     if (own) return own;
-    return t.legacySecret ? this.secrets.get(legacyAccount(t.host, t.username)) : null;
+    return t.legacySecret && !this.legacyDisabled ? this.secrets.get(legacyAccount(t.host, t.username)) : null;
   }
 
   async ndbPassword(id: string): Promise<string | null> {
@@ -639,9 +642,12 @@ export class TargetStore {
     if (this.isTampered) return { moved: 0, pending: targets.filter((x) => x.legacySecret).length };
     let moved = 0;
     const done: string[] = [];
+    if (opts.discardUnbound) this.legacyDisabled = true;
     for (const t of targets.filter((x) => x.legacySecret)) {
       try {
-        const old = await this.secrets.get(legacyAccount(t.host, t.username));
+        // R5-02: after a fresh adoption the file's host/username/insecure are unverified,
+        // so a legacy shared secret is dropped, never copied (users re-enter it once).
+        const old = opts.discardUnbound ? null : await this.secrets.get(legacyAccount(t.host, t.username));
         if (old && !(await this.secrets.get(passwordAccount(t)))) {
           await this.secrets.set(passwordAccount(t), old);
           moved += 1;
