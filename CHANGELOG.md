@@ -1,0 +1,34 @@
+# Changelog
+
+NTNXVision follows [semantic versioning](https://semver.org): **patch** (0.4.1) for fixes,
+**minor** (0.5.0) for new features, **major** (1.0.0) for breaking changes such as a snapshot
+format older builds can't read. Windows shows the version as X.Y.Z.0 in Installed apps.
+Every pull request that changes shipped code raises it with `node scripts/bump-version.mjs`
+and adds a section here (CI checks both).
+
+## 0.4.0 (2026-10-18)
+
+### Fixed
+- Windows: saved passwords were stored empty, so targets always showed "Password needed"
+  and Email and schedules could not sign in. `@napi-rs/keyring` 1.3.0 to 2.1.1 write empty
+  Credential Manager entries; pinned to 1.2.0, and the packaged `--smoke` check now saves and
+  reads back a real value. Re-enter each saved password once after upgrading.
+- Long collection notes stay inside their cards on Results (#3).
+
+### Added
+- Email reports over SMTP, sent now or on a schedule to several addresses; scheduled sends
+  collect fresh first (#7).
+- Complete ESXi clusters: Prism Element and optional vCenter enrichment, port groups and
+  retries when Prism throttles (#6).
+- Per-cluster vCPU:pCPU target in New collection, recorded on the snapshot (#5).
+
+### Security
+- Five review rounds (#8 to #14, #26 to #34): Electron lockdown (sandbox, CSP, app://,
+  fuses), endpoint-bound keychain entries, tamper checks on saved files, certificate pinning
+  when TLS verification is off, spreadsheet formula neutralisation, least-privilege CI with
+  pinned actions and dependency audits.
+
+## 0.3.0 (2026-08-25)
+
+First tracked version: Runway UI, targets, cluster scope, capacity and oversubscription,
+snapshot transfer, Excel, PDF and Word exports (#1, #2).
