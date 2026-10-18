@@ -102,6 +102,7 @@ class HostCollector(Collector):
                        for n in unit.get("nodes") or [] if isinstance(n, dict)],
                 api_source="v4",
             ))
+
     def _v4_cvms(self, env: Any, cluster_uuid: str, cluster_name: str | None) -> None:
         base = f"clustermgmt/v4.0/config/clusters/{cluster_uuid}"
         for cvm in self.conn.v4_list(f"{base}/cvms"):

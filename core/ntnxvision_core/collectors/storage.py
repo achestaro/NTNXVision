@@ -29,7 +29,11 @@ from typing import Any
 from ntnxvision_core.api.errors import NutanixApiError
 from ntnxvision_core.api.v4_client import first_served
 from ntnxvision_core.collectors.base import Collector
-from ntnxvision_core.models import ExternalStorage, StorageContainer
+from ntnxvision_core.models import (
+    ExternalStorage,
+    StorageContainer,
+    place_arrays_by_containers,
+)
 from ntnxvision_core.scope import v4_list_scoped
 
 #: Container list paths, newest first: v4.2 adds `externalStorageExtId`.
@@ -103,12 +107,7 @@ class StorageCollector(Collector):
                 rows = []
             arrays = [_array_groups(r) for r in rows if r.get("entity_id")]
         # The groups API may leave the cluster out: take it from the linked containers.
-        for array in arrays:
-            if not array.cluster_uuid:
-                owners = {c.cluster_uuid for c in containers
-                          if c.external_storage_uuid == array.uuid and c.cluster_uuid}
-                if len(owners) == 1:
-                    array.cluster_uuid = owners.pop()
+        place_arrays_by_containers(arrays, containers)
         known = {a.uuid for a in arrays}
         # A container that links to an array neither source described.
         for ctr in containers:

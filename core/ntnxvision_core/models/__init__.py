@@ -68,6 +68,7 @@ from ntnxvision_core.models.environment import (
     Vpc,
     external_storage_product,
     pc_size,
+    place_arrays_by_containers,
     replication_label,
     replication_type_for_rpo,
 )
@@ -148,4 +149,5 @@ __all__ = [
     "replication_type_for_rpo",
     "replication_label",
     "pc_size",
+    "place_arrays_by_containers",
 ]
