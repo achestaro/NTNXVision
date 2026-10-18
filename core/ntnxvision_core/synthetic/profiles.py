@@ -5,6 +5,7 @@ exercises a different path through the app:
 
 ==========================  ===============================================================
 ``pc01.demo.local``         Prism Central pc.2024.3, ``medium`` (1 214 VMs, 4 clusters).
+                            Paired with pc02; Metro (Sync) and NearSync policies.
                             v4 for most areas; Objects v4 service down (503, v3 used);
                             Files not deployed; 3 ESXi VMs fail on v4 (VMs "with notes");
                             alerts throttled once (429 → retried).
@@ -20,7 +21,8 @@ exercises a different path through the app:
 ``tiny.demo.local``         The ``tiny`` profile (1 cluster, 40 VMs).
 ``down.demo.local``         Never resolves — the unreachable case.
 ``large1..3.demo.local``    Three Prism Centrals of ~6 700 VMs each: the 20 000-VM estate.
-                            large2 has a Dell PowerFlex (groups fallback); large3 no LLDP.
+                            large1 has 2U4N blocks (four nodes per chassis); large2
+                            a Dell PowerFlex (groups fallback); large3 no LLDP.
 ``vcenter.demo.local``      VMware vCenter (vSphere REST) of pc01's ESXi cluster AMS-EDGE-02,
                             also at 198.51.100.20, the address Prism reports for it.
 ==========================  ===============================================================
@@ -62,11 +64,18 @@ def demo_targets() -> dict[str, Target]:
         _pc("pc01.demo.local", "medium", "pc.2024.3", Features(
             v4_unavailable={"objects"}, v4_absent={"files"}, files=False,
             alerts_rate_limited=True, esxi_bad_vms=3, lcm_framework_stale=True,
-            vcenter_address=VCENTER_ADDRESS)),
+            vcenter_address=VCENTER_ADDRESS,
+            # Paired with pc02; a Metro (Sync) policy inside the AZ and a NearSync one
+            # to pc02's SEA-PROD-01.
+            az_peers=("pc02.demo.local",),
+            extra_policies=(("Metro-PHX-Sync", 0, "PHX-PROD-01", "", "PHX-DR-01"),
+                            ("NearSync-PHX-SEA", 60, "PHX-PROD-01", "pc02.demo.local",
+                             "SEA-PROD-01")))),
         # Scale-out (3 PC VMs, LARGE) and a Pure FlashArray on SEA-PROD-02, listed by the
         # clustermgmt v4.3 external storage endpoint this PC serves.
         _pc("pc02.demo.local", "small", "pc.7.3", Features(
             objects=False, fvn=False, v4_absent={"objects"}, pc_vm_count=3, pc_size="LARGE",
+            az_peers=("pc01.demo.local",),
             external_storage=((1, "EVERPURE_FLASHARRAY"),),
             v4_minor={"clustermgmt": 3, "networking": 3, "prism": 3, "datapolicies": 2,
                       "dataprotection": 3})),
@@ -86,6 +95,7 @@ def demo_targets() -> dict[str, Target]:
         # (its PC serves clustermgmt up to v4.2); large3 hosts report no LLDP neighbours.
         targets.append(_pc(f"large{i}.demo.local", "large", "pc.7.3",
                            Features(files=i == 1, objects=i == 2, lldp=i != 3,
+                                    nodes_per_block=4 if i == 1 else 1,
                                     external_storage=((0, "DELL_POWERFLEX"),) if i == 2
                                     else ())))
     # pc01's ESXi cluster is registered to a vCenter, reachable by name or by the address
