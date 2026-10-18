@@ -69,6 +69,9 @@ class Area:
     #: (label, reason) of parts that are v3-only whatever the PC version.
     legacy_only: tuple[tuple[str, str], ...] = field(default_factory=tuple)
     default_on: bool = True
+    #: Areas this one needs and that run with it (host networking places NICs on
+    #: clusters through the hosts).
+    requires: tuple[str, ...] = ()
 
 
 #: In *run* order — the order the engine executes collectors (phase 1, then phase 2,
@@ -87,7 +90,7 @@ AREAS: tuple[Area, ...] = (
     # Runs after hosts: NICs are placed on clusters through their host.
     Area("host_networking", "Host networking (virtual switches, NICs)", INFRA,
          HostNetworkCollector, "host_networking", ("virtual_switches", "host_nics"),
-         v4_area="subnets", legacy_api="v2"),
+         v4_area="subnets", legacy_api="v2", requires=("hosts",)),
     Area("vms", "Virtual machines", INFRA, VmCollector, "vms", ("vms", "system_vms"),
          pe_supported=True, v4_area="vms"),
     Area("licenses", "Licensing", OPS, LicenseCollector, "licenses", ("licenses",),
@@ -162,6 +165,9 @@ def select(area_ids: list[str] | None, mode: str = "prism_central") -> list[Area
     if not area_ids:
         return pool
     wanted = set(area_ids)
+    for area in pool:
+        if area.id in wanted:
+            wanted.update(area.requires)
     return [a for a in pool if a.id in wanted]
 
 

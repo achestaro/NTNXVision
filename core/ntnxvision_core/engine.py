@@ -293,7 +293,9 @@ def _run_area(
     # "v3" even though its blocks came from Prism Element v2.0).
     primary = getattr(env, area.fields[0])[before[area.fields[0]]:] if area.fields else []
     api = api_override or _area_api(area, primary or added, negotiated)
-    tracker.end(area.id, status, api=api, objects=len(added), detail=detail,
+    # Objects counted are the area's main ones (hosts, not hosts + blocks + CVMs),
+    # else whatever it found (host networking below v4 lists NICs but no switches).
+    tracker.end(area.id, status, api=api, objects=len(primary or added), detail=detail,
                 clusters=len(env.clusters))
 
 

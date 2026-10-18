@@ -206,6 +206,22 @@ class Scope:
         removed += len(env.clusters) - len(kept_clusters)
         env.clusters[:] = kept_clusters
 
+        # An external array the groups API reported without a cluster belongs to the
+        # cluster of the containers that live on it (read before the containers go).
+        for array in env.external_storages:
+            if not array.cluster_uuid:
+                owners = {c.cluster_uuid for c in env.storage_containers
+                          if c.external_storage_uuid == array.uuid and c.cluster_uuid}
+                if len(owners) == 1:
+                    array.cluster_uuid = owners.pop()
+
+        # Registered clusters (AOS registrations) follow the scope; the paired remote
+        # Prism Centrals (DOMAIN_MANAGER) are PC-wide and stay.
+        kept_regs = [r for r in env.pc_registrations
+                     if r.is_remote_pc or r.remote_uuid not in self.excluded]
+        removed += len(env.pc_registrations) - len(kept_regs)
+        env.pc_registrations[:] = kept_regs
+
         for name in CLUSTER_BOUND_FIELDS:
             items = getattr(env, name)
             kept = [o for o in items if not self.excludes(getattr(o, "cluster_uuid", None),

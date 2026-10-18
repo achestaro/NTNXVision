@@ -709,8 +709,9 @@ class PcProduct(_Base):
 class PlatformService(_Base):
     """Deployment status of a PC-managed data service (Files, Objects).
 
-    `status` is DEPLOYED (instances found), NOT_DEPLOYED (the service answers with none)
-    or NOT_ENABLED (the service is not running: Objects answers 503).
+    `status` is DEPLOYED (instances found), NOT_DEPLOYED (the service answers with none),
+    NOT_ENABLED (the service is not running: Objects answers 503) or UNKNOWN (the v4
+    service answered another error; nothing is claimed).
     """
 
     name: str  # FILES / OBJECTS
@@ -845,6 +846,14 @@ class ProtectionPolicy(SourcedObject):
     source_clusters: list[str] = Field(default_factory=list)
     target_clusters: list[str] = Field(default_factory=list)
     api_source: str = "v3"
+
+    @model_validator(mode="after")
+    def _sync_from_rpo(self) -> ProtectionPolicy:
+        """RPO 0 is synchronous. Snapshots written before the one RPO rule existed
+        stored NEARSYNC for a v4 policy with RPO 0: read them back as SYNC."""
+        if self.rpo_seconds == 0 and self.replication_type in (None, "NEARSYNC"):
+            self.replication_type = "SYNC"
+        return self
 
     @property
     def is_bidirectional(self) -> bool:

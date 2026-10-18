@@ -40,12 +40,30 @@ def record_service(env: Any, name: str, status: str, count: int,
     env.pc_config.services = sorted(services, key=lambda s: s.name)
 
 
-def _service_status(conn: Any, area: str, count: int) -> str:
+def _service_status(conn: Any, area: str, count: int, api: str
+                    ) -> tuple[str, str | None, str]:
+    """(status, reason when unknown, API that decided it) for a data service.
+
+    Only a 503 from the v4 probe means "not enabled" (the service is not running); any
+    other probe failure leaves the status UNKNOWN rather than claiming it is absent.
+    """
     if count:
-        return "DEPLOYED"
-    if conn.negotiated.get(area) == v4_client.UNAVAILABLE:
-        return "NOT_ENABLED"
-    return "NOT_DEPLOYED"
+        return "DEPLOYED", None, api
+    verdict = getattr(conn, "negotiated", {}).get(area)
+    if verdict == v4_client.UNAVAILABLE:
+        code = getattr(conn, "__dict__", {}).get("probe_status", {}).get(area)
+        if code == 503:
+            return "NOT_ENABLED", None, "v4"
+        return "UNKNOWN", f"HTTP {code}" if code else "request failed", "v4"
+    return "NOT_DEPLOYED", None, "v4" if verdict == v4_client.AVAILABLE else "v3"
+
+
+def _skip_note(product: str, status: str, reason: str | None) -> str:
+    if status == "UNKNOWN":
+        return f"skipped: {product} status unknown ({reason})"
+    if status == "NOT_ENABLED":
+        return f"skipped: {product} not enabled"
+    return f"skipped: {product} not deployed"
 
 
 class FilesCollector(Collector):
@@ -60,10 +78,10 @@ class FilesCollector(Collector):
             servers = None
         if servers is None:
             found = self._v4_servers(env) if v4 else 0
-            record_service(env, "FILES", _service_status(self.conn, "files", found), found,
-                           "v4" if v4 else "v3")
+            status, reason, api = _service_status(self.conn, "files", found, "v4")
+            record_service(env, "FILES", status, found, api)
             env.collection_notes[self.name] = (
-                "ok" if found else "skipped: Nutanix Files not deployed")
+                "ok" if found else _skip_note("Nutanix Files", status, reason))
             return
 
         for entity in servers:
@@ -88,8 +106,8 @@ class FilesCollector(Collector):
         self._shares(env)
         for fs in env.file_servers:
             fs.share_count = sum(1 for s in env.file_shares if s.file_server_name == fs.name)
-        record_service(env, "FILES", _service_status(self.conn, "files", len(servers)),
-                       len(servers), "v3")
+        status, _reason, api = _service_status(self.conn, "files", len(servers), "v3")
+        record_service(env, "FILES", status, len(servers), api)
         env.collection_notes[self.name] = "ok"
 
     def _v4_servers(self, env: Any) -> int:
@@ -134,13 +152,15 @@ class ObjectsCollector(Collector):
 
     def collect(self, env: Any) -> None:
         # Probed for the status only: 503 is "Objects not enabled" (see the module doc).
-        v4 = self.conn.v4_ready("objects")
+        self.conn.v4_ready("objects")
         try:
             stores = self.conn.v3_list("objectstores")
         except Exception:  # noqa: BLE001 — Objects not deployed
-            record_service(env, "OBJECTS", _service_status(self.conn, "objects", 0), 0,
-                           "v4" if v4 or self.conn.negotiated.get("objects") else "v3")
-            env.collection_notes[self.name] = "skipped: Nutanix Objects not deployed"
+            status, reason, api = _service_status(self.conn, "objects", 0, "v3")
+            record_service(env, "OBJECTS", status, 0, api)
+            env.collection_notes[self.name] = (
+                "skipped: Nutanix Objects not deployed" if status == "NOT_DEPLOYED"
+                else _skip_note("Nutanix Objects", status, reason))
             return
 
         for entity in stores:
@@ -165,8 +185,8 @@ class ObjectsCollector(Collector):
 
         for store in env.object_stores:
             store.bucket_count = sum(1 for b in env.buckets if b.object_store_name == store.name)
-        record_service(env, "OBJECTS", _service_status(self.conn, "objects", len(stores)),
-                       len(stores), "v3")
+        status, _reason, api = _service_status(self.conn, "objects", len(stores), "v3")
+        record_service(env, "OBJECTS", status, len(stores), api)
         env.collection_notes[self.name] = "ok"
 
 

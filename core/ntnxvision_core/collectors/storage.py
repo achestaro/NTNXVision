@@ -82,21 +82,33 @@ class StorageCollector(Collector):
 
         for row in rows:
             env.storage_containers.append(row)
+        self._notes: list[str] = []
         env.external_storages.extend(self._external_storages(rows))
-        env.collection_notes[self.name] = "ok"
+        env.collection_notes[self.name] = (
+            "ok: " + "; ".join(self._notes) if self._notes else "ok")
 
     # ─── external storage ──────────────────────────────────────────
 
     def _external_storages(self, containers: list[StorageContainer]) -> list[ExternalStorage]:
-        arrays: list[ExternalStorage] = []
+        arrays: list[ExternalStorage] | None = None
         if first_served(self.conn, [EXTERNAL_STORAGE_PATH]):
-            arrays = [_array_v4(e) for e in self.conn.v4_list(EXTERNAL_STORAGE_PATH)]
-        else:
+            try:
+                arrays = [_array_v4(e) for e in self.conn.v4_list(EXTERNAL_STORAGE_PATH)]
+            except NutanixApiError as exc:
+                self._notes.append(f"external storage unavailable ({_reason(exc)})")
+        if arrays is None:
             try:
                 rows = self.conn.v3_groups("external_storage", _EXT_ATTRS)
             except NutanixApiError:
                 rows = []
             arrays = [_array_groups(r) for r in rows if r.get("entity_id")]
+        # The groups API may leave the cluster out: take it from the linked containers.
+        for array in arrays:
+            if not array.cluster_uuid:
+                owners = {c.cluster_uuid for c in containers
+                          if c.external_storage_uuid == array.uuid and c.cluster_uuid}
+                if len(owners) == 1:
+                    array.cluster_uuid = owners.pop()
         known = {a.uuid for a in arrays}
         # A container that links to an array neither source described.
         for ctr in containers:
@@ -232,6 +244,12 @@ class StorageCollector(Collector):
                 )
             )
         return out
+
+
+def _reason(exc: NutanixApiError) -> str:
+    if exc.status_code:
+        return f"HTTP {exc.status_code}"
+    return str(exc).split(":", 1)[0] or "request failed"
 
 
 def _address(value: Any) -> str | None:

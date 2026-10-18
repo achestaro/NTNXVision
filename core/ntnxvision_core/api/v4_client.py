@@ -149,14 +149,19 @@ def _probe(conn: PrismConnection, namespace: V4Namespace) -> str:
     # The version gate is free, so apply it before spending a round-trip.
     if not v4_is_ga(conn.pc_version):
         return BELOW_GA
+    # The HTTP status of a failed probe, per area (0: no HTTP answer at all), for callers
+    # that tell "service not running" (503) apart from other failures.
+    statuses: dict[str, int] = conn.__dict__.setdefault("probe_status", {})
     try:
         conn.v4_get(namespace.probe_path, params={"$limit": 1})
     except NutanixApiError as exc:
+        statuses[namespace.area] = exc.status_code or 0
         # 404 means the namespace genuinely is not routed on this PC. Any other error
         # (503 for a deployed-but-down service, gateway hiccups) is not evidence that
         # v4 is missing, so it is reported separately and the caller falls back.
         return ABSENT if exc.status_code == 404 else UNAVAILABLE
     except Exception:  # noqa: BLE001 — a probe must never abort a collection run
+        statuses[namespace.area] = 0
         return UNAVAILABLE
     return AVAILABLE
 
