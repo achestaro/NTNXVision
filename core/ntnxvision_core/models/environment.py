@@ -15,6 +15,8 @@ from typing import Any
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
+from ntnxvision_core import __version__
+
 
 def coerce_bool(value: Any) -> bool | None:
     """Coerce Nutanix's varied boolean encodings (bool / 'ENABLED' / 'true' / 1) to bool.
@@ -806,7 +808,7 @@ class Environment(_Base):
     #: saved; snapshots written before it existed get one on their first export.
     snapshot_id: str | None = None
     collected_at: str | None = None
-    tool_version: str = "0.3.0"
+    tool_version: str = __version__
     #: "prism_central" (collected via PC) or "prism_element" (direct cluster, v2.0).
     source_type: str = "prism_central"
     prism_central: PrismCentral = Field(default_factory=PrismCentral)

@@ -1,6 +1,6 @@
 {
   "name": "ntnxvision",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "NTNXVision: Nutanix Prism Central inventory & documentation tool",
   "author": "Alberto Chestaro",
   "license": "MIT",
@@ -33,7 +33,7 @@
     "notices:check": "node ../scripts/generate-third-party-notices.mjs --check"
   },
   "dependencies": {
-    "@napi-rs/keyring": "2.1.1"
+    "@napi-rs/keyring": "1.2.0"
   },
   "devDependencies": {
     "@electron/notarize": "^2.5.0",

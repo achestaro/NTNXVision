@@ -42,6 +42,7 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           persist-credentials: false
+          fetch-depth: 0   # the version check diffs against the base branch
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
         with:
           python-version: ${{ env.PYTHON_VERSION }}
@@ -63,6 +64,13 @@ jobs:
         run: |
           npm ci --ignore-scripts --no-audit --no-fund   # lint needs no native module
           npm run lint
+      # Shipped code changed: the version must go up (and CHANGELOG.md must say why), so
+      # every installed build tells which fixes and features it has. Dependabot PRs exempt.
+      - name: Version raised for shipped changes
+        if: github.event_name == 'pull_request' && github.actor != 'dependabot[bot]'
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: node scripts/check-version-bump.mjs "origin/$BASE_REF"
       # Shipped (production) dependencies must have no high or critical advisories.
       - name: npm audit (production, high)
         working-directory: app
