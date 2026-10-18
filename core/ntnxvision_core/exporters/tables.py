@@ -1081,10 +1081,14 @@ def _vs_uplinks(s: Any, _c: Ctx) -> str:
     return "Varies by host" if sets else ""
 
 
+#: Uplink bond LACP status → label (NIL: LACP not in use).
+_LACP_LABELS = {"NIL": "Off", "NEGOTIATED": "Negotiated", "CONFIGURED": "Configured"}
+
+
 def _vs_lacp(s: Any, _c: Ctx) -> str | None:
     states = sorted({h.lacp_status for h in s.hosts if h.lacp_status})
     if states:
-        return ", ".join(x.title() for x in states)
+        return ", ".join(_LACP_LABELS.get(x.upper(), x.title()) for x in states)
     return None
 
 
