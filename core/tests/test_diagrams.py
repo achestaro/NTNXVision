@@ -62,18 +62,14 @@ def _is_png(diag: diagrams.Diagram | None) -> bool:
 def test_all_builders_render_png() -> None:
     env = _env()
     cluster = env.clusters[0]
-    assert _is_png(diagrams.management_topology(env))
     assert _is_png(diagrams.cluster_compute(env, cluster))
     assert _is_png(diagrams.network_topology(env, cluster))
     assert _is_png(diagrams.vpc_topology(env))
-    assert _is_png(diagrams.replication_topology(env))
 
 
 def test_empty_environment_renders_nothing() -> None:
     env = Environment()
-    assert diagrams.management_topology(env) is None
     assert diagrams.vpc_topology(env) is None
-    assert diagrams.replication_topology(env) is None
     assert diagrams.executive_dashboard(env) is None
     assert diagrams.vm_power_state_chart(env) is None
     assert diagrams.storage_capacity_chart(env) is None
@@ -109,8 +105,6 @@ def test_overflow_is_capped_not_crashing() -> None:
     for i in range(30):
         env.clusters.append(Cluster(uuid=f"cc{i}", name=f"cluster-{i:02d}"))
         env.hosts.append(Host(uuid=f"hh{i}", name=f"node-x{i}", cluster_uuid="c1"))
-    d = diagrams.management_topology(env)
-    assert _is_png(d)
     compute = diagrams.cluster_compute(env, env.clusters[0])
     assert _is_png(compute)
 
@@ -122,10 +116,10 @@ def test_word_export_embeds_diagrams(tmp_path) -> None:
 
     out = WordExporter().export(_env(), tmp_path / "add.docx")
     doc = Document(str(out))
-    # management + compute + network + vpc + replication + storage capacity +
+    # conceptual overview + compute + network + vpc + storage capacity +
     # VM power state + VMs-per-cluster figures. The cover and the executive figure strip
     # are native Word content now (editable text), not pictures.
-    assert len(doc.inline_shapes) >= 8
+    assert len(doc.inline_shapes) >= 7
 
 
 def test_pdf_export_with_diagrams(tmp_path) -> None:

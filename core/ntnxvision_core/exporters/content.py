@@ -20,6 +20,10 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from ntnxvision_core.capacity import target_label
+from ntnxvision_core.diagrams import Page, Refs, conceptual_layout, conceptual_model
+from ntnxvision_core.diagrams import summary as design
+from ntnxvision_core.diagrams.facts import short_name
+from ntnxvision_core.diagrams.scene import Scene
 from ntnxvision_core.exporters import diagrams
 from ntnxvision_core.exporters.diagrams import Diagram
 from ntnxvision_core.exporters.sourcing import source_hosts, sources, with_sources
@@ -98,6 +102,34 @@ class Figure:
 
 
 @dataclass
+class SceneFigure:
+    """An architecture diagram drawn from a positioned scene (vector in the PDF), with
+    optional design-summary bullets (beside the figure when it is 480 pt wide or less,
+    above it otherwise) and a note under the caption (continuations, cross references)."""
+
+    scene: Scene
+    caption: str
+    label: str = ""
+    summary: list[str] = field(default_factory=list)
+    note: str = ""
+
+    @property
+    def title(self) -> str:
+        return f"{self.label} {self.caption}".strip()
+
+    @property
+    def summary_beside(self) -> bool:
+        return bool(self.summary) and self.scene.width <= SUMMARY_BESIDE_MAX
+
+
+#: Figures at most this wide (pt) get their design summary beside them, wider ones above.
+SUMMARY_BESIDE_MAX = 480.0
+#: The page every architecture figure is laid out for: 672 pt fits 1:1 on Letter and A4
+#: landscape; the height leaves room for the heading, summary and caption.
+DESIGN_PAGE = Page(width=672.0, max_h=380.0)
+
+
+@dataclass
 class FigureRow:
     """Two or more small figures side by side (stacked where the page is narrow)."""
 
@@ -119,7 +151,7 @@ class FigureStrip:
     items: list[StripItem]
 
 
-Block = Paragraph | Bullets | Table | Figure | FigureRow | FigureStrip
+Block = Paragraph | Bullets | Table | Figure | SceneFigure | FigureRow | FigureStrip
 
 
 @dataclass
@@ -384,6 +416,8 @@ class _Builder:
         self.figures = figures(env, self.areas)
         self.routing = api_routing(env, self.areas, limit=None)
         self.sunset = sunset_areas(self.routing)
+        #: Run once every caption and table is numbered (cross references).
+        self.finalizers: list[Callable[[], None]] = []
 
     # ─ helpers ─
     def src(self, objs: list[Any]) -> list[str] | None:
@@ -720,12 +754,7 @@ class _Builder:
             + ("" if self.is_pe else " Workloads are organised using categories and projects, "
                "protected by protection policies, and secured by Flow policies.")
         ))
-        topo = diagrams.management_topology(env)
-        if topo:
-            ch.blocks.append(Figure(topo, "Management topology: " + (
-                "Prism Element and its cluster." if self.is_pe else
-                "the contributing Prism Centrals and their clusters." if env.is_combined else
-                "Prism Central and its registered clusters.")))
+        self.conceptual_section(ch)
         ch.add("Clusters Overview", make_table(
             ["Cluster", "AOS", "Hypervisor", "Nodes", "RF", "Encryption", "External IP",
              "Data Services IP", "vCenter"],
@@ -735,6 +764,58 @@ class _Builder:
              for c in env.clusters],
             "Registered clusters", self.src(env.clusters), prune=("vCenter",)))
         return ch
+
+    def conceptual_section(self, ch: Chapter) -> None:
+        """Solution Conceptual Overview: the A1 figure (in parts for a large estate),
+        its design summary, the availability-zone table and, when the figure summarises
+        clusters, the clusters-per-AZ table that lists every one of them."""
+        env = self.env
+        if not env.clusters:
+            return
+        model = conceptual_model(env)
+        scenes = conceptual_layout(model, DESIGN_PAGE)
+        figs = [SceneFigure(sc, sc.caption) for sc in scenes]
+        figs[0].summary = design.conceptual_bullets(model, scenes)
+        az = None if self.is_pe else make_table(
+            design.AZ_HEADERS, design.az_rows(model), "Availability zones and Prism Central")
+        summarised = any(sc.meta.get("summarised") for sc in scenes)
+        clusters = None
+        if summarised:
+            rows, srcs = design.cluster_rows(model, scenes, [f"Figure {i}" for i in
+                                                             range(len(scenes))])
+            clusters = make_table(design.CLUSTER_HEADERS, rows,
+                                  "Clusters per availability zone",
+                                  srcs if env.is_combined else None)
+        ch.add("Solution Conceptual Overview", *figs, az, clusters)
+
+        def finalize() -> None:
+            labels = [f.label.rstrip(".") for f in figs]
+            if clusters is not None:
+                ref = clusters.label.rstrip(".")
+                again = conceptual_layout(model, DESIGN_PAGE, Refs(clusters_table=ref))
+                if [sc.part for sc in again] == [sc.part for sc in scenes]:
+                    for f, sc in zip(figs, again, strict=True):
+                        f.scene = sc
+                    scenes[:] = again
+                rows, _ = design.cluster_rows(model, scenes, labels)
+                col = clusters.headers.index("In figure")
+                for row, new in zip(clusters.rows, rows, strict=True):
+                    row[col] = new[-1]
+                figs[0].summary = design.conceptual_bullets(model, scenes, ref)
+            for i, f in enumerate(figs[:-1]):
+                nxt = figs[i + 1].scene
+                names = ", ".join(short_name(model.name_of(sid))
+                                  for sid in nxt.meta.get("sites", []))
+                f.note = (f"Continued in {labels[i + 1]} (part {nxt.part[0]} of "
+                          f"{nxt.part[1]}: {names}).")
+            if clusters is not None:
+                ref = clusters.label.rstrip(".")
+                for f in figs:
+                    if f.scene.meta.get("summarised"):
+                        extra = f"Clusters in a \"+N more\" card are listed in {ref}."
+                        f.note = f"{f.note} {extra}".strip()
+
+        self.finalizers.append(finalize)
 
     def physical_design(self) -> Chapter:
         env = self.env
@@ -974,10 +1055,10 @@ class _Builder:
             "replication schedules) and recovery plans (orchestrated failover). The tables "
             "below document the configured strategy."
         ))
-        rep = diagrams.replication_topology(env)
-        if rep:
-            ch.blocks.append(Figure(rep, "Replication topology: protection policy flows "
-                                         "between availability zones."))
+        if any(p.target_az for p in env.protection_policies):
+            ch.blocks.append(Paragraph(
+                "Replication and pairing between availability zones are drawn in the "
+                "Solution Conceptual Overview (Logical Design chapter)."))
         ch.add("Protection Policies", make_table(
             ["Policy", "RPO", "Replication", "Local Retention", "Remote Retention",
              "Source AZ", "Target AZ"],
@@ -1202,6 +1283,8 @@ def build_report(env: Environment, opts: Any, eyebrow: str) -> Report:
                      if not (isinstance(blk, Paragraph) and not blk.text)]
         chapters.append(ch)
     _number(chapters)
+    for finalize in b.finalizers:
+        finalize()
     if env.is_combined:
         scope = f"{fmt_count(len(env.source_environments))} Prism Centrals (combined)"
     else:
@@ -1240,7 +1323,7 @@ def _number(chapters: list[Chapter]) -> None:
                 if isinstance(blk, Table):
                     tables += 1
                     blk.label = f"Table {chapter.number}-{tables}."
-                elif isinstance(blk, Figure):
+                elif isinstance(blk, (Figure, SceneFigure)):
                     figures += 1
                     blk.label = f"Figure {chapter.number}-{figures}."
                 elif isinstance(blk, FigureRow):
@@ -1254,6 +1337,7 @@ def _number(chapters: list[Chapter]) -> None:
 
 __all__ = [
     "Block", "Bullets", "Chapter", "Cover", "Figure", "FigureRow", "FigureStrip",
-    "Paragraph", "Report", "Section", "Status", "StripItem", "Table", "build_report",
+    "Paragraph", "Report", "SceneFigure", "Section", "Status", "StripItem", "Table",
+    "build_report",
     "cell_text", "make_table", "update_flag", "versions",
 ]

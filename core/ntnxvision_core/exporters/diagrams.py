@@ -10,6 +10,11 @@ Geometry is computed in logical (1x) pixels and drawn at ``S``x supersampling so
 the output stays crisp in print. Every public builder returns ``None`` when the
 environment lacks the data to draw, letting exporters skip the figure without
 special-casing.
+
+The architecture diagrams (the Solution Conceptual Overview, which replaced the old
+management and replication topology figures) live in `ntnxvision_core.diagrams`:
+vector scenes drawn natively in the PDF. This module keeps the charts and the
+per-cluster raster figures.
 """
 
 from __future__ import annotations
@@ -343,25 +348,6 @@ def _size_label(value_bytes: int | None) -> str:
     return f"{round(value_bytes / GIB):,} GiB"
 
 
-def _rpo(seconds: int | None) -> str:
-    if seconds is None:
-        return NA
-    if seconds < 60:
-        return f"{seconds}s"
-    if seconds < 3600:
-        return f"{seconds // 60}m"
-    if seconds < 86400:
-        return f"{seconds // 3600}h"
-    return f"{seconds // 86400}d"
-
-
-def _az(name: str | None) -> str | None:
-    """Availability-zone names can be URLs; keep them short and readable."""
-    if not name:
-        return None
-    return name.removeprefix("https://").removeprefix("http://").rstrip("/")
-
-
 # ─── cluster membership ────────────────────────────────────────────────
 # Hosts/VMs/subnets are matched to their cluster by UUID first. A name is only trusted
 # as a fallback (some payloads carry the name but no cluster UUID) and then only within
@@ -416,48 +402,6 @@ def _cluster_labels(env: Environment) -> dict[int, str]:
 
 
 # ─── public builders ───────────────────────────────────────────────────
-
-
-def management_topology(env: Environment) -> Diagram | None:
-    """Prism Central (or Prism Element) and the clusters it manages."""
-    if not env.clusters:
-        return None
-    is_pe = env.source_type == "prism_element"
-    if env.is_combined:
-        # No single management plane: name the contributing PCs instead of the synthetic
-        # combined host, which would otherwise be the figure's only label.
-        hosts = [s.prism_central.host or "unknown" for s in env.source_environments]
-        shown = hosts[:4]
-        lines = [*shown]
-        if len(hosts) > len(shown):
-            lines.append(f"+{fmt_count(len(hosts) - len(shown))} more")
-        root = Node(f"{fmt_count(len(hosts))} Prism Centrals", lines, style="root")
-    else:
-        lines = [line for line in (
-            env.prism_central.host,
-            (f"AOS {env.prism_central.version}" if is_pe else
-             f"version {env.prism_central.version}") if env.prism_central.version else None,
-        ) if line]
-        if not is_pe and env.pc_config.node_count:
-            deploy = "Scale-out" if env.pc_config.is_scale_out else "Single-node"
-            lines.append(f"{deploy} · {fmt_count(env.pc_config.node_count)} PC node(s)")
-        root = Node("Prism Element" if is_pe else "Prism Central", lines, style="root")
-
-    vm_counts = _counts_per_cluster(env, env.vms)
-    host_counts = _counts_per_cluster(env, env.hosts)
-    for c in env.clusters:
-        hyp = "/".join(c.hypervisor_types) if c.hypervisor_types else NA
-        nodes = c.num_nodes or host_counts.get(id(c)) or "?"
-        lines = [f"AOS {c.aos_version or NA} · {hyp}",
-                 f"{fmt_count(nodes)} node(s) · {fmt_count(vm_counts.get(id(c), 0))} VM(s)"]
-        if env.is_combined and c.source_pc:
-            lines.append(c.source_pc)
-        root.children.append(Node(
-            c.name or c.uuid, lines,
-            tag=f"RF {c.redundancy_factor}" if c.redundancy_factor else None,
-        ))
-    root.children = _cap(root.children, 10, "cluster(s)")
-    return _render([root], col_w=[280, 340])
 
 
 def cluster_compute(env: Environment, cluster: Cluster) -> Diagram | None:
@@ -553,35 +497,6 @@ def vpc_topology(env: Environment) -> Diagram | None:
         root.children = _cap(root.children, 8, "subnet(s)")
         roots.append(root)
     return _render(roots, col_w=[280, 340])
-
-
-def replication_topology(env: Environment) -> Diagram | None:
-    """DR flows: source AZ → target AZ per protection policy, RPO on the edge."""
-    if not env.protection_policies:
-        return None
-    groups: dict[str, list] = {}
-    for p in env.protection_policies:
-        groups.setdefault(_az(p.source_az) or "Local AZ", []).append(p)
-
-    roots = []
-    for src in sorted(groups):
-        root = Node(src, ["source availability zone"], style="root")
-        for p in groups[src]:
-            target = _az(p.target_az)
-            label = p.replication_type or "ASYNC"
-            if p.rpo_seconds is not None:
-                label += f" · RPO {_rpo(p.rpo_seconds)}"
-            root.children.append(Node(
-                target or "No remote target",
-                [p.name or ""],
-                edge_label=label,
-                style="card" if target else "dim",
-            ))
-        root.children = _cap(root.children, 8, "policy(ies)")
-        roots.append(root)
-    return _render(roots, col_w=[280, 320], col_gap=150)
-
-
 
 
 # ─── chart primitives (figure strip, donuts, bars) ──────────────────────
