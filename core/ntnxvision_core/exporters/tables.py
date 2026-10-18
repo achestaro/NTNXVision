@@ -1043,10 +1043,164 @@ LICENSES = TableSpec(
     name=lambda lic: lic.product or "license", note_keys=("licenses",), group=GOVERN,
 )
 
+# ─── design data: host networking, external storage, PC VMs ─────────────
+
+_BOND_LABELS = {"ACTIVE_BACKUP": "Active-backup", "BALANCE_SLB": "Balance-slb",
+                "BALANCE_TCP": "Balance-tcp", "NONE": "None"}
+
+
+def bond_label(value: Any) -> str | None:
+    """"Active-backup" / "Balance-slb" / "Balance-tcp" for a bond mode enum."""
+    if not value:
+        return None
+    text = str(value).upper()
+    return _BOND_LABELS.get(text) or text.replace("_", "-").capitalize()
+
+
+def speed_label(mbps: Any) -> str | None:
+    """A port speed in Mb/s as "25 GbE" / "100 MbE"; None when unknown."""
+    if not mbps:
+        return None
+    value = int(mbps)
+    if value >= 1000 and value % 1000 == 0:
+        return f"{value // 1000:,} GbE"
+    if value >= 1000:
+        return f"{value / 1000:,.1f} GbE"
+    return f"{value:,} MbE"
+
+
+def _vs_bridges(s: Any, _c: Ctx) -> str:
+    return joined(sorted({h.bridge for h in s.hosts if h.bridge}))
+
+
+def _vs_uplinks(s: Any, _c: Ctx) -> str:
+    """The uplink set, when every host uses the same one ("eth0, eth1")."""
+    sets = {tuple(h.uplinks) for h in s.hosts if h.uplinks}
+    if len(sets) == 1:
+        return ", ".join(next(iter(sets)))
+    return "Varies by host" if sets else ""
+
+
+def _vs_lacp(s: Any, _c: Ctx) -> str | None:
+    states = sorted({h.lacp_status for h in s.hosts if h.lacp_status})
+    if states:
+        return ", ".join(x.title() for x in states)
+    return None
+
+
+def _nic_switch(n: Any, _c: Ctx) -> str | None:
+    return n.switch_device_id or n.switch_vendor
+
+
+def _hosting_cluster(v: Any, c: Ctx) -> str | None:
+    if v.hosting_cluster_name:
+        return str(v.hosting_cluster_name)
+    cluster = c.cluster_by_uuid.get(v.hosting_cluster_uuid or "")
+    return cluster.name if cluster is not None else v.hosting_cluster_uuid
+
+
+VIRTUAL_SWITCHES = TableSpec(
+    "virtual_switches", "Virtual Switches", "Virtual switches", "Virtual switch",
+    "virtual switches", lambda e: e.virtual_switches,
+    (
+        Col("name", "Name", _a("name"), label="Name", kind="name", search=True),
+        Col("cluster", "Cluster", _cluster, label="Cluster", facet=True, search=True),
+        Col("default", "Default", _a("is_default"), excel=yes_no, label="Default",
+            kind="status", cell=bool_cell("Default", "No")),
+        Col("bond", "Bond Mode", _a("bond_mode"), excel=bond_label, label="Bond mode",
+            cell=bond_label, facet=True, diff="bond mode"),
+        Col("lacp", "LACP", _vs_lacp, label="LACP"),
+        Col("mtu", "MTU", _a("mtu"), label="MTU", kind="number", diff="MTU"),
+        Col("uplinks", "Uplinks", _vs_uplinks, label="Uplinks", diff="uplinks"),
+        Col("bridges", "Bridges", _vs_bridges, label="Bridge"),
+        Col("hosts", "Hosts", lambda s, _x: len(s.hosts), label="Hosts", kind="number"),
+        Col("api", "API", _a("api_source")),
+    ),
+    id=lambda s: f"{s.uuid}:{s.cluster_uuid or ''}", name=lambda s: s.name or s.uuid,
+    where=lambda s: s.cluster_name, note_keys=("host_networking",), sources=True,
+    group=INFRA,
+)
+
+HOST_NICS = TableSpec(
+    "host_nics", "Host NICs", "Host NICs", "Host NIC", "host NICs", lambda e: e.host_nics,
+    (
+        Col("name", "Name", _a("name"), label="Name", kind="name", search=True),
+        Col("cluster", "Cluster", _cluster, label="Cluster", facet=True, search=True),
+        Col("host", "Host", _a("host_name"), label="Host", search=True),
+        Col("model", "Model", _a("model"), label="Model", search=True, facet=True),
+        Col("speed", "Speed", lambda n, _x: speed_label(n.speed_mbps), label="Speed",
+            facet=True, diff="speed"),
+        Col("link", "Link", _a("link_up"),
+            excel=lambda v: "N/A" if v is None else ("Up" if v else "Down"), label="Link",
+            kind="status", cell=bool_cell("Up", "Down", "warn"), facet=True),
+        Col("mtu", "MTU", _a("mtu"), label="MTU", kind="number", diff="MTU"),
+        Col("vswitch", "Virtual Switch", _a("virtual_switch_name"), label="Virtual switch",
+            facet=True, diff="virtual switch"),
+        Col("driver", "Driver", _a("driver_version"), diff="driver"),
+        Col("firmware", "Firmware", _a("firmware_version"), label="Firmware", kind="mono",
+            diff="firmware"),
+        Col("mac", "MAC Address", _a("mac_address"), search=True),
+        Col("lldp", "LLDP Switch", _nic_switch, label="Switch", search=True),
+        Col("switch_mac", "Switch MAC", _a("switch_mac"), search=True),
+        Col("switch_port", "Switch Port", _a("switch_port_id"), label="Switch port"),
+        Col("api", "API", _a("api_source")),
+    ),
+    id=lambda n: n.uuid, name=lambda n: n.name or n.uuid,
+    where=lambda n: " · ".join(x for x in (n.cluster_name, n.host_name) if x) or None,
+    note_keys=("host_networking",), sources=True, group=INFRA,
+)
+
+EXTERNAL_STORAGE = TableSpec(
+    "external_storages", "External Storage", "External storage", "External array",
+    "arrays", lambda e: e.external_storages,
+    (
+        Col("name", "Name", _a("name"), label="Name", kind="name", search=True),
+        Col("cluster", "Cluster", _cluster, label="Cluster", facet=True, search=True),
+        Col("product", "Product", lambda a, _x: a.product, label="Product", facet=True),
+        Col("endpoint", "Endpoint", _a("endpoint"), label="Endpoint", kind="mono",
+            search=True, diff="endpoint"),
+        Col("protocol", "Protocol (Implied)", lambda a, _x: a.protocol, label="Protocol"),
+        Col("capacity", "Capacity (GiB)", _a("total_capacity_bytes"), excel=gib,
+            label="Capacity", kind="bytes", diff="capacity"),
+        Col("free", "Free (GiB)", _a("free_capacity_bytes"), excel=gib, label="Free",
+            kind="bytes"),
+        Col("health", "Health", _a("health"), label="Health", kind="status",
+            cell=state_cell(("HEALTHY",)), diff="health"),
+        Col("containers", "Containers", lambda a, _x: joined(a.container_names),
+            label="Containers", search=True),
+        Col("api", "API", _a("api_source")),
+    ),
+    id=lambda a: a.uuid, name=lambda a: a.name or a.uuid, where=lambda a: a.cluster_name,
+    note_keys=("storage_containers",), sources=True, group=INFRA,
+)
+
+PC_VMS = TableSpec(
+    "pc_vms", "PC VMs", "Prism Central VMs", "Prism Central VM", "PC VMs",
+    lambda e: e.pc_vms,
+    (
+        Col("name", "Name", _a("name"), label="Name", kind="name", search=True),
+        Col("cluster", "Cluster", _hosting_cluster, label="Cluster", facet=True,
+            search=True, diff="hosting cluster"),
+        Col("vcpu", "vCPUs", _a("num_vcpus"), label="vCPU", kind="number", diff="vCPU"),
+        Col("memory", "Memory (GiB)", _a("memory_bytes"), excel=gib, label="Memory",
+            kind="bytes", diff="memory"),
+        Col("disk", "Data Disk (GiB)", _a("data_disk_bytes"), excel=gib, label="Data disk",
+            kind="bytes"),
+        Col("ip", "IP Addresses", lambda v, _x: joined(v.ip_addresses), label="IP",
+            kind="mono", search=True),
+        Col("power", "Power", _a("power_state"), excel=power_label, label="Power",
+            kind="status", cell=power_cell),
+        Col("api", "API", _a("api_source")),
+    ),
+    id=lambda v: v.uuid, name=lambda v: v.name or v.uuid,
+    where=lambda v: v.hosting_cluster_name, note_keys=("pc_config",), sources=True,
+    group=GOVERN,
+)
+
 #: Every spec, keyed by type id.
 SPECS: dict[str, TableSpec] = {s.type: s for s in (
     CLUSTERS, HOSTS, VMS, SYSTEM_VMS, STORAGE, SUBNETS, PORT_GROUPS, CATALOG, TEMPLATES,
-    IMAGES, OVAS,
+    IMAGES, OVAS, VIRTUAL_SWITCHES, HOST_NICS, EXTERNAL_STORAGE, PC_VMS,
     PROTECTION_POLICIES, RECOVERY_PLANS, AVAILABILITY_ZONES, REMOTE_SITES, ALERTS, LCM,
     SECURITY_POLICIES, CATEGORIES, SERVICE_GROUPS, ADDRESS_GROUPS, VPCS, FLOATING_IPS,
     FILE_SERVERS, FILE_SHARES, OBJECT_STORES, BUCKETS, VOLUME_GROUPS, DATABASES,
@@ -1056,6 +1210,7 @@ SPECS: dict[str, TableSpec] = {s.type: s for s in (
 #: The Inventory screen's object-type list, in display order (groups as in the contract).
 INVENTORY_TYPES: list[str] = [
     "clusters", "hosts", "vms", "system_vms", "storage_containers", "subnets", "port_groups",
+    "virtual_switches", "host_nics", "external_storages", "pc_vms",
     "images",
     "protection_policies", "recovery_plans", "security_policies", "vpcs",
     "object_stores", "volume_groups", "file_servers", "databases",
