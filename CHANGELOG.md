@@ -6,6 +6,13 @@ format older builds can't read. Windows shows the version as X.Y.Z.0 in Installe
 Every pull request that changes shipped code raises it with `node scripts/bump-version.mjs`
 and adds a section here (CI checks both).
 
+## 0.4.1 (2026-10-18)
+
+### Fixed
+- Prism Central and AOS versions show as the plain version (7.5.1.1) instead of the full
+  build string (el8.5-release-ganges-7.5.1.1-stable-<commit>) on every page, report and
+  comparison, including snapshots collected before this fix.
+
 ## 0.4.0 (2026-10-18)
 
 ### Fixed
