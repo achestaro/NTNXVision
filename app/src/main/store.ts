@@ -90,6 +90,11 @@ const integrity = new Integrity({
   write: (macs) => writeJson('integrity.json', macs),
 });
 
+/** True when the integrity key was created at this launch: the config files were adopted unchecked. */
+export function integrityFresh(): boolean {
+  return integrity.freshlyAdopted;
+}
+
 export async function initIntegrity(): Promise<void> {
   // The in-memory keychain (demo, e2e) means a throwaway key: skip integrity altogether.
   await integrity.init({ get: secrets.getSecret, set: secrets.setSecret }, storeKind() !== 'memory');
