@@ -4,9 +4,11 @@
 //
 // Identity: every target has a stable id (a UUID) that never changes when the target is
 // renamed or its address, port or username is edited. Its keychain entries are keyed by
-// that id ("target:<id>", "target:<id>:ndb", "target:<id>:vcenter"), so an edit never has
-// to move a secret and
-// can't orphan one. Targets saved before this scheme had the id "host:port:username" and
+// that id plus a short hash of the endpoint the secret is for ("target:<id>:<h>",
+// "target:<id>:ndb:<h>", "target:<id>:vcenter:<h>"), so editing a file can never redirect a
+// saved password to another server: a changed host simply finds nothing (R3-01). Entries
+// written before the hash existed ("target:<id>" and so on) are copied to the hashed
+// account once at startup (`migrateSecrets`). Targets saved before this scheme had the id "host:port:username" and
 // a keychain entry "username@host" shared by every profile with that host and username;
 // `migrate` gives them new ids and `migrateSecrets` copies each password to its target's
 // own entry, then removes the old shared entry once nothing still needs it.
@@ -28,6 +30,7 @@ import type {
   VcpuRatioOverrides,
 } from '../shared/ipc';
 import { MAX_CLUSTER_RATIO, MIN_CLUSTER_RATIO } from '../shared/ipc';
+import { createHash } from 'node:crypto';
 import { isPlainHost } from './validate';
 
 /** Shown on the Targets page when targets.json fails its integrity check (R2-02). */
@@ -66,10 +69,30 @@ export interface SecretsIO {
   delete(account: string): Promise<void>;
 }
 
-export const passwordAccount = (id: string): string => `target:${id}`;
-export const ndbAccount = (id: string): string => `target:${id}:ndb`;
+/** First 16 hex digits of the SHA-256 of the fields a secret is bound to. */
+export function endpointHash(...fields: (string | number | boolean | undefined)[]): string {
+  return createHash('sha256').update(fields.map((f) => String(f ?? '')).join('|')).digest('hex').slice(0, 16);
+}
+
+type PrimaryFields = Pick<StoredTarget, 'id' | 'mode' | 'host' | 'port' | 'username' | 'insecure'>;
+type NdbFields = Pick<StoredTarget, 'id' | 'ndbHost' | 'ndbUser' | 'ndbInsecure'>;
+type VcenterFields = Pick<StoredTarget, 'id' | 'vcenterHost' | 'vcenterUser' | 'vcenterInsecure'>;
+
+/** Bound to mode, host, port, username and the TLS choice: change any and the saved password is not found. */
+export const passwordAccount = (t: PrimaryFields): string =>
+  `target:${t.id}:${endpointHash(t.mode, t.host, t.port, t.username, !!t.insecure)}`;
+/** Bound to the NDB host, user and TLS flag (NDB has its own address, not the PC's port). */
+export const ndbAccount = (t: NdbFields): string => `target:${t.id}:ndb:${endpointHash(t.ndbHost, t.ndbUser, !!t.ndbInsecure)}`;
 /** The optional vCenter of a Prism Central target (ESXi enrichment). */
-export const vcenterAccount = (id: string): string => `target:${id}:vcenter`;
+export const vcenterAccount = (t: VcenterFields): string => `target:${t.id}:vcenter:${endpointHash(t.vcenterHost, t.vcenterUser, !!t.vcenterInsecure)}`;
+/** The unbound accounts earlier builds used: read only by the one-time migration. */
+export const oldPasswordAccount = (id: string): string => `target:${id}`;
+export const oldNdbAccount = (id: string): string => `target:${id}:ndb`;
+export const oldVcenterAccount = (id: string): string => `target:${id}:vcenter`;
+/** Every account a target may own (current and old layouts), for deletion. */
+const ownedAccounts = (t: StoredTarget): string[] => [
+  passwordAccount(t), ndbAccount(t), vcenterAccount(t), oldPasswordAccount(t.id), oldNdbAccount(t.id), oldVcenterAccount(t.id),
+];
 /** The keychain account used before targets had stable ids. */
 export const legacyAccount = (host: string, username: string): string => `${username}@${host}`;
 
@@ -346,17 +369,19 @@ export class TargetStore {
   async password(id: string): Promise<string | null> {
     const t = this.data().targets.find((x) => x.id === id);
     if (!t || this.isTampered) return null;
-    const own = await this.secrets.get(passwordAccount(t.id));
+    const own = await this.secrets.get(passwordAccount(t));
     if (own) return own;
     return t.legacySecret ? this.secrets.get(legacyAccount(t.host, t.username)) : null;
   }
 
   async ndbPassword(id: string): Promise<string | null> {
-    return this.data().targets.some((x) => x.id === id) && !this.isTampered ? this.secrets.get(ndbAccount(id)) : null;
+    const t = this.data().targets.find((x) => x.id === id);
+    return t && t.ndbHost && !this.isTampered ? this.secrets.get(ndbAccount(t)) : null;
   }
 
   async vcenterPassword(id: string): Promise<string | null> {
-    return this.data().targets.some((x) => x.id === id) && !this.isTampered ? this.secrets.get(vcenterAccount(id)) : null;
+    const t = this.data().targets.find((x) => x.id === id);
+    return t && t.vcenterHost && !this.isTampered ? this.secrets.get(vcenterAccount(t)) : null;
   }
 
   /** The targets as the renderer sees them: no secrets, only whether they are saved. */
@@ -463,19 +488,32 @@ export class TargetStore {
       !prev || tampered || prev.vcenterHost !== next.vcenterHost || prev.vcenterUser !== next.vcenterUser || !!prev.vcenterInsecure !== !!next.vcenterInsecure;
 
     try {
+      const prevPw = prev ? passwordAccount(prev) : null;
       if (req.password) {
-        await this.secrets.set(passwordAccount(id), req.password);
+        await this.secrets.set(passwordAccount(next), req.password);
+        if (prev) await this.dropAccounts([prevPw, oldPasswordAccount(id)], passwordAccount(next));
       } else if (primaryChanged) {
-        if (prev) await this.secrets.delete(passwordAccount(id));
+        if (prev) await this.dropAccounts([prevPw, oldPasswordAccount(id)]);
+      } else if (prevPw && prevPw !== passwordAccount(next)) {
+        // Only the TLS choice changed: the password follows the endpoint, so move it.
+        const old = (await this.secrets.get(prevPw)) ?? (oldLegacy ? await this.secrets.get(oldLegacy) : null);
+        if (old) await this.secrets.set(passwordAccount(next), old);
+        await this.dropAccounts([prevPw], passwordAccount(next));
       } else if (oldLegacy) {
         // Not moved at startup (keychain locked?): move it now, from the old address.
         const old = await this.secrets.get(oldLegacy);
-        if (old) await this.secrets.set(passwordAccount(id), old);
+        if (old) await this.secrets.set(passwordAccount(next), old);
       }
-      if (ndbHost && req.ndbPassword) await this.secrets.set(ndbAccount(id), req.ndbPassword);
-      else if (prev && (!ndbHost ? prev.ndbHost : ndbChanged)) await this.secrets.delete(ndbAccount(id));
-      if (vcenterHost && req.vcenterPassword) await this.secrets.set(vcenterAccount(id), req.vcenterPassword);
-      else if (prev && (!vcenterHost ? prev.vcenterHost : vcenterChanged)) await this.secrets.delete(vcenterAccount(id));
+      const prevNdb = prev?.ndbHost ? ndbAccount(prev) : null;
+      if (ndbHost && req.ndbPassword) {
+        await this.secrets.set(ndbAccount(next), req.ndbPassword);
+        await this.dropAccounts([prevNdb, oldNdbAccount(id)], ndbAccount(next));
+      } else if (prev && (!ndbHost ? prev.ndbHost : ndbChanged)) await this.dropAccounts([prevNdb, oldNdbAccount(id)]);
+      const prevVc = prev?.vcenterHost ? vcenterAccount(prev) : null;
+      if (vcenterHost && req.vcenterPassword) {
+        await this.secrets.set(vcenterAccount(next), req.vcenterPassword);
+        await this.dropAccounts([prevVc, oldVcenterAccount(id)], vcenterAccount(next));
+      } else if (prev && (!vcenterHost ? prev.vcenterHost : vcenterChanged)) await this.dropAccounts([prevVc, oldVcenterAccount(id)]);
     } catch (err) {
       return {
         ok: false,
@@ -504,28 +542,34 @@ export class TargetStore {
       if (this.isTampered) await this.forgetOthers(id);
       this.persist();
       this.isTampered = false;
-      for (const account of [passwordAccount(id), ndbAccount(id), vcenterAccount(id)]) {
-        try {
-          await this.secrets.delete(account);
-        } catch {
-          /* keychain unavailable: nothing stored to remove */
-        }
-      }
+      await this.dropOwned(gone);
       if (gone.legacySecret) await this.dropLegacyIfUnused(legacyAccount(gone.host, gone.username));
     }
     return this.listWithStatus();
   }
 
+  /** Delete accounts (null = none), except `keep`. */
+  private async dropAccounts(accounts: (string | null)[], keep?: string): Promise<void> {
+    for (const a of new Set(accounts)) {
+      if (!a || a === keep) continue;
+      await this.secrets.delete(a);
+    }
+  }
+
+  private async dropOwned(t: StoredTarget): Promise<void> {
+    for (const account of ownedAccounts(t)) {
+      try {
+        await this.secrets.delete(account);
+      } catch {
+        /* keychain unavailable: nothing stored to remove */
+      }
+    }
+  }
+
   /** Delete the keychain entries of every target but `keepId` (after a tampered file). */
   private async forgetOthers(keepId: string): Promise<void> {
     for (const t of this.data().targets.filter((x) => x.id !== keepId)) {
-      for (const account of [passwordAccount(t.id), ndbAccount(t.id), vcenterAccount(t.id)]) {
-        try {
-          await this.secrets.delete(account);
-        } catch {
-          /* keychain unavailable: nothing stored to remove */
-        }
-      }
+      await this.dropOwned(t);
       if (t.legacySecret) {
         delete t.legacySecret;
         await this.dropLegacyIfUnused(legacyAccount(t.host, t.username));
@@ -590,7 +634,7 @@ export class TargetStore {
    * their own, then remove the shared entries nothing needs any more. A target whose copy
    * fails keeps its flag (and its fallback lookup) and is retried on the next launch.
    */
-  async migrateSecrets(): Promise<{ moved: number; pending: number }> {
+  async migrateSecrets(opts: { discardUnbound?: boolean } = {}): Promise<{ moved: number; pending: number }> {
     const targets = this.data().targets;
     if (this.isTampered) return { moved: 0, pending: targets.filter((x) => x.legacySecret).length };
     let moved = 0;
@@ -598,8 +642,8 @@ export class TargetStore {
     for (const t of targets.filter((x) => x.legacySecret)) {
       try {
         const old = await this.secrets.get(legacyAccount(t.host, t.username));
-        if (old && !(await this.secrets.get(passwordAccount(t.id)))) {
-          await this.secrets.set(passwordAccount(t.id), old);
+        if (old && !(await this.secrets.get(passwordAccount(t)))) {
+          await this.secrets.set(passwordAccount(t), old);
           moved += 1;
         }
         delete t.legacySecret;
@@ -610,7 +654,33 @@ export class TargetStore {
     }
     if (done.length) this.persist();
     for (const account of new Set(done)) await this.dropLegacyIfUnused(account);
+    await this.migrateBoundAccounts(!!opts.discardUnbound);
     return { moved, pending: targets.filter((x) => x.legacySecret).length };
+  }
+
+  /**
+   * Copy each target's unbound entries (target:<id>, :ndb, :vcenter) to the accounts bound
+   * to its current endpoint, then delete the old one. Only runs for a file that passed
+   * verification (the caller returns early otherwise). A locked keychain retries next launch.
+   */
+  private async migrateBoundAccounts(discard: boolean): Promise<void> {
+    for (const t of this.data().targets) {
+      const pairs: [string, string][] = [[oldPasswordAccount(t.id), passwordAccount(t)]];
+      if (t.ndbHost) pairs.push([oldNdbAccount(t.id), ndbAccount(t)]);
+      if (t.vcenterHost) pairs.push([oldVcenterAccount(t.id), vcenterAccount(t)]);
+      for (const [oldAcct, newAcct] of pairs) {
+        try {
+          const old = await this.secrets.get(oldAcct);
+          if (!old) continue;
+          // Never copy into an account when files were adopted unchecked, and an existing
+          // bound entry makes the old one dead weight that must not be migrated later.
+          if (!discard && !(await this.secrets.get(newAcct))) await this.secrets.set(newAcct, old);
+          await this.secrets.delete(oldAcct);
+        } catch {
+          /* keychain locked or unavailable: retry next launch */
+        }
+      }
+    }
   }
 
   private async dropLegacyIfUnused(account: string | null): Promise<void> {

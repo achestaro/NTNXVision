@@ -13,7 +13,7 @@ import { createRequire } from 'node:module';
 const require = createRequire(import.meta.url);
 const sched = require('../dist/shared/schedule.js');
 const { ScheduleStore, ScheduleRunner, RetryLater, normalizeDefinition, nextRun, scheduleInfo } = require('../dist/main/schedules.js');
-const { SmtpStore, SMTP_PASSWORD_ACCOUNT, normalizeSmtp, smtpParams, validateSmtp } = require('../dist/main/mail.js');
+const { SmtpStore, SMTP_PASSWORD_ACCOUNT, smtpPasswordAccount, normalizeSmtp, smtpParams, validateSmtp } = require('../dist/main/mail.js');
 
 const local = (y, m, d, hh = 0, mm = 0) => new Date(y, m - 1, d, hh, mm);
 const iso = (d) => d.toISOString();
@@ -514,9 +514,10 @@ test('smtp: the password goes to the keychain only, never to the file or the ren
   const io = memIO(undefined);
   const secrets = fakeSecrets();
   const st = new SmtpStore(io, secrets);
+  const acct = smtpPasswordAccount(smtpReq());
   const r = await st.save(smtpReq({ password: 's3cret-example' }));
   assert.equal(r.ok, true);
-  assert.equal(secrets.map.get(SMTP_PASSWORD_ACCOUNT), 's3cret-example');
+  assert.equal(secrets.map.get(acct), 's3cret-example');
   assert.ok(!JSON.stringify(io.file).includes('s3cret-example'));
   assert.ok(!('password' in io.file));
   const info = await st.info();
@@ -525,17 +526,46 @@ test('smtp: the password goes to the keychain only, never to the file or the ren
   assert.ok(!JSON.stringify(info).includes('s3cret-example'));
   // An empty password keeps the saved one; clearPassword removes it.
   await st.save(smtpReq({ password: '' }));
-  assert.equal(secrets.map.get(SMTP_PASSWORD_ACCOUNT), 's3cret-example');
+  assert.equal(secrets.map.get(acct), 's3cret-example');
   await st.save(smtpReq({ clearPassword: true }));
-  assert.equal(secrets.map.has(SMTP_PASSWORD_ACCOUNT), false);
+  assert.equal(secrets.map.has(acct), false);
 });
 
 test('smtp: no username means no sign-in and no stored password', async () => {
-  const secrets = fakeSecrets({ [SMTP_PASSWORD_ACCOUNT]: 'old' });
+  const acct = smtpPasswordAccount(smtpReq());
+  const secrets = fakeSecrets();
   const st = new SmtpStore(memIO(undefined), secrets);
+  await st.save(smtpReq({ password: 'old' }));
+  assert.equal(secrets.map.get(acct), 'old');
   await st.save(smtpReq({ username: '', password: 'ignored' }));
-  assert.equal(secrets.map.has(SMTP_PASSWORD_ACCOUNT), false);
+  assert.equal(secrets.map.has(acct), false);
   assert.equal(smtpParams(normalizeSmtp(smtpReq({ username: '' })), 'pw').password, '');
+});
+
+test('R3-01: the smtp password account is bound to the server; migration moves the old entry', async () => {
+  const secrets = fakeSecrets();
+  const io = memIO(undefined);
+  const st = new SmtpStore(io, secrets);
+  await st.save(smtpReq());
+  secrets.map.set(SMTP_PASSWORD_ACCOUNT, 'old-example');
+  assert.equal(secrets.map.get(SMTP_PASSWORD_ACCOUNT), 'old-example');
+  assert.equal(await st.password(), '');
+  await st.migrateSecrets();
+  assert.equal(secrets.map.has(SMTP_PASSWORD_ACCOUNT), false);
+  assert.equal(await st.password(), 'old-example');
+  // The file is edited to point at another server: nothing is found for it.
+  io.file = { ...io.file, host: 'attacker.example.lab' };
+  assert.equal(await st.password(), '');
+  assert.equal((await st.info()).hasPassword, false);
+});
+
+test('R3-01: a tampered email.json migrates nothing', async () => {
+  const secrets = fakeSecrets({ [SMTP_PASSWORD_ACCOUNT]: 'old-example' });
+  const io = memIO(smtpReq());
+  io.tampered = () => true;
+  const st = new SmtpStore(io, secrets);
+  await st.migrateSecrets();
+  assert.equal(secrets.map.get(SMTP_PASSWORD_ACCOUNT), 'old-example');
 });
 
 test('smtp: validation', () => {
@@ -616,4 +646,30 @@ test('smtp: params for the sidecar are snake_case', () => {
     max_attachment_mb: 10,
     zip_attachments: true,
   });
+});
+
+test('R4: smtp migration is discarded on fresh integrity, old deleted when bound exists, TLS toggle moves the password', async () => {
+  // Fresh state: the old entry is deleted, never copied.
+  let secrets = fakeSecrets();
+  let st = new SmtpStore(memIO(undefined), secrets);
+  await st.save(smtpReq());
+  secrets.map.set(SMTP_PASSWORD_ACCOUNT, 'old-example');
+  await st.migrateSecrets(true);
+  assert.equal(secrets.map.size, 0);
+  assert.equal(await st.password(), '');
+  // Bound entry already there: the old one is deleted, the bound one kept.
+  secrets = fakeSecrets();
+  st = new SmtpStore(memIO(undefined), secrets);
+  await st.save(smtpReq({ password: 'current' }));
+  secrets.map.set(SMTP_PASSWORD_ACCOUNT, 'stale');
+  await st.migrateSecrets();
+  assert.equal(secrets.map.has(SMTP_PASSWORD_ACCOUNT), false);
+  assert.equal(await st.password(), 'current');
+  // Only allowUntrusted changes: the password follows.
+  await st.save(smtpReq({ allowUntrusted: true }));
+  assert.equal(await st.password(), 'current');
+  assert.equal(secrets.map.size, 1);
+  // Another field changes without a password: dropped.
+  await st.save(smtpReq({ allowUntrusted: true, host: 'other.example.lab' }));
+  assert.equal(secrets.map.size, 0);
 });
