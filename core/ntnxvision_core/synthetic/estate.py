@@ -131,6 +131,14 @@ class Features:
     external_storage: tuple[tuple[int, str], ...] = ()
     #: Hosts advertise LLDP neighbours (on the first two AHV clusters only).
     lldp: bool = True
+    #: Nodes per block (chassis): 1 for current one-node hardware, 4 for 2U4N blocks.
+    nodes_per_block: int = 1
+    #: Other demo Prism Centrals this one is paired with (an AZ and a DOMAIN_MANAGER
+    #: registration each, keyed on the peer's own PC uuid).
+    az_peers: tuple[str, ...] = ()
+    #: Extra protection policies: (name, RPO seconds, source cluster, target PC host or
+    #: "" for this PC, target cluster). RPO 0 is a synchronous (Metro) policy.
+    extra_policies: tuple[tuple[str, int, str, str, str], ...] = ()
 
 
 PROFILES: dict[str, list[ClusterSpec]] = {
@@ -1113,8 +1121,9 @@ def _design(est: PcEstate) -> None:
     _blocks(est)
     _host_network(est)
     _external_storage(est)
-    _pc_deployment(est)
+    # DR first: its AZ pairings become DOMAIN_MANAGER registrations.
     _dr_design(est)
+    _pc_deployment(est)
 
 
 def _dr_design(est: PcEstate) -> None:
@@ -1127,6 +1136,33 @@ def _dr_design(est: PcEstate) -> None:
         p["source_cluster"] = ahv[i % len(ahv)]["uuid"]
         p["target_cluster"] = remote[i % len(remote)]
         p["bidirectional"] = p["name"] == "Silver-1h"
+    f = est.features
+    # Paired demo PCs: each side lists the other as an AZ, by the peer's PC uuid.
+    for peer in f.az_peers:
+        ref = uid(peer, "pc")
+        est.availability_zones.append({"uuid": ref, "name": peer, "type": "PHYSICAL",
+                                       "url": ref, "region": "us-west",
+                                       "status": "CONNECTED"})
+    by_name = {c["name"]: c for c in est.clusters}
+    local = {"uuid": est.pc_uuid, "name": f"Local ({est.host})", "type": "PHYSICAL",
+             "url": est.pc_uuid}
+    for name, rpo, source, peer, target in f.extra_policies:
+        src = by_name.get(source)
+        if src is None or (not peer and target not in by_name):
+            continue
+        est.protection_policies.append({
+            "uuid": uid(est.seed, "pp", name), "name": name, "rpo": rpo,
+            "categories": {"DRTier": ["Platinum" if rpo == 0 else "Gold"]},
+            "local_retention": None if rpo == 0 else 24,
+            "remote_retention": None if rpo == 0 else 24,
+            "source": local,
+            "target": {"uuid": uid(peer, "pc"), "url": uid(peer, "pc")} if peer else local,
+            "source_cluster": src["uuid"],
+            # The peer's cluster uuid is what that PC's own estate gives it.
+            "target_cluster": uid(peer, "cluster", target) if peer
+            else by_name[target]["uuid"],
+            "bidirectional": False,
+        })
     for i, rp in enumerate(est.recovery_plans):
         rp["primary_cluster"] = ahv[i % len(ahv)]["uuid"]
         rp["recovery_cluster"] = remote[i % len(remote)]
@@ -1138,7 +1174,9 @@ def _cluster_design(est: PcEstate) -> None:
         n = c["nodes"]
         c["cluster_type"] = "HYPER_CONVERGED"
         c["functions"] = ["AOS"] + (["ONE_NODE"] if n == 1 else ["TWO_NODE"] if n == 2 else [])
-        c["fault_domain"] = ("DISK" if n == 1 else "RACK" if n >= 12 else "BLOCK" if n >= 8
+        blocks = -(-n // max(1, est.features.nodes_per_block))
+        c["fault_domain"] = ("DISK" if n == 1 else "RACK" if n >= 12 else "BLOCK"
+                             if n >= 8 or (est.features.nodes_per_block > 1 and blocks >= 3)
                              else "NODE")
         c["fault_tolerance"] = c["rf"] - 1
         c["nearsync"] = n >= 3
@@ -1148,22 +1186,32 @@ def _cluster_design(est: PcEstate) -> None:
 
 
 def _blocks(est: PcEstate) -> None:
-    """One block per node (current G8 / G9 hardware is one node per chassis); racks of
-    four blocks on clusters large enough to be rack aware."""
+    """Blocks of `Features.nodes_per_block` nodes (1: current G8 / G9 hardware, one node
+    per chassis; 4: 2U4N blocks, slots 1 to 4). On rack-aware clusters the blocks are
+    spread round-robin over three racks."""
+    per = max(1, est.features.nodes_per_block)
     for c in est.clusters:
         hosts = [h for h in est.hosts if h["cluster_uuid"] == c["uuid"]]
         rack_aware = c["fault_domain"] == "RACK"
-        for h in hosts:
-            rack = 1 + (h["index"] - 1) % 3 if rack_aware else None
-            est.blocks.append({
-                "uuid": uid(est.seed, "block", h["block_serial"], h["name"]),
+        for b, start in enumerate(range(0, len(hosts), per)):
+            members = hosts[start:start + per]
+            first = members[0]
+            rack = 1 + b % 3 if rack_aware else None
+            block = {
+                "uuid": uid(est.seed, "block", first["block_serial"], first["name"]),
                 "cluster_uuid": c["uuid"], "cluster_name": c["name"],
-                "model_name": h["block_model"], "serial": h["block_serial"],
+                "model_name": first["block_model"], "serial": first["block_serial"],
                 "rack_id": rack,
                 "rack_uuid": uid(est.seed, "rack", c["name"], rack) if rack else None,
-                "nodes": [{"uuid": h["uuid"], "position": 1}],
-            })
-            h["block_uuid"] = est.blocks[-1]["uuid"]
+                "nodes": [{"uuid": h["uuid"], "position": slot}
+                          for slot, h in enumerate(members, start=1)],
+            }
+            est.blocks.append(block)
+            for slot, h in enumerate(members, start=1):
+                h["block_uuid"] = block["uuid"]
+                h["block_position"] = slot
+                # The nodes of one chassis share its serial.
+                h["block_serial"] = first["block_serial"]
 
 
 def _host_network(est: PcEstate) -> None:
@@ -1262,7 +1310,10 @@ def _external_storage(est: PcEstate) -> None:
         }
         est.external_storages.append(array)
         ctr_name = f"{c['name'].lower()}-ext-{prefix}01"
-        est.containers.append({
+        # With the cluster's other containers, not at the end of the list.
+        last = max(i for i, ct in enumerate(est.containers)
+                   if ct["cluster_uuid"] == c["uuid"])
+        est.containers.insert(last + 1, {
             "uuid": uid(est.seed, "container", c["name"], ctr_name), "name": ctr_name,
             "cluster_uuid": c["uuid"], "cluster_name": c["name"], "rf": None,
             "compression": False, "compression_delay": 0, "dedup": "NONE", "ec": "off",

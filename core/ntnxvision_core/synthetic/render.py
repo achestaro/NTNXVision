@@ -915,6 +915,9 @@ def protection_policy_v4(est: PcEstate, p: dict[str, Any]) -> dict[str, Any]:
             {"sourceLocationLabel": src, "remoteLocationLabel": dst, "schedule": {
                 "recoveryPointType": "CRASH_CONSISTENT",
                 "recoveryPointObjectiveTimeSeconds": p["rpo"],
+                # A synchronous policy says so only through this timeout.
+                **({"syncReplicationAutoSuspendTimeoutSeconds": 10} if p["rpo"] == 0
+                   else {}),
                 "retention": {"$objectType": "datapolicies.v4.config.LinearRetention",
                               "local": p["local_retention"], "remote": p["remote_retention"]},
             }}
@@ -1491,7 +1494,8 @@ def pe_cluster_proxy_v2(c: dict[str, Any]) -> dict[str, Any]:
 
 def pe_host_proxy_v2(h: dict[str, Any], num_vms: int) -> dict[str, Any]:
     return {**pe_host_v2(h, num_vms), "rackable_unit_uuid": h.get("block_uuid"),
-            "position": {"ordinal": 1, "name": "", "physical_position": None}}
+            "position": {"ordinal": h.get("block_position", 1), "name": "",
+                         "physical_position": None}}
 
 
 def service_status_v3(enabled: bool) -> dict[str, Any]:
