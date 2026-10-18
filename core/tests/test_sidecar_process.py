@@ -111,7 +111,7 @@ def test_stays_responsive_and_cancels_cleanly(sidecar: Sidecar, tmp_path: Path) 
                                      "name": "never-saved", "formats": ["excel"],
                                      "export_dir": str(tmp_path / "exports")})
     started = sidecar.wait_event(lambda e: e["type"] == "started")
-    assert started["run_id"] == "run-a" and len(started["areas"]) == 21
+    assert started["run_id"] == "run-a" and len(started["areas"]) == 22
     assert {a["status"] for a in started["areas"]} == {"pending"}
     sidecar.wait_event(lambda e: e["type"] == "area" and e["area"]["status"] != "running")
 

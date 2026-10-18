@@ -22,6 +22,7 @@ from ntnxvision_core.collectors.flow import (
     FlowNetworkingCollector,
     FlowSecurityCollector,
 )
+from ntnxvision_core.collectors.hostnet import HostNetworkCollector
 from ntnxvision_core.collectors.hosts import HostCollector
 from ntnxvision_core.collectors.iam import IamCollector
 from ntnxvision_core.collectors.lcm import LcmCollector
@@ -44,6 +45,7 @@ PHASE1_COLLECTORS: list[type[Collector]] = [
     HostCollector,
     StorageCollector,
     SubnetCollector,
+    HostNetworkCollector,
     VmCollector,
     LicenseCollector,
 ]
@@ -77,6 +79,7 @@ __all__ = [
     "HostCollector",
     "StorageCollector",
     "SubnetCollector",
+    "HostNetworkCollector",
     "VmCollector",
     "LicenseCollector",
     "DataProtectionCollector",

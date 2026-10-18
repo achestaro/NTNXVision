@@ -29,26 +29,33 @@ from ntnxvision_core.collectors.normalize import ESXI, hypervisor_name
 VM_INCLUDES = {"include_vm_disk_config": "true", "include_vm_nic_config": "true"}
 
 
-def esxi_clusters(conn: Any, env: Any) -> list[tuple[str, str | None]]:
-    """``(uuid, name)`` of every ESXi cluster this run collects.
+def scoped_clusters(conn: Any, env: Any) -> list[tuple[str, str | None, list[str]]]:
+    """``(uuid, name, hypervisors)`` of every cluster this run collects, sorted.
 
     Taken from the run's resolved scope (the registered clusters, with their
     hypervisors) so it works whether or not the Clusters area was selected; falls back to
-    the collected clusters when no scope could be resolved.
+    the collected clusters when no scope could be resolved. Per-cluster endpoints are
+    called only for these, which is how they honour the cluster scope.
     """
+    return sorted(_unsorted_scoped(conn, env), key=lambda c: ((c[1] or "").casefold(), c[0]))
+
+
+def esxi_clusters(conn: Any, env: Any) -> list[tuple[str, str | None]]:
+    """``(uuid, name)`` of every ESXi cluster this run collects (see `scoped_clusters`)."""
+    return [(uuid, name) for uuid, name, hvs in _unsorted_scoped(conn, env) if ESXI in hvs]
+
+
+def _unsorted_scoped(conn: Any, env: Any) -> list[tuple[str, str | None, list[str]]]:
+    # esxi_clusters keeps its historical (registration) order: tests and the port group
+    # order depend on it.
     scope = getattr(conn, "scope", None)
-    out: list[tuple[str, str | None]] = []
     registered = getattr(scope, "registered", None) or {}
     if scope is not None and registered:
-        for uuid, cluster in registered.items():
-            if uuid in scope.selected and ESXI in (cluster.hypervisors or []):
-                out.append((uuid, cluster.name))
-        return out
-    for cluster in getattr(env, "clusters", []) or []:
-        types = {hypervisor_name(t) for t in cluster.hypervisor_types or []}
-        if ESXI in types and cluster.uuid:
-            out.append((cluster.uuid, cluster.name))
-    return out
+        return [(u, c.name, list(c.hypervisors or [])) for u, c in registered.items()
+                if u in scope.selected]
+    return [(c.uuid, c.name, [n for t in c.hypervisor_types or []
+                              if (n := hypervisor_name(t))])
+            for c in getattr(env, "clusters", []) or [] if c.uuid]
 
 
 class PeReadError(Exception):

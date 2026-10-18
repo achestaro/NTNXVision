@@ -11,6 +11,13 @@ still the only source, and dropping it would silently blank the Encryption colum
 the security posture section of the ADD. So the v4 path fills that one field from v3
 while v3 exists, and leaves it None once it does not. Everything else comes from v4,
 which is also strictly richer here — v3 leaves `is_lts` null, v4 reports it.
+
+**Design fields.** v4 also gives the cluster type (hyperconverged or compute-only), its
+functions (``ONE_NODE`` / ``TWO_NODE``) and the fault tolerance state (fault domain level,
+current and desired tolerance). Below the v4 line the fault domain and tolerance come from
+each cluster's Prism Element (v2.0 ``cluster`` through the PC proxy), best-effort. Cluster
+categories (a POD category, for instance) are read from v3, which names them; v4 lists
+only category ext ids.
 """
 
 from __future__ import annotations
@@ -37,7 +44,7 @@ class ClusterCollector(Collector):
     # ─── v4 ────────────────────────────────────────────────────────
 
     def _collect_v4(self, env: Any) -> None:
-        encryption = self._v3_encryption_by_uuid()
+        encryption, categories = self._v3_details_by_uuid()
         for entity in self.conn.v4_list("clustermgmt/v4.0/config/clusters"):
             config = entity.get("config") or {}
             functions = config.get("clusterFunction") or []
@@ -52,6 +59,7 @@ class ClusterCollector(Collector):
 
             network = entity.get("network") or {}
             build = config.get("buildInfo") or {}
+            ft = config.get("faultToleranceState") or {}
             env.clusters.append(
                 Cluster(
                     uuid=uuid,
@@ -77,27 +85,38 @@ class ClusterCollector(Collector):
                     encryption_enabled=encryption.get(uuid),
                     is_lts=config.get("isLts"),
                     operation_mode=config.get("operationMode"),
+                    cluster_type=_enum(config.get("clusterType")),
+                    cluster_functions=[f for f in functions if isinstance(f, str)],
+                    fault_domain=_enum(ft.get("domainAwarenessLevel")),
+                    fault_tolerance=_int(ft.get("currentMaxFaultTolerance")),
+                    desired_fault_tolerance=_int(ft.get("desiredMaxFaultTolerance")),
+                    categories=categories.get(uuid, {}),
                     api_source="v4",
                 )
             )
 
-    def _v3_encryption_by_uuid(self) -> dict[str, bool | None]:
-        """uuid → encryption state, read from v3 because v4 does not expose it.
+    def _v3_details_by_uuid(
+        self,
+    ) -> tuple[dict[str, bool | None], dict[str, dict[str, list[str]]]]:
+        """uuid → encryption state and uuid → categories, read from v3: v4 does not
+        expose the encryption state and lists categories only as ext ids.
 
         Best-effort by design: once the legacy APIs are retired this returns empty and
-        the column goes blank rather than the run failing.
+        the columns go blank rather than the run failing.
         """
         try:
             entities = self.conn.v3_list("clusters")
         except NutanixApiError:
-            return {}
+            return {}, {}
         out: dict[str, bool | None] = {}
+        cats: dict[str, dict[str, list[str]]] = {}
         for entity in entities:
             uuid = entity.get("metadata", {}).get("uuid")
             config = entity.get("status", {}).get("resources", {}).get("config", {})
             if uuid:
                 out[uuid] = _encryption_enabled(config.get("encryption_status"))
-        return out
+                cats[uuid] = _v3_categories(entity.get("metadata", {}))
+        return out, cats
 
     # ─── v3 ────────────────────────────────────────────────────────
 
@@ -140,9 +159,72 @@ class ClusterCollector(Collector):
                     timezone=config.get("timezone"),
                     encryption_enabled=_encryption_enabled(config.get("encryption_status")),
                     operation_mode=config.get("operation_mode"),
+                    categories=_v3_categories(entity.get("metadata", {})),
                     api_source="v3",
                 )
             )
+        self._pe_fault_tolerance(env)
+
+    def _pe_fault_tolerance(self, env: Any) -> None:
+        """Fault domain and tolerance from each cluster's Prism Element (v2.0), below v4.
+
+        One proxied GET per cluster; a cluster whose PE cannot be read keeps None.
+        """
+        scope = getattr(self.conn, "scope", None)
+        pe_get = getattr(self.conn, "pe_get", None)
+        if pe_get is None:  # a connection without the Prism Element proxy
+            return
+        for cluster in env.clusters:
+            if cluster.fault_domain is not None or not cluster.uuid:
+                continue
+            if scope is not None and scope.excludes(cluster.uuid):
+                continue
+            try:
+                data = pe_get(cluster.uuid, "cluster")
+            except NutanixApiError:
+                continue
+            if not isinstance(data, dict):
+                continue
+            cluster.fault_domain = _PE_DOMAINS.get(
+                str(data.get("fault_tolerance_domain_type") or "").upper()) or _enum(
+                data.get("fault_tolerance_domain_type"))
+            state = data.get("cluster_redundancy_state") or {}
+            desired_rf = _int(state.get("desired_redundancy_factor"))
+            current_rf = _int(state.get("current_redundancy_factor"))
+            if current_rf:
+                cluster.fault_tolerance = current_rf - 1
+            if desired_rf:
+                cluster.desired_fault_tolerance = desired_rf - 1
+
+
+#: Prism Element's fault_tolerance_domain_type → v4's domainAwarenessLevel.
+_PE_DOMAINS = {"RACKABLE_UNIT": "BLOCK", "NODE": "NODE", "RACK": "RACK", "DISK": "DISK"}
+
+
+def _enum(value: Any) -> str | None:
+    """An enum string as given, None for absent / unknown (``$UNKNOWN``) values."""
+    if not isinstance(value, str) or not value or value.startswith("$"):
+        return None
+    return value
+
+
+def _int(value: Any) -> int | None:
+    try:
+        return int(value) if value not in (None, "") and not isinstance(value, bool) else None
+    except (TypeError, ValueError):
+        return None
+
+
+def _v3_categories(metadata: dict[str, Any]) -> dict[str, list[str]]:
+    """v3 ``metadata.categories_mapping`` (key → values), else ``categories`` (key →
+    value), without the system ``PrismCentral``-style empty keys."""
+    mapping = metadata.get("categories_mapping")
+    if isinstance(mapping, dict) and mapping:
+        return {str(k): [str(v) for v in (vals or [])] for k, vals in mapping.items()}
+    flat = metadata.get("categories")
+    if isinstance(flat, dict):
+        return {str(k): [str(v)] for k, v in flat.items() if v not in (None, "")}
+    return {}
 
 
 def _v4_software(config: dict[str, Any], software_type: str) -> str | None:

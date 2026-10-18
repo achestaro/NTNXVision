@@ -37,7 +37,7 @@ def two_snapshots(demo: Any, data_dir: Path) -> tuple[dict[str, Any], dict[str, 
 def test_list_areas_catalogue() -> None:
     result = sc._m_list_areas(None, {})
     ids = [a["id"] for a in result["areas"]]
-    assert len(ids) == len(set(ids)) == 21
+    assert len(ids) == len(set(ids)) == 22
     groups = [a["group"] for a in result["areas"]]
     assert groups == sorted(groups, key=["Infrastructure", "Platform services",
                                          "Operations and governance"].index)
@@ -51,7 +51,7 @@ def test_inventory_result_carries_run_metadata(two_snapshots: Any) -> None:
     assert Path(first["snapshot_path"]).is_file()
     assert first["snapshot_name"] == "pc01-week1"
     assert first["duration_ms"] >= 0 and first["started_at"] <= first["finished_at"]
-    assert len(first["areas"]) == 21
+    assert len(first["areas"]) == 22
     assert {a["status"] for a in first["areas"]} <= AREA_STATUSES
     assert all(a["duration_ms"] is not None for a in first["areas"])
     assert first["reports"][0]["format"] == "excel"
@@ -81,7 +81,7 @@ def test_overview(demo: Any, data_dir: Path) -> None:
     assert figures["Clusters"]["qualifier"] == "AOS 6.10 – 7.0"
     assert figures["Storage"]["unit"] == "TB"
     assert figures["Protected VMs"]["value"].endswith("%")
-    assert ov["coverage"]["total"] == 21 and ov["coverage"]["skipped"] == 1
+    assert ov["coverage"]["total"] == 22 and ov["coverage"]["skipped"] == 1
     assert ov["api_routing"]["v4"] > ov["api_routing"]["v3"]
     assert "X-Play playbooks" in ov["sunset_areas"]
 

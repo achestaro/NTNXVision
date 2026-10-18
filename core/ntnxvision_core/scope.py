@@ -39,6 +39,7 @@ CLUSTER_BOUND_FIELDS: tuple[str, ...] = (
     "hosts", "vms", "system_vms", "storage_containers", "subnets", "port_groups", "licenses",
     "alerts",
     "lcm_entities", "ovas", "volume_groups", "file_servers", "object_stores", "remote_sites",
+    "blocks", "cvms", "virtual_switches", "host_nics", "external_storages",
 )
 
 #: What stays Prism-Central-wide in a scoped run (shown in the docs and the reports).

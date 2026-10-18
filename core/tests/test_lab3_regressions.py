@@ -163,6 +163,11 @@ def test_recovery_plan_reads_parameters_nesting() -> None:
     }
 
     class FakeConn:
+        def v4_ready(self, area: str) -> bool:
+            """This regression pins the v3 shape; v4 plans are covered in
+            test_design_collectors."""
+            return False
+
         def v3_list(self, kind: str) -> list[dict[str, Any]]:
             return [entity] if kind == "recovery_plans" else []
 

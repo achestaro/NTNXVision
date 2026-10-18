@@ -3,19 +3,49 @@
 Files (file servers + shares) and Objects (object stores + buckets) are surfaced through
 Prism Central v3 group/list endpoints. Volume Groups come from v3 `volume_groups`.
 Each collector degrades gracefully when the corresponding NUS service is not deployed.
+
+Files and Objects also record whether the service is deployed at all
+(`PlatformService` in ``pc_config.services``), which the conceptual diagram needs: v3 lists
+404 when the product is absent, and the v4 namespaces tell the remaining cases apart. A
+v4 ``files`` list that answers with no file server means Files is installed but not
+deployed; ``objects`` answering 503 (``endpoint ...:7301 failed`` on the lab PC) means
+Objects is not enabled. When v3 has no file server list but v4 lists file servers, those
+are recorded from v4 (name only: the v4 model carries nothing else).
 """
 
 from __future__ import annotations
 
 from typing import Any
 
+from ntnxvision_core.api import v4_client
+from ntnxvision_core.api.errors import NutanixApiError
 from ntnxvision_core.collectors.base import Collector
 from ntnxvision_core.models import (
     FileServer,
     FileShare,
     ObjectStore,
+    PlatformService,
     VolumeGroup,
 )
+
+FILE_SERVERS_V4 = "files/v4.0/config/file-servers"
+
+
+def record_service(env: Any, name: str, status: str, count: int,
+                   api_source: str | None) -> None:
+    """Set the deployment status of one data service on ``pc_config.services``."""
+    services = [s for s in env.pc_config.services if s.name != name]
+    services.append(PlatformService(name=name, status=status, count=count,
+                                    api_source=api_source))
+    env.pc_config.services = sorted(services, key=lambda s: s.name)
+
+
+def _service_status(conn: Any, area: str, count: int) -> str:
+    if count:
+        return "DEPLOYED"
+    if conn.negotiated.get(area) == v4_client.UNAVAILABLE:
+        return "NOT_ENABLED"
+    return "NOT_DEPLOYED"
 
 
 class FilesCollector(Collector):
@@ -23,10 +53,17 @@ class FilesCollector(Collector):
     label = "Nutanix Files"
 
     def collect(self, env: Any) -> None:
+        v4 = self.conn.v4_ready("files")
         try:
             servers = self.conn.v3_list("file_server")
-        except Exception:  # noqa: BLE001 — Files not deployed
-            env.collection_notes[self.name] = "skipped: Nutanix Files not deployed"
+        except Exception:  # noqa: BLE001 — Files not deployed (or v3 has no list)
+            servers = None
+        if servers is None:
+            found = self._v4_servers(env) if v4 else 0
+            record_service(env, "FILES", _service_status(self.conn, "files", found), found,
+                           "v4" if v4 else "v3")
+            env.collection_notes[self.name] = (
+                "ok" if found else "skipped: Nutanix Files not deployed")
             return
 
         for entity in servers:
@@ -51,7 +88,21 @@ class FilesCollector(Collector):
         self._shares(env)
         for fs in env.file_servers:
             fs.share_count = sum(1 for s in env.file_shares if s.file_server_name == fs.name)
+        record_service(env, "FILES", _service_status(self.conn, "files", len(servers)),
+                       len(servers), "v3")
         env.collection_notes[self.name] = "ok"
+
+    def _v4_servers(self, env: Any) -> int:
+        try:
+            rows = self.conn.v4_list(FILE_SERVERS_V4)
+        except NutanixApiError:
+            return 0
+        for row in rows:
+            env.file_servers.append(FileServer(uuid=str(row.get("extId") or ""),
+                                               name=row.get("name"),
+                                               version=row.get("version") or None,
+                                               api_source="v4"))
+        return len(rows)
 
     def _shares(self, env: Any) -> None:
         for kind in ("mount_target", "shares"):
@@ -82,9 +133,13 @@ class ObjectsCollector(Collector):
     label = "Nutanix Objects"
 
     def collect(self, env: Any) -> None:
+        # Probed for the status only: 503 is "Objects not enabled" (see the module doc).
+        v4 = self.conn.v4_ready("objects")
         try:
             stores = self.conn.v3_list("objectstores")
         except Exception:  # noqa: BLE001 — Objects not deployed
+            record_service(env, "OBJECTS", _service_status(self.conn, "objects", 0), 0,
+                           "v4" if v4 or self.conn.negotiated.get("objects") else "v3")
             env.collection_notes[self.name] = "skipped: Nutanix Objects not deployed"
             return
 
@@ -110,6 +165,8 @@ class ObjectsCollector(Collector):
 
         for store in env.object_stores:
             store.bucket_count = sum(1 for b in env.buckets if b.object_store_name == store.name)
+        record_service(env, "OBJECTS", _service_status(self.conn, "objects", len(stores)),
+                       len(stores), "v3")
         env.collection_notes[self.name] = "ok"
 
 
