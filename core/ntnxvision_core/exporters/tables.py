@@ -1058,7 +1058,8 @@ def bond_label(value: Any) -> str | None:
 
 
 def speed_label(mbps: Any) -> str | None:
-    """A port speed in Mb/s as "25 GbE" / "100 MbE"; None when unknown."""
+    """A port speed: whole and fractional gigabit as Ethernet classes ("25 GbE",
+    "2.5 GbE"), anything slower as a rate ("100 Mb/s"); None when unknown."""
     if not mbps:
         return None
     value = int(mbps)
@@ -1066,7 +1067,7 @@ def speed_label(mbps: Any) -> str | None:
         return f"{value // 1000:,} GbE"
     if value >= 1000:
         return f"{value / 1000:,.1f} GbE"
-    return f"{value:,} MbE"
+    return f"{value:,} Mb/s"
 
 
 def _vs_bridges(s: Any, _c: Ctx) -> str:

@@ -88,8 +88,12 @@ class ClusterCollector(Collector):
                     cluster_type=_enum(config.get("clusterType")),
                     cluster_functions=[f for f in functions if isinstance(f, str)],
                     fault_domain=_enum(ft.get("domainAwarenessLevel")),
-                    fault_tolerance=_int(ft.get("currentMaxFaultTolerance")),
-                    desired_fault_tolerance=_int(ft.get("desiredMaxFaultTolerance")),
+                    fault_tolerance=_int(ft.get("currentMaxFaultTolerance"))
+                    if ft.get("currentMaxFaultTolerance") is not None
+                    else _cft(ft.get("currentClusterFaultTolerance")),
+                    desired_fault_tolerance=_int(ft.get("desiredMaxFaultTolerance"))
+                    if ft.get("desiredMaxFaultTolerance") is not None
+                    else _cft(ft.get("desiredClusterFaultTolerance")),
                     categories=categories.get(uuid, {}),
                     api_source="v4",
                 )
@@ -213,6 +217,14 @@ def _int(value: Any) -> int | None:
         return int(value) if value not in (None, "") and not isinstance(value, bool) else None
     except (TypeError, ValueError):
         return None
+
+
+def _cft(value: Any) -> int | None:
+    """Failures tolerated, from a ``CFT_1N_OR_1D``-style enum (the node count)."""
+    if not isinstance(value, str) or not value.startswith("CFT_"):
+        return None
+    digits = value[4:].split("N", 1)[0]
+    return int(digits) if digits.isdigit() else None
 
 
 def _v3_categories(metadata: dict[str, Any]) -> dict[str, list[str]]:

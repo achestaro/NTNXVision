@@ -67,25 +67,25 @@ class HostCollector(Collector):
         self._backfill_storage_capacity(env)
         failed = self._blocks_and_cvms(env, v4)
         env.collection_notes[self.name] = (
-            "ok: blocks or CVMs unavailable for " + "; ".join(failed) if failed else "ok")
+            "ok: " + "; ".join(failed) if failed else "ok")
 
     # ─── blocks (rackable units) and CVMs ─────────────────────────
 
     def _blocks_and_cvms(self, env: Any, v4: bool) -> list[str]:
-        """Blocks and CVMs of the clusters in scope; returns "<cluster> (<reason>)" for
-        each cluster that could not be read."""
+        """Blocks and CVMs of the clusters in scope, each read on its own: returns
+        "<part> of <cluster> unavailable (<reason>)" for every part that failed."""
         failed: list[str] = []
         for uuid, name, _hvs in scoped_clusters(self.conn, env):
-            try:
-                if v4:
-                    self._v4_cluster_parts(env, uuid, name)
-                else:
-                    self._pe_blocks(env, uuid, name)
-            except NutanixApiError as exc:
-                failed.append(f"{name or uuid} ({_reason(exc)})")
+            parts = ((self._v4_blocks, "blocks"), (self._v4_cvms, "CVMs")) if v4 \
+                else ((self._pe_blocks, "blocks"),)
+            for read, what in parts:
+                try:
+                    read(env, uuid, name)
+                except NutanixApiError as exc:
+                    failed.append(f"{what} of {name or uuid} unavailable ({_reason(exc)})")
         return failed
 
-    def _v4_cluster_parts(self, env: Any, cluster_uuid: str, cluster_name: str | None) -> None:
+    def _v4_blocks(self, env: Any, cluster_uuid: str, cluster_name: str | None) -> None:
         base = f"clustermgmt/v4.0/config/clusters/{cluster_uuid}"
         for unit in self.conn.v4_list(f"{base}/rackable-units"):
             rack = unit.get("rack") or {}
@@ -102,6 +102,8 @@ class HostCollector(Collector):
                        for n in unit.get("nodes") or [] if isinstance(n, dict)],
                 api_source="v4",
             ))
+    def _v4_cvms(self, env: Any, cluster_uuid: str, cluster_name: str | None) -> None:
+        base = f"clustermgmt/v4.0/config/clusters/{cluster_uuid}"
         for cvm in self.conn.v4_list(f"{base}/cvms"):
             env.cvms.append(Cvm(
                 uuid=str(cvm.get("extId") or ""),

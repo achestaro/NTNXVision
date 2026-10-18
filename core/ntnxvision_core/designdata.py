@@ -9,8 +9,9 @@ Environment, so exporters and diagrams never have to join anything themselves:
 * hosts get their block slot and rack id from the blocks;
 * CVMs, host NICs, virtual switches, blocks and external arrays get cluster and host
   names; NICs their cluster (through their host) and virtual switch name;
-* when the v4 CVM endpoint gave nothing (older PCs, Prism Element runs), the CVMs are
-  taken from the CVM system VMs the VM area collected;
+* for every cluster the v4 CVM endpoint gave nothing for (older PCs, Prism Element runs,
+  a cluster whose CVM list failed), the CVMs are taken from the CVM system VMs the VM
+  area collected;
 * containers name their external array, and each array lists its containers;
 * the PC's hosting cluster and the PC VMs' clusters get names;
 * protection policies list their source and target cluster names, recovery plans theirs
@@ -66,18 +67,22 @@ def resolve_design_data(env: Environment) -> None:
         if host.rack_id is None:
             host.rack_id = rack
 
-    # CVMs: from the v4 endpoint, else from the CVM system VMs.
-    if not env.cvms:
-        for vm in env.system_vms:
-            if vm.vm_type != "CVM":
-                continue
-            ips = [ip for nic in vm.nics for ip in nic.ip_addresses if ip]
-            env.cvms.append(Cvm(
-                uuid=vm.uuid, name=vm.name, cluster_uuid=vm.cluster_uuid,
-                cluster_name=vm.cluster_name, host_uuid=vm.host_uuid, host_name=vm.host_name,
-                num_vcpus=vm.vcpu_total, memory_bytes=vm.memory_bytes,
-                ip_address=ips[0] if ips else None, hypervisor_type=vm.hypervisor,
-                api_source=vm.api_source))
+    # CVMs: from the v4 endpoint, else (per cluster) from the CVM system VMs.
+    have = {key for c in env.cvms for key in (c.cluster_uuid, c.cluster_name) if key}
+    for vm in env.system_vms:
+        if vm.vm_type != "CVM":
+            continue
+        cluster = (vm.cluster_uuid or host_cluster.get(vm.host_uuid or "")
+                   or cluster_by_name.get(vm.cluster_name or ""))
+        if (cluster and cluster in have) or (vm.cluster_name and vm.cluster_name in have):
+            continue
+        ips = [ip for nic in vm.nics for ip in nic.ip_addresses if ip]
+        env.cvms.append(Cvm(
+            uuid=vm.uuid, name=vm.name, cluster_uuid=cluster,
+            cluster_name=vm.cluster_name, host_uuid=vm.host_uuid, host_name=vm.host_name,
+            num_vcpus=vm.vcpu_total, memory_bytes=vm.memory_bytes,
+            ip_address=ips[0] if ips else None, hypervisor_type=vm.hypervisor,
+            api_source=vm.api_source))
     for cvm in env.cvms:
         cvm.host_uuid = cvm.host_uuid or host_by_name.get(cvm.host_name or "")
         cvm.cluster_uuid = (cvm.cluster_uuid or host_cluster.get(cvm.host_uuid or "")

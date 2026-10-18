@@ -24,6 +24,7 @@ from __future__ import annotations
 from typing import Any
 
 from ntnxvision_core.api.errors import NutanixApiError
+from ntnxvision_core.api.v4_client import first_served
 from ntnxvision_core.collectors.base import Collector
 from ntnxvision_core.models import (
     AvailabilityZone,
@@ -283,7 +284,10 @@ class DataProtectionCollector(Collector):
     # ─── NearSync capability ───────────────────────────────────────
 
     def _nearsync_capability(self, env: Any) -> None:
-        if not env.clusters or not self.conn.v4_ready("dataprotection"):
+        # The capabilities live in the `dataprotection` namespace, which the negotiated
+        # "dataprotection" area does not probe (it probes `datapolicies`, where policies
+        # and recovery plans live): probe this path on its own.
+        if not env.clusters or not first_served(self.conn, [CAPABILITIES_V4]):
             return
         try:
             rows = self.conn.v4_list(CAPABILITIES_V4)
