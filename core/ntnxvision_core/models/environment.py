@@ -16,6 +16,7 @@ from typing import Any
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 from ntnxvision_core import __version__
+from ntnxvision_core.versions import short_version
 
 
 def coerce_bool(value: Any) -> bool | None:
@@ -306,6 +307,11 @@ class Cluster(SourcedObject):
     #: global default (None when no target was recorded).
     vcpu_ratio_custom: bool | None = None
 
+    @field_validator("aos_version", "ncc_version", mode="before")
+    @classmethod
+    def _short_versions(cls, value: Any) -> Any:
+        return short_version(value)
+
 
 # ─── Licensing summary ─────────────────────────────────────────────────
 
@@ -374,6 +380,11 @@ class PrismCentralConfig(_Base):
     ncc_version: str | None = None
     ip_addresses: list[str] = Field(default_factory=list)
     pc_vm_names: list[str] = Field(default_factory=list)
+
+    @field_validator("version", "build", "ncc_version", mode="before")
+    @classmethod
+    def _short_versions(cls, value: Any) -> Any:
+        return short_version(value)
 
 
 # ─── Data Protection / DR ──────────────────────────────────────────────
@@ -736,6 +747,11 @@ class PrismCentral(_Base):
     version: str | None = None
     negotiated_api_versions: dict[str, str] = Field(default_factory=dict)
     version_supported: bool = True  # within the tested compatibility window
+
+    @field_validator("version", mode="before")
+    @classmethod
+    def _short_versions(cls, value: Any) -> Any:
+        return short_version(value)
 
 
 class SourceEnvironment(_Base):

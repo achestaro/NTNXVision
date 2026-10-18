@@ -30,6 +30,7 @@ from ntnxvision_core.api.errors import (
 )
 from ntnxvision_core.api.transport import clean_host, configure_tls, new_session, url_host
 from ntnxvision_core.cancel import CancelToken
+from ntnxvision_core.versions import short_version
 
 DEFAULT_PORT = 9440
 DEFAULT_TIMEOUT = 60
@@ -459,7 +460,7 @@ class PrismConnection:
             data = self.get_json(
                 f"{self.creds.base}/PrismGateway/services/rest/v1/cluster"
             )
-            return data.get("version") or data.get("fullVersion")
+            return short_version(data.get("version") or data.get("fullVersion"))
         except NutanixApiError:
             return None
 
