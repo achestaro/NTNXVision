@@ -62,6 +62,10 @@ pinned toolchain versions (`.python-version`, `.nvmrc`), and the per-user state 
 deliberately *not* in the repo (keychain credentials, snapshots, exports).
 
 ### Packaging
+Versioning: semver in `app/package.json`, `core/pyproject.toml` and `ntnxvision_core.__version__`,
+set together by `node scripts/bump-version.mjs patch|minor|major`. Every PR that changes shipped
+code bumps it (patch = fixes, minor = features) and adds a `CHANGELOG.md` section; CI enforces both.
+
 Freeze the Python core first (`pyinstaller build/ntnxvision-sidecar.spec` from `core/`,
 requires `pip install -e ".[dev]"`), then `npm run package` from `app/`. See `build/README.md`.
 
