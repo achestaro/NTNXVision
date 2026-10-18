@@ -96,3 +96,9 @@ test('R5-04: wordTemplateFor skips realpath only for a Windows UNC pick and retu
   assert.ok(/return pickedPath;\n$/.test(fn) || fn.trimEnd().endsWith('return pickedPath;'));
   assert.equal((fn.match(/return t;/g) ?? []).length, 1, 'only the built-in "standard" returns the raw text');
 });
+
+test('legacy fallback is disabled when integrity is inactive at launch (R5 follow-up)', () => {
+  const main = readFileSync(join(srcDir, 'main.ts'), 'utf8');
+  const fn = main.slice(main.indexOf('async function prepareTargets('), main.indexOf('// ─── demo mode'));
+  assert.ok(/shouldMigrateSecrets[\s\S]*disableLegacy\(\)[\s\S]*return;/.test(fn), 'disableLegacy before the early return');
+});
