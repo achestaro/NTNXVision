@@ -26,6 +26,7 @@ from fpdf.enums import PageMode
 from fpdf.outline import OutlineSection
 from fpdf.prefs import ViewerPreferences
 
+from ntnxvision_core.diagrams.render.pdf import draw_scene
 from ntnxvision_core.exporters import theme as T
 from ntnxvision_core.exporters.content import (
     Bullets,
@@ -35,6 +36,7 @@ from ntnxvision_core.exporters.content import (
     FigureStrip,
     Paragraph,
     Report,
+    SceneFigure,
     Status,
     Table,
     build_report,
@@ -58,7 +60,9 @@ MAX_LINES = 4
 
 # Table of contents row heights (mm).
 TOC_H0, TOC_H1 = 7.4, 5.5
-TOC_TITLE_BLOCK = 22.0
+#: Height of the "Contents" heading block (marker heading cell + its 3 mm gap), exactly
+#: what `_render_toc` draws, so the reserved page count never disagrees with it.
+TOC_TITLE_BLOCK = 10.4 + 3.0
 
 
 class _Pdf(FPDF):
@@ -298,6 +302,8 @@ class PdfExporter:
             d = blk.diagram
             w = min(pdf.epw, d.width_in * 25.4)
             return min(w * d.height / d.width, pdf.h - TOP - BOTTOM - 16) + 10
+        if isinstance(blk, SceneFigure):
+            return min(self._scene_need(pdf, blk), pdf.h - TOP - BOTTOM - 16)
         if isinstance(blk, FigureRow) and blk.figures:
             return max(min(80.0, f.diagram.width_in * 25.4) * f.diagram.height
                        / f.diagram.width for f in blk.figures) + 12
@@ -337,6 +343,8 @@ class PdfExporter:
                 self._table(pdf, blk)
             elif isinstance(blk, Figure):
                 self._figure(pdf, blk)
+            elif isinstance(blk, SceneFigure):
+                self._scene_figure(pdf, blk)
             elif isinstance(blk, FigureRow):
                 self._figure_row(pdf, blk)
 
@@ -551,7 +559,102 @@ class PdfExporter:
         self._figure_caption(pdf, f, pdf.epw)
         pdf.ln(4.5)
 
-    def _figure_caption(self, pdf: _Pdf, f: Figure, width: float) -> None:
+    # ─── architecture diagrams (vector) ────────────────────────────
+
+    SUMMARY_PT = 9.2
+    SUMMARY_LH = 4.6
+
+    def _scene_size(self, pdf: _Pdf, f: SceneFigure) -> tuple[float, float, float]:
+        """(width mm, height mm, mm per pt): 1:1 unless the page is narrower."""
+        k = 25.4 / 72
+        if f.scene.width * k > pdf.epw:
+            k = pdf.epw / f.scene.width
+        return f.scene.width * k, f.scene.height * k, k
+
+    def _summary_cols(self, pdf: _Pdf, f: SceneFigure, width: float) -> list[list[str]]:
+        if f.summary_beside or len(f.summary) <= 3:
+            return [f.summary]
+        half = (len(f.summary) + 1) // 2
+        return [f.summary[:half], f.summary[half:]]
+
+    def _bullets_h(self, pdf: _Pdf, items: list[str], width: float) -> float:
+        pdf.set_font(SANS, "", self.SUMMARY_PT)
+        h = 0.0
+        for item in items:
+            lines = cast(list[str], pdf.multi_cell(width - 4.5, self.SUMMARY_LH, T.clean(item),
+                                                   dry_run=True, output="LINES"))
+            h += len(lines) * self.SUMMARY_LH + 1.4
+        return h
+
+    def _summary_layout(self, pdf: _Pdf, f: SceneFigure) -> tuple[list[list[str]], float,
+                                                                   float]:
+        """(columns, column width, block height) of the summary above the figure."""
+        cols = self._summary_cols(pdf, f, pdf.epw)
+        gap = 10.0
+        col_w = (pdf.epw - gap * (len(cols) - 1)) / len(cols)
+        h = max(self._bullets_h(pdf, c, col_w) for c in cols) + 6.5 if f.summary else 0.0
+        return cols, col_w, h
+
+    def _scene_need(self, pdf: _Pdf, f: SceneFigure) -> float:
+        _, fh, _ = self._scene_size(pdf, f)
+        above = 0.0 if f.summary_beside else self._summary_layout(pdf, f)[2]
+        return above + fh + 12
+
+    def _summary_block(self, pdf: _Pdf, cols: list[list[str]], x: float, y: float,
+                       col_w: float, gap: float = 10.0) -> float:
+        pdf.set_xy(x, y)
+        pdf.set_font(SANS, "B", 7.4)
+        pdf.set_text_color(*T.INK_3_RGB)
+        pdf.set_char_spacing(0.6)
+        pdf.cell(0, 4, "DESIGN SUMMARY")
+        pdf.set_char_spacing(0)
+        bottom = y + 6.0
+        for ci, items in enumerate(cols):
+            cx = x + ci * (col_w + gap)
+            cy = y + 6.0
+            for item in items:
+                pdf.set_fill_color(*T.IRIS_RGB)
+                pdf.rect(cx + 0.3, cy + 1.75, 1.3, 1.3, style="F")
+                pdf.set_xy(cx + 4.5, cy)
+                pdf.set_font(SANS, "", self.SUMMARY_PT)
+                pdf.set_text_color(*T.INK_RGB)
+                pdf.multi_cell(col_w - 4.5, self.SUMMARY_LH, T.clean(item), align="L",
+                               new_x="LEFT", new_y="NEXT")
+                cy = pdf.get_y() + 1.4
+            bottom = max(bottom, cy)
+        return bottom
+
+    def _scene_figure(self, pdf: _Pdf, f: SceneFigure) -> None:
+        fw, fh, k = self._scene_size(pdf, f)
+        cols, col_w, above = ([], 0.0, 0.0) if f.summary_beside else \
+            self._summary_layout(pdf, f)
+        cap_h = 11.0 + (4.4 if f.note else 0.0)
+        need = above + fh + cap_h
+        full = pdf.h - TOP - BOTTOM
+        if pdf.get_y() + need > pdf.page_break_trigger and need <= full:
+            pdf.add_page()
+        y = pdf.get_y()
+        if f.summary and not f.summary_beside:
+            y = self._summary_block(pdf, cols, pdf.l_margin, y, col_w) + 1.5
+            if y + fh + cap_h > pdf.page_break_trigger:
+                pdf.add_page()
+                y = pdf.get_y()
+        draw_scene(pdf, f.scene, pdf.l_margin, y, scale=k, family=SANS)
+        bottom = y + fh
+        if f.summary_beside:
+            bx = pdf.l_margin + fw + 9
+            bw = min(pdf.epw - fw - 9, 110.0)
+            bottom = max(bottom, self._summary_block(pdf, [f.summary], bx, y + 1, bw))
+        pdf.set_xy(pdf.l_margin, bottom + 1.5)
+        self._figure_caption(pdf, f, pdf.epw)
+        if f.note:
+            pdf.set_font(SANS, "", 7.8)
+            pdf.set_text_color(*T.INK_3_RGB)
+            pdf.multi_cell(pdf.epw, 4.2, T.clean(f.note), align="L", new_x="LMARGIN",
+                           new_y="NEXT")
+        pdf.ln(4.5)
+
+    def _figure_caption(self, pdf: _Pdf, f: Figure | SceneFigure, width: float) -> None:
         pdf.set_font(SANS, "I", 8.4)
         pdf.set_text_color(*T.INK_3_RGB)
         pdf.multi_cell(width, 4.4, T.clean(f.title), align="L", new_x="LMARGIN", new_y="NEXT")
