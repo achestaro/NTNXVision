@@ -1,4 +1,7 @@
 // OS keychain access through @napi-rs/keyring (keyring-rs), keeping the entries keytar wrote.
+// Pinned to 1.2.0: 1.3.0 to 2.1.1 store an empty blob on Windows (the writing Entry caches
+// the value, so a same-object round trip passes while every later read is empty). The
+// packaged --smoke round-trips through fresh entries to catch that.
 // Kept free of Electron imports so it runs under plain Node in the tests.
 //
 // keytar (archived 2022) wrote, for (service, account):
@@ -12,11 +15,11 @@
 // - Linux (unsupported, dev only): Secret Service with keytar's attributes; the plain Entry.
 
 export interface KeyringEntry {
-  getPassword(): string | null;
+  getPassword(): string | null | undefined;
   setPassword(password: string): void;
-  getSecret(): Array<number> | null;
+  getSecret(): ArrayLike<number> | null | undefined;
   setSecret(secret: Uint8Array): void;
-  deletePassword(): boolean;
+  deletePassword(): unknown;
 }
 
 export interface KeyringModule {
@@ -38,9 +41,9 @@ export function makeKeychain(mod: KeyringModule, service: string, platform: stri
   return {
     get(account) {
       const e = entry(account);
-      if (platform !== 'win32') return e.getPassword();
+      if (platform !== 'win32') return e.getPassword() ?? null;
       const raw = e.getSecret();
-      return raw ? Buffer.from(raw).toString('utf-8') : null;
+      return raw ? Buffer.from(Array.from(raw)).toString('utf-8') : null;
     },
     set(account, secret) {
       const e = entry(account);
