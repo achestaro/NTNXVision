@@ -171,6 +171,11 @@ def test_a_snapshot_without_the_design_fields_still_loads() -> None:
         {"uuid": "p0", "rpo_seconds": 0, "replication_type": "NEARSYNC"},
         {"uuid": "p1", "rpo_seconds": 60, "replication_type": "NEARSYNC"}]})
     assert [p.replication_type for p in stale.protection_policies] == ["SYNC", "NEARSYNC"]
+    rules = Environment.model_validate({"protection_policies": [{"uuid": "p2", "replications": [
+        {"rpo_seconds": 0, "replication_type": "NEARSYNC"},
+        {"rpo_seconds": 0},
+        {"rpo_seconds": 900, "replication_type": "NEARSYNC"}]}]}).protection_policies[0]
+    assert [r.replication_type for r in rules.replications] == ["SYNC", "SYNC", "NEARSYNC"]
     # And it round-trips with the new fields present.
     again = Environment.model_validate_json(env.model_dump_json())
     assert again.summary() == summary

@@ -26,7 +26,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 from ntnxvision_core.api.errors import NutanixApiError
-from ntnxvision_core.models import ClusterScope, ScopeCluster
+from ntnxvision_core.models import ClusterScope, ScopeCluster, place_arrays_by_containers
 from ntnxvision_core.numfmt import fmt_count
 
 if TYPE_CHECKING:  # pragma: no cover
@@ -208,12 +208,7 @@ class Scope:
 
         # An external array the groups API reported without a cluster belongs to the
         # cluster of the containers that live on it (read before the containers go).
-        for array in env.external_storages:
-            if not array.cluster_uuid:
-                owners = {c.cluster_uuid for c in env.storage_containers
-                          if c.external_storage_uuid == array.uuid and c.cluster_uuid}
-                if len(owners) == 1:
-                    array.cluster_uuid = owners.pop()
+        place_arrays_by_containers(env.external_storages, env.storage_containers)
 
         # Registered clusters (AOS registrations) follow the scope; the paired remote
         # Prism Centrals (DOMAIN_MANAGER) are PC-wide and stay.

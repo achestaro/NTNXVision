@@ -420,6 +420,22 @@ def external_storage_product(provider: str | None) -> str | None:
     return " ".join(w.capitalize() for w in key.replace("-", "_").split("_") if w)
 
 
+def place_arrays_by_containers(arrays: list[ExternalStorage],
+                                containers: list[StorageContainer]) -> None:
+    """Give each array without a cluster the cluster of the containers on it.
+
+    The v3 groups API can report an array without its cluster; the containers that
+    live on it name theirs. Set only when they all agree on one cluster.
+    """
+    for array in arrays:
+        if array.cluster_uuid:
+            continue
+        owners = {c.cluster_uuid for c in containers
+                  if c.external_storage_uuid == array.uuid and c.cluster_uuid}
+        if len(owners) == 1:
+            array.cluster_uuid = owners.pop()
+
+
 class ExternalStorage(SourcedObject):
     """An external storage array attached to a cluster (Pure FlashArray, Dell PowerFlex).
 
@@ -826,6 +842,13 @@ class ReplicationRule(_Base):
     local_retention: int | None = None
     remote_retention: int | None = None
     sync_auto_suspend_timeout_secs: int | None = None
+
+    @model_validator(mode="after")
+    def _sync_from_rpo(self) -> ReplicationRule:
+        """RPO 0 is synchronous, whatever an older snapshot stored (see ProtectionPolicy)."""
+        if self.rpo_seconds == 0 and self.replication_type in (None, "NEARSYNC"):
+            self.replication_type = "SYNC"
+        return self
 
 
 class ProtectionPolicy(SourcedObject):
