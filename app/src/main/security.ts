@@ -249,12 +249,12 @@ export function chosenDirFor(v: unknown): string {
 /** Files returned by the file dialog in this session (customer Word templates). */
 const chosenFiles = new Set<string>();
 /** The same files by their lexical absolute path: checked first, before any filesystem call. */
-const chosenLexical = new Set<string>();
+const chosenLexical = new Map<string, string>();
 
 export function rememberChosenFile(p: string | null | undefined): void {
   if (!p) return;
   chosenFiles.add(realOrResolved(p));
-  chosenLexical.add(resolve(p));
+  chosenLexical.set(resolve(p), p);
 }
 
 export function defaultExportDir(): string {
@@ -309,11 +309,16 @@ export function wordTemplateFor(v: unknown): string {
   const t = str(v, 'word.template', 4096);
   if (t === 'standard') return t;
   // R3-03: judge the text first. realpath on a UNC path would make Windows contact the share.
-  // A UNC path is fine only when the picker returned exactly it (the user's own choice).
-  const picked = isAbsolute(t) && chosenLexical.has(resolve(t));
-  const abs = picked ? t : requireLocalAbsolute(t, 'word.template');
-  if (!picked || (!isUncPath(abs) && !chosenFiles.has(realOrResolved(abs)))) {
+  // R5-04: the value used afterwards is the string the picker returned, never the renderer's
+  // text, and only a picked Windows UNC path skips the realpath re-check.
+  if (!isAbsolute(t) || !chosenLexical.has(resolve(t))) {
     throw new ValidationError('Choose the Word template again with the file picker.');
   }
-  return t;
+  const pickedPath = chosenLexical.get(resolve(t)) as string;
+  if (process.platform === 'win32' && isUncPath(pickedPath)) return pickedPath;
+  const abs = requireLocalAbsolute(pickedPath, 'word.template');
+  if (!chosenFiles.has(realOrResolved(abs))) {
+    throw new ValidationError('Choose the Word template again with the file picker.');
+  }
+  return pickedPath;
 }
