@@ -185,8 +185,8 @@ pip, npm, and the Electron and electron-builder (WiX) download caches are cached
   isn't supported here). On a Mac, use CI.
 * DMG/ZIP for a given arch must be built on that arch. See above.
 * No auto-update channel is configured (`--publish never`). Releases are draft-only.
-* Icons in `app/build/` are placeholder art from `scripts/generate-icons.py`. Re-run it
-  after changing the mark.
+* Icons in `app/build/` (and the tray icons and favicon) are generated from `app/build/art/*.svg`
+  by `npm run icons` (in `app/`); edit the SVGs, re-run on macOS (for `icon.icns`) and commit the outputs.
 
 ## Legal notices
 

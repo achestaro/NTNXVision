@@ -4,7 +4,7 @@
 import React from 'react';
 import { MagnifyingGlassIcon, QuestionIcon } from '@phosphor-icons/react';
 import { Icon } from '../components/Icon';
-import { NutanixIcon } from '../components/icons';
+import { BrandMark } from '../components/BrandMark';
 import { useRouter } from '../lib/router';
 import { modKey } from '../lib/settings';
 import { runCounts, useRun } from '../lib/run';
@@ -33,7 +33,7 @@ export function CommandBar({
   return (
     <header className="cbar">
       <button type="button" className="brand" onClick={() => navigate({ screen: 'overview' })} aria-label="NTNXVision: go to Overview">
-        <NutanixIcon name="nutanix-x" size={20} />
+        <BrandMark size={22} />
         NTNXVision
       </button>
       <button className="cmdk" type="button" aria-label="Search" aria-keyshortcuts="Meta+K Control+K" onClick={onOpenPalette}>
