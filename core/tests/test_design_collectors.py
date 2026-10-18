@@ -166,6 +166,11 @@ def test_a_snapshot_without_the_design_fields_still_loads() -> None:
     assert env.source_environments[0].pc_config.services == []
     summary = env.summary()
     assert summary["host_nics"] == 0 and summary["pc_vms"] == 0
+    # RPO 0 written as NEARSYNC by the old v4 path reads back as SYNC.
+    stale = Environment.model_validate({"protection_policies": [
+        {"uuid": "p0", "rpo_seconds": 0, "replication_type": "NEARSYNC"},
+        {"uuid": "p1", "rpo_seconds": 60, "replication_type": "NEARSYNC"}]})
+    assert [p.replication_type for p in stale.protection_policies] == ["SYNC", "NEARSYNC"]
     # And it round-trips with the new fields present.
     again = Environment.model_validate_json(env.model_dump_json())
     assert again.summary() == summary
@@ -201,6 +206,17 @@ def test_v4_cluster_design_fields_and_v3_categories() -> None:
     assert c.cluster_functions == ["AOS", "ONE_NODE"]
     assert c.categories == {"POD": ["POD-1"]}
     assert not c.is_compute_only
+
+
+def test_fault_tolerance_from_the_cluster_fault_tolerance_enums() -> None:
+    cluster = {**V4_CLUSTER, "config": {**V4_CLUSTER["config"], "faultToleranceState": {
+        "domainAwarenessLevel": "BLOCK", "currentClusterFaultTolerance": "CFT_2N_OR_2D",
+        "desiredClusterFaultTolerance": "CFT_2N_OR_2D"}}}
+    conn = FakeConn({"clustermgmt/v4.0/config/clusters": [cluster]}, v3={"clusters": []})
+    env = Environment()
+    ClusterCollector(conn).collect(env)  # type: ignore[arg-type]
+    c = env.clusters[0]
+    assert (c.fault_domain, c.fault_tolerance, c.desired_fault_tolerance) == ("BLOCK", 2, 2)
 
 
 def test_v3_cluster_reads_the_fault_domain_from_prism_element() -> None:
@@ -271,8 +287,24 @@ def test_a_cluster_whose_cvms_fail_is_named_and_the_hosts_are_kept() -> None:
                          NutanixApiError("boom", status_code=500)})
     HostCollector(conn).collect(env)  # type: ignore[arg-type]
     assert len(env.hosts) == 1
-    assert env.collection_notes["hosts"] == (
-        "ok: blocks or CVMs unavailable for ahv-01 (HTTP 500)")
+    # The blocks were still read: each sub-resource fails on its own.
+    assert len(env.blocks) == 1 and env.cvms == []
+    assert env.collection_notes["hosts"] == "ok: CVMs of ahv-01 unavailable (HTTP 500)"
+
+
+def test_a_cluster_without_v4_cvms_gets_them_from_the_system_vms() -> None:
+    env = Environment(clusters=[Cluster(uuid=CL_AHV, name="ahv-01"),
+                                Cluster(uuid=CL_ESX, name="esx-01")])
+    HostCollector(_host_conn()).collect(env)  # type: ignore[arg-type]
+    env.system_vms = [
+        VirtualMachine(uuid="cvm-a", name="NTNX-a-CVM", vm_type="CVM", cluster_uuid=CL_AHV,
+                       cluster_name="ahv-01"),
+        VirtualMachine(uuid="cvm-e", name="NTNX-e-CVM", vm_type="CVM", cluster_uuid=CL_ESX,
+                       cluster_name="esx-01", num_vcpus=8, api_source="v4")]
+    resolve_design_data(env)
+    # ahv-01 keeps its v4 CVM; esx-01, which v4 gave nothing for, gets its system VM.
+    assert sorted((c.uuid, c.api_source) for c in env.cvms) == [
+        ("6666aaaa-0000-0000-0000-000000000001", "v4"), ("cvm-e", "v4")]
 
 
 def test_per_cluster_calls_honour_the_cluster_scope() -> None:
@@ -424,6 +456,24 @@ def test_container_link_from_v42_and_array_from_v43() -> None:
     assert array.container_names == ["ext-fa01"]
     assert env.storage_containers[0].external_storage_name == "fa-01"
     assert "never-read" not in env.model_dump_json()
+
+
+def test_a_failing_v43_list_falls_back_to_groups_and_keeps_the_containers() -> None:
+    row = {"entity_id": "array-1", "name": "fa-01", "provider_type": "EVERPURE_FLASHARRAY"}
+    conn = FakeConn({"clustermgmt/v4.2/config/storage-containers": [CTR],
+                     "clustermgmt/v4.3/config/external-storages": [ARRAY_V43]},
+                    groups={"storage_container": [], "external_storage": [row]})
+    conn.v4_list = lambda path, **_kw: (  # type: ignore[method-assign]
+        (_ for _ in ()).throw(NutanixApiError("boom", status_code=500))
+        if "external-storages" in path else [CTR])
+    env = Environment()
+    StorageCollector(conn).collect(env)  # type: ignore[arg-type]
+    assert len(env.storage_containers) == 1
+    array = env.external_storages[0]
+    # Groups gave no cluster: it comes from the container on the array.
+    assert (array.api_source, array.cluster_uuid) == ("v3-groups", CL_AHV)
+    assert env.collection_notes["storage_containers"] == (
+        "ok: external storage unavailable (HTTP 500)")
 
 
 def test_without_v43_the_array_comes_from_groups() -> None:
@@ -640,11 +690,31 @@ def test_objects_503_reads_as_not_enabled_and_files_v4_as_not_deployed() -> None
     env = Environment()
     conn = FakeConn({"files/v4.0/config/file-servers": []},
                     negotiated={"objects": "legacy: service unavailable", "files": "v4"})
+    conn.probe_status = {"objects": 503}
     FilesCollector(conn).collect(env)  # type: ignore[arg-type]
     ObjectsCollector(conn).collect(env)  # type: ignore[arg-type]
-    status = {s.name: s.status for s in env.pc_config.services}
-    assert status == {"FILES": "NOT_DEPLOYED", "OBJECTS": "NOT_ENABLED"}
+    services = {s.name: (s.status, s.api_source) for s in env.pc_config.services}
+    assert services == {"FILES": ("NOT_DEPLOYED", "v4"), "OBJECTS": ("NOT_ENABLED", "v4")}
     assert env.collection_notes["files"] == "skipped: Nutanix Files not deployed"
+    assert env.collection_notes["objects"] == "skipped: Nutanix Objects not enabled"
+
+
+def test_another_objects_error_is_unknown_not_absent() -> None:
+    env = Environment()
+    conn = FakeConn(negotiated={"objects": "legacy: service unavailable"})
+    conn.probe_status = {"objects": 500}
+    ObjectsCollector(conn).collect(env)  # type: ignore[arg-type]
+    assert [(s.status, s.api_source) for s in env.pc_config.services] == [("UNKNOWN", "v4")]
+    assert env.collection_notes["objects"] == (
+        "skipped: Nutanix Objects status unknown (HTTP 500)")
+
+
+def test_objects_without_v4_is_decided_by_v3() -> None:
+    env = Environment()
+    conn = FakeConn(negotiated={"objects": "legacy: namespace absent"})
+    ObjectsCollector(conn).collect(env)  # type: ignore[arg-type]
+    assert [(s.status, s.api_source) for s in env.pc_config.services] == [
+        ("NOT_DEPLOYED", "v3")]
 
 
 def test_files_listed_only_by_v4_are_recorded() -> None:
@@ -672,3 +742,34 @@ def test_container_without_array_link_stays_on_dsf() -> None:
     env = Environment(storage_containers=[StorageContainer(uuid="c", name="vm-ctr")])
     resolve_design_data(env)
     assert env.storage_containers[0].external_storage_name is None
+
+
+def test_speed_labels() -> None:
+    from ntnxvision_core.exporters.tables import speed_label
+
+    assert [speed_label(v) for v in (None, 0, 100, 1000, 2500, 25000, 100000)] == [
+        None, None, "100 Mb/s", "1 GbE", "2.5 GbE", "25 GbE", "100 GbE"]
+
+
+def test_host_networking_brings_the_hosts_area_with_it() -> None:
+    from ntnxvision_core.areas import select
+
+    assert [a.id for a in select(["host_networking"])] == ["hosts", "host_networking"]
+    assert [a.id for a in select(["hosts"])] == ["hosts"]
+
+
+def test_scope_prunes_registered_clusters_but_keeps_paired_pcs() -> None:
+    from ntnxvision_core.models import ExternalStorage, PcRegistration
+
+    env = Environment(
+        pc_registrations=[PcRegistration(remote_uuid=CL_AHV, remote_type="AOS"),
+                          PcRegistration(remote_uuid=CL_ESX, remote_type="AOS"),
+                          PcRegistration(remote_uuid=PC_REMOTE, remote_type="DOMAIN_MANAGER")],
+        storage_containers=[StorageContainer(uuid="c", cluster_uuid=CL_ESX,
+                                             external_storage_uuid="a1")],
+        external_storages=[ExternalStorage(uuid="a1")])
+    scope = Scope([RegisteredCluster(CL_AHV, "ahv-01"), RegisteredCluster(CL_ESX, "esx-01")],
+                  [CL_AHV])
+    scope.prune(env)
+    assert [r.remote_uuid for r in env.pc_registrations] == [CL_AHV, PC_REMOTE]
+    assert env.external_storages == [] and env.storage_containers == []
