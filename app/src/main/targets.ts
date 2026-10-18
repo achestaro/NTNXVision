@@ -346,6 +346,11 @@ export class TargetStore {
   /** Set when this launch adopted the files unchecked: legacy shared entries are never released. */
   private legacyDisabled = false;
 
+  /** Never release legacy shared entries this launch (files could not be verified). */
+  disableLegacy(): void {
+    this.legacyDisabled = true;
+  }
+
   /** True while targets.json fails verification: nothing is released until a deliberate re-save. */
   get tampered(): boolean {
     this.data();

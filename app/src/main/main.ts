@@ -858,7 +858,11 @@ async function prepareTargets(): Promise<void> {
     // unbound entries are deleted instead of copied (R4-01).
     // A keychain whose integrity key could not be read (locked at launch) cannot tell a
     // fresh profile from a tampered one: skip both migrations and retry next launch (R5-03).
-    if (!shouldMigrateSecrets(storeKind(), store.integrityActive())) return;
+    if (!shouldMigrateSecrets(storeKind(), store.integrityActive())) {
+      // Unverified files must not steer the legacy username@host fallback either.
+      store.targets.disableLegacy();
+      return;
+    }
     const discard = store.integrityFresh();
     await store.targets.migrateSecrets({ discardUnbound: discard });
     await store.smtp.migrateSecrets(discard);
