@@ -133,3 +133,11 @@ export class Integrity {
     });
   }
 }
+
+/**
+ * Secret migrations run only when the integrity state is known: with a real keychain the
+ * key must have been read or created. A locked keychain at launch skips them (retry next launch).
+ */
+export function shouldMigrateSecrets(kind: 'keychain' | 'memory' | 'unavailable', integrityActive: boolean): boolean {
+  return !(kind === 'keychain' && !integrityActive);
+}

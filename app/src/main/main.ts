@@ -42,6 +42,8 @@ import { SidecarClient, SidecarError, CANCELLED_CODE, isDemoMode } from './sidec
 import { isSmokeRun, runSmoke } from './smoke';
 import * as secrets from './secrets';
 import * as store from './store';
+import { shouldMigrateSecrets } from './integrity';
+import { storeKind } from './secrets';
 import { registerLegalHandlers } from './legal';
 import { cleanOverrides, endpointTls, matchesTarget, ndbAccount, passwordAccount, remapIds, savedPin, vcenterAccount } from './targets';
 import { Scheduler } from './scheduler';
@@ -854,6 +856,9 @@ async function prepareTargets(): Promise<void> {
     }
     // Files adopted unchecked (new integrity key) must not steer a migration: the old
     // unbound entries are deleted instead of copied (R4-01).
+    // A keychain whose integrity key could not be read (locked at launch) cannot tell a
+    // fresh profile from a tampered one: skip both migrations and retry next launch (R5-03).
+    if (!shouldMigrateSecrets(storeKind(), store.integrityActive())) return;
     const discard = store.integrityFresh();
     await store.targets.migrateSecrets({ discardUnbound: discard });
     await store.smtp.migrateSecrets(discard);

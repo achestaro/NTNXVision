@@ -136,7 +136,10 @@ export class SmtpStore {
     // without typing the password again drops the saved password, and a pin carried over
     // from the old server is dropped too.
     const saved = this.settings();
+    // R5-01: an email.json that failed verification vouches for nothing: no carry-over.
+    const tampered = !!this.io.tampered?.();
     const sameServer =
+      !tampered &&
       next.host.toLowerCase() === saved.host.toLowerCase() &&
       next.port === saved.port &&
       next.security === saved.security &&
