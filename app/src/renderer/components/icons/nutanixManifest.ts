@@ -21,7 +21,7 @@ export interface NutanixIconEntry {
 
 export const NUTANIX_ICONS = {
   // ── Tier 2: product / platform marks ─────────────────────────────────────
-  'nutanix-x': { source: 'Nutanix X - Side.svg', tier: 'mark', use: 'Command bar brand slot (recoloured to the bar tokens)' },
+  'nutanix-x': { source: 'Nutanix X - Side.svg', tier: 'mark', use: 'Not shown (the command bar uses the app mark, BrandMark)' },
   prism: { source: 'Prism.svg', tier: 'mark', use: 'Overview "One Prism Central"; Snapshots source type PC' },
   'prism-segmented': { source: 'Prism Segmented.svg', tier: 'mark', use: 'Overview "Several Prism Centrals"; Snapshots source type Combined' },
   cluster: { source: 'Cluster.svg', tier: 'mark', use: 'Inventory Clusters; Overview "One cluster (Prism Element)"; Snapshots source type PE' },

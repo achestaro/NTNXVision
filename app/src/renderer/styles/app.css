@@ -131,10 +131,8 @@ p {
   text-align: left;
 }
 
-/* The Nutanix X in the bar: recoloured to the bar tokens (the bar is dark in every theme). */
-.brand .nx-mark {
-  --rule-strong: var(--bar-text-active);
-  --rule: var(--bar-accent);
+.brand .brand-mark {
+  flex: none;
 }
 
 .cmdk {
