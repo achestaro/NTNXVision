@@ -27,6 +27,7 @@ from ntnxvision_core.api.errors import (
 )
 from ntnxvision_core.api.transport import clean_host, configure_tls, new_session, url_host
 from ntnxvision_core.cancel import CancelToken
+from ntnxvision_core.versions import short_version
 
 DEFAULT_PORT = 9440
 DEFAULT_TIMEOUT = 60
@@ -100,7 +101,7 @@ class ElementConnection:
         try:
             cluster = resp.json()
             self.cluster_info = cluster if isinstance(cluster, dict) else {}
-            self.aos_version = cluster.get("version") or cluster.get("full_version")
+            self.aos_version = short_version(cluster.get("version") or cluster.get("full_version"))
         except ValueError:
             self.aos_version = None
 

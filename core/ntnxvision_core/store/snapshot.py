@@ -199,7 +199,22 @@ def read_meta(path: Path, cache: EnvironmentCache | None = None) -> dict[str, An
     meta["name"] = snapshot_name(path)
     meta["path"] = str(path)
     meta["size_bytes"] = path.stat().st_size
+    _shorten_versions(meta)
     return meta
+
+
+def _shorten_versions(meta: dict[str, Any]) -> None:
+    """Indexes written before `versions.short_version` hold full build strings."""
+    from ntnxvision_core.versions import short_version
+
+    version = meta.get("version")
+    if isinstance(version, str):
+        prefix = "AOS " if version.startswith("AOS ") else ""
+        meta["version"] = prefix + (short_version(version.removeprefix(prefix)) or "")
+    stats = meta.get("stats")
+    if isinstance(stats, dict):
+        for key in ("aos_min", "aos_max"):
+            stats[key] = short_version(stats.get(key))
 
 
 def record_exports(path: Path, files: list[dict[str, Any]]) -> None:
