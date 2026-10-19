@@ -128,6 +128,11 @@ let quitting = false;
 /** Unsaved work the renderer reported (setUnsavedChanges); closing asks while set. */
 let unsavedWork: { what: string } | null = null;
 
+/** A discard prompt is showing: a second close or quit waits for it (no stacked dialogs). */
+let asking = false;
+/** Windows is logging off or shutting down: never hold it up with a prompt. */
+let sessionEnding = false;
+
 async function confirmDiscard(win: BrowserWindow): Promise<boolean> {
   const what = unsavedWork?.what || 'A diagram';
   if (!win.isVisible()) win.show(); // e.g. hidden in the tray when Quit was chosen
@@ -278,17 +283,33 @@ function createWindow(show = true): void {
     const win = mainWindow;
     if (!win) return;
     const hides = !quitting && scheduler.hideOnClose(win);
-    const action = closeAction({ quitting, hides, unsaved: unsavedWork !== null });
+    const action = closeAction({ quitting, hides, unsaved: unsavedWork !== null && !sessionEnding });
     if (action === 'hide') {
       e.preventDefault();
     } else if (action === 'ask') {
       e.preventDefault();
-      void confirmDiscard(win).then((discard) => {
-        if (!discard || win.isDestroyed()) return;
-        unsavedWork = null;
-        win.close();
-      });
+      if (asking) return;
+      asking = true;
+      void confirmDiscard(win)
+        .then((discard) => {
+          if (!discard || win.isDestroyed()) return;
+          unsavedWork = null;
+          win.close();
+        })
+        .finally(() => (asking = false));
     }
+  });
+  // Windows log-off / shutdown: close without asking.
+  mainWindow.on('session-end', () => {
+    sessionEnding = true;
+  });
+  // A crashed or reloaded renderer has lost its unsaved state: nothing left to ask about
+  // (the new page reports its own state when it has some).
+  mainWindow.webContents.on('render-process-gone', () => {
+    unsavedWork = null;
+  });
+  mainWindow.webContents.on('did-start-navigation', (details) => {
+    if (details.isMainFrame && !details.isSameDocument) unsavedWork = null;
   });
 
   // Dev server (http://localhost, HMR) or the built renderer served as app://ntnxvision.
@@ -1072,14 +1093,18 @@ app.on('window-all-closed', () => {
 
 app.on('before-quit', (e) => {
   // Unsaved work asks before anything stops; "Keep editing" leaves the app running.
-  if (unsavedWork && mainWindow && !mainWindow.isDestroyed()) {
+  if (unsavedWork && !sessionEnding && mainWindow && !mainWindow.isDestroyed()) {
     e.preventDefault();
+    if (asking) return;
+    asking = true;
     const win = mainWindow;
-    void confirmDiscard(win).then((discard) => {
-      if (!discard) return;
-      unsavedWork = null;
-      app.quit();
-    });
+    void confirmDiscard(win)
+      .then((discard) => {
+        if (!discard) return;
+        unsavedWork = null;
+        app.quit();
+      })
+      .finally(() => (asking = false));
     return;
   }
   quitting = true;

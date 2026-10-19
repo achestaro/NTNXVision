@@ -414,8 +414,9 @@ const SHOTS = [
   ['diagrams', { diagrams: 'edited' }, async (p) => {
     await rail(p, 'Diagrams');
     await p.locator('.dg-sheet svg').waitFor();
-    await p.locator('[data-el="user:backup-appliance"]').click();
-    await p.getByLabel('Label', { exact: true }).waitFor();
+    // A renamed collected cluster: the inspector offers "Collected name: X · Revert".
+    await p.locator('[data-el^="cluster:"]', { hasText: '(SQL tier)' }).click();
+    await p.getByText('Collected name:').waitFor();
     await cardsFit(p);
   }],
   ['diagrams-generated', {}, async (p) => {
@@ -437,6 +438,12 @@ const SHOTS = [
   ['diagrams-narrow', { diagrams: 'edited' }, async (p) => {
     await rail(p, 'Diagrams');
     await p.locator('.dg-sheet svg').waitFor();
+    await p.locator('[data-el="user:backup-appliance"]').click();
+    // The inspector stays beside the canvas; the list is a select.
+    const ins = await p.getByRole('complementary', { name: 'Inspector' }).boundingBox();
+    const canvas = await p.getByRole('region', { name: 'Canvas' }).boundingBox();
+    if (!ins || !canvas || ins.y > canvas.y + 10) throw new Error('the inspector wrapped below the canvas');
+    await p.locator('#dg-pick').waitFor();
   }, 900, 1100],
   ['snapshots-empty', { empty: true }, async (p) => rail(p, 'Snapshots')],
   ['settings', {}, async (p) => rail(p, 'Settings')],

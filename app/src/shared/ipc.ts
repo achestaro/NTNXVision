@@ -1051,7 +1051,14 @@ export interface DiagramDetail extends DiagramLayoutResult {
   ops: DiagramOp[];
   saved_at: string | null;
   /** The snapshot the edits were carried from (Compare's baseline) and the edits left out. */
-  carried_from: { name?: string | null; collected_at?: string | null; snapshot_id?: string | null; dropped?: DiagramProblem[] } | null;
+  carried_from: {
+    name?: string | null;
+    collected_at?: string | null;
+    snapshot_id?: string | null;
+    /** Replayed automatically when the snapshot was collected (every edit applied). */
+    auto?: boolean;
+    dropped?: DiagramProblem[];
+  } | null;
   stale: DiagramStale | null;
   palette: DiagramPaletteItem[];
 }

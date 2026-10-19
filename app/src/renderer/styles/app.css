@@ -2194,7 +2194,7 @@ h1 .imported-badge {
   flex-wrap: wrap;
   gap: var(--gap);
   align-items: stretch;
-  min-height: 0;
+  flex-shrink: 0;
 }
 .dg-list {
   flex: 0 0 248px;
@@ -2276,6 +2276,12 @@ h1 .imported-badge {
   min-width: 0;
   display: flex;
   flex-direction: column;
+}
+.dg-head,
+.dg-tools,
+.dg-callout,
+.dg-foot {
+  flex-shrink: 0;
 }
 .dg-head {
   height: auto;
@@ -2385,8 +2391,8 @@ h1 .imported-badge {
   stroke-width: 1.5;
 }
 .dg-mark {
-  fill: rgb(153 88 0 / 0.06);
-  stroke: #995800;
+  fill: color-mix(in srgb, var(--warn) 8%, transparent);
+  stroke: var(--warn);
   stroke-width: 1.4;
 }
 .dg-drop {
@@ -2497,4 +2503,36 @@ h1 .imported-badge {
 .dg-carry-why {
   display: block;
   margin-top: 2px;
+}
+.dg-pick {
+  display: none;
+  align-items: center;
+  gap: 8px;
+}
+.dg-pick .lbl {
+  margin: 0;
+}
+.dg-pick .input {
+  width: auto;
+  min-width: 280px;
+  max-width: 100%;
+}
+/* Narrow windows: the list collapses into the select above and the inspector stays
+   beside the canvas (no wrap below it). */
+@media (max-width: 1279px) {
+  .dg-pick {
+    display: flex;
+  }
+  .dg-list {
+    display: none;
+  }
+  .dg-layout {
+    flex-wrap: nowrap;
+  }
+  .dg-canvas {
+    flex: 1 1 360px;
+  }
+  .dg-inspector {
+    flex: 0 0 232px;
+  }
 }
