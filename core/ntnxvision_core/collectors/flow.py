@@ -352,8 +352,11 @@ class FlowNetworkingCollector(Collector):
         try:
             tables = self.conn.v4_list("networking/v4.0/config/route-tables")
         except Exception:  # noqa: BLE001 — v4 networking absent
-            tables = []
-        for table in tables:
+            tables = None
+        if tables is not None:  # answered: a VPC with no route table has no routes
+            for vpc in env.vpcs:
+                vpc.route_count = vpc.route_count or 0
+        for table in tables or []:
             vpc_ref = table.get("vpcReference")
             vpc_uuid = vpc_ref if isinstance(vpc_ref, str) else (vpc_ref or {}).get("extId")
             vpc = by_uuid.get(vpc_uuid or "")
@@ -369,8 +372,11 @@ class FlowNetworkingCollector(Collector):
         try:
             policies = self.conn.v4_list("networking/v4.0/config/routing-policies")
         except Exception:  # noqa: BLE001
-            policies = []
-        for policy in policies:
+            policies = None
+        if policies is not None:  # answered: no policy names a VPC means none
+            for vpc in env.vpcs:
+                vpc.routing_policy_count = vpc.routing_policy_count or 0
+        for policy in policies or []:
             vpc_ref = policy.get("vpcExtId") or policy.get("vpcReference")
             vpc_uuid = vpc_ref if isinstance(vpc_ref, str) else (vpc_ref or {}).get("extId")
             vpc = by_uuid.get(vpc_uuid or "")

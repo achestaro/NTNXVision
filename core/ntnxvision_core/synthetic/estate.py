@@ -612,6 +612,27 @@ def _networking(est: PcEstate) -> None:
                 "port": k + 1,
             })
     if est.features.fvn:
+        # The VPCs' uplink: an external VLAN subnet on the first AHV cluster, routed
+        # (no NAT), so the virtual networking design can draw its VLAN and range.
+        host = next((c for c in est.clusters if c["hypervisor"] != "ESXi"), None)
+        if host is not None:
+            est.subnets.append({
+                "uuid": uid(seed, "subnet", "ext-transit"),
+                "name": "ext-transit",
+                "cluster_uuid": host["uuid"],
+                "cluster_name": host["name"],
+                "type": "VLAN",
+                "vlan": 900,
+                "vswitch_uuid": est.vswitches[0]["uuid"],
+                "prefix": "203.0.113.0",
+                "prefix_len": 24,
+                "gateway": "203.0.113.1",
+                "dhcp": False,
+                "vpc": None,
+                "port": 0,
+                "external": True,
+                "nat": False,
+            })
         for i, vpc_name in enumerate(["vpc-prod", "vpc-dev", "vpc-pci"]):
             vuuid = uid(seed, "vpc", vpc_name)
             est.vpcs.append({
@@ -777,7 +798,7 @@ def _vms(est: PcEstate, specs: list[ClusterSpec]) -> None:
         hosts_by_cluster.setdefault(h["cluster_uuid"], []).append(h)
     subnets_by_cluster: dict[str, list[dict[str, Any]]] = {}
     for s in est.subnets:
-        if s["cluster_uuid"]:
+        if s["cluster_uuid"] and not s.get("external"):  # no guest VM on an uplink
             subnets_by_cluster.setdefault(s["cluster_uuid"], []).append(s)
     servers_pg = {p["cluster_uuid"]: p for p in est.port_groups if p["name"] == "servers_vlan"}
     containers_by_cluster: dict[str, list[dict[str, Any]]] = {}
