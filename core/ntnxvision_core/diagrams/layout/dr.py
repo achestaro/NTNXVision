@@ -858,15 +858,15 @@ def _caption(m: DrModel, sites: list[DrSite], part: tuple[int, int]) -> str:
 
 
 def _best(m: DrModel, sites: list[DrSite], parts: list[list[DrSite]], page: Page,
-          limit: float, sid: str) -> tuple[Scene, bool]:
-    """The first rung that fits: every card; unprotected clusters in one card; then
-    cards without their detail line."""
-    sc = _layout_part(m, sites, parts, page, 0, sid)
-    for rung in (1, 2):
-        if sc.height <= limit:
-            return sc, True
+          limit: float, sid: str, least: int = 0) -> tuple[Scene, bool, int]:
+    """The first rung from `least` that fits (scene, fits, rung): every card;
+    unprotected clusters in one card; then cards without their detail line."""
+    rung = least
+    sc = _layout_part(m, sites, parts, page, rung, sid)
+    while sc.height > limit and rung < 2:
+        rung += 1
         sc = _layout_part(m, sites, parts, page, rung, sid)
-    return sc, sc.height <= limit
+    return sc, sc.height <= limit, rung
 
 
 def layout(model: DrModel, page: Page | None = None, refs: Refs | None = None,
@@ -893,11 +893,15 @@ def layout(model: DrModel, page: Page | None = None, refs: Refs | None = None,
     pairs = [_ends(model, f) for f in model.flows]
     parts = [[by_id[i] for i in p] for p in
              parts_mod.fit([s.id for s in model.sites], pairs, PER_PART, fits) if p]
+    # One detail level for the estate: every part at the rung the tightest one needs.
+    least = max((_best(model, sites, parts, page,
+                       limit(pi, _layout_part(model, sites, parts, page, 0, "probe").width),
+                       "probe")[2] for pi, sites in enumerate(parts)), default=0)
     scenes: list[Scene] = []
     for pi, sites in enumerate(parts):
         sid = "dr" if len(parts) == 1 else f"dr-{pi + 1}"
         probe = _layout_part(model, sites, parts, page, 0, sid)
-        sc, _ = _best(model, sites, parts, page, limit(pi, probe.width), sid)
+        sc, _, _ = _best(model, sites, parts, page, limit(pi, probe.width), sid, least)
         sc.part = (pi + 1, len(parts))
         sc.caption = _caption(model, sites, sc.part)
         scenes.append(sc)

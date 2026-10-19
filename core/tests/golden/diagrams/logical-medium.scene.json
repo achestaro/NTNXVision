@@ -1,5 +1,5 @@
 {
- "caption": "Logical cluster design, md-pc01.demo.local: nodes, CVMs and containers.",
+ "caption": "Logical cluster design, md-pc01: nodes, CVMs and containers.",
  "edges": [],
  "height": 339.6,
  "id": "logical-md-pc01.demo.local",
@@ -966,7 +966,7 @@
  "width": 480.0
 }
 {
- "caption": "Logical cluster design, md-pc02.demo.local: nodes, CVMs and containers.",
+ "caption": "Logical cluster design, md-pc02: nodes, CVMs and containers.",
  "edges": [],
  "height": 352.58,
  "id": "logical-md-pc02.demo.local",

@@ -434,10 +434,11 @@ def test_word_report_contains_the_figure(estates: dict[str, Environment],
     beside = [t for t in doc.tables if len(t.rows[0].cells) == 2
               and "DESIGN SUMMARY" in t.rows[0].cells[1].text]
     assert beside
-    # The DR chapter names the figures that draw replication (two parts: no estate
-    # map, which opens an overview drawn in 3 parts or more).
+    # Two parts: no estate map (it opens an overview drawn in 3 parts or more); the
+    # DR chapter has its own design figure, so it does not point back at the overview.
     assert not any("Estate map" in d for d in descr)
-    assert "Figures 5-1 to 5-2 (Solution Conceptual Overview" in text
+    assert "(Solution Conceptual Overview" not in text
+    assert any("Disaster recovery design" in d for d in descr)
     # Plain ASCII hyphens: Word rendered both U+2011 and w:noBreakHyphen with gaps or
     # squeezed text, and they broke copy, paste and Find on host and cluster names.
     xml = doc.element.xml
