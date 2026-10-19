@@ -1296,7 +1296,11 @@ class _Builder:
             "replication schedules) and recovery plans (orchestrated failover). The tables "
             "below document the configured strategy."
         ))
-        if any(p.target_az for p in env.protection_policies) and \
+        # The pointer to the overview's replication matters only when this chapter has
+        # no Disaster Recovery Design figure of its own.
+        dr_t = TYPES.get("dr")
+        own_figure = dr_t is not None and dr_t.applies(env)
+        if any(p.target_az for p in env.protection_policies) and not own_figure and \
                 "conceptual" in self.design_figures:
             xref = Paragraph("The Solution Conceptual Overview draws the replication between "
                              "availability zones.")

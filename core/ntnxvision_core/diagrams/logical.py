@@ -343,8 +343,14 @@ def _cluster(env: Environment, c: Any, host: str, src: Any, hosts: list[Any],
 _SYSTEM_CTRS = ("NutanixManagementShare", "SelfServiceContainer", "NutanixMetadata")
 
 
+#: Containers Nutanix Objects creates for an object store ("objects" + its id).
+_OBJECTS_CTR = re.compile(r"^objects[0-9a-z]{20,}$")
+
+
 def _is_system(name: str | None) -> bool:
-    return bool(name) and any(name.startswith(p) for p in _SYSTEM_CTRS)  # type: ignore[union-attr]
+    if not name:
+        return False
+    return any(name.startswith(p) for p in _SYSTEM_CTRS) or bool(_OBJECTS_CTR.match(name))
 
 
 # ─── display text shared by the layout, summary and table ──────────────

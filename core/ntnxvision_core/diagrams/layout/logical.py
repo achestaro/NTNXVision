@@ -21,6 +21,7 @@ from .. import fmt
 from .. import text as tx
 from .. import tokens as K
 from ..build import CHIP_H, Row, box, chip, chip_w, edge, legend, measure, place_lines
+from ..facts import short_name
 from ..logical import (
     Array,
     LCluster,
@@ -288,7 +289,7 @@ def _caption(site: LSite, part: tuple[int, int], pods: list[str], drawn: list[LC
     if arrays:
         what.append("external storage")
     body = ", ".join(what[:-1]) + (" and " if len(what) > 1 else "") + what[-1]
-    head = f"Logical cluster design, {site.name}"
+    head = f"Logical cluster design, {short_name(site.name)}"
     if part[1] > 1:
         scope = (fmt.join_names([f"POD {p}" for p in pods]) if pods else
                  fmt.join_names([c.name for c in drawn]) if len(drawn) <= 3 else

@@ -67,7 +67,7 @@ def test_medium_profiles_bonds_lacp_mtu_and_lldp(design_envs: dict[str, Any]) ->
     assert [u.name for u in vs0.uplinks] == ["eth0", "eth1"]
     assert N.uplinks_text(vs0) == "2 x 25 GbE: eth0, eth1"
     assert N.bond_text(vs1.bond_mode, vs1.lacp) == "Balance-tcp with LACP"
-    assert [t.label for t in vs0.traffic] == ["AHV host", "CVM", "Guest VMs"]
+    assert [t.label for t in vs0.traffic] == ["AHV host", "Guest VMs"]  # nothing inferred
     assert not vs1.traffic  # no subnet on the storage switch: nothing invented
     assert [nb.key for nb in a.neighbours] == ["A", "B"]
     assert a.neighbours[0].model == "Arista DCS-7050SX3-48YC8"

@@ -348,10 +348,10 @@ def _profile(env: Environment, sig: tuple[Any, ...], hosts: list[str], i: int,
                               speed_mbps=n.speed_mbps if n is not None else None,
                               up=n.link_up if n is not None else None, switch=sw))
         traffic = []
-        if vs.is_default:
-            if h.ip_address:
-                traffic.append(Traffic(f"{vid}:t:host", "AHV host", "management"))
-            traffic.append(Traffic(f"{vid}:t:cvm", "CVM", "external"))
+        # Only what the data shows: host management where the switch carries the host's
+        # address (the CVM's external network is not reported per switch).
+        if vs.is_default and h.ip_address:
+            traffic.append(Traffic(f"{vid}:t:host", "AHV host", "management"))
         if vs.name in subnets:
             traffic.append(Traffic(f"{vid}:t:guest", "Guest VMs",
                                    _subnets_text(subnets[vs.name], len(cl_uuids))))

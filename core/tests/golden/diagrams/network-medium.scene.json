@@ -12,11 +12,11 @@
    "labels": [],
    "points": [
     [
-     43.75,
+     62.88,
      62.32
     ],
     [
-     43.75,
+     62.88,
      72.32
     ]
    ],
@@ -36,43 +36,15 @@
     "kind": "uses"
    },
    "dst": "profile:70713501173a:vs:vs0",
-   "id": "profile:70713501173a:vs:vs0:t:cvm->profile:70713501173a:vs:vs0",
-   "labels": [],
-   "points": [
-    [
-     120.25,
-     62.32
-    ],
-    [
-     120.25,
-     72.32
-    ]
-   ],
-   "src": "profile:70713501173a:vs:vs0:t:cvm",
-   "style": {
-    "dash": null,
-    "fill": null,
-    "radius": 0.0,
-    "stroke": "#8E99A4",
-    "stroke_w": 0.68
-   }
-  },
-  {
-   "arrow_end": false,
-   "arrow_start": false,
-   "data": {
-    "kind": "uses"
-   },
-   "dst": "profile:70713501173a:vs:vs0",
    "id": "profile:70713501173a:vs:vs0:t:guest->profile:70713501173a:vs:vs0",
    "labels": [],
    "points": [
     [
-     196.75,
+     177.62,
      62.32
     ],
     [
-     196.75,
+     177.62,
      72.32
     ]
    ],
@@ -382,7 +354,7 @@
      "size": 6.2,
      "text": "AHV host",
      "width": 27.32,
-     "x": 22.09
+     "x": 41.22
     },
     {
      "baseline": 16.88,
@@ -391,7 +363,7 @@
      "size": 6.0,
      "text": "management",
      "width": 35.37,
-     "x": 18.07
+     "x": 37.19
     }
    ],
    "parent": "profile:70713501173a:host",
@@ -402,47 +374,8 @@
     "stroke": "#C9D0D6",
     "stroke_w": 0.68
    },
-   "w": 71.5,
+   "w": 109.75,
    "x": 8.0,
-   "y": 40.7
-  },
-  {
-   "data": {
-    "name": "CVM external"
-   },
-   "h": 21.62,
-   "id": "profile:70713501173a:vs:vs0:t:cvm",
-   "kind": "box",
-   "lines": [
-    {
-     "baseline": 9.14,
-     "bold": true,
-     "color": "#0F1A24",
-     "size": 6.2,
-     "text": "CVM",
-     "width": 14.18,
-     "x": 28.66
-    },
-    {
-     "baseline": 16.88,
-     "bold": false,
-     "color": "#3E4C59",
-     "size": 6.0,
-     "text": "external",
-     "width": 21.43,
-     "x": 25.04
-    }
-   ],
-   "parent": "profile:70713501173a:host",
-   "style": {
-    "dash": null,
-    "fill": "#FFFFFF",
-    "radius": 2.25,
-    "stroke": "#C9D0D6",
-    "stroke_w": 0.68
-   },
-   "w": 71.5,
-   "x": 84.5,
    "y": 40.7
   },
   {
@@ -460,7 +393,7 @@
      "size": 6.2,
      "text": "Guest VMs",
      "width": 30.97,
-     "x": 20.26
+     "x": 39.39
     },
     {
      "baseline": 16.88,
@@ -469,7 +402,7 @@
      "size": 6.0,
      "text": "5 subnets per cluster",
      "width": 56.38,
-     "x": 7.56
+     "x": 26.68
     }
    ],
    "parent": "profile:70713501173a:host",
@@ -480,8 +413,8 @@
     "stroke": "#C9D0D6",
     "stroke_w": 0.68
    },
-   "w": 71.5,
-   "x": 161.0,
+   "w": 109.75,
+   "x": 122.75,
    "y": 40.7
   },
   {
@@ -1417,11 +1350,11 @@
    "labels": [],
    "points": [
     [
-     43.75,
+     62.88,
      62.32
     ],
     [
-     43.75,
+     62.88,
      72.32
     ]
    ],
@@ -1441,43 +1374,15 @@
     "kind": "uses"
    },
    "dst": "profile:67025c1055ad:vs:vs0",
-   "id": "profile:67025c1055ad:vs:vs0:t:cvm->profile:67025c1055ad:vs:vs0",
-   "labels": [],
-   "points": [
-    [
-     120.25,
-     62.32
-    ],
-    [
-     120.25,
-     72.32
-    ]
-   ],
-   "src": "profile:67025c1055ad:vs:vs0:t:cvm",
-   "style": {
-    "dash": null,
-    "fill": null,
-    "radius": 0.0,
-    "stroke": "#8E99A4",
-    "stroke_w": 0.68
-   }
-  },
-  {
-   "arrow_end": false,
-   "arrow_start": false,
-   "data": {
-    "kind": "uses"
-   },
-   "dst": "profile:67025c1055ad:vs:vs0",
    "id": "profile:67025c1055ad:vs:vs0:t:guest->profile:67025c1055ad:vs:vs0",
    "labels": [],
    "points": [
     [
-     196.75,
+     177.62,
      62.32
     ],
     [
-     196.75,
+     177.62,
      72.32
     ]
    ],
@@ -1787,7 +1692,7 @@
      "size": 6.2,
      "text": "AHV host",
      "width": 27.32,
-     "x": 22.09
+     "x": 41.22
     },
     {
      "baseline": 16.88,
@@ -1796,7 +1701,7 @@
      "size": 6.0,
      "text": "management",
      "width": 35.37,
-     "x": 18.07
+     "x": 37.19
     }
    ],
    "parent": "profile:67025c1055ad:host",
@@ -1807,47 +1712,8 @@
     "stroke": "#C9D0D6",
     "stroke_w": 0.68
    },
-   "w": 71.5,
+   "w": 109.75,
    "x": 8.0,
-   "y": 40.7
-  },
-  {
-   "data": {
-    "name": "CVM external"
-   },
-   "h": 21.62,
-   "id": "profile:67025c1055ad:vs:vs0:t:cvm",
-   "kind": "box",
-   "lines": [
-    {
-     "baseline": 9.14,
-     "bold": true,
-     "color": "#0F1A24",
-     "size": 6.2,
-     "text": "CVM",
-     "width": 14.18,
-     "x": 28.66
-    },
-    {
-     "baseline": 16.88,
-     "bold": false,
-     "color": "#3E4C59",
-     "size": 6.0,
-     "text": "external",
-     "width": 21.43,
-     "x": 25.04
-    }
-   ],
-   "parent": "profile:67025c1055ad:host",
-   "style": {
-    "dash": null,
-    "fill": "#FFFFFF",
-    "radius": 2.25,
-    "stroke": "#C9D0D6",
-    "stroke_w": 0.68
-   },
-   "w": 71.5,
-   "x": 84.5,
    "y": 40.7
   },
   {
@@ -1865,7 +1731,7 @@
      "size": 6.2,
      "text": "Guest VMs",
      "width": 30.97,
-     "x": 20.26
+     "x": 39.39
     },
     {
      "baseline": 16.88,
@@ -1874,7 +1740,7 @@
      "size": 6.0,
      "text": "5 subnets per cluster",
      "width": 56.38,
-     "x": 7.56
+     "x": 26.68
     }
    ],
    "parent": "profile:67025c1055ad:host",
@@ -1885,8 +1751,8 @@
     "stroke": "#C9D0D6",
     "stroke_w": 0.68
    },
-   "w": 71.5,
-   "x": 161.0,
+   "w": 109.75,
+   "x": 122.75,
    "y": 40.7
   },
   {

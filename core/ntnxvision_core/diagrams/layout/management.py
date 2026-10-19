@@ -650,7 +650,8 @@ def _caption(model: ManagementModel, sites: list[MgmtSite], part: tuple[int, int
         return (f"Management plane, part {part[0]} of {part[1]}: {names} "
                 f"({fmt.plural(regs, 'registered cluster')}).")
     pcs = fmt.plural(len(sites), "Prism Central")
-    return (f"Management plane: {pcs}, their deployment and hosting clusters, "
+    whose = "its" if len(sites) == 1 else "their"
+    return (f"Management plane: {pcs}, {whose} deployment and hosting clusters, "
             f"{fmt.plural(regs, 'registered cluster')}"
             + (" and AZ pairing." if model.links else "."))
 

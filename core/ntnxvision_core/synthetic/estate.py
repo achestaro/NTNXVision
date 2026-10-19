@@ -1033,6 +1033,8 @@ def _custom_data_protection(est: PcEstate, local: dict[str, Any]) -> None:
             "uuid": uid(seed, "rp", name), "name": name, "stages": 1 + i % 2,
             "entities": 6 + i * 4, "network_maps": 1,
             "primary": pol["source"]["url"], "recovery": pol["target"]["url"],
+            # A synchronous (Metro) plan names its witness.
+            **({"witness": uid(seed, "witness", name)} if pol["rpo"] == 0 else {}),
         })
 
 

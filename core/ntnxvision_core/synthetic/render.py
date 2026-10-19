@@ -946,6 +946,7 @@ def recovery_plan_v4(rp: dict[str, Any]) -> dict[str, Any]:
         "extId": rp["uuid"], "name": rp["name"],
         "primaryLocation": side(rp["primary"], rp.get("primary_cluster")),
         "recoveryLocation": side(rp["recovery"], rp.get("recovery_cluster")),
+        **({"witness": {"extId": rp["witness"]}} if rp.get("witness") else {}),
     })
 
 

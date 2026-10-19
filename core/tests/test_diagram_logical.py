@@ -379,7 +379,7 @@ def test_word_and_pdf_carry_the_new_figures(design_envs: dict[str, Any], tmp_pat
     docx = export_environment(env, "word", tmp_path, "pc02")
     with zipfile.ZipFile(docx) as z:
         body = z.read("word/document.xml").decode()
-    assert "Logical Cluster Design" in body and "Logical cluster design, pc02.demo.local" in body
+    assert "Logical Cluster Design" in body and "Logical cluster design, pc02" in body
     drawn: list[str] = []
     real = pdf_mod.draw_scene
 

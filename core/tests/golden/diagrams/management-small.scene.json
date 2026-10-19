@@ -1,5 +1,5 @@
 {
- "caption": "Management plane: 1 Prism Central, their deployment and hosting clusters, 2 registered clusters and AZ pairing.",
+ "caption": "Management plane: 1 Prism Central, its deployment and hosting clusters, 2 registered clusters and AZ pairing.",
  "edges": [
   {
    "arrow_end": true,
