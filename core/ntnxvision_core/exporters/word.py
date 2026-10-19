@@ -429,6 +429,8 @@ class WordExporter:
         png = render_png(f.scene, dpi=220)
         if f.summary_beside:
             # Decision 3: beside the figure when it is 480 pt or narrower.
+            if f.new_page:
+                doc.add_paragraph().paragraph_format.page_break_before = True
             gap = int(Inches(0.2))
             table = doc.add_table(rows=1, cols=2)
             _fixed_layout(table, [width + gap, max(text_w - width - gap, int(Inches(1)))])
@@ -458,6 +460,9 @@ class WordExporter:
             p = doc.add_paragraph()
             p.paragraph_format.keep_with_next = True
             p.paragraph_format.space_before = Pt(4)
+            # Too tall for the room under the heading and summary: the figure and its
+            # caption start the next page (the summary stays with its heading).
+            p.paragraph_format.page_break_before = f.new_page
             p.add_run().add_picture(io.BytesIO(png), width=Emu(width))
             _alt_text(p, T.clean(f.title))
         cap = doc.add_paragraph(style="Caption")

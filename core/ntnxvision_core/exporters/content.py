@@ -112,6 +112,9 @@ class SceneFigure:
     label: str = ""
     summary: list[str] = field(default_factory=list)
     note: str = ""
+    #: The figure starts on a page of its own (it does not fit under the headings and
+    #: summary): the summary stays with the heading, the figure and caption move on.
+    new_page: bool = False
 
     @property
     def title(self) -> str:
@@ -813,6 +816,16 @@ class _Builder:
         edited = getattr(self.opts, "diagram_models", None) or {}
         return edited.get(dtype.id, generated)
 
+    def edit_disclosure(self, dtype: DiagramType, generated: Any, drawn: Any) -> str | None:
+        """The design-summary bullet that says how an edited figure differs from the
+        data (None for a generated figure). Summaries, headers and captions stay as
+        collected; this bullet is where the edit is disclosed."""
+        if drawn is generated:
+            return None
+        from ntnxvision_core.diagrams.edits import disclosure
+
+        return disclosure(dtype.to_doc(generated), dtype.to_doc(drawn), dtype.edit_spec)
+
     def design_sections(self, ch: Chapter) -> bool:
         """The architecture diagrams registered for this chapter (`diagrams.TYPES`), each
         as its own section. Returns whether any was added."""
@@ -831,13 +844,20 @@ class _Builder:
         env = self.env
         model = dtype.build_model(env)
         drawn = self.figure_model(dtype, model)
+        edit_note = self.edit_disclosure(dtype, model, drawn)
+
+        def summary(scenes: list[Scene], ref: str | None = None) -> list[str]:
+            out = design.conceptual_bullets(model, scenes, ref)
+            return [*out, edit_note] if edit_note else out
+
         page = dtype.page
         # The summary depends on the parts; lay out, summarise, then fit part 1 under it.
         scenes = dtype.layout(drawn, page)
-        bullets = design.conceptual_bullets(model, scenes)
+        bullets = summary(scenes)
         scenes = dtype.layout(drawn, page, None, first_part_budget(bullets))
-        figs = [SceneFigure(sc, sc.caption) for sc in scenes]
-        figs[0].summary = design.conceptual_bullets(model, scenes)
+        figs = [SceneFigure(sc, sc.caption, new_page=bool(sc.meta.get("own_page")))
+                for sc in scenes]
+        figs[0].summary = summary(scenes)
         self.design_figures[dtype.id] = figs
         az = None if self.is_pe else make_table(
             design.AZ_HEADERS, design.az_rows(model), "Availability zones and Prism Central")
@@ -854,18 +874,19 @@ class _Builder:
             labels = [f.label.rstrip(".") for f in figs]
             if clusters is not None:
                 ref = clusters.label.rstrip(".")
-                bullets = design.conceptual_bullets(model, scenes, ref)
+                bullets = summary(scenes, ref)
                 again = dtype.layout(drawn, page, Refs(clusters_table=ref),
                                      first_part_budget(bullets))
                 if [sc.part for sc in again] == [sc.part for sc in scenes]:
                     for f, sc in zip(figs, again, strict=True):
                         f.scene = sc
+                        f.new_page = bool(sc.meta.get("own_page"))
                     scenes[:] = again
                 rows, _ = design.cluster_rows(model, scenes, labels)
                 col = clusters.headers.index("In figure")
                 for row, new in zip(clusters.rows, rows, strict=True):
                     row[col] = new[-1]
-                figs[0].summary = design.conceptual_bullets(model, scenes, ref)
+                figs[0].summary = summary(scenes, ref)
             for i, f in enumerate(figs[:-1]):
                 nxt = figs[i + 1].scene
                 names = ", ".join(short_name(drawn.name_of(sid))

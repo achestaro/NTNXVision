@@ -387,7 +387,7 @@ def _write_reports(env: Any, name: str, formats: list[str], out_dir: Path,
     """Write each format as ``<prefix>-<name>-<YYYY-MM-DD>.<ext>`` (see exporters.naming),
     never overwriting an existing file. The figures of a saved `snapshot` draw the
     diagram edits saved on the Diagrams page."""
-    if snapshot is not None and any(f in ("pdf", "word") for f in formats):
+    if snapshot is not None:  # every format: the diagrams bundle draws them too
         from ntnxvision_core.diagrams import store as diagram_store
 
         options = {**options, "diagram_models": diagram_store.edited_models(snapshot, env)}
@@ -429,6 +429,11 @@ def _finalize(env: Any, name: str, params: dict[str, Any], *,
         handle.commit()
     if tracker is not None and tracker.finished_at is None:
         tracker.finish()
+    asked = params.get("formats")
+    if asked is None:
+        asked = ["excel"] if params.get("export", True) else []
+    # Reports with figures: replay the source's saved diagram edits when they all apply.
+    carry = _auto_carry_plan(env) if any(f in ("pdf", "word") for f in asked) else None
     env.run = build_run_metadata(env, tracker, mode=mode)
     result: dict[str, Any] = {
         "summary": env.summary(),
@@ -450,6 +455,8 @@ def _finalize(env: Any, name: str, params: dict[str, Any], *,
         result["snapshot_path"] = str(snap_path)
         result["snapshot_name"] = snapstore.snapshot_name(snap_path)
         _cache.invalidate(snap_path)
+        if carry is not None:
+            _auto_carry(carry, snap_path, env)
     except Exception as exc:  # noqa: BLE001 — don't lose a successful run on a save error
         result["warnings"].append(f"Snapshot could not be saved: {exc}")
 
@@ -458,7 +465,7 @@ def _finalize(env: Any, name: str, params: dict[str, Any], *,
         formats = ["excel"] if params.get("export", True) else []
     files, errors = _write_reports(env, result["snapshot_name"] or name, list(formats),
                                    _export_dir_from(params), _export_options(params), tracker,
-                                   prefix=_file_prefix(params))
+                                   prefix=_file_prefix(params), snapshot=snap_path)
     result["exports"] = {f["format"]: f["path"] for f in files}
     result["export_errors"] = errors
     if "excel" in result["exports"]:
@@ -480,6 +487,56 @@ def _finalize(env: Any, name: str, params: dict[str, Any], *,
         "scope": run.get("scope"),
     })
     return result
+
+
+def _auto_carry_plan(env: Any) -> dict[str, Any] | None:
+    """Saved diagram edits for a fresh collection: the newest earlier snapshot of the
+    same source with edits. When every edit applies to the new data they are replayed
+    on the new snapshot (its reports draw them); otherwise the reports draw the generated
+    diagrams and the run says why (a warning, also in the email)."""
+    try:
+        source = snapstore.describe(env, Path("new.ntnxsnap.json"))["source"]
+        offer = _carry_offer(source, env.collected_at, None, env)
+    except Exception:  # noqa: BLE001 — never fail a collection over diagram edits
+        return None
+    if offer is None:
+        return None
+    edits = sum(d["edits"] for d in offer["diagrams"])
+    bad = sum(d["edits"] - d["applies"] for d in offer["diagrams"])
+    if bad:
+        env.warnings.append(
+            f"Saved diagram edits from {offer['snapshot'].get('name')} were not applied: "
+            f"{bad:,} of {edits:,} edits no longer match the collected data. The reports "
+            "draw the generated diagrams; open the Diagrams page to carry or redo them.")
+        return None
+    return offer
+
+
+def _auto_carry(offer: dict[str, Any], snap_path: Path, env: Any) -> None:
+    from ntnxvision_core.diagrams import store as diagram_store
+
+    src = offer["snapshot"]
+    try:
+        diagram_store.carry_forward(
+            Path(str(src["path"])),
+            {"name": src.get("name"), "collected_at": src.get("collected_at"),
+             "snapshot_id": src.get("snapshot_id"), "auto": True},
+            snap_path, env)
+    except Exception:  # noqa: BLE001 — the reports then draw the generated diagrams
+        return
+
+
+def _diagram_notes(snap_path: Path, env: Any) -> list[str]:
+    """Lines for the email body: edits carried forward automatically, or why not."""
+    from ntnxvision_core.diagrams import store as diagram_store
+
+    out = [w for w in env.warnings if str(w).startswith("Saved diagram edits")]
+    for entry in diagram_store.load(snap_path).values():
+        src = entry.get("carried_from") or {}
+        if src.get("auto"):
+            out.append(f"Diagrams: the saved edits from {src.get('name')} were carried "
+                       "forward; the reports draw them.")
+    return out
 
 
 def _ndb_from(block: dict[str, Any] | None, insecure: bool) -> NdbCredentials | None:
@@ -1026,18 +1083,27 @@ def _carry_candidate(snap_path: Path, env: Any) -> dict[str, Any] | None:
     """The newest older snapshot of the same source with saved diagram edits, when this
     one has none, with what carrying them forward would do."""
     from ntnxvision_core.diagrams import store as diagram_store
-    from ntnxvision_core.overview import all_metas, collected_key
 
     if diagram_store.load(snap_path):
         return None
     here = snapstore.read_meta(snap_path, _cache)
-    source, when = here.get("source"), collected_key(here.get("collected_at"))
+    return _carry_offer(here.get("source"), here.get("collected_at"), snap_path, env)
+
+
+def _carry_offer(source: Any, collected_at: Any, exclude: Path | None, env: Any
+                 ) -> dict[str, Any] | None:
+    """The newest snapshot of `source` collected before `collected_at` (other than
+    `exclude`) with saved diagram edits, and what replaying them on `env` would do."""
+    from ntnxvision_core.diagrams import store as diagram_store
+    from ntnxvision_core.overview import all_metas, collected_key
+
     if not source:
         return None
+    when = collected_key(collected_at)
     # all_metas is newest first: the first older snapshot with edits wins.
     older = [m for m in all_metas(_store().list_snapshots(), _cache)
              if m.get("source") == source
-             and Path(str(m.get("path"))).resolve() != snap_path
+             and (exclude is None or Path(str(m.get("path"))).resolve() != exclude)
              and collected_key(m.get("collected_at")) <= when]
     for meta in older:
         src = Path(str(meta["path"]))
@@ -1312,6 +1378,7 @@ def _m_send_email(_req_id: Any, params: dict[str, Any]) -> dict[str, Any]:
     errors: dict[str, str] = {}
     names: list[str] = []
     metas: list[dict[str, Any]] = []
+    diagram_lines: list[str] = []
     for raw in raws:
         snap_path = _resolve_snapshot_path(str(raw))
         env = _cache.get(snap_path)
@@ -1324,6 +1391,7 @@ def _m_send_email(_req_id: Any, params: dict[str, Any]) -> dict[str, Any]:
         errors.update({(f"{name} {k}" if len(raws) > 1 else k): v for k, v in errs.items()})
         names.append(name)
         metas.append(snapstore.read_meta(snap_path, _cache))
+        diagram_lines.extend(_diagram_notes(snap_path, env))
     if not files:
         detail = "; ".join(f"{k}: {v}" for k, v in errors.items()) or None
         return mailer.result(False, "error", "The reports could not be written.", detail=detail)
@@ -1343,6 +1411,8 @@ def _m_send_email(_req_id: Any, params: dict[str, Any]) -> dict[str, Any]:
     subject = mailer.render_subject(str(params.get("subject") or ""), ctx) or \
         f"NTNXVision report: {target}"
     body = mailer.render_template(str(params.get("body") or ""), ctx)
+    if diagram_lines:
+        body += "\n\n" + "\n".join(dict.fromkeys(diagram_lines)) + "\n"
     if errors:
         body += "\n\nNot attached (could not be written): " + ", ".join(errors) + "\n"
     result = mailer.send_files(cfg, to, cc, subject, body, [Path(f["path"]) for f in files],

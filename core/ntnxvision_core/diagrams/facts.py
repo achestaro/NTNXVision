@@ -191,7 +191,8 @@ def conceptual_model(env: Environment) -> ConceptualModel:
         cards.sort(key=lambda k: (not k.hosts_pc, k.name.lower(), k.id))
         pc_block = None if is_pe else _pc_block(env, info, mine)
         sites[info.id] = Site(id=info.id, name=info.host, kind="pe" if is_pe else "pc",
-                              pc=pc_block, cards=cards,
+                              pc=pc_block, cards=cards, cluster_count=len(cards),
+                              node_count=sum(c.nodes or 0 for c in cards),
                               data={"prism_central" if not is_pe else "prism_element":
                                     info.host, "name": info.host})
 

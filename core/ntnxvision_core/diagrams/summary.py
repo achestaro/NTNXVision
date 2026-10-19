@@ -59,8 +59,12 @@ def conceptual_bullets(model: ConceptualModel, scenes: list[Scene],
     parts = scenes[-1].part[1] if scenes else 1
     summarised = sum(len(sc.meta.get("summarised", [])) for sc in scenes)
     if parts > 1:
+        part_of = {sid: i for i, sc in enumerate(scenes) for sid in sc.meta.get("sites", [])}
+        split = any(lk.a in part_of and lk.b in part_of and part_of[lk.a] != part_of[lk.b]
+                    for lk in model.links)
         out.append(f"Drawn in {parts:,} parts of up to 3 availability zones; paired zones "
-                   "stay in the same part where they fit.")
+                   + ("stay in the same part where they fit." if split
+                      else "stay in the same part."))
     if summarised:
         where = clusters_table or "the clusters table"
         out.append(f"Per availability zone the figure shows the PC host and the largest "
