@@ -86,6 +86,22 @@ NODE_MODELS: dict[str, NodeModel] = {
                             ((6, int(3.84 * _TB), "SSD"),)),
     "NX-1175S-G8": NodeModel("Intel(R) Xeon(R) Gold 6338N", 1, 32, 8,
                              ((4, int(1.92 * _TB), "SSD"),)),
+    # OEM and third-party platforms (realistic model strings, not vendor-exact sizing).
+    "HPE DX380 Gen11": NodeModel("Intel(R) Xeon(R) Gold 6430", 2, 32, 12,
+                                 ((8, int(3.84 * _TB), "SSD"),)),
+    "HPE DX360 Gen10 Plus": NodeModel("Intel(R) Xeon(R) Gold 6338", 2, 32, 12,
+                                      ((6, int(1.92 * _TB), "SSD"),)),
+    "XC760xd-24": NodeModel("Intel(R) Xeon(R) Gold 6448Y", 2, 32, 12,
+                            ((12, int(3.84 * _TB), "NVMe"),)),
+    "XC660-10": NodeModel("Intel(R) Xeon(R) Gold 5418Y", 2, 24, 12,
+                          ((6, int(3.84 * _TB), "SSD"),)),
+    "HX665 V3": NodeModel("AMD EPYC 9354", 2, 32, 12, ((10, int(3.84 * _TB), "NVMe"),)),
+    "HX630 V3": NodeModel("Intel(R) Xeon(R) Gold 6426Y", 2, 16, 8,
+                          ((4, int(1.92 * _TB), "SSD"),)),
+    "UCSC-C240-M7SX": NodeModel("Intel(R) Xeon(R) Platinum 8462Y+", 2, 32, 12,
+                                ((12, int(7.68 * _TB), "NVMe"),)),
+    "UCSC-C220-M6S": NodeModel("Intel(R) Xeon(R) Gold 6338", 2, 32, 12,
+                               ((8, int(3.84 * _TB), "SSD"),)),
 }
 
 
@@ -139,6 +155,39 @@ class Features:
     #: Extra protection policies: (name, RPO seconds, source cluster, target PC host or
     #: "" for this PC, target cluster). RPO 0 is a synchronous (Metro) policy.
     extra_policies: tuple[tuple[str, int, str, str, str], ...] = ()
+    #: Index of the cluster hosting the PC VM(s).
+    pc_cluster: int = 0
+    #: Remote availability zones outside the demo estate, and the policies replicating
+    #: to (or from) them. None keeps the default DR set (pc-dr and a Xi AZ, policies to
+    #: pc-dr); a tuple replaces it. Paired demo PCs use `az_peers` / `extra_policies`.
+    azs: tuple[AzSpec, ...] | None = None
+    policies: tuple[PolicySpec, ...] | None = None
+
+
+@dataclass(frozen=True)
+class AzSpec:
+    """A remote availability zone outside the demo estate: a PC (`url` is its address)
+    or Nutanix Cloud (Xi)."""
+
+    name: str
+    url: str
+    type: str = "PHYSICAL"  # PHYSICAL | XI
+    region: str | None = None
+    status: str = "CONNECTED"
+
+
+@dataclass(frozen=True)
+class PolicySpec:
+    """A protection policy replicating to the AZ named `target`, or with `inbound` from
+    it to this PC."""
+
+    name: str
+    rpo: int
+    target: str
+    inbound: bool = False
+    categories: tuple[tuple[str, str], ...] = (("DRTier", "Gold"),)
+    local_retention: int = 24
+    remote_retention: int = 48
 
 
 PROFILES: dict[str, list[ClusterSpec]] = {
@@ -169,6 +218,70 @@ PROFILES: dict[str, list[ClusterSpec]] = {
         ClusterSpec("EDGE-A", "ESXi", 6, 567, "6.10", "NX-1175S-G8"),
     ],
 }
+
+# ─── scenario estates (architecture diagram coverage) ──────────────────
+# Small, medium, large-enterprise and very-large estates with mixed hypervisors and
+# hardware vendors. VM counts stay low: these exist for the topology, not the workload.
+
+PROFILES.update({
+    "small-branch": [
+        ClusterSpec("BRANCH-PRD-01", "AHV", 4, 24, "7.0.1", "NX-3170-G8"),
+        ClusterSpec("BRANCH-VDI-01", "AHV", 3, 12, "7.0.1", "HPE DX360 Gen10 Plus"),
+    ],
+    "med-east": [
+        ClusterSpec("PROD-E01", "AHV", 8, 30, "7.0.1"),
+        ClusterSpec("PROD-E02", "AHV", 6, 24, "7.0.1", "XC760xd-24"),
+        ClusterSpec("VDI-E01", "ESXi", 4, 16, "6.10.1", "HPE DX380 Gen11"),
+    ],
+    "med-west": [
+        ClusterSpec("PROD-W01", "AHV", 8, 30, "7.0.1", "NX-8170-G9"),
+        ClusterSpec("DR-W01", "AHV", 4, 12, "7.0.1", "HX665 V3"),
+        ClusterSpec("ESX-W01", "ESXi", 3, 12, "6.10.1", "UCSC-C220-M6S"),
+    ],
+    "ent-nyc": [
+        ClusterSpec("NYC-PROD-01", "AHV", 16, 40, "7.0.1", mixed_model="NX-8170-G9"),
+        ClusterSpec("NYC-PROD-02", "AHV", 12, 30, "7.0.1", "XC760xd-24"),
+        ClusterSpec("NYC-DB-01", "AHV", 6, 12, "7.0.1", "UCSC-C240-M7SX"),
+        ClusterSpec("NYC-VDI-01", "ESXi", 10, 24, "6.10.1", "HPE DX380 Gen11"),
+        ClusterSpec("NYC-MGMT-01", "AHV", 3, 6, "7.0.1", "NX-1175S-G8"),
+    ],
+    "ent-chi": [
+        ClusterSpec("CHI-PROD-01", "AHV", 12, 30, "7.0.1", "NX-8170-G9"),
+        ClusterSpec("CHI-DR-01", "AHV", 8, 12, "7.0.1", "HX665 V3"),
+        ClusterSpec("CHI-ESX-01", "ESXi", 6, 18, "6.10.1", "UCSC-C220-M6S"),
+        ClusterSpec("CHI-ROBO-01", "AHV", 1, 4, "7.0.1", "HX630 V3"),
+    ],
+    "ent-lon": [
+        ClusterSpec("LON-PROD-01", "AHV", 10, 30, "7.0.1", "XC660-10"),
+        ClusterSpec("LON-PROD-02", "AHV", 8, 24, "6.10.1"),
+        ClusterSpec("LON-VDI-01", "ESXi", 6, 18, "6.10.1", "HPE DX360 Gen10 Plus"),
+        ClusterSpec("LON-EDGE-01", "AHV", 3, 6, "7.0.1", "NX-1175S-G8"),
+    ],
+    "ent-sin": [
+        ClusterSpec("SIN-PROD-01", "AHV", 8, 24, "7.0.1", "HX665 V3"),
+        ClusterSpec("SIN-PROD-02", "AHV", 6, 18, "7.0.1", "UCSC-C240-M7SX"),
+        ClusterSpec("SIN-EDGE-01", "AHV", 2, 4, "7.0.1", "NX-1175S-G8"),
+    ],
+})
+
+#: Very-large estate: one profile per site, 13 clusters each with long names.
+XL_SITES = ("AMER-NEWYORK-DC1", "AMER-CHICAGO-DC2", "AMER-DALLAS-DC3", "AMER-SEATTLE-DC4",
+            "EMEA-FRANKFURT-DC1", "EMEA-LONDON-DC2", "APAC-SINGAPORE-DC1", "APAC-SYDNEY-DC2")
+_XL_ROLES = ("PROD-GENERAL-PURPOSE", "PROD-DATABASE-TIER1", "VDI-KNOWLEDGE-WORKERS",
+             "DEV-TEST-CONTINUOUS-INTEGRATION", "EDGE-RETAIL-STORES", "PROD-ANALYTICS",
+             "BACKUP-TARGET")
+_XL_MODELS = ("NX-8155-G9", "XC760xd-24", "HPE DX380 Gen11", "HX665 V3", "UCSC-C240-M7SX",
+              "NX-8170-G9", "XC660-10", "HPE DX360 Gen10 Plus", "UCSC-C220-M6S", "HX630 V3")
+_XL_NODES = (16, 12, 8, 24, 6, 4, 3, 10, 1, 8, 12, 5, 2)
+for _si, _site in enumerate(XL_SITES):
+    PROFILES[f"xl-{_si + 1}"] = [
+        ClusterSpec(f"{_site}-{_XL_ROLES[_ci % len(_XL_ROLES)]}-{_ci + 1:02d}",
+                    "ESXi" if (_ci + _si) % 4 == 3 else "AHV",
+                    _XL_NODES[(_ci + _si) % len(_XL_NODES)], 4,
+                    "7.0.1" if _ci % 3 else "6.10.1",
+                    _XL_MODELS[(_ci * 3 + _si) % len(_XL_MODELS)])
+        for _ci in range(13)
+    ]
 
 #: Workload mix: (prefix, weight, sockets, cores/socket, memory GiB, disk GiB list, OS).
 _WORKLOADS: list[tuple[str, int, int, int, int, list[int], str]] = [
@@ -787,9 +900,14 @@ def pc_vm_ips(est: PcEstate) -> list[str]:
     return [f"{base}.{int(last) + i}" for i in range(1, count + 1)]
 
 
+def pc_host_cluster(est: PcEstate) -> dict[str, Any]:
+    """The cluster running the PC VM(s) (`Features.pc_cluster`)."""
+    return est.clusters[min(max(est.features.pc_cluster, 0), len(est.clusters) - 1)]
+
+
 def _system_vms(est: PcEstate) -> None:
     """The Prism Central VM(s), which collectors must reclassify as PRISM_CENTRAL."""
-    c = est.clusters[0]
+    c = pc_host_cluster(est)
     hosts = [h for h in est.hosts if h["cluster_uuid"] == c["uuid"]]
     ctr = next(ct for ct in est.containers if ct["cluster_uuid"] == c["uuid"])
     subnet = next((s for s in est.subnets if s["cluster_uuid"] == c["uuid"]), None)
@@ -830,6 +948,9 @@ def _data_protection(est: PcEstate) -> None:
     seed, epoch = est.seed, est.epoch
     local = {"uuid": est.pc_uuid, "name": f"Local ({est.host})", "type": "PHYSICAL",
              "url": est.pc_uuid}
+    if est.features.azs is not None or est.features.policies is not None:
+        _custom_data_protection(est, local)
+        return
     remote_host = "pc-dr.example.com"
     remote = {"uuid": uid(seed, "az", remote_host), "name": "pc-dr",
               "type": "PHYSICAL", "url": f"https://{remote_host}:9440"}
@@ -860,6 +981,38 @@ def _data_protection(est: PcEstate) -> None:
             "uuid": uid(seed, "rp", name), "name": name, "stages": 1 + i % 3,
             "entities": 4 + i * 3, "network_maps": 1 + i % 2,
             "primary": local["url"], "recovery": remote["url"],
+        })
+
+
+def _custom_data_protection(est: PcEstate, local: dict[str, Any]) -> None:
+    """Data protection from `Features.azs` / `Features.policies` (scenario estates)."""
+    seed = est.seed
+    by_name: dict[str, dict[str, Any]] = {}
+    for az in est.features.azs or ():
+        entry = {"uuid": uid(seed, "az", az.name), "name": az.name, "type": az.type,
+                 "url": az.url, "region": az.region, "status": az.status}
+        est.availability_zones.append(entry)
+        by_name[az.name] = entry
+    for p in est.features.policies or ():
+        remote = by_name.get(p.target)
+        if remote is None:
+            continue
+        cats: dict[str, list[str]] = {}
+        for k, v in p.categories:
+            cats.setdefault(k, []).append(v)
+        est.protection_policies.append({
+            "uuid": uid(seed, "pp", p.name), "name": p.name, "rpo": p.rpo,
+            "categories": cats, "local_retention": p.local_retention,
+            "remote_retention": p.remote_retention,
+            "source": remote if p.inbound else local,
+            "target": local if p.inbound else remote,
+        })
+    for i, pol in enumerate(est.protection_policies[:3]):
+        name = f"RP-{pol['name']}"
+        est.recovery_plans.append({
+            "uuid": uid(seed, "rp", name), "name": name, "stages": 1 + i % 2,
+            "entities": 6 + i * 4, "network_maps": 1,
+            "primary": pol["source"]["url"], "recovery": pol["target"]["url"],
         })
 
 

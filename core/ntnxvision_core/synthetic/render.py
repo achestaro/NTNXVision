@@ -30,6 +30,7 @@ from ntnxvision_core.synthetic.estate import (
     PC_SIZING,
     PcEstate,
     PeEstate,
+    pc_host_cluster,
     pc_vm_ips,
     uid,
 )
@@ -270,7 +271,7 @@ def domain_manager_v4(est: PcEstate) -> dict[str, Any]:
                                       "dataDiskSizeBytes": disk_gib * GIB},
                    "buildInfo": {"version": est.version}, "size": est.features.pc_size},
         "nodeExtIds": [v["uuid"] for v in est.vms if "PCVM" in v["name"]],
-        "hostingClusterExtId": est.clusters[0]["uuid"],
+        "hostingClusterExtId": pc_host_cluster(est)["uuid"],
         "network": {"externalNetworks": [{"ipAddresses": [ip4(ip) for ip in pc_vm_ips(est)]}],
                     **({"externalAddress": ip4(_pc_vip(est))} if _pc_vip(est) else {}),
                     "fqdn": est.host},

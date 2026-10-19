@@ -22,12 +22,14 @@ template keeps its own styles: only direct table and cover formatting is applied
 from __future__ import annotations
 
 import io
+import re
 from datetime import datetime
 from pathlib import Path
 from typing import Any
 
 from docx import Document
 from docx.document import Document as DocumentObject
+from docx.enum.section import WD_ORIENT, WD_SECTION
 from docx.enum.style import WD_STYLE_TYPE
 from docx.enum.table import WD_TABLE_ALIGNMENT
 from docx.enum.text import WD_ALIGN_PARAGRAPH, WD_TAB_ALIGNMENT
@@ -35,6 +37,7 @@ from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
 from docx.shared import Emu, Inches, Pt, RGBColor
 
+from ntnxvision_core.diagrams.render.png import render_png
 from ntnxvision_core.exporters import theme as T
 from ntnxvision_core.exporters.content import (
     Bullets,
@@ -44,6 +47,7 @@ from ntnxvision_core.exporters.content import (
     FigureStrip,
     Paragraph,
     Report,
+    SceneFigure,
     Status,
     Table,
     build_report,
@@ -54,6 +58,8 @@ from ntnxvision_core.numfmt import NA
 
 #: The status glyph: a small filled square in the status colour, then the ink label.
 GLYPH = "■"
+#: The narrowest design-summary column beside a figure (pt).
+SUMMARY_MIN_W = 170.0
 
 _INK = RGBColor.from_string(T.INK)
 _INK_2 = RGBColor.from_string(T.INK_2)
@@ -74,6 +80,9 @@ class WordExporter:
         doc = load_template(opts.template) if custom else Document()
         report = build_report(env, opts, eyebrow="Architecture design document")
         self._tables = 0
+        #: The current section is landscape / starts on a fresh page (a section break).
+        self._landscape = False
+        self._fresh = False
         if not custom:
             self._page_setup(doc)
             self._styles(doc)
@@ -228,12 +237,52 @@ class WordExporter:
     # ─── chapters ──────────────────────────────────────────────────
 
     def _chapter(self, doc: DocumentObject, ch: Chapter) -> None:
+        """A chapter; sections holding a figure wider than the portrait text width go
+        in a landscape section, so architecture figures are 1:1 on the page. When the
+        first section is wide the whole chapter opening goes landscape with it."""
+        wide = [self._is_wide(doc, s.blocks) for s in ch.sections]
+        self._orientation(doc, bool(wide) and wide[0])
         h = doc.add_heading(T.clean(ch.heading), level=1)
-        h.paragraph_format.page_break_before = True
+        h.paragraph_format.page_break_before = not self._fresh
+        h.paragraph_format.keep_with_next = True
+        self._fresh = False
         self._blocks(doc, ch.blocks)
-        for section in ch.sections:
-            doc.add_heading(T.clean(section.heading), level=2)
+        for section, is_wide in zip(ch.sections, wide, strict=True):
+            if is_wide != self._landscape:
+                self._orientation(doc, is_wide)
+            head = doc.add_heading(T.clean(section.heading), level=2)
+            head.paragraph_format.keep_with_next = True
+            if self._fresh:
+                head.paragraph_format.space_before = Pt(0)
+            self._fresh = False
             self._blocks(doc, section.blocks)
+
+    @staticmethod
+    def _portrait_width(doc: DocumentObject) -> int:
+        s = doc.sections[-1]
+        w, h = int(s.page_width or Inches(8.5)), int(s.page_height or Inches(11))
+        return min(w, h) - int(s.left_margin or 0) - int(s.right_margin or 0)
+
+    def _is_wide(self, doc: DocumentObject, blocks: list[Any]) -> bool:
+        """A figure (with its summary column when it sits beside it) wider than the
+        portrait text width needs a landscape page."""
+        limit = self._portrait_width(doc)
+        return any(isinstance(b, SceneFigure)
+                   and int(Pt(b.scene.width + (SUMMARY_MIN_W if b.summary_beside else 0)))
+                   > limit for b in blocks)
+
+    def _orientation(self, doc: DocumentObject, landscape: bool) -> None:
+        """Start a new section (on a new page) in the wanted orientation, if needed."""
+        if landscape == self._landscape:
+            return
+        cur = doc.sections[-1]
+        w, h = int(cur.page_width or Inches(8.5)), int(cur.page_height or Inches(11))
+        new = doc.add_section(WD_SECTION.NEW_PAGE)
+        new.orientation = WD_ORIENT.LANDSCAPE if landscape else WD_ORIENT.PORTRAIT
+        new.page_width = Emu(max(w, h) if landscape else min(w, h))
+        new.page_height = Emu(min(w, h) if landscape else max(w, h))
+        self._landscape = landscape
+        self._fresh = True
 
     def _blocks(self, doc: DocumentObject, blocks: list[Any]) -> None:
         for blk in blocks:
@@ -257,6 +306,8 @@ class WordExporter:
                 self._table(doc, blk)
             elif isinstance(blk, Figure):
                 self._figure(doc, blk)
+            elif isinstance(blk, SceneFigure):
+                self._scene_figure(doc, blk)
             elif isinstance(blk, FigureRow):
                 self._figure_row(doc, blk)
 
@@ -322,25 +373,106 @@ class WordExporter:
                 if isinstance(value, Status):
                     glyph = p.add_run(f"{GLYPH} ")
                     _run(glyph, 8.5, RGBColor.from_string(T.STATUS_HEX[value.tone]))
-                _run(p.add_run(text), 8.5, _INK_3 if text == NA else _INK)
+                _run(_nb_run(p, text), 8.5, _INK_3 if text == NA else _INK)
         self._tables += 1
         spacer = doc.add_paragraph()
         spacer.paragraph_format.space_after = Pt(6)
 
     def _figure(self, doc: DocumentObject, f: Figure) -> None:
-        width = _text_width(doc)
+        width = min(_text_width(doc), int(Inches(f.diagram.width_in)))
+        # A picture taller than the page body would be clipped and push its caption to
+        # an otherwise empty page: scale it to fit with its caption.
+        max_h = _body_height(doc) - int(Pt(48))
+        if f.diagram.width and width * f.diagram.height / f.diagram.width > max_h:
+            width = int(max_h * f.diagram.width / f.diagram.height)
         p = doc.add_paragraph()
         p.paragraph_format.keep_with_next = True
         p.paragraph_format.space_before = Pt(4)
-        p.add_run().add_picture(io.BytesIO(f.diagram.png),
-                                width=Emu(min(width, int(Inches(f.diagram.width_in)))))
+        p.add_run().add_picture(io.BytesIO(f.diagram.png), width=Emu(width))
         _alt_text(p, T.clean(f.title))
         self._figure_caption(doc.add_paragraph(style="Caption"), f)
 
+    # ─── architecture diagrams ─────────────────────────────────────
+    # Heading, summary, figure and caption are chained with keep-with-next, and part 1
+    # of a diagram is laid out to fit under them (content.first_part_budget), so they
+    # share a page.
+
     @staticmethod
-    def _figure_caption(cap: Any, f: Figure) -> None:
+    def _eyebrow(p: Any) -> None:
+        p.paragraph_format.space_after = Pt(3)
+        p.paragraph_format.keep_with_next = True
+        r = p.add_run("DESIGN SUMMARY")
+        _run(r, 7.5, _INK_3, bold=True)
+        _letter_spacing(r, 16)
+
+    @staticmethod
+    def _summary_items(container: Any, items: list[str]) -> None:
+        """Bullets with the iris square marker the PDF and the mocks use."""
+        for item in items:
+            b = container.add_paragraph()
+            b.alignment = WD_ALIGN_PARAGRAPH.LEFT
+            pf = b.paragraph_format
+            pf.left_indent = Inches(0.17)
+            pf.first_line_indent = -Inches(0.17)
+            pf.space_after = Pt(3)
+            pf.keep_with_next = True
+            pf.tab_stops.add_tab_stop(Inches(0.17))
+            marker = _run(b.add_run(GLYPH), 5.5, _IRIS)
+            _rfonts(marker._r, "Arial")
+            b.add_run("\t")
+            text = _run(_nb_run(b, T.clean(item)), 9.5, _INK)
+            _rfonts(text._r, T.OFFICE_FONT)
+
+    def _scene_figure(self, doc: DocumentObject, f: SceneFigure) -> None:
+        text_w = _text_width(doc)
+        width = min(text_w, int(Pt(f.scene.width)))
+        png = render_png(f.scene, dpi=220)
+        if f.summary_beside:
+            # Decision 3: beside the figure when it is 480 pt or narrower.
+            gap = int(Inches(0.2))
+            table = doc.add_table(rows=1, cols=2)
+            _fixed_layout(table, [width + gap, max(text_w - width - gap, int(Inches(1)))])
+            _cell_margins(table, top=0, bottom=0, left=0, right=0)
+            left, right = table.rows[0].cells
+            pic = left.paragraphs[0]
+            pic.paragraph_format.space_after = Pt(0)
+            pic.paragraph_format.keep_with_next = True
+            pic.add_run().add_picture(io.BytesIO(png), width=Emu(width))
+            _alt_text(pic, T.clean(f.title))
+            self._eyebrow(right.paragraphs[0])
+            self._summary_items(right, f.summary)
+        else:
+            if f.summary:
+                self._eyebrow(doc.add_paragraph())
+                if len(f.summary) > 3 and text_w >= int(Inches(8)):
+                    half = (len(f.summary) + 1) // 2
+                    table = doc.add_table(rows=1, cols=2)
+                    _fixed_layout(table, [text_w / 2, text_w / 2])
+                    _cell_margins(table, top=0, bottom=0, left=0, right=140)
+                    for cell, items in zip(table.rows[0].cells,
+                                           (f.summary[:half], f.summary[half:]), strict=True):
+                        cell._tc.remove(cell.paragraphs[0]._p)
+                        self._summary_items(cell, items)
+                else:
+                    self._summary_items(doc, f.summary)
+            p = doc.add_paragraph()
+            p.paragraph_format.keep_with_next = True
+            p.paragraph_format.space_before = Pt(4)
+            p.add_run().add_picture(io.BytesIO(png), width=Emu(width))
+            _alt_text(p, T.clean(f.title))
+        cap = doc.add_paragraph(style="Caption")
+        self._figure_caption(cap, f)
+        if f.note:
+            cap.paragraph_format.space_after = Pt(2)
+            cap.paragraph_format.keep_with_next = True
+            note = doc.add_paragraph()
+            note.paragraph_format.space_after = Pt(10)
+            _run(_nb_run(note, T.clean(f.note)), 8, _INK_3)
+
+    @staticmethod
+    def _figure_caption(cap: Any, f: Figure | SceneFigure) -> None:
         cap.paragraph_format.space_after = Pt(10)
-        _run(cap.add_run(T.clean(f.title)), None, _INK_3, italic=True)
+        _run(_nb_run(cap, T.clean(f.title)), None, _INK_3, italic=True)
 
     def _figure_row(self, doc: DocumentObject, row: FigureRow) -> None:
         if not row.figures:
@@ -363,9 +495,22 @@ class WordExporter:
     # ─── running header / footer ───────────────────────────────────
 
     def _header_footer(self, doc: DocumentObject, report: Report) -> None:
-        section = doc.sections[0]
-        section.different_first_page_header_footer = True
-        right = Emu(_text_width(doc))
+        """The running header and footer on every section; each gets its own copy so
+        the right-aligned text sits at that section's margin (landscape sections are
+        wider)."""
+        for i, section in enumerate(doc.sections):
+            if i:
+                section.header.is_linked_to_previous = False
+                section.footer.is_linked_to_previous = False
+                section.different_first_page_header_footer = False
+            else:
+                section.different_first_page_header_footer = True
+            self._section_header_footer(section, report)
+
+    @staticmethod
+    def _section_header_footer(section: Any, report: Report) -> None:
+        right = Emu(int(section.page_width) - int(section.left_margin or 0)
+                    - int(section.right_margin or 0))
         hp = section.header.paragraphs[0]
         hp.text = ""
         _right_tab_only(hp, right)
@@ -384,9 +529,6 @@ class WordExporter:
         _simple_field(fp, "PAGE")
         _run(fp.add_run(" of "), 8, _INK_3)
         _simple_field(fp, "NUMPAGES")
-        for extra in doc.sections[1:]:  # template sections inherit the first one's
-            extra.header.is_linked_to_previous = True
-            extra.footer.is_linked_to_previous = True
 
 
 # ─── helpers: layout ──────────────────────────────────────────────────────
@@ -552,6 +694,44 @@ def _lang(style: Any, tag: str) -> None:
     lang = OxmlElement("w:lang")
     lang.set(qn("w:val"), tag)
     r_pr.append(lang)
+
+
+#: A hyphenated token this short (``Table 5-2``, ``X-Play``, ``en-pc02``,
+#: ``md-pc01.demo.local``) never breaks at its hyphen; longer ones (cluster names) may.
+_NB_TOKEN_MAX = 24
+_TOKEN = re.compile(r"\S+")
+_INNER_HYPHEN = re.compile(r"\w-\w")
+
+
+def _nb_hyphens(text: str) -> str:
+    """`text` with the hyphens of short hyphenated tokens as U+2011 markers."""
+    def keep(m: re.Match[str]) -> str:
+        tok = m.group(0)
+        if len(tok) <= _NB_TOKEN_MAX and _INNER_HYPHEN.search(tok):
+            return tok.replace("-", "\u2011")
+        return tok
+    return _TOKEN.sub(keep, text)
+
+
+def _nb_run(paragraph: Any, text: str) -> Any:
+    """A run with `text`, its short hyphenated tokens joined by Word's non-breaking
+    hyphen (``w:noBreakHyphen``), so "Table 5-2" or "en-pc02" never split at a line end."""
+    run = paragraph.add_run()
+    for i, part in enumerate(_nb_hyphens(text).split("\u2011")):
+        if i:
+            run._r.append(OxmlElement("w:noBreakHyphen"))
+        if part:
+            t = OxmlElement("w:t")
+            t.set(qn("xml:space"), "preserve")
+            t.text = part
+            run._r.append(t)
+    return run
+
+
+def _body_height(doc: DocumentObject) -> int:
+    s = doc.sections[-1]
+    return (int(s.page_height or Inches(11)) - int(s.top_margin or 0)
+            - int(s.bottom_margin or 0))
 
 
 def _run(run: Any, size: float | None, color: RGBColor, bold: bool = False,
