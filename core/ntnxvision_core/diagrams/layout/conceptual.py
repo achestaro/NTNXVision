@@ -972,6 +972,28 @@ def _best(model: ConceptualModel, sites: list[Site], parts: list[list[Site]], pa
     return sc, False
 
 
+def _split(model: ConceptualModel, sites: list[Site]) -> tuple[list[Site], list[Site]]:
+    """Split a part that does not fit: its last linked group moves to a new part when
+    the part holds several (paired AZs stay together), else its last site."""
+    parent = {s.id: s.id for s in sites}
+
+    def root(i: str) -> str:
+        while parent[i] != i:
+            i = parent[i]
+        return i
+
+    for lk in model.links:
+        if lk.a in parent and lk.b in parent:
+            ra, rb = root(lk.a), root(lk.b)
+            if ra != rb:
+                parent[max(ra, rb)] = min(ra, rb)
+    last = root(sites[-1].id)
+    move = [s for s in sites if root(s.id) == last]
+    if len(move) == len(sites):
+        return sites[:-1], sites[-1:]
+    return [s for s in sites if root(s.id) != last], move
+
+
 def layout(model: ConceptualModel, page: Page | None = None, refs: Refs | None = None,
            first_budget: Budget | None = None) -> list[Scene]:
     """Scenes (parts) for the model. Every part fits `page.max_h`, and part 1 fits
@@ -992,7 +1014,8 @@ def layout(model: ConceptualModel, page: Page | None = None, refs: Refs | None =
     while pi < len(parts):
         _, ok = _best(model, parts[pi], parts, page, refs, limit(pi), "probe")
         if not ok and len(parts[pi]) > 1:
-            parts = parts[:pi] + [parts[pi][:-1], parts[pi][-1:]] + parts[pi + 1:]
+            keep, move = _split(model, parts[pi])
+            parts = parts[:pi] + [keep, move] + parts[pi + 1:]
             continue
         pi += 1
     # Pass 2: lay out with the final part numbers (reference boxes name them).
