@@ -64,3 +64,24 @@ def test_crossing_budget(design_envs: dict[str, Any], name: str) -> None:
         for sc in t.layout(t.build_model(env), t.page):
             assert sc.meta.get("hops", 0) <= budget, (tid, sc.id, sc.meta.get("hops"))
             assert check_scene(sc) == [], sc.id
+
+
+@pytest.mark.parametrize("name", ["small", "medium", "enterprise", "xlarge", "large1"])
+def test_report_figures_cross_nothing(design_envs: dict[str, Any], name: str) -> None:
+    """In the report (part 1 fitted under its summary), no connector of the overview,
+    the management plane or the DR design crosses another: lanes take the side of the
+    column with fewer gutter flows, trunks from one card nest by where they head, and a
+    zone's drops leave its bottom edge in the order of their targets. (Where two buses
+    interleave by nature, as on pc01 and multi3, `test_crossing_budget` bounds the hops.)"""
+    from ntnxvision_core.exporters import ExportOptions
+    from ntnxvision_core.exporters.content import SceneFigure, build_report
+
+    report = build_report(design_envs[name], ExportOptions(), "x")
+    for ch in report.chapters:
+        for s in ch.sections:
+            for b in s.blocks:
+                if isinstance(b, SceneFigure) and b.scene.type in ("conceptual", "dr",
+                                                                    "management"):
+                    sc = b.scene
+                    assert not sc.meta.get("hops"), (sc.id, sc.meta.get("hops"))
+                    assert R.crossings(sc.edges) == [], sc.id

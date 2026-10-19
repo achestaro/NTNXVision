@@ -362,6 +362,33 @@ def _on_last_run(e: Edge, lab: EdgeLabel, others: list[EdgeLabel]) -> EdgeLabel:
                      background=lab.background)
 
 
+def _down_sides(m: DrModel, sites: list[DrSite], pos: dict[str, int],
+                gutter: dict[int, list[DrFlow]], groups: list[_Group],
+                row_of: dict[str, int], lanes_left: dict[str, list[DrFlow]]
+                ) -> dict[str, str]:
+    """The side ("L" or "R") of each column the trunks to targets below run down. A
+    lane crosses every gutter flow that reaches a card below the lane's highest stub on
+    that side, so the side with fewer such flows wins (right on a tie); a column with
+    flows between its own cards keeps the left for their lanes."""
+    out: dict[str, str] = {}
+    for s in sites:
+        mine = [g for g in groups if g.site == s.id]
+        rows = [row_of[c] for g in mine for f in g.flows for c in (f.a, f.b)
+                if c in row_of and _endpoint_site(m, c, "") == s.id]
+        if not rows or lanes_left[s.id]:
+            out[s.id] = "R"
+            continue
+        top = min(rows)
+
+        def hits(gi: int, sid: str = s.id, top: int = top) -> int:
+            return sum(1 for f in gutter.get(gi, []) for c in (f.a, f.b)
+                       if _endpoint_site(m, c, "") == sid and row_of.get(c, -1) > top)
+
+        right, left = hits(pos[s.id]), hits(pos[s.id] - 1)
+        out[s.id] = "L" if left < right else "R"
+    return out
+
+
 # ─── one part ──────────────────────────────────────────────────────────
 
 
@@ -443,12 +470,15 @@ def _layout_part(m: DrModel, sites: list[DrSite], parts: list[list[DrSite]], pag
         lane_w[s.id] = max((label_block(_intra_lines(f), 40)[1] for f in fl), default=0.0) + 4
     avail = page.width - 2 * MX - sum(gaps)
     col_w = q(min(MAX_COL, avail / max(1, len(sites))))
+    down_side = _down_sides(m, sites, pos, gutter, groups, row_of, lanes_left)
 
     # Measure.
     def margins(s: DrSite) -> tuple[float, float]:
         left = P + len(lanes_left[s.id]) * lane_w[s.id] if lanes_left[s.id] else P
-        right = P + (down_lanes[s.id] * LANE + 5 if down_lanes[s.id] else 0)
-        return left, right
+        down = down_lanes[s.id] * LANE + 5 if down_lanes[s.id] else 0
+        if down_side[s.id] == "L":
+            return left + down, P
+        return left, P + down
 
     card_h = 0.0
     for s in sites:
@@ -518,12 +548,41 @@ def _layout_part(m: DrModel, sites: list[DrSite], parts: list[list[DrSite]], pag
                 continue
             want(ca, "L", cb.y, f.id + "|a")
             want(cb, "L", ca.y, f.id + "|b")
+    # Lanes beside a column: the trunk whose first card is highest takes the outermost
+    # lane, so no stub has to cross another trunk's lane; on a card with stubs to
+    # several trunks, the stub to the outer lane leaves highest.
+    def top_y(gi: int) -> float:
+        ys = [cards[c].y for f in groups[gi].flows for c in (f.a, f.b)
+              if c in cards and _endpoint_site(m, c, "") == groups[gi].site]
+        return min(ys, default=cols[groups[gi].site].y + cols[groups[gi].site].h)
+
+    # Trunks from one card: the one heading farther out (away from the column, on the
+    # lanes' side) takes the outer lane, so the channels can nest without a crossing.
+    # A target's x is estimated before the boxes are placed: its column, or the mean
+    # of the columns its trunks come from.
+    centre = {s.id: cols[s.id].x + cols[s.id].w / 2 for s in sites}
+    feeds: dict[str, list[float]] = {}
     for g in groups:
+        feeds.setdefault(g.target, []).append(centre[g.site])
+    target_x = {t: centre.get(t, sum(xs) / len(xs)) for t, xs in feeds.items()}
+
+    def outward(gi: int) -> float:
+        g = groups[gi]
+        return target_x[g.target] if down_side[g.site] == "R" else -target_x[g.target]
+
+    lane_rank: dict[int, tuple[int, int]] = {}  # trunk -> (rank, lanes in its column)
+    for s in sites:
+        mine_g = sorted((gi for gi, g in enumerate(groups) if g.site == s.id),
+                        key=lambda gi: (-top_y(gi), outward(gi), gi))
+        for j, gi in enumerate(mine_g):
+            lane_rank[gi] = (j, len(mine_g))
+    for gi, g in enumerate(groups):
         for f in g.flows:
             own = f.a if _endpoint_site(m, f.a, f.site_a) == g.site else f.b
             card = cards.get(own)
             if card is not None:
-                want(card, "R", 10**6, f"{f.id}|{g.target}")
+                want(card, down_side[g.site], 10**6 - lane_rank[gi][0],
+                     f"{f.id}|{g.target}")
 
     # Ports: attachments spread along each card side by the other end's y. A flow
     # between two cards on one row runs straight: it takes its slot on the busier side,
@@ -683,20 +742,14 @@ def _layout_part(m: DrModel, sites: list[DrSite], parts: list[list[DrSite]], pag
             if g.target not in targets:
                 targets[g.target] = _target(m, g.target, part_of, len(parts), in_part)
             by_target.setdefault(g.target, []).append(gi)
-        # Lanes on a column's right: the trunk whose first card is highest takes the
-        # outermost lane, so no stub has to cross another trunk's lane.
-        def top_y(gi: int) -> float:
-            ys = [cards[c].y for f in groups[gi].flows for c in (f.a, f.b)
-                  if c in cards and _endpoint_site(m, c, "") == groups[gi].site]
-            return min(ys, default=cols[groups[gi].site].y + cols[groups[gi].site].h)
-
         lane_x: dict[int, float] = {}
-        for s in sites:
-            col = cols[s.id]
-            mine_g = sorted((gi for gi, g in enumerate(groups) if g.site == s.id),
-                            key=lambda gi: (-top_y(gi), gi))
-            for j, gi in enumerate(mine_g):
-                lane_x[gi] = q(col.x + col.w - P - LANE * (len(mine_g) - 1 - j) - 1)
+        for gi, g in enumerate(groups):
+            col = cols[g.site]
+            j, n = lane_rank[gi]
+            if down_side[g.site] == "L":  # mirrored: the highest trunk outermost
+                lane_x[gi] = q(col.x + P + LANE * (n - 1 - j) + 1)
+            else:
+                lane_x[gi] = q(col.x + col.w - P - LANE * (n - 1 - j) - 1)
         labels = {gi: _target_lines(m, [g]) for gi, g in enumerate(groups)}
         n_boxes = sum(1 for t in by_target if targets[t].site is None)
         bw = q(min(BOX_W, (page.width - 2 * MX - 14 * max(0, n_boxes - 1))
@@ -729,7 +782,9 @@ def _layout_part(m: DrModel, sites: list[DrSite], parts: list[list[DrSite]], pag
         chan_top = q(site_bottom + 6 + lab_h / 2)
         trunks = []
         for gi, g in enumerate(groups):
-            stubs = tuple(sorted({(cards[c].x + cards[c].w, cards[c].y + cards[c].h / 2)
+            left = down_side[g.site] == "L"
+            stubs = tuple(sorted({(cards[c].x if left else cards[c].x + cards[c].w,
+                                   cards[c].y + cards[c].h / 2)
                                   for f in g.flows for c in (f.a, f.b) if c in cards
                                   and _endpoint_site(m, c, "") == g.site}))
             col = cols[g.site]
@@ -770,9 +825,10 @@ def _layout_part(m: DrModel, sites: list[DrSite], parts: list[list[DrSite]], pag
                 here_a = _endpoint_site(m, f.a, f.site_a) == g.site
                 src_card = cards.get(f.a if here_a else f.b)
                 if src_card is not None:
-                    yy = py(src_card, "R", f"{f.id}|{g.target}")
-                    pts = [(src_card.x + src_card.w, yy), (lx, yy), (lx, cy), (dx, cy),
-                           (dx, dy)]
+                    side = down_side[g.site]
+                    yy = py(src_card, side, f"{f.id}|{g.target}")
+                    sx = src_card.x if side == "L" else src_card.x + src_card.w
+                    pts = [(sx, yy), (lx, yy), (lx, cy), (dx, cy), (dx, dy)]
                 else:  # zone-level: from the zone's bottom edge
                     col = cols[g.site]
                     pts = [(lx, col.y + col.h), (lx, cy), (dx, cy), (dx, dy)]

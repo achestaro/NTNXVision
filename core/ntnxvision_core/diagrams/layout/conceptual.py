@@ -884,6 +884,10 @@ def _below(sc: Scene, plan: _Plan, site_nodes: dict[str, Node], page: Page,
     for sid, lst in ports.items():
         n = site_nodes[sid]
         m = len(lst)
+        # Along the bottom edge in the order of where each bus heads (its target's
+        # estimated x), so the drops of one zone never cross each other's channels.
+        lst.sort(key=lambda p: (proxy_x(groups[p[0]]) if p[1] == "src"
+                                else centre(groups[p[0]].sources[0][0]), p[0]))
         for i, (gi, role) in enumerate(lst):
             px = n.x + n.w / 2 if m == 1 else n.x + n.w * (0.1 + 0.8 * i / (m - 1))
             port_x[(gi, sid, role)] = q(px)
