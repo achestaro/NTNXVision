@@ -25,6 +25,7 @@ from ntnxvision_core.diagrams import summary as design
 from ntnxvision_core.diagrams.facts import short_name
 from ntnxvision_core.diagrams.scene import Scene
 from ntnxvision_core.exporters import diagrams
+from ntnxvision_core.exporters import sections as report_sections
 from ntnxvision_core.exporters.diagrams import Diagram
 from ntnxvision_core.exporters.sourcing import source_hosts, sources, with_sources
 from ntnxvision_core.exporters.tables import Ctx
@@ -1177,6 +1178,9 @@ class _Builder:
             figs = self.design_figures["conceptual"]
 
             def name_figure(p: Paragraph = xref, fs: list[SceneFigure] = figs) -> None:
+                if not fs[0].label:  # Logical Design left out of this report
+                    ch.blocks.remove(p)
+                    return
                 first, last = fs[0].label.rstrip("."), fs[-1].label.rstrip(".")
                 which = (f"{first} (Solution Conceptual Overview, Logical Design chapter) "
                          "draws" if len(fs) == 1 else
@@ -1405,11 +1409,16 @@ def build_report(env: Environment, opts: Any, eyebrow: str) -> Report:
     for name in _ORDER:
         build: Callable[[], Chapter | None] = getattr(b, name)
         ch = build()
-        if ch is None or ch.empty or not opts.includes(ch.group):
+        if ch is None or ch.empty or not _included(opts, ch):
             continue
         ch.blocks = [blk for blk in ch.blocks
                      if not (isinstance(blk, Paragraph) and not blk.text)]
         chapters.append(ch)
+    # Built in the default order (later chapters refer to earlier ones' figures), then
+    # arranged; numbering and cross references follow the arranged order.
+    if (requested := getattr(opts, "section_order", None)) is not None:
+        pos = report_sections.rank(requested)
+        chapters.sort(key=lambda c: pos.get(c.key, len(pos)))
     _number(chapters)
     for finalize in b.finalizers:
         finalize()
@@ -1429,6 +1438,12 @@ def build_report(env: Environment, opts: Any, eyebrow: str) -> Report:
         prepared_for=opts.prepared_for,
         author=opts.author,
     )
+
+
+def _included(opts: Any, ch: Chapter) -> bool:
+    """The chapter's group and the chapter itself are selected (`ExportOptions`)."""
+    check = getattr(opts, "includes_chapter", None)
+    return check(ch.key, ch.group) if check else bool(opts.includes(ch.group))
 
 
 def _number(chapters: list[Chapter]) -> None:

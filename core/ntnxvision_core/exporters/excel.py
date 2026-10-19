@@ -27,6 +27,7 @@ from openpyxl.utils import get_column_letter
 from openpyxl.worksheet.hyperlink import Hyperlink
 from openpyxl.worksheet.worksheet import Worksheet
 
+from ntnxvision_core.exporters import sections as report_sections
 from ntnxvision_core.exporters import tables as T
 from ntnxvision_core.exporters import theme as TH
 from ntnxvision_core.exporters.csvsafe import TRIGGERS
@@ -122,7 +123,7 @@ class ExcelExporter:
         overview.title = "Overview"
         self._pc_config_sheet(wb, env)
         written: dict[str, str] = {}
-        for spec in _SPECS:
+        for spec in sheet_specs(opts):
             sheet = self._spec_sheet(wb, env, spec, ctx)
             if sheet:
                 written[spec.type] = sheet
@@ -284,7 +285,9 @@ class ExcelExporter:
             cell.alignment = _RIGHT if header == "Count" else _INDENT if ci == 3 else _LEFT
         row += 1
         notes = env.collection_notes or {}
-        for spec in _SPECS:
+        # The index follows the sheets' order; excluded types are listed last.
+        index = sheet_specs(opts)
+        for spec in [*index, *(s for s in _SPECS if s not in index)]:
             count = len(spec.items(env))
             sheet = written.get(spec.type)
             ws.cell(row=row, column=1, value=spec.label).font = _BODY_FONT
@@ -296,6 +299,9 @@ class ExcelExporter:
                 link.value = sheet
                 link.hyperlink = Hyperlink(ref=link.coordinate, location=f"'{sheet}'!A1")
                 link.font = Font(name=_FONT, size=10, color=TH.IRIS, underline="single")
+            elif not sheet_included(opts, spec):
+                link.value = "Not included in this export"
+                link.font = _NA_FONT
             else:
                 link.value = _absent(spec, notes, is_pe)
                 link.font = _NA_FONT
@@ -541,6 +547,30 @@ def _display(value: Any) -> str:
     if isinstance(value, int) and not isinstance(value, bool):
         return f"{value:,}"
     return str(value)
+
+
+def sheet_included(opts: Any, spec: T.TableSpec) -> bool:
+    """Whether the export's chapter selection keeps this object sheet (summary sheets
+    and sheets of no section are always kept)."""
+    section = report_sections.SHEET_SECTION.get(spec.type)
+    chapters = getattr(opts, "chapters", None)
+    if section is None or chapters is None:
+        return True
+    return section in chapters
+
+
+def sheet_specs(opts: Any) -> list[T.TableSpec]:
+    """The object sheets to write, in order: the workbook order by default; with a
+    custom section order, grouped by section in that order (workbook order within a
+    section). Sheets of excluded sections are dropped."""
+    specs = [s for s in _SPECS if sheet_included(opts, s)]
+    requested = getattr(opts, "section_order", None)
+    if requested is None:
+        return specs
+    pos = report_sections.rank(requested)
+    last = len(pos)
+    return sorted(specs, key=lambda s: pos.get(
+        report_sections.SHEET_SECTION.get(s.type, ""), last))
 
 
 def _absent(spec: T.TableSpec, notes: dict[str, str], is_pe: bool) -> str:

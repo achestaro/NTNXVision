@@ -234,6 +234,24 @@ def test_export_with_missing_template_reports_an_error(two_snapshots: Any,
     assert "word" in res["errors"] and res["paths"].get("excel")
 
 
+def test_report_sections_and_custom_order_export(two_snapshots: Any, data_dir: Path) -> None:
+    from docx import Document
+
+    path = two_snapshots[0]["snapshot_path"]
+    got = sc._m_report_sections(None, {"snapshot": path})["sections"]
+    assert got[0] == {"id": "executive_summary", "available": True, "hint": None}
+    assert got[-1]["id"] == "appendix"
+    res = sc._m_export(None, {
+        "snapshot": path, "formats": ["word"], "export_dir": str(data_dir),
+        "chapters": ["executive_summary", "networking", "workloads", "bogus"],
+        "section_order": ["networking", "workloads", "unknown"],
+    })
+    assert not res["errors"]
+    heads = [p.text for p in Document(res["paths"]["word"]).paragraphs
+             if p.style is not None and p.style.name == "Heading 1"]
+    assert heads == ["1. Executive Summary", "2. Networking", "3. Workloads"]
+
+
 def test_rename_delete_clear(two_snapshots: Any, data_dir: Path) -> None:
     a, b = (s["snapshot_path"] for s in two_snapshots)
     renamed = sc._m_rename_snapshot(None, {"snapshot": b, "new_name": "baseline"})
