@@ -38,6 +38,7 @@ from docx.shared import Emu, Inches, Pt, RGBColor
 
 from ntnxvision_core.diagrams.render.png import render_png
 from ntnxvision_core.exporters import theme as T
+from ntnxvision_core.exporters import wordcols
 from ntnxvision_core.exporters.content import (
     Bullets,
     Chapter,
@@ -349,7 +350,9 @@ class WordExporter:
         table.alignment = WD_TABLE_ALIGNMENT.LEFT
         _table_borders(table, bottom=T.RULE, inside_h=T.RULE_2)
         _cell_margins(table, top=45, bottom=45, left=85, right=85)
-        _fixed_layout(table, _column_widths(t, width))
+        cols = _column_plan(t, width)
+        _fixed_layout(table, [w * 12700 for w in cols.widths])
+        size = cols.font_pt
 
         header = table.rows[0]
         _repeat_header(header)
@@ -363,7 +366,8 @@ class WordExporter:
             p.paragraph_format.space_after = Pt(0)
             p.paragraph_format.keep_with_next = True
             p.alignment = WD_ALIGN_PARAGRAPH.RIGHT if align == "R" else WD_ALIGN_PARAGRAPH.LEFT
-            _run(p.add_run(text), 8.5, _INK_2, bold=True)
+            # Long header words may wrap after ":" or "/" instead of widening the column.
+            _run(p.add_run(wordcols.header_breaks(text)), size, _INK_2, bold=True)
 
         for ri, row in enumerate(t.rows):
             tr = table.add_row()
@@ -379,8 +383,9 @@ class WordExporter:
                 text = cell_text(value, head)
                 if isinstance(value, Status):
                     glyph = p.add_run(f"{GLYPH} ")
-                    _run(glyph, 8.5, RGBColor.from_string(T.STATUS_HEX[value.tone]))
-                _run(p.add_run(text), 8.5, _INK_3 if text == NA else _INK)
+                    _run(glyph, size, RGBColor.from_string(T.STATUS_HEX[value.tone]))
+                shown = wordcols.host_breaks(text) if cols.break_hosts else text
+                _run(p.add_run(shown), size, _INK_3 if text == NA else _INK)
         self._tables += 1
         spacer = doc.add_paragraph()
         spacer.paragraph_format.space_after = Pt(6)
@@ -562,55 +567,17 @@ def _text_width(doc: DocumentObject) -> int:
 #: Table text size (pt) and cell padding (left + right margins, pt) in `_table`.
 TABLE_PT = 8.5
 CELL_PAD_PT = 170 / 20
-#: Room on top of the measured width: Word's Calibri is measured with the bundled
-#: Figtree (which is wider), plus a margin for Word's own rounding and kerning.
-WORD_SLACK = 1.08
-#: The longest single word a column must hold whole (pt); longer ones may wrap.
-MAX_WORD_PT = 200.0
-#: A column's natural width is capped (pt): long free text wraps.
-MAX_NATURAL_PT = 300.0
 
 
-def _text_pt(text: str, bold: bool = False) -> float:
-    from ntnxvision_core.diagrams import text as tx
-
-    return tx.natural(text, TABLE_PT, bold) * WORD_SLACK
-
-
-def _column_widths(t: Table, width: int) -> list[float]:
-    """Column widths (EMU), measured with real font metrics: content-sized when the
-    table is narrow, spread across the text width otherwise.
-
-    No column is narrower than its longest word (a cluster name, a hostname, a status),
-    so Word wraps between words and never breaks "NYC-PROD-01" at its hyphen. When even
-    those minimums do not fit, the Cluster column keeps its minimum and the others
-    share what is left."""
-    pt = 12700  # EMU per point
-    pad = CELL_PAD_PT * pt
-    glyph = Inches(0.13)
-    natural, minimum = [], []
-    for i, header in enumerate(t.headers):
-        texts = [cell_text(r[i], header) for r in t.rows[:250]]
-        extra = glyph if any(isinstance(r[i], Status) for r in t.rows[:250]) else 0
-        widest = max([_text_pt(x) for x in texts] + [_text_pt(header, True)], default=0.0)
-        natural.append(min(widest, MAX_NATURAL_PT) * pt + pad + extra)
-        words = [(w, False) for x in texts for w in x.split()] + \
-            [(w, True) for w in header.split()]
-        longest = max((_text_pt(w, b) for w, b in words), default=0.0)
-        minimum.append(min(longest, MAX_WORD_PT) * pt + pad + extra)
-    natural = [max(n, m) for n, m in zip(natural, minimum, strict=True)]
-    total = sum(natural)
-    if total <= width:
-        return natural if total < width * 0.62 else [w * width / total for w in natural]
-    floor = sum(minimum)
-    if floor >= width:
-        first = 1 if t.headers and t.headers[0] == "Cluster" else 0
-        keep = sum(minimum[:first])
-        rest = sum(minimum[first:])
-        scale = max(0.0, width - keep) / rest if rest else 1.0
-        return minimum[:first] + [m * scale for m in minimum[first:]]
-    spare, flex = width - floor, total - floor
-    return [m + (n - m) * spare / flex for n, m in zip(natural, minimum, strict=True)]
+def _column_plan(t: Table, width: int) -> wordcols.Plan:
+    """Widths (pt) and font size for a report table `width` EMU wide (`wordcols`)."""
+    columns = [(header, [cell_text(r[i], header) for r in t.rows])
+               for i, header in enumerate(t.headers)]
+    glyph = Inches(0.13) / 12700
+    extras = [glyph if any(isinstance(r[i], Status) for r in t.rows) else 0.0
+              for i in range(len(t.headers))]
+    return wordcols.plan(columns, width / 12700, size=TABLE_PT, pad=CELL_PAD_PT,
+                         extras=extras)
 
 
 def _fixed_layout(table: Any, widths: list[float]) -> None:

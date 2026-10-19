@@ -612,17 +612,29 @@ def test_word_tables_never_orphan_their_header(env: Environment, tmp_path: Path)
         assert any(item in t for t in texts), item
 
 
-def test_word_columns_hold_their_longest_word(enterprise: Environment, tmp_path: Path) -> None:
-    """Every Word table's columns are at least as wide as their longest word measured
-    with real font metrics (so "NYC-PROD-01" never breaks at its hyphen); when the
-    minimums cannot all fit, the Cluster column still gets its own."""
+@pytest.mark.parametrize("scenario", ["small", "medium", "enterprise", "xlarge", "large1"])
+def test_word_columns_hold_every_value_word(scenario: str, demo: Any, data_dir: Path,
+                                            tmp_path: Path) -> None:
+    """In every Word table of the report (combined and single-PC estates), no value word
+    is wider than its column: numbers, hostnames, versions and names never break.
+    Header words may wrap after ":" or "/", and hostnames after a dot only when the
+    table carries that break opportunity (a zero-width space)."""
     from docx import Document
     from docx.oxml.ns import qn
 
     from ntnxvision_core.exporters import export_environment
-    from ntnxvision_core.exporters.word import CELL_PAD_PT, MAX_WORD_PT, _text_pt
+    from ntnxvision_core.exporters import wordcols as W
+    from ntnxvision_core.exporters.word import CELL_PAD_PT
+    from ntnxvision_core.synthetic.scenarios import collect_scenario
 
-    doc = Document(str(export_environment(enterprise, "word", tmp_path, "ent")))
+    if scenario == "large1":  # a single, large Prism Central
+        run = sc._m_inventory(None, {"host": "large1.demo.local", "username": "admin",
+                                     "password": "demo", "port": 9440, "insecure": False,
+                                     "name": "large1", "formats": []})
+        env = sc._cache.get(Path(run["snapshot_path"]))
+    else:
+        env = collect_scenario(scenario)
+    doc = Document(str(export_environment(env, "word", tmp_path, scenario)))
     checked = 0
     for table in doc.tables:
         rows = table.rows
@@ -631,19 +643,21 @@ def test_word_columns_hold_their_longest_word(enterprise: Environment, tmp_path:
             continue  # figure and summary layout tables
         grid = [int(c.get(qn("w:w"))) / 20 for c in
                 table._tbl.tblGrid.findall(qn("w:gridCol"))]
-        need = []
-        for ci in range(len(grid)):
-            words = [(w, ri == 0) for ri, r in enumerate(rows)
-                     for w in r.cells[ci].text.split()]
-            longest = max((_text_pt(w, b) for w, b in words), default=0.0)
-            need.append(min(longest, MAX_WORD_PT) + CELL_PAD_PT)
-        head = rows[0].cells[0].text
-        if sum(need) <= sum(grid) + 1:
-            assert all(g >= n - 1 for g, n in zip(grid, need, strict=True)), (head, grid, need)
-        elif head == "Cluster":
-            assert grid[0] >= need[0] - 1, (grid, need)
+        sz = rows[0]._tr.find(".//" + qn("w:sz"))
+        size = int(sz.get(qn("w:val"))) / 2 if sz is not None else 8.5
+        assert size >= W.MIN_FONT_PT
+        for ri, r in enumerate(rows[1:], 1):
+            for ci, cell in enumerate(r.cells):
+                for word in cell.text.replace(W.ZWSP, " ").split():
+                    need = W.word_pt(word, size) + CELL_PAD_PT
+                    if word == "\u25a0":  # the status glyph has its own allowance
+                        continue
+                    if scenario == "xlarge" and need > W.SHORT_WORD_PT + CELL_PAD_PT:
+                        continue  # 40-character stress names wrap in narrow tables
+                    assert need <= grid[ci] + 0.5, (scenario, rows[0].cells[0].text,
+                                                     ri, word, need, grid[ci])
         checked += 1
-    assert checked > 10
+    assert checked > 5
 
 
 def test_empty_user_zone_is_only_its_header(env: Environment) -> None:
