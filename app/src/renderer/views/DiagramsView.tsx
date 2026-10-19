@@ -315,6 +315,17 @@ export function DiagramsView({ snapshot: snapProp, type: typeProp, part: partPro
   }, [dirty, dirtyWhat]);
   useEffect(() => () => void window.ntnx.setUnsavedChanges({ dirty: false }).catch(() => undefined), []);
   const snap = all.find((s) => s.path === snapPath);
+  /**
+   * Baseline for "Compare changes": the snapshot the edits were made on (carried forward
+   * from), else the newest older snapshot of the same source.
+   */
+  const compareBaseline = useMemo(() => {
+    const from = detail?.carried_from;
+    const exact = from && all.find((s) => s.path !== snapPath && ((from.snapshot_id && s.snapshot_id === from.snapshot_id) || (!from.snapshot_id && s.name === from.name)));
+    if (exact) return exact.path;
+    const when = Date.parse(snap?.collected_at ?? '');
+    return all.find((s) => s.path !== snapPath && s.source === snap?.source && Date.parse(s.collected_at ?? '') <= when)?.path;
+  }, [detail, all, snapPath, snap]);
 
   useEffect(() => {
     if (selected && view && !laying.current && !outline.has(selected)) setSelected(null);
@@ -562,7 +573,7 @@ export function DiagramsView({ snapshot: snapProp, type: typeProp, part: partPro
               title={`The collected data changed since this diagram was edited (${fmtDay(detail?.saved_at)}).`}
               actions={
                 <>
-                  <Button size="sm" onClick={() => snapPath && navigate({ screen: 'compare', current: snapPath })}>
+                  <Button size="sm" disabled={!compareBaseline} title={compareBaseline ? undefined : 'No older snapshot of this source to compare with.'} onClick={() => snapPath && compareBaseline && navigate({ screen: 'compare', baseline: compareBaseline, current: snapPath })}>
                     Compare changes
                   </Button>
                   <Button size="sm" onClick={() => void save(dirty ? ops : savedOps)} disabled={busy}>
