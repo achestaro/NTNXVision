@@ -57,8 +57,8 @@ from ..dr import (
 from ..facts import short_name
 from ..model import Repl
 from ..scene import Node, Scene, Style, q
+from . import parts as parts_mod
 from .conceptual import Page, Refs, _deoverlap
-from .parts import group
 
 MX = 0.5
 TOP = 5.0
@@ -122,7 +122,7 @@ def plan_parts(m: DrModel, per: int = PER_PART) -> list[list[DrSite]]:
     ids = [s.id for s in m.sites]
     pairs = [_ends(m, f) for f in m.flows]
     by_id = {s.id: s for s in m.sites}
-    return [[by_id[i] for i in p] for p in group(ids, pairs, per) if p] or [[]]
+    return [[by_id[i] for i in p] for p in parts_mod.plan(ids, pairs, per) if p] or [[]]
 
 
 def _lane_order(spans: list[tuple[float, float]]) -> list[int]:
@@ -690,15 +690,6 @@ def _caption(m: DrModel, sites: list[DrSite], part: tuple[int, int]) -> str:
         "type and RPO."
 
 
-def _split(m: DrModel, sites: list[DrSite]) -> tuple[list[DrSite], list[DrSite]]:
-    ids = [s.id for s in sites]
-    comps = group(ids, [_ends(m, f) for f in m.flows], len(ids))
-    if len(comps) > 1:
-        move = set(comps[-1])
-        return [s for s in sites if s.id not in move], [s for s in sites if s.id in move]
-    return sites[:-1], sites[-1:]
-
-
 def _best(m: DrModel, sites: list[DrSite], parts: list[list[DrSite]], page: Page,
           limit: float, sid: str) -> tuple[Scene, bool]:
     """The first rung that fits: every card; unprotected clusters in one card; then
@@ -719,22 +710,22 @@ def layout(model: DrModel, page: Page | None = None, refs: Refs | None = None,
     page = page or Page()
     if not model.sites:
         return []
-    parts = plan_parts(model)
+    by_id = {s.id: s for s in model.sites}
 
     def limit(pi: int, width: float) -> float:
         if pi == 0 and first_budget is not None:
             return min(page.max_h, first_budget(width))
         return page.max_h
 
-    pi = 0
-    while pi < len(parts):
-        probe = _layout_part(model, parts[pi], parts, page, 0, "probe")
-        ok = _best(model, parts[pi], parts, page, limit(pi, probe.width), "probe")[1]
-        if not ok and len(parts[pi]) > 1:
-            keep, move = _split(model, parts[pi])
-            parts = parts[:pi] + [keep, move] + parts[pi + 1:]
-            continue
-        pi += 1
+    def fits(ids: list[str], pi: int, plan: list[list[str]]) -> bool:
+        sites = [by_id[i] for i in ids]
+        grid = [[by_id[i] for i in p] for p in plan]
+        probe = _layout_part(model, sites, grid, page, 0, "probe")
+        return _best(model, sites, grid, page, limit(pi, probe.width), "probe")[1]
+
+    pairs = [_ends(model, f) for f in model.flows]
+    parts = [[by_id[i] for i in p] for p in
+             parts_mod.fit([s.id for s in model.sites], pairs, PER_PART, fits) if p]
     scenes: list[Scene] = []
     for pi, sites in enumerate(parts):
         sid = "dr" if len(parts) == 1 else f"dr-{pi + 1}"

@@ -51,8 +51,8 @@ from ..management import (
     per_pcvm,
 )
 from ..scene import Node, Scene, Style, q
+from . import parts as parts_mod
 from .conceptual import Budget, Page, Refs
-from .parts import group
 
 MX = 0.5
 TOP = 5.0
@@ -591,38 +591,6 @@ def _best(model: ManagementModel, sites: list[MgmtSite], parts: list[list[str]],
     return sc, False
 
 
-def _split(ids: list[str], pairs: list[tuple[str, str]]) -> tuple[list[str], list[str]]:
-    """A part that does not fit gives its last paired group to a new part (paired zones
-    stay together), or its last column when the whole part is one group."""
-    seen = _components(ids, pairs)
-    if len(seen) > 1:
-        move = seen[-1]
-        return [i for i in ids if i not in move], move
-    return ids[:-1], ids[-1:]
-
-
-def _components(ids: list[str], pairs: list[tuple[str, str]]) -> list[list[str]]:
-    adj: dict[str, set[str]] = {i: set() for i in ids}
-    for a, b in pairs:
-        if a in adj and b in adj:
-            adj[a].add(b)
-            adj[b].add(a)
-    out: list[list[str]] = []
-    seen: set[str] = set()
-    for i in ids:
-        if i in seen:
-            continue
-        stack, found = [i], set()
-        while stack:
-            n = stack.pop()
-            if n not in found:
-                found.add(n)
-                stack.extend(adj[n] - found)
-        seen |= found
-        out.append([x for x in ids if x in found])
-    return out
-
-
 def layout(model: ManagementModel, page: Page | None = None, refs: Refs | None = None,
            first_budget: Budget | None = None) -> list[Scene]:
     """Scenes (parts) for the model; every part fits `page.max_h`, part 1 also
@@ -633,34 +601,17 @@ def layout(model: ManagementModel, page: Page | None = None, refs: Refs | None =
         return []
     by_id = {s.id: s for s in model.sites}
     pairs = [(lk.a, lk.b) for lk in model.links if lk.a in by_id and lk.b in by_id]
-    parts = group([s.id for s in model.sites], pairs, PER_PART)
 
     def limit(pi: int) -> Budget:
         if pi == 0 and first_budget is not None:
             return lambda w: min(page.max_h, first_budget(w))
         return lambda _w: page.max_h
 
-    pi = 0
-    while pi < len(parts):
-        _, ok = _best(model, [by_id[i] for i in parts[pi]], parts, page, refs, limit(pi),
-                      "probe")
-        if not ok and len(parts[pi]) > 1:
-            keep_ids, move = _split(parts[pi], pairs)
-            parts = parts[:pi] + [keep_ids, move] + parts[pi + 1:]
-            continue
-        pi += 1
-    # Splits can leave small neighbouring parts: join them again where they fit.
-    pi = 0
-    while pi < len(parts) - 1:
-        joined = parts[pi] + parts[pi + 1]
-        if len(joined) <= PER_PART:
-            trial = parts[:pi] + [joined] + parts[pi + 2:]
-            _, ok = _best(model, [by_id[i] for i in joined], trial, page, refs, limit(pi),
-                          "probe")
-            if ok:
-                parts = trial
-                continue
-        pi += 1
+    def fits(ids: list[str], pi: int, plan: list[list[str]]) -> bool:
+        return _best(model, [by_id[i] for i in ids], plan, page, refs, limit(pi),
+                     "probe")[1]
+
+    parts = parts_mod.fit([s.id for s in model.sites], pairs, PER_PART, fits)
     scenes = []
     for pi, ids in enumerate(parts):
         sid = "management" if len(parts) == 1 else f"management-{pi + 1}"
