@@ -6,6 +6,31 @@ format older builds can't read. Windows shows the version as X.Y.Z.0 in Installe
 Every pull request that changes shipped code raises it with `node scripts/bump-version.mjs`
 and adds a section here (CI checks both).
 
+## 0.7.0 (2026-10-19)
+
+### Added
+- Diagrams page (Explore): open a snapshot's generated diagrams, rename, reorder, add
+  (user-added items get a dashed amber border and a USER-ADDED tag and never appear in tables)
+  and delete elements, with undo / redo, and save the edits for that snapshot's exports.
+- Saved edits are checked against the data they were made on: changed elements are flagged,
+  and edits carry automatically to the next collection of the same estate when every edit still
+  applies (otherwise the run and its email say why and the Diagrams page offers to carry them).
+  Resetting a diagram is final for later collections.
+- Edited figures keep the as-collected counts in their summary, caption and tables and add a
+  bullet saying what was changed (and which snapshot the edits came from).
+- Unsaved edits are guarded when leaving the page or closing the app.
+
+### Changed
+- Word table columns are sized from real font metrics: numbers, dates, versions, host and
+  cluster names stay on one line, header words wrap at natural break points, and long lists
+  break after whole items.
+- Word tables never leave their header alone at the foot of a page.
+- Figures go on a page of their own only when the measured summary and figure do not fit.
+
+### Fixed
+- Word summaries could drop a space after a hyphenated name and captions showed gaps around
+  hyphens; reports now use plain hyphens so names copy and search correctly.
+
 ## 0.6.0 (2026-10-19)
 
 ### Added
