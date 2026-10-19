@@ -377,6 +377,10 @@ def save_result(snapshot: Path, env: Any, type_id: str, raw_ops: Any) -> dict[st
     if not t.applies(env):
         raise E.EditError(f"This snapshot has no {t.title.lower()}")
     ops = E.clean_ops(raw_ops)
+    if not ops and type_id in load(snapshot):
+        # Undo everything, then Save: the same as Reset to generated, and as final.
+        reset(snapshot, type_id)
+        return get_result(snapshot, env, type_id)
     gen = generated(env, type_id)
     save(snapshot, type_id, ops, gen)
     return get_result(snapshot, env, type_id)

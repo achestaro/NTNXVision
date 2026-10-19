@@ -552,7 +552,7 @@ def _auto_carry(offer: dict[str, Any], snap_path: Path, env: Any) -> str | None:
             Path(str(src["path"])),
             {"name": src.get("name"), "collected_at": src.get("collected_at"),
              "snapshot_id": src.get("snapshot_id"), "auto": True},
-            snap_path, env)
+            snap_path, env, [d["type"] for d in offer["diagrams"]])
     except Exception as exc:  # noqa: BLE001 — the reports then draw the generated diagrams
         return (f"Saved diagram edits from {src.get('name')} were not applied: they could "
                 f"not be saved with this snapshot ({exc}). The reports draw the generated "
@@ -1191,18 +1191,41 @@ def _carry_offer(key: str | None, collected_at: Any, exclude: Path | None, env: 
         return None
     previous_failed = (diagram_store.markers(Path(str(earlier[0]["path"])))
                        .get("carry_failed_from") or {})
+    # Per diagram type: the first earlier snapshot with edits of that type, unless one
+    # in between reset that type (resetting one diagram never blocks another's edits).
+    found: dict[str, dict[str, Any]] = {}
+    open_types = set(_diagram_types())
     for meta in earlier:
+        if not open_types:
+            break
         src = Path(str(meta["path"]))
-        if diagram_store.load(src):
-            report = [r for r in diagram_store.carry_report(src, env) if r["edits"]]
-            if not report:
-                return None
-            sid = meta.get("snapshot_id")
-            return {"snapshot": snapstore.info_from_meta(meta), "diagrams": report,
-                    "repeat": bool(sid) and previous_failed.get("snapshot_id") == sid}
-        if diagram_store.markers(src).get("reset"):
-            return None
-    return None
+        entries = diagram_store.load(src)
+        resets = set(diagram_store.markers(src).get("reset", []))
+        for type_id in sorted(open_types):
+            if type_id in entries:
+                found[type_id] = meta
+            elif type_id in resets:
+                found[type_id] = {}
+        open_types -= set(found)
+    sources = [m for m in found.values() if m]
+    if not sources:
+        return None
+    # The newest source wins (one carry replays one snapshot's edits).
+    meta = max(sources, key=lambda m: collected_key(m.get("collected_at")))
+    types = sorted(t for t, m in found.items() if m is meta)
+    src = Path(str(meta["path"]))
+    report = [r for r in diagram_store.carry_report(src, env, types) if r["edits"]]
+    if not report:
+        return None
+    sid = meta.get("snapshot_id")
+    return {"snapshot": snapstore.info_from_meta(meta), "diagrams": report,
+            "repeat": bool(sid) and previous_failed.get("snapshot_id") == sid}
+
+
+def _diagram_types() -> list[str]:
+    from ntnxvision_core.diagrams import TYPES
+
+    return list(TYPES)
 
 
 def _m_list_diagrams(_req_id: Any, params: dict[str, Any]) -> dict[str, Any]:
