@@ -22,7 +22,7 @@ def test_ok_reports_version_counts_and_routing(demo: Any) -> None:
     assert r["vms"] == 1215
     api = r["api"]
     assert api["v4"] > api["v3"] > 0 and api["not_deployed"] >= 1  # Files not deployed
-    assert sum(api.values()) == 21
+    assert sum(api.values()) == 22
     assert r["supported_range"] == "pc.2024.1 – 7.5.1.6"
     assert "within supported range" in r["detail"]
 
