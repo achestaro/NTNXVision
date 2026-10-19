@@ -514,11 +514,10 @@ class MockApi:
             return status, payload, {}
         if path == "lifecycle/v4.0/resources/entities":
             upgrading = self.lcm.upgrading(target.host, est)
-            stamps = {k: v for (h, k), v in self.lcm.inventoried.items() if h == target.host}
 
             def entity(e: dict[str, Any]) -> dict[str, Any]:
                 key = e["cluster_uuid"] if e["cluster_uuid"] != est.pc_uuid else "pc"
-                return r.lcm_entity_v4(e, stamps.get(key), key in upgrading)
+                return r.lcm_entity_v4(e, upgrading=key in upgrading)
             return self._v4_page(est.lcm_entities, entity, path, page, limit)
         if path == "monitoring/v4.0/serviceability/alerts":
             return self._v4_page(alerts, r.alert_v4, path, page, limit)

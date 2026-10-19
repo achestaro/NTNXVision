@@ -232,12 +232,11 @@ def test_success_joined_and_upgrade_on_pc01(demo: Any) -> None:
     # Every target that ran has its own task, and the PC's own LCM is addressed too.
     assert sum(1 for t in inv.targets if t.task_id and not t.joined and not t.busy) == \
         len(inv.targets) - 2 == inv.started_count
-    # Inventoried clusters' entities carry the new inventory time; the busy one's do not.
-    stamps = {k: v for (h, k), v in _lcm(demo).inventoried.items() if h == "pc01.demo.local"}
-    assert busy[0].target_id not in stamps
-    for e in env.lcm_entities:
-        if e.cluster_uuid in stamps:
-            assert e.last_updated == stamps[e.cluster_uuid]
+    # The started and joined inventories finished before LCM was read; the busy cluster
+    # was never inventoried.
+    done = {k for (h, k), _ in _lcm(demo).inventoried.items() if h == "pc01.demo.local"}
+    assert busy[0].target_id not in done
+    assert done == {t.target_id or "pc" for t in inv.targets if t.status == "succeeded"}
     note = env.collection_notes["lcm_inventory"]
     assert "joined running inventory, succeeded" in note
     assert "skipped: upgrade in progress (AOS 7.0 to 7.3" in note
@@ -282,7 +281,7 @@ def test_failure_carries_lcm_message(demo: Any) -> None:
     _lcm(demo).script(host, outcome={"pc": "failed"}, seconds=0.1)
     env = _collect(host, lcm_inventory=FAST)
     t = _by_name(env)["Prism Central"]
-    assert t.status == "failed" and "precheck" in t.detail
+    assert t.status == "failed" and "precheck" in t.detail and "\n" not in t.detail
     assert all(x.status == "succeeded" for x in env.lcm_inventory.targets if x is not t)
     assert "Prism Central: failed" in env.collection_notes["lcm_inventory"]
 

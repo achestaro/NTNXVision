@@ -51,7 +51,7 @@ class MockLcm:
         self._ops: dict[tuple[str, str], str] = {}
         #: NTNX-Request-Id → task uuid (idempotent retries).
         self._requests: dict[str, str] = {}
-        #: (host, target key) → when its last inventory finished (entities' lastUpdatedTime).
+        #: (host, target key) → when its last inventory finished.
         self.inventoried: dict[tuple[str, str], str] = {}
         #: Every inventory POST accepted: (host, target key).
         self.started: list[tuple[str, str]] = []

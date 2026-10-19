@@ -411,7 +411,8 @@ def _short(exc: Exception) -> str:
 def _task_error(task: dict[str, Any]) -> str | None:
     for msg in task.get("errorMessages") or []:
         if isinstance(msg, dict) and _text(msg.get("message")):
-            return str(msg["message"]).strip().rstrip(".")[:300]
+            # LCM messages carry newlines and a doubled full stop ("...14607.\n.").
+            return " ".join(str(msg["message"]).split()).rstrip(". ")[:300]
     return _text(task.get("legacyErrorMessage"))
 
 
