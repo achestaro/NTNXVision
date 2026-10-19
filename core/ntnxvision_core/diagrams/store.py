@@ -54,15 +54,52 @@ def path_for(snapshot: Path) -> Path:
 # ─── file ──────────────────────────────────────────────────────────────
 
 
-def load(snapshot: Path) -> dict[str, dict[str, Any]]:
-    """The stored entries by type id ({} when there is no usable file). Entries whose
-    operations do not pass `clean_ops` are left out."""
+def _read(snapshot: Path) -> dict[str, Any]:
     try:
         doc = json.loads(path_for(snapshot).read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return {}
     if not isinstance(doc, dict) or doc.get("schema") != SCHEMA:
         return {}
+    return doc
+
+
+def markers(snapshot: Path) -> dict[str, Any]:
+    """What happened to the snapshot's edits besides the edits themselves:
+    ``reset`` (type ids the author reset to generated) and ``carry_failed_from`` (the
+    snapshot whose edits did not carry to this one: {snapshot_id, name}). The carry
+    search reads them: a reset is final, a failed carry points further back."""
+    raw = _read(snapshot).get("markers")
+    if not isinstance(raw, dict):
+        return {}
+    out: dict[str, Any] = {}
+    resets = raw.get("reset")
+    if isinstance(resets, list):
+        out["reset"] = sorted({str(t) for t in resets if isinstance(t, str)})[:MAX_ENTRIES]
+    failed = raw.get("carry_failed_from")
+    if isinstance(failed, dict):
+        out["carry_failed_from"] = {k: str(failed[k]) for k in ("snapshot_id", "name")
+                                    if isinstance(failed.get(k), str)}
+    return out
+
+
+def _set_markers(snapshot: Path, update: dict[str, Any]) -> None:
+    with _lock:
+        current = markers(snapshot)
+        current.update(update)
+        _write(snapshot, load(snapshot), {k: v for k, v in current.items() if v})
+
+
+def mark_carry_failed(snapshot: Path, source: dict[str, Any]) -> None:
+    """Record that `source`'s edits did not carry to `snapshot`."""
+    _set_markers(snapshot, {"carry_failed_from": {
+        k: str(source[k]) for k in ("snapshot_id", "name") if source.get(k)}})
+
+
+def load(snapshot: Path) -> dict[str, dict[str, Any]]:
+    """The stored entries by type id ({} when there is no usable file). Entries whose
+    operations do not pass `clean_ops` are left out."""
+    doc = _read(snapshot)
     out: dict[str, dict[str, Any]] = {}
     for type_id, entry in sorted((doc.get("diagrams") or {}).items()):
         if not isinstance(entry, dict) or not isinstance(entry.get("base_model"), dict):
@@ -75,14 +112,19 @@ def load(snapshot: Path) -> dict[str, dict[str, Any]]:
     return out
 
 
-def _write(snapshot: Path, entries: dict[str, dict[str, Any]]) -> None:
+def _write(snapshot: Path, entries: dict[str, dict[str, Any]],
+           marks: dict[str, Any] | None = None) -> None:
+    """Write the file (`marks`: None keeps the markers it has)."""
     target = path_for(snapshot)
-    if not entries:
+    marks = markers(snapshot) if marks is None else marks
+    if not entries and not marks:
         with contextlib.suppress(FileNotFoundError):
             target.unlink()
         return
-    doc = {"schema": SCHEMA, "generator": __version__,
-           "diagrams": dict(sorted(entries.items()))}
+    doc: dict[str, Any] = {"schema": SCHEMA, "generator": __version__,
+                           "diagrams": dict(sorted(entries.items()))}
+    if marks:
+        doc["markers"] = marks
     tmp = target.with_name(target.name + ".tmp")
     write_private_text(tmp, json.dumps(doc, sort_keys=True, ensure_ascii=False, indent=1))
     os.replace(tmp, target)
@@ -159,7 +201,11 @@ def restore(snapshot: Path, doc: Any) -> int:
 
 
 def reset(snapshot: Path, type_id: str) -> None:
+    """Drop the edits of `type_id` and mark it reset: later collections do not bring
+    older edits back."""
     save(snapshot, type_id, [], {})
+    resets = set(markers(snapshot).get("reset", []))
+    _set_markers(snapshot, {"reset": sorted(resets | {type_id})})
 
 
 def _now() -> str:
