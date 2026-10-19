@@ -109,6 +109,9 @@ def save(snapshot: Path, type_id: str, ops: list[dict[str, Any]],
 
 #: Most diagram entries one snapshot file may carry (imports are untrusted).
 MAX_ENTRIES = 64
+#: Largest serialised base model an imported entry may carry (a very large estate's
+#: conceptual model is a few hundred KB).
+MAX_BASE_BYTES = 2 * 1024 * 1024
 
 
 def portable(snapshot: Path) -> dict[str, Any] | None:
@@ -132,8 +135,10 @@ def restore(snapshot: Path, doc: Any) -> int:
         return 0
     entries: dict[str, dict[str, Any]] = {}
     for type_id, entry in sorted(raw.items())[:MAX_ENTRIES]:
-        if not isinstance(type_id, str) or not isinstance(entry, dict) or \
-                not isinstance(entry.get("base_model"), dict):
+        if not isinstance(type_id, str) or len(type_id) > 64 or \
+                not isinstance(entry, dict) or not isinstance(entry.get("base_model"), dict):
+            continue
+        if len(json.dumps(entry["base_model"], ensure_ascii=False)) > MAX_BASE_BYTES:
             continue
         try:
             ops = E.clean_ops(entry.get("ops"))
@@ -360,6 +365,11 @@ def carry_forward(src: Path, src_info: dict[str, Any], dst: Path, dst_env: Any,
     are reported and not stored; the target opens as stale (its base is the source's),
     so the author sees what changed under the edits."""
     report = carry_report(src, dst_env, types)
+    taken = sorted(set(load(dst)) & {item["type"] for item in report})
+    if taken:
+        titles = ", ".join(TYPES[t].title if t in TYPES else t for t in taken)
+        raise E.EditError(f"This snapshot already has saved edits ({titles}). Reset them "
+                          "before carrying other edits forward.")
     entries = load(src)
     for item in report:
         entry = entries[item["type"]]

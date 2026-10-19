@@ -89,6 +89,23 @@ def test_clean_ops_rejects_malformed_edits() -> None:
         E.clean_ops([{"op": "move", "id": "x", "index": -1}])
     with pytest.raises(E.EditError):
         E.clean_ops("not a list")
+    # Added elements: text limits apply to their name and note, and the palette and
+    # field are short text.
+    add = {"op": "add", "parent": "site:x", "field": "cards", "index": 0}
+    for bad in ({"id": "user:1", "palette": "note", "name": "n" * 201},
+                {"id": "user:1", "palette": "note", "note": "n" * 201},
+                {"id": "user:1", "palette": "note", "name": ["not", "text"]},
+                {"id": "user:1", "palette": "p" * 65},
+                {"id": "user:1", "palette": 7}):
+        with pytest.raises(E.EditError):
+            E.clean_ops([{**add, "element": bad}])
+    for field_name in ("f" * 65, "", 3, None):
+        with pytest.raises(E.EditError):
+            E.clean_ops([{**add, "field": field_name,
+                          "element": {"id": "user:1", "palette": "note"}}])
+    [ok] = E.clean_ops([{**add, "element": {"id": "user:1", "palette": "note",
+                                            "name": f" A  {EM_DASH} B ", "note": None}}])
+    assert ok["element"] == {"id": "user:1", "palette": "note", "name": "A , B", "note": None}
     with pytest.raises(E.EditError):
         E.clean_ops([{"op": "delete", "id": "x"}] * (E.MAX_OPS + 1))
     # Text is trimmed, em dashes never reach a figure, unknown element keys are dropped.
@@ -341,6 +358,30 @@ def test_restore_drops_bad_entries(tmp_path: Path, env: Environment) -> None:
     assert entry["base_hash"] == E.payload_hash("conceptual", gen)  # recomputed
     assert entry["saved_at"] is None
     assert ST.restore(snap, {"schema": "other"}) == 0
+    # A base model over 2 MB serialised is refused.
+    huge = {**gen, "padding": "x" * (ST.MAX_BASE_BYTES + 1)}
+    assert ST.restore(snap, {"schema": ST.SCHEMA, "diagrams": {"conceptual": {
+        "ops": E.clean_ops(_ops(env)), "base_model": huge}}}) == 0
+
+
+def test_stale_ignores_fields_the_base_model_lacks(snap: Path, env: Environment) -> None:
+    old = ST.generated(env, "conceptual")
+    for s in old["sites"]:  # saved by an app version without these fields
+        s.pop("cluster_count", None)
+        s.pop("node_count", None)
+    ST.save(snap, "conceptual", E.clean_ops(_ops(env)), old)
+    assert ST.get_result(snap, env, "conceptual")["stale"] is None
+
+
+def test_carry_never_overwrites_saved_edits(tmp_path: Path, env: Environment) -> None:
+    store = SnapshotStore(tmp_path)
+    old = store.save(env.model_copy(deep=True), "week1")
+    new = store.save(env.model_copy(deep=True), "week2")
+    ST.save_result(old, env, "conceptual", _ops(env))
+    ST.save_result(new, env, "conceptual", _ops(env)[:1])
+    with pytest.raises(E.EditError, match="already has saved edits"):
+        ST.carry_forward(old, {"name": "week1"}, new, env)
+    assert len(ST.load(new)["conceptual"]["ops"]) == 1
 
 
 # ─── exports ───────────────────────────────────────────────────────────
@@ -445,3 +486,140 @@ def test_sidecar_operations_and_word_export(demo: Any, data_dir: Path,
     assert sc._m_list_diagrams(None, {"snapshot": snap2})["carry"] is None
     reset = sc._m_reset_diagram(None, {"snapshot": snap2, "type": "conceptual"})
     assert not reset["edited"]
+
+
+# ─── edited figures in the reports: as collected, disclosed, paired AZs together ───
+
+
+@pytest.fixture(scope="module")
+def enterprise(_demo_state: Any) -> Environment:
+    from ntnxvision_core.synthetic import demo
+    from ntnxvision_core.synthetic.scenarios import collect_scenario
+
+    demo.reset()
+    out = collect_scenario("enterprise")
+    demo.reset()
+    return out
+
+
+def _edited(env: Environment, ops: list[dict[str, Any]]) -> Any:
+    t = TYPES["conceptual"]
+    return t.from_doc(E.apply_ops(ST.generated(env, "conceptual"), E.clean_ops(ops),
+                                  SPEC).payload)
+
+
+def _figures(env: Environment, models: dict[str, Any] | None) -> list[SceneFigure]:
+    return [b for b in _blocks(_report(env, models))
+            if isinstance(b, SceneFigure) and b.scene.type == "conceptual"]
+
+
+def test_edited_figure_keeps_collected_counts_and_discloses_the_edit(env: Environment
+                                                                     ) -> None:
+    ops = _ops(env)
+    figs = _figures(env, {"conceptual": _edited(env, ops)})
+    plain = _figures(env, None)
+    gen = ST.generated(env, "conceptual")
+    deleted = next(c for c in gen["sites"][0]["cards"] if c["id"] == ops[4]["id"])
+    # Summary bullets as collected, plus one disclosure bullet.
+    assert figs[0].summary[:-1] == plain[0].summary
+    note = figs[0].summary[-1]
+    assert note.startswith("Figure edited on the Diagrams page: ")
+    assert f"1 cluster ({deleted['name']}, {deleted['nodes']} nodes) not drawn" in note
+    assert "1 user-added item" in note and "1 renamed (" in note
+    assert "shown as SQL tier" in note and note.endswith("Counts are as collected.")
+    # The caption keeps the collected numbers and says the figure is edited.
+    assert figs[0].caption.startswith("Solution conceptual overview (edited): ")
+    assert plain[0].caption.split(": ", 1)[1] == figs[0].caption.split(": ", 1)[1]
+    # The AZ header keeps the collected counts and names what is not drawn.
+    site = figs[0].scene.node(gen["sites"][0]["id"])
+    flat = " ".join(site.text.split())
+    assert "(1 not drawn)" in flat
+    plain_site = plain[0].scene.node(gen["sites"][0]["id"])
+    assert flat.replace(" (1 not drawn)", "") == " ".join(plain_site.text.split())
+    assert all(check_scene(f.scene) == [] for f in figs)
+
+
+def test_user_cards_never_split_paired_azs(enterprise: Environment) -> None:
+    gen = ST.generated(enterprise, "conceptual")
+    a, b = next((lk["a"], lk["b"]) for lk in gen["links"]
+                if lk["a"].startswith("site:") and lk["b"].startswith("site:"))
+    ops: list[dict[str, Any]] = [
+        {"op": "add", "parent": a, "field": "cards", "index": 99,
+         "element": {"id": f"user:{i}", "palette": "storage", "name": f"Array {i}"}}
+        for i in range(4)]
+    ops.append({"op": "add", "parent": None, "field": "sites", "index": 99,
+                "element": {"id": "user:colo", "palette": "az", "name": "Colocation"}})
+    figs = _figures(enterprise, {"conceptual": _edited(enterprise, ops)})
+    part_of = {sid: i for i, f in enumerate(figs) for sid in f.scene.meta["sites"]}
+    assert part_of[a] == part_of[b]
+    for lk in gen["links"]:
+        if lk["a"] in part_of and lk["b"] in part_of:
+            assert part_of[lk["a"]] == part_of[lk["b"]], lk["id"]
+    assert all(check_scene(f.scene) == [] for f in figs)
+    assert not any("where they fit" in s for f in figs for s in f.summary)
+
+
+def test_empty_user_zone_is_only_its_header(env: Environment) -> None:
+    [scene] = _scenes(env, [{"op": "add", "parent": None, "field": "sites", "index": 99,
+                             "element": {"id": "user:az", "palette": "az", "name": "Colo"}}])
+    zone = scene.node("user:az")
+    collected = scene.node(ST.generated(env, "conceptual")["sites"][0]["id"])
+    assert zone.h < 40 < collected.h
+    assert check_scene(scene) == []
+
+
+def test_every_diagram_type_draws_the_figure_model(env: Environment,
+                                                    monkeypatch: pytest.MonkeyPatch) -> None:
+    """Each registered type's report section lays out `figure_model()` (the saved
+    edit), so a type added later cannot silently ignore the Diagrams page."""
+    import dataclasses
+
+    from ntnxvision_core.exporters import content as C
+
+    marks: dict[str, Any] = {}
+    seen: list[Any] = []
+
+    def figure_model(self: Any, dtype: Any, generated: Any) -> Any:
+        marks[dtype.id] = dtype.from_doc(dtype.to_doc(generated))
+        return marks[dtype.id]
+
+    monkeypatch.setattr(C._Builder, "figure_model", figure_model)
+    for tid, t in list(TYPES.items()):
+        def spy(model: Any, *a: Any, _real: Any = t.layout, **k: Any) -> Any:
+            seen.append(model)
+            return _real(model, *a, **k)
+        monkeypatch.setitem(TYPES, tid, dataclasses.replace(t, layout=spy))
+    build_report(env, ExportOptions(), "Report")
+    for tid, t in TYPES.items():
+        if t.applies(env):
+            assert tid in marks, f"{tid}: the report never asked for figure_model()"
+            assert any(m is marks[tid] for m in seen), f"{tid}: figure_model() not drawn"
+
+
+def test_fresh_collection_replays_saved_edits(demo: Any, data_dir: Path) -> None:
+    params = {"host": "pc01.demo.local", "username": "admin", "password": "demo",
+              "port": 9440, "insecure": False, "export_dir": str(data_dir / "exports")}
+    first = sc._m_inventory(None, {**params, "name": "week1", "formats": []})
+    got = sc._m_get_diagram(None, {"snapshot": first["snapshot_path"], "type": "conceptual"})
+    site = next(o for o in got["outline"] if o["collection"] == "sites")
+    sc._m_save_diagram(None, {"snapshot": first["snapshot_path"], "type": "conceptual",
+                              "ops": [{"op": "add", "parent": site["id"], "field": "cards",
+                                       "index": 0, "element": {
+                                           "id": "user:b", "palette": "storage",
+                                           "name": "Backup appliance"}}]})
+    sc._advance_demo("pc01.demo.local")
+    second = sc._m_inventory(None, {**params, "name": "week2", "formats": ["pdf"]})
+    entry = ST.load(Path(second["snapshot_path"]))["conceptual"]
+    assert entry["carried_from"]["auto"] and entry["carried_from"]["name"] == "week1"
+    assert not any("Saved diagram edits" in w for w in second["warnings"])
+    # An edit that no longer applies: generated diagrams, and the run says why.
+    sc._m_save_diagram(None, {"snapshot": second["snapshot_path"], "type": "conceptual",
+                              "ops": [{"op": "delete", "id": "cluster:gone"}]})
+    sc._advance_demo("pc01.demo.local")
+    third = sc._m_inventory(None, {**params, "name": "week3", "formats": ["pdf"]})
+    assert ST.load(Path(third["snapshot_path"])) == {}
+    assert any(w.startswith("Saved diagram edits from week2 were not applied: 1 of 1")
+               for w in third["warnings"])
+    path = Path(third["snapshot_path"])
+    notes = sc._diagram_notes(path, sc._cache.get(path))
+    assert notes and notes[0].startswith("Saved diagram edits from week2")

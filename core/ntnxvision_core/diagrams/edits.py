@@ -206,14 +206,22 @@ def clean_ops(raw: Any) -> list[dict[str, Any]]:
                     len(ident) > 80:
                 raise EditError(f"Edit {i + 1}: a new element id starts with {USER_PREFIX}")
             parent = op.get("parent")
-            if parent is not None and not isinstance(parent, str):
+            if parent is not None and (not isinstance(parent, str) or len(parent) > 512):
                 raise EditError(f"Edit {i + 1}: parent must be an id")
-            if not isinstance(op.get("field"), str):
-                raise EditError(f"Edit {i + 1}: field must be text")
-            out.append({"op": "add", "parent": parent, "field": op["field"],
-                        "index": _index(op.get("index"), i),
-                        "element": {k: copy.deepcopy(v) for k, v in el.items()
-                                    if k in ("id", "name", "note", "kind", "palette")}})
+            field_name = op.get("field")
+            if not isinstance(field_name, str) or not field_name or len(field_name) > 64:
+                raise EditError(f"Edit {i + 1}: field must be text of at most 64 characters")
+            palette = el.get("palette")
+            if palette is not None and (not isinstance(palette, str) or len(palette) > 64):
+                raise EditError(f"Edit {i + 1}: palette must be text of at most 64 characters")
+            element: dict[str, Any] = {"id": ident}
+            if palette is not None:
+                element["palette"] = palette
+            for key in ("name", "note"):
+                if key in el:
+                    element[key] = _text(el[key], f"Edit {i + 1} {key}", allow_none=True)
+            out.append({"op": "add", "parent": parent, "field": field_name,
+                        "index": _index(op.get("index"), i), "element": element})
             continue
         ident = op.get("id")
         if not isinstance(ident, str) or not ident or len(ident) > 512:
@@ -269,6 +277,9 @@ def apply_ops(payload: dict[str, Any], ops: list[dict[str, Any]], spec: EditSpec
             problems.append(Problem(i, op, reason))
     if spec.normalize is not None:
         spec.normalize(doc)
+    # A model type with an `edited` flag learns that an edit was replayed (captions).
+    if "edited" in doc and len(problems) < len(ops):
+        doc["edited"] = True
     return Applied(doc, problems)
 
 
@@ -390,13 +401,86 @@ def diff(old: dict[str, Any], new: dict[str, Any], spec: EditSpec) -> list[Chang
             out.append(Change(ident, "removed", _label_of(a[ident])))
         elif ident not in a:
             out.append(Change(ident, "added", _label_of(b[ident])))
-        elif a[ident] != b[ident]:
-            keys = sorted(k for k in set(a[ident]) | set(b[ident])
-                          if a[ident].get(k) != b[ident].get(k))
+        else:
+            # Only fields the old model had: a field a newer app version added to the
+            # model is not a change in the collected data.
+            keys = sorted(k for k in a[ident] if a[ident].get(k) != b[ident].get(k))
+            if not keys:
+                continue
             values = {k: [a[ident].get(k), b[ident].get(k)] for k in keys
                       if _plain(a[ident].get(k)) and _plain(b[ident].get(k))}
             out.append(Change(ident, "changed", _label_of(b[ident]), keys, values))
     return out
+
+
+def _elements(payload: dict[str, Any], spec: EditSpec
+              ) -> dict[str, tuple[dict[str, Any], Collection]]:
+    out = {}
+    for ident, slot in walk(payload, spec).items():
+        found = _find({ident: slot}, ident)
+        if found is not None:
+            out[ident] = (found[2], _collection(spec, slot.field))
+    return out
+
+
+def _named(items: list[str], limit: int = 3) -> str:
+    shown = items[:limit]
+    more = len(items) - len(shown)
+    return "; ".join(shown) + (f"; and {more:,} more" if more > 0 else "")
+
+
+def _count(n: int, one: str, many: str | None = None) -> str:
+    return f"{n:,} {one if n == 1 else (many or one + 's')}"
+
+
+def disclosure(generated: dict[str, Any], edited: dict[str, Any], spec: EditSpec
+               ) -> str | None:
+    """One design-summary bullet saying how a saved edit differs from the data:
+    elements not drawn, user-added items, renames, roles and notes set by the author.
+    None when the two models are the same."""
+    if generated == edited:
+        return None
+    gen, ed = _elements(generated, spec), _elements(edited, spec)
+    parts: list[str] = []
+    removed: dict[str, list[str]] = {}
+    owner = {i: s.parent for i, s in walk(generated, spec).items()}
+    for ident, (elem, col) in gen.items():
+        if ident in ed or ident.startswith(USER_PREFIX) or not col.delete:
+            continue
+        up = owner.get(ident)
+        if up is not None and up not in ed:  # inside a removed container: named there
+            continue
+        kind = (col.kind_of(elem) if col.kind_of else col.kind).lower()
+        name = str(elem.get(col.label) if col.label else _label_of(elem))
+        nodes = elem.get("nodes")
+        removed.setdefault(kind, []).append(
+            f"{name}, {_count(nodes, 'node')}" if isinstance(nodes, int) else name)
+    for kind, names in sorted(removed.items()):
+        many = kind[:-1] + "ies" if kind.endswith("y") else kind + "s"
+        parts.append(f"{_count(len(names), kind, many)} ({_named(names)}) not drawn")
+    user = [i for i in ed if i.startswith(USER_PREFIX)]
+    if user:
+        parts.append(_count(len(user), "user-added item"))
+    renamed, roles, notes = [], 0, 0
+    for ident, (elem, col) in ed.items():
+        if ident not in gen:
+            continue
+        before = gen[ident][0]
+        if col.label and elem.get(col.label) != before.get(col.label):
+            renamed.append(f"{before.get(col.label)} shown as {elem.get(col.label)}")
+        if col.roles and elem.get("role") != before.get("role"):
+            roles += 1
+        if col.sublabel and elem.get(col.sublabel) != before.get(col.sublabel):
+            notes += 1
+    if renamed:
+        parts.append(f"{_count(len(renamed), 'renamed', 'renamed')} ({_named(renamed)})")
+    if roles:
+        parts.append(f"{_count(roles, 'role')} set by the author")
+    if notes:
+        parts.append(f"{_count(notes, 'note')} added")
+    if not parts:
+        parts.append("elements reordered")
+    return f"Figure edited on the Diagrams page: {', '.join(parts)}. Counts are as collected."
 
 
 def touched(op: dict[str, Any]) -> set[str]:
