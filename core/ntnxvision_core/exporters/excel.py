@@ -239,8 +239,10 @@ class ExcelExporter:
             ("Prepared For", opts.prepared_for or NA),
             ("Prepared By", opts.author or "NTNXVision"),
             ("Tool Version", f"NTNXVision {env.tool_version}"),
+            # Point at the Capacity sheet only when this workbook has one.
             ("vCPU:pCPU Target", f"{targets.removeprefix('a ')} (cluster capacity "
-                                 "figures, see the Capacity sheet)"),
+                                 "figures" + (f", see the {written[T.CAPACITY.type]} sheet)"
+                                              if T.CAPACITY.type in written else ")")),
         ]
         row = self._section(ws, 7, "Report details")
         for label, value in details:
