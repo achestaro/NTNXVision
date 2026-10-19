@@ -71,6 +71,9 @@ import { e2eRun, testEnv } from './testhooks';
 import {
   asCollectionRequest,
   asCompareExportRequest,
+  asDiagramCarryRequest,
+  asDiagramOps,
+  asDiagramType,
   asExportRequest,
   asListClustersRequest,
   asMultiCollectionRequest,
@@ -673,6 +676,33 @@ ipc.handle(IPC.importSnapshotFile, (_e, path: string, onConflict: ImportConflict
     password: optStr(password, 'password', 1024) || undefined,
   }),
 );
+
+// ─── IPC handlers: diagrams (Diagrams page) ────────────────────────────
+
+ipc.handle(IPC.listDiagrams, (_e, snapshotPath: string) =>
+  sidecar.call('list_diagrams', { snapshot: snapshotPathArg(snapshotPath) }),
+);
+
+ipc.handle(IPC.getDiagram, (_e, snapshotPath: string, type: string) =>
+  sidecar.call('get_diagram', { snapshot: snapshotPathArg(snapshotPath), type: asDiagramType(type) }),
+);
+
+ipc.handle(IPC.layoutDiagram, (_e, snapshotPath: string, type: string, ops: unknown) =>
+  sidecar.call('layout_diagram', { snapshot: snapshotPathArg(snapshotPath), type: asDiagramType(type), ops: asDiagramOps(ops) }),
+);
+
+ipc.handle(IPC.saveDiagram, (_e, snapshotPath: string, type: string, ops: unknown) =>
+  sidecar.call('save_diagram', { snapshot: snapshotPathArg(snapshotPath), type: asDiagramType(type), ops: asDiagramOps(ops) }),
+);
+
+ipc.handle(IPC.resetDiagram, (_e, snapshotPath: string, type: string) =>
+  sidecar.call('reset_diagram', { snapshot: snapshotPathArg(snapshotPath), type: asDiagramType(type) }),
+);
+
+ipc.handle(IPC.carryDiagrams, (_e, raw: unknown) => {
+  const req = asDiagramCarryRequest(raw);
+  return sidecar.call('carry_diagrams', { from: req.from, to: req.to, types: req.types });
+});
 
 /** Dialog file filters: names and bare extensions only. */
 function fileFilters(v: unknown): FileFilter[] {
