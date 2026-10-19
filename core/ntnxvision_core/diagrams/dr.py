@@ -460,8 +460,7 @@ def remote_cluster_line(r: DrRemote) -> str | None:
         more = f" +{len(r.cluster_names) - 2:,}" if len(r.cluster_names) > 2 else ""
         word = "cluster" if len(r.cluster_names) == 1 else "clusters"
         return f"{word} {', '.join(names)}{more} (remote)"
-    if r.clusters:
-        return f"{fmt.plural(r.clusters, 'cluster')} (remote)"
+    # A bare count of unnamed remote clusters adds nothing the flows do not show.
     return None
 
 

@@ -22,7 +22,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from .. import fmt
+from .. import fmt, route
 from .. import text as tx
 from .. import tokens as K
 from ..build import (
@@ -381,7 +381,8 @@ def _layout_part(model: ManagementModel, plan: _Plan, page: Page, refs: Refs,
                 max((lb.x + lb.w for e in sc.edges for lb in e.labels), default=0.0))
     sc.width = q(min(page.width, right + MX))
     sc.height = q(bottom + 9 + lh + 1)
-    sc.meta = {"drawn": drawn, "summarised": summarised, "sites": [s.id for s in sites]}
+    sc.meta = {"drawn": drawn, "summarised": summarised, "sites": [s.id for s in sites],
+               "hops": sc.meta.get("hops", 0)}
     return sc
 
 
@@ -594,18 +595,27 @@ def _below(sc: Scene, model: ManagementModel, plan: _Plan, site_nodes: dict[str,
     for b in boxes.values():
         b.h = hmax
     labelled = False
-    for ti, t in enumerate(targets):
+    # One bus per remote: every source joins the bus and it drops into the box at one
+    # point (under the source when there is only one and it is above the box). Buses
+    # nest (route.nested_channels), so an outer bus's drops never cut an inner one.
+    entry: dict[str, float] = {}
+    for t in targets:
+        b = boxes[t]
+        tx_ = q(min(max(want[t], b.x + 5.5 + chip_w("REMOTE AZ") + 6), b.x + b.w - 12))
+        if len(sources[t]) == 1 and b.x + 6 <= port[(sources[t][0], t)] <= b.x + b.w - 6:
+            tx_ = port[(sources[t][0], t)]
+        entry[t] = tx_
+    spans = {t: (min([entry[t], *(port[(s, t)] for s in sources[t])]),
+                 max([entry[t], *(port[(s, t)] for s in sources[t])])) for t in targets}
+    chan_of = {t: k for k, t in enumerate(route.nested_channels(spans))}
+    for t in targets:
         b = boxes[t]
         srcs = sources[t]
-        cy = q(chan0 + CHANNEL * ti)
+        cy = q(chan0 + CHANNEL * chan_of[t])
+        tx_ = entry[t]
         for s in srcs:
             lk = next(lk for ss, tt, lk in plan.below if ss == s and tt == t)
             px = port[(s, t)]
-            # One bus per remote: every source joins the channel and drops into the box at
-            # one point (under the source when there is only one and it is above the box).
-            tx_ = q(min(max(want[t], b.x + 5.5 + chip_w("REMOTE AZ") + 6), b.x + b.w - 12))
-            if len(srcs) == 1 and b.x + 6 <= px <= b.x + b.w - 6:
-                tx_ = px
             pts = [(px, site_bottom), (tx_, b.y)] if abs(px - tx_) < 0.5 else \
                 [(px, site_bottom), (px, cy), (tx_, cy), (tx_, b.y)]
             style = K.PAIRING if lk.connected else K.PAIRING_DOWN
@@ -624,6 +634,9 @@ def _below(sc: Scene, model: ManagementModel, plan: _Plan, site_nodes: dict[str,
                                            color=K.IRIS if lk.connected else K.INK_3,
                                            background=False))
             sc.edges.append(e)
+    # Any crossing left gets a hop, so pairings that cross are never read as joined.
+    sc.meta["hops"] = sc.meta.get("hops", 0) + route.hop(
+        [e for e in sc.edges if e.data.get("kind") == "pairing"])
     return q(max(b.y + b.h for b in boxes.values()))
 
 

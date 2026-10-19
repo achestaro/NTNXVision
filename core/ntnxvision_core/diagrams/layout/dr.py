@@ -27,7 +27,7 @@ import itertools
 from collections.abc import Callable
 from dataclasses import dataclass, field
 
-from .. import fmt
+from .. import fmt, route
 from .. import text as tx
 from .. import tokens as K
 from ..build import (
@@ -56,7 +56,7 @@ from ..dr import (
 )
 from ..facts import short_name
 from ..model import Repl
-from ..scene import Node, Scene, Style, q
+from ..scene import Edge, EdgeLabel, Node, Scene, Style, q
 from . import parts as parts_mod
 from .conceptual import Page, Refs, _deoverlap
 
@@ -71,6 +71,8 @@ BEND_LANE = 8.0
 MAX_COL = 230.0
 CARD_GAP = 7.0
 LANE = 5.0  # pitch of the down lanes on a column's right
+#: Smallest pitch of the trunk channels under the columns.
+CHANNEL_MIN = 10.0
 BOX_W = 132.0
 PER_PART = 3
 MAX_UNPROTECTED = 2
@@ -125,41 +127,102 @@ def plan_parts(m: DrModel, per: int = PER_PART) -> list[list[DrSite]]:
     return [[by_id[i] for i in p] for p in parts_mod.plan(ids, pairs, per) if p] or [[]]
 
 
-def _lane_order(spans: list[tuple[float, float]]) -> list[int]:
-    """Left-to-right lane order of bent gutter edges ((y left, y right) each) with the
-    fewest crossings: a left segment crosses every lane left of its own that spans its
-    y, a right segment every lane right of its own that spans its y. Exhaustive up to 6
-    edges, else by the left y."""
-    n = len(spans)
-    base = sorted(range(n), key=lambda i: (spans[i][0], spans[i][1], i))
-    if n > 6:
-        return base
-
-    def inside(y: float, k: int) -> bool:
-        a, b = sorted(spans[k])
-        return a < y < b
-
-    best, best_n = base, None
-    for perm in itertools.permutations(base):
-        at = {k: j for j, k in enumerate(perm)}
-        crossings = 0
-        for i in range(n):
-            for k in range(n):
-                if i == k:
-                    continue
-                if at[k] < at[i] and inside(spans[i][0], k):
-                    crossings += 1
-                if at[k] > at[i] and inside(spans[i][1], k):
-                    crossings += 1
-        if best_n is None or crossings < best_n:
-            best, best_n = list(perm), crossings
-    return best
-
-
 def _strength(reps: list[Repl]) -> Style:
     s = fmt.repl_strength(reps)
     return K.REPL_SYNC if s == "sync" else K.REPL_NEARSYNC if s == "nearsync" else \
         K.REPL_ASYNC
+
+
+def _order_columns(sites: list[DrSite], items: dict[str, list[_Item]],
+                   gutter: dict[int, list[DrFlow]]) -> dict[str, list[_Item]]:
+    """Card order per column, both sides of every gutter moving: start from the
+    barycentre order (the average row of each card's partners), then improve column by
+    column (exhaustively up to 7 protected cards) on the cost of the gutters next to it:
+    3 per crossing plus 1 per bent flow. Cards without a policy stay at the bottom."""
+    order = {s.id: list(items[s.id]) for s in sites}
+    row = {it.id: r for s in sites for r, it in enumerate(order[s.id])}
+    col_of = {it.id: i for i, s in enumerate(sites) for it in order[s.id]}
+
+    def pairs(g: int) -> list[tuple[str, str]]:
+        out = []
+        for f in gutter.get(g, []):
+            a, b = (f.a, f.b) if col_of.get(f.a) == g else (f.b, f.a)
+            if col_of.get(a) == g and col_of.get(b) == g + 1:
+                out.append((a, b))
+        return out
+
+    links = {g: pairs(g) for g in gutter}
+
+    def cost(g: int) -> int:
+        es = [(row[a], row[b]) for a, b in links.get(g, [])]
+        bent = sum(1 for ra, rb in es if ra != rb)
+        cross = sum(1 for (a1, b1), (a2, b2) in itertools.combinations(es, 2)
+                    if (a1 - a2) * (b1 - b2) < 0)
+        return 3 * cross + bent
+
+    def split(i: int) -> tuple[list[_Item], list[_Item]]:
+        its = order[sites[i].id]
+        first = [it for it in its if it.cluster is not None and
+                 it.cluster.protected is not False]
+        return first, [it for it in its if it not in first]
+
+    def apply(i: int, first: list[_Item], rest: list[_Item]) -> None:
+        order[sites[i].id] = first + rest
+        for r, it in enumerate(order[sites[i].id]):
+            row[it.id] = r
+
+    # Barycentre sweeps first.
+    for _ in range(2):
+        for i in [*range(1, len(sites)), *range(len(sites) - 2, -1, -1)]:
+            first, rest = split(i)
+
+            def bary(it: _Item, i: int = i) -> float:
+                rs = [row[o] for g in (i - 1, i) for a, b in links.get(g, [])
+                      for me, o in ((a, b), (b, a)) if me == it.id]
+                return sum(rs) / len(rs) if rs else float(row[it.id])
+
+            apply(i, sorted(first, key=lambda it: (bary(it), row[it.id], it.id)), rest)
+    # Then exhaustive improvement per column.
+    for _ in range(2):
+        for i in range(len(sites)):
+            first, rest = split(i)
+            if len(first) > 7 or len(first) < 2:
+                continue
+            here = [g for g in (i - 1, i) if g in links]
+            if not here:
+                continue
+            best, best_c = list(first), None
+            for perm in itertools.permutations(first):
+                apply(i, list(perm), rest)
+                c = sum(cost(g) for g in here)
+                if best_c is None or c < best_c:
+                    best, best_c = list(perm), c
+            apply(i, best, rest)
+    return order
+
+
+def _label_sides(m: DrModel, flows: list[DrFlow], pos: dict[str, int],
+                 left_site: str) -> dict[str, str]:
+    """Which side of the gutter each flow's label goes: beside its arrowhead (the target
+    end; for a two-way flow, the end of its second cluster)."""
+    out = {}
+    for f in flows:
+        sa, sb = _ends(m, f)
+        target_left = (sb == left_site) if f.forward else (sa == left_site)
+        out[f.id] = "L" if target_left else "R"
+    return out
+
+
+def _zone(flows: list[DrFlow], row_of: dict[str, int]) -> float:
+    """Width of one side's label zone: the widest label (labels on one row stack)."""
+    widths = [label_block([flow_text(f)], GUT_BENT_MAX)[1] for f in flows]
+    if not widths:
+        return 0.0
+    rows: dict[int, float] = {}
+    for f, w in zip(flows, widths, strict=True):
+        r = row_of.get(f.a, row_of.get(f.b, -1))
+        rows[r] = rows.get(r, 0.0) + w + 2
+    return min(GUT_BENT_MAX - 20, max(max(widths), max(rows.values()) - 2))
 
 
 # ─── text ──────────────────────────────────────────────────────────────
@@ -310,62 +373,27 @@ def _layout_part(m: DrModel, sites: list[DrSite], parts: list[list[DrSite]], pag
         if p.a in pos and p.b in pos and abs(pos[p.a] - pos[p.b]) == 1:
             plan_gutter[min(pos[p.a], pos[p.b])] = (p.count, p.witness)
 
-    # Columns: card order (right columns follow their partners on the left).
+    # Columns: card order. Protected cards are ordered by the average row of their
+    # partners across the neighbouring gutters, sweeping right then left a few times
+    # (both sides move), so most flows run straight and the rest cross little; cards
+    # without a policy stay at the bottom.
     items = {s.id: _items(s, rung >= 1) for s in sites}
-    row_of: dict[str, int] = {}
-    for i, s in enumerate(sites):
-        its = items[s.id]
-        if i > 0 and (i - 1) in gutter:
-            def bary(it: _Item, i: int = i) -> float:
-                rows = [row_of[other] for f in gutter[i - 1] for me, other in
-                        ((f.a, f.b), (f.b, f.a)) if me == it.id and other in row_of]
-                return sum(rows) / len(rows) if rows else 10**6
-            first = [it for it in its if it.cluster is not None and
-                     it.cluster.protected is not False]
-            rest = [it for it in its if it not in first]
-            # Linked cards take their partners' row when free (so edges run straight),
-            # else the nearest free row; the others fill the rows left, in order.
-            idx = {it.id: k for k, it in enumerate(first)}
-            linked = sorted((it for it in first if bary(it) < 10**6),
-                            key=lambda it: (bary(it), idx[it.id]))
-            slots: list[_Item | None] = [None] * len(first)
-            for it in linked:
-                want_r = min(len(first) - 1, int(round(bary(it))))
-                free = [r for r in range(len(first)) if slots[r] is None]
-                slots[min(free, key=lambda r: (abs(r - want_r), r))] = it
-            rest_first = iter(it for it in first if bary(it) >= 10**6)
-            its = [it if it is not None else next(rest_first) for it in slots]
-            if len(its) <= 7:  # exhaustive: least total row displacement of the edges
-                partners: dict[str, list[int]] = {}
-                for f in gutter[i - 1]:
-                    for me, other in ((f.a, f.b), (f.b, f.a)):
-                        if other in row_of:
-                            partners.setdefault(me, []).append(row_of[other])
+    order = _order_columns(sites, items, gutter)
+    row_of = {it.id: r for s in sites for r, it in enumerate(order[s.id])}
+    items = order
 
-                def cost(order: tuple[_Item, ...],
-                         partners: dict[str, list[int]] = partners) -> int:
-                    return sum(abs(r - p) for r, it in enumerate(order)
-                               for p in partners.get(it.id, []))
-
-                best = min(itertools.permutations(its),
-                           key=lambda o: (cost(o), [idx[it.id] for it in o]))
-                its = list(best)
-            its = its + rest
-            items[s.id] = its
-        for r, it in enumerate(its):
-            row_of[it.id] = r
-
-    # Widths.
+    # Widths. A gutter holds each flow's label beside its arrowhead (left or right
+    # side) and, between the two label zones, a lane per bent flow.
     gaps: list[float] = []
     for i in range(len(sites) - 1):
         if i in gutter or i in plan_gutter:
             fl = gutter.get(i, [])
-            widths = [label_block([flow_text(f)], GUT_MAX - 6)[1] for f in fl]
+            sides = _label_sides(m, fl, pos, sites[i].id)
+            zl = _zone([f for f in fl if sides[f.id] == "L"], row_of)
+            zr = _zone([f for f in fl if sides[f.id] == "R"], row_of)
             n_bent = sum(1 for f in fl if row_of.get(f.a, -1) != row_of.get(f.b, -1))
-            want_w = max(widths, default=0.0) + 10
-            if n_bent:  # labels by the left cards, lanes to their right
-                want_w = max(widths, default=0.0) + 14 + BEND_LANE * n_bent + 6
-            gaps.append(q(min(GUT_BENT_MAX if n_bent else GUT_MAX, max(GUT_MIN, want_w))))
+            want_w = 8 + zl + zr + (BEND_LANE * n_bent + 8 if n_bent else 4)
+            gaps.append(q(min(GUT_BENT_MAX, max(GUT_MIN, want_w))))
         else:
             gaps.append(GAP)
     groups: list[_Group] = [_Group(a, b, fl) for (a, b), fl in below.items()]
@@ -458,13 +486,42 @@ def _layout_part(m: DrModel, sites: list[DrSite], parts: list[list[DrSite]], pag
             if card is not None:
                 want(card, "R", 10**6, f"{f.id}|{g.target}")
 
+    # Ports: attachments spread along each card side by the other end's y. A flow
+    # between two cards on one row runs straight: it takes its slot on the busier side,
+    # and the other side spreads its remaining attachments around that y.
+    holders = {n.id: n for n in sc.nodes}
+    straight = {f.id: (ln.id, rn.id) for _, f, ln, rn in gut_edges
+                if ln.kind != "container" and rn.kind != "container"
+                and abs(ln.y - rn.y) < 0.5}
     port_y: dict[tuple[str, str, str], float] = {}
-    for (nid, side), lst in ports.items():
-        holder = next(n for n in sc.nodes if n.id == nid)
-        lst.sort()
-        k = len(lst)
-        for j, (_, key) in enumerate(lst):
-            port_y[(nid, side, key)] = q(holder.y + holder.h * (j + 1) / (k + 1))
+
+    def slots(nid: str, side: str, fixed: dict[str, float]) -> None:
+        """Attachments in the order of their other ends; a fixed (straight) flow keeps
+        its y and the others spread evenly above and below it, in order."""
+        holder = holders[nid]
+        keys = [key for _, key in sorted(ports.get((nid, side), []))]
+        bounds = [(-1, holder.y)] + sorted(((keys.index(k), y) for k, y in fixed.items()),
+                                           key=lambda t: t[1]) + \
+            [(len(keys), holder.y + holder.h)]
+        for (i0, y0), (i1, y1) in zip(bounds, bounds[1:], strict=False):
+            between = keys[i0 + 1:i1]
+            for j, key in enumerate(between):
+                port_y[(nid, side, key)] = q(y0 + (y1 - y0) * (j + 1) / (len(between) + 1))
+        for key, y in fixed.items():
+            port_y[(nid, side, key)] = y
+
+    fixed_at: dict[tuple[str, str], dict[str, float]] = {}
+    for fid, (l_id, r_id) in sorted(straight.items()):
+        busy_left = len(ports.get((l_id, "R"), [])) >= len(ports.get((r_id, "L"), []))
+        side_key = (l_id, "R") if busy_left else (r_id, "L")
+        holder = holders[side_key[0]]
+        keys = [key for _, key in sorted(ports.get(side_key, []))]
+        y = q(holder.y + holder.h * (keys.index(fid) + 1) / (len(keys) + 1))
+        fixed_at.setdefault(side_key, {})
+        other = (r_id, "L") if busy_left else (l_id, "R")
+        fixed_at.setdefault(other, {})[fid] = y
+    for nid, side in ports:
+        slots(nid, side, fixed_at.get((nid, side), {}))
 
     def py(node: Node, side: str, key: str) -> float:
         return port_y.get((node.id, side, key), q(node.y + node.h / 2))
@@ -472,31 +529,50 @@ def _layout_part(m: DrModel, sites: list[DrSite], parts: list[list[DrSite]], pag
     kinds: set[str] = set()
 
     # Gutter edges. Cards on one row join straight; the others bend through a lane.
-    # With bends, every label sits by the left card and the lanes run to the right of
-    # the labels, ordered to cross as little as possible.
+    # Each flow's label sits beside its arrowhead (labels on one side stack outwards
+    # when they would touch); the lanes run between the two label zones, ordered to
+    # cross as little as possible.
     for gi in sorted(gutter):
         in_gut = [(f, lft, rgt) for g2, f, lft, rgt in gut_edges if g2 == gi]
         c0 = cols[sites[gi].id]
         gx0, gx1 = c0.x + c0.w, cols[sites[gi + 1].id].x
+        sides = _label_sides(m, [f for f, _, _ in in_gut], pos, sites[gi].id)
         geo: dict[str, tuple[float, float]] = {}
         for f, lft, rgt in in_gut:
             yl = q(lft.y + 18) if lft.kind == "container" else py(lft, "R", f.id)
             yr = q(rgt.y + 18) if rgt.kind == "container" else py(rgt, "L", f.id)
-            if lft.kind != "container" and rgt.kind != "container" and \
-                    abs(lft.y - rgt.y) < 0.5:
-                yr = yl  # same row: straight
+            if f.id in straight:
+                yr = yl = py(lft, "R", f.id)  # same row: straight (ports agree)
             geo[f.id] = (yl, yr)
+        span = gx1 - gx0 - 8
+        place: dict[str, tuple[float, float]] = {}  # flow -> (label centre x, y)
+        zone = {"L": 0.0, "R": 0.0}
+        for side in ("L", "R"):
+            mine = sorted((f for f, _, _ in in_gut if sides[f.id] == side),
+                          key=lambda f: (geo[f.id][0 if side == "L" else 1], f.id))
+            placed: list[tuple[float, float, float, float]] = []  # y0, y1, off0, off1
+            for f in mine:
+                y = geo[f.id][0 if side == "L" else 1]
+                _, lw, lh = label_block([flow_text(f)], span)
+                off = 0.0
+                for y0, y1, _o0, o1 in placed:
+                    if y - lh / 2 < y1 + 1 and y0 - 1 < y + lh / 2 and off < o1 + 2:
+                        off = max(off, o1 + 2)
+                placed.append((y - lh / 2, y + lh / 2, off, off + lw))
+                zone[side] = max(zone[side], off + lw)
+                cx = gx0 + 4 + off + lw / 2 if side == "L" else gx1 - 4 - off - lw / 2
+                place[f.id] = (q(cx), y)
         bent = [t for t in in_gut if abs(geo[t[0].id][0] - geo[t[0].id][1]) >= 0.5]
-        lab_w = {f.id: label_block([flow_text(f)], gx1 - gx0 - 4)[1] for f, _, _ in in_gut}
         lane_of: dict[str, float] = {}
         if bent:
-            lane_lo = gx0 + 8 + max(lab_w.values()) + 4
-            lane_hi = gx1 - 6
+            lane_lo = gx0 + 6 + zone["L"]
+            lane_hi = gx1 - 6 - zone["R"]
+            if lane_hi - lane_lo < 4:  # crowded: lanes share the middle of the gutter
+                lane_lo, lane_hi = gx0 + 6, gx1 - 6
             spans = [(geo[f.id][0], geo[f.id][1]) for f, _, _ in bent]
             n = len(bent)
-            for j, k in enumerate(_lane_order(spans)):
-                lane_of[bent[k][0].id] = q(lane_lo + (lane_hi - lane_lo) * (j + 0.5) / n if n > 1
-                                           else (lane_lo + lane_hi) / 2)
+            for j, k in enumerate(route.lane_order(spans)):
+                lane_of[bent[k][0].id] = q(lane_lo + (lane_hi - lane_lo) * (j + 0.5) / n)
         for f, lft, rgt in in_gut:
             yl, yr = geo[f.id]
             xl, xr = lft.x + lft.w, rgt.x
@@ -505,7 +581,6 @@ def _layout_part(m: DrModel, sites: list[DrSite], parts: list[list[DrSite]], pag
                 pts = [(xl, yl), (lx, yl), (lx, yr), (xr, yr)]
             else:
                 pts = [(xl, yl), (xr, yl)]
-            cx = gx0 + 8 + lab_w[f.id] / 2 if bent else (gx0 + gx1) / 2
             a_left = cards.get(f.a) is lft or (lft.kind == "container" and
                                                _ends(m, f)[0] == lft.id)
             if not a_left:
@@ -514,7 +589,8 @@ def _layout_part(m: DrModel, sites: list[DrSite], parts: list[list[DrSite]], pag
             kinds.add(fmt.repl_strength(reps))
             e = edge(f.id, f.a, f.b, pts, _strength(reps), arrow_end=bool(f.forward),
                      arrow_start=bool(f.backward), data={"kind": "replication"})
-            e.labels.append(edge_label([flow_text(f)], cx, yl, gx1 - gx0 - 4))
+            cx, cy = place[f.id]
+            e.labels.append(edge_label([flow_text(f)], cx, cy, span))
             sc.edges.append(e)
 
     # Recovery plan chips on the gutters.
@@ -550,9 +626,10 @@ def _layout_part(m: DrModel, sites: list[DrSite], parts: list[list[DrSite]], pag
             sc.edges.append(e)
 
     content_bottom = site_bottom
-    # Below: one bus per target. Each source drops down a lane on its column's right
-    # into the target's channel; the bus drops once into the target, its label on that
-    # drop, under every channel.
+    # Below: one trunk per (source zone, target). Each trunk drops down a lane on its
+    # column's right into its own channel (nested, so no trunk cuts another's run),
+    # enters the target at its own point along the top edge, and carries one label on
+    # its source stub, so the direction is never ambiguous.
     if groups:
         targets: dict[str, _Target] = {}
         by_target: dict[str, list[int]] = {}
@@ -560,19 +637,24 @@ def _layout_part(m: DrModel, sites: list[DrSite], parts: list[list[DrSite]], pag
             if g.target not in targets:
                 targets[g.target] = _target(m, g.target, part_of, len(parts), in_part)
             by_target.setdefault(g.target, []).append(gi)
+        # Lanes on a column's right: the trunk whose first card is highest takes the
+        # outermost lane, so no stub has to cross another trunk's lane.
+        def top_y(gi: int) -> float:
+            ys = [cards[c].y for f in groups[gi].flows for c in (f.a, f.b)
+                  if c in cards and _endpoint_site(m, c, "") == groups[gi].site]
+            return min(ys, default=cols[groups[gi].site].y + cols[groups[gi].site].h)
+
         lane_x: dict[int, float] = {}
         for s in sites:
             col = cols[s.id]
-            mine_g = [gi for gi, g in enumerate(groups) if g.site == s.id]
+            mine_g = sorted((gi for gi, g in enumerate(groups) if g.site == s.id),
+                            key=lambda gi: (-top_y(gi), gi))
             for j, gi in enumerate(mine_g):
                 lane_x[gi] = q(col.x + col.w - P - LANE * (len(mine_g) - 1 - j) - 1)
-        labels = {t: _target_lines(m, [groups[gi] for gi in gis])
-                  for t, gis in by_target.items()}
+        labels = {gi: _target_lines(m, [g]) for gi, g in enumerate(groups)}
         n_boxes = sum(1 for t in by_target if targets[t].site is None)
         bw = q(min(BOX_W, (page.width - 2 * MX - 14 * max(0, n_boxes - 1))
                    / max(1, n_boxes)))
-        tlab_w = {t: label_block(v, bw)[1] for t, v in labels.items()}
-        lab_h = max(label_block(v, bw)[2] for v in labels.values())
         tx_of: dict[str, float] = {}
         for t, gis in by_target.items():
             if targets[t].site is not None:
@@ -582,72 +664,157 @@ def _layout_part(m: DrModel, sites: list[DrSite], parts: list[list[DrSite]], pag
                 tx_of[t] = sum(lane_x[gi] for gi in gis) / len(gis)
         t_order = sorted(by_target, key=lambda t: (tx_of[t], t))
         boxed = [t for t in t_order if targets[t].site is None]
-        chan = {t: q(site_bottom + 7 + k * 6) for k, t in enumerate(t_order)}
-        last = max(chan.values())
-        label_top = q(last + 5)
-        row_y = q(label_top + lab_h + 5 + CHIP_H / 2)
+        xs = _deoverlap([tx_of[t] - bw / 2 for t in boxed], bw, 14, MX,
+                        page.width - MX) if boxed else []
+        box_x = dict(zip(boxed, xs, strict=True))
+        # Entry points along each target's top (or a zone's bottom), by source x.
+        entry: dict[int, float] = {}
+        for t, gis in by_target.items():
+            if targets[t].site is not None:
+                c = cols[t]
+                e_lo, e_hi = c.x + 10, c.x + c.w - 10
+            else:
+                e_lo = box_x[t] + 5.5 + chip_w(targets[t].chip) + 6
+                e_hi = box_x[t] + bw - 8
+            entry.update({int(k): v for k, v in route.spread(
+                e_lo, e_hi, [(lane_x[gi], str(gi)) for gi in gis]).items()})
+        lab_h = max(label_block(v, 120)[2] for v in labels.values())
+        pitch = q(max(CHANNEL_MIN, lab_h + 3))
+        chan_top = q(site_bottom + 6 + lab_h / 2)
+        trunks = []
+        for gi, g in enumerate(groups):
+            stubs = tuple(sorted({(cards[c].x + cards[c].w, cards[c].y + cards[c].h / 2)
+                                  for f in g.flows for c in (f.a, f.b) if c in cards
+                                  and _endpoint_site(m, c, "") == g.site}))
+            col = cols[g.site]
+            trunks.append(route.Trunk(stubs=stubs, lane=lane_x[gi],
+                                      lane_top=min((y for _, y in stubs),
+                                                   default=col.y + col.h),
+                                      entry=entry[gi], bottom=site_bottom + 200))
+        level = route.channel_order(trunks, chan_top, pitch)
+        chan = {gi: q(chan_top + level[gi] * pitch) for gi in range(len(groups))}
+        row_y = q(max(chan.values()) + lab_h / 2 + 8 + CHIP_H / 2)
         boxes: dict[str, Node] = {}
-        if boxed:
-            xs = _deoverlap([tx_of[t] - bw / 2 for t in boxed], bw, 14, MX,
-                            page.width - MX)
-            for t, bx in zip(boxed, xs, strict=True):
-                tg = targets[t]
-                tbox = box(t, "box", bx, row_y, bw, _target_rows(tg), tg.style, pad_x=5,
-                           pad_y=CHIP_H / 2 + 4, data={"availability_zone": tg.name,
-                                                      "name": tg.name})
-                sc.nodes.append(tbox)
-                sc.nodes.append(chip(f"{t}:tag", tg.chip, bx + 5.5, row_y,
-                                     K.TAG if tg.style is K.REF else K.TAG_MUTED, parent=t))
-                boxes[t] = tbox
+        for t in boxed:
+            tg, bx = targets[t], box_x[t]
+            tbox = box(t, "box", bx, row_y, bw, _target_rows(tg), tg.style, pad_x=5,
+                       pad_y=CHIP_H / 2 + 4, data={"availability_zone": tg.name,
+                                                  "name": tg.name})
+            sc.nodes.append(tbox)
+            sc.nodes.append(chip(f"{t}:tag", tg.chip, bx + 5.5, row_y,
+                                 K.TAG if tg.style is K.REF else K.TAG_MUTED, parent=t))
+            boxes[t] = tbox
+        if boxes:
             hmax = max(b.h for b in boxes.values())
             for b in boxes.values():
                 b.h = hmax
             content_bottom = max(content_bottom, row_y + hmax)
         else:
-            content_bottom = max(content_bottom, label_top + lab_h)
-        for t in t_order:
+            content_bottom = max(content_bottom, max(chan.values()) + lab_h / 2 + 4)
+        trunk_edges: list[tuple[int, Edge, float, float, float, float]] = []
+        for gi, g in enumerate(groups):
+            t = g.target
             tg = targets[t]
-            cy = chan[t]
-            if tg.site is not None:
-                c = cols[t]
-                dx, dy = q(c.x + c.w / 2), c.y + c.h
-            else:
-                b = boxes[t]
-                dx, dy = q(b.x + b.w / 2), b.y
+            cy = chan[gi]
+            lx = lane_x[gi]
+            dx = entry[gi]
+            dy = cols[t].y + cols[t].h if tg.site is not None else boxes[t].y
             need_label = True
-            for gi in by_target[t]:
-                g = groups[gi]
-                lx = lane_x[gi]
-                for f in g.flows:
-                    here_a = _endpoint_site(m, f.a, f.site_a) == g.site
-                    src_card = cards.get(f.a if here_a else f.b)
-                    if src_card is not None:
-                        yy = py(src_card, "R", f"{f.id}|{g.target}")
-                        pts = [(src_card.x + src_card.w, yy), (lx, yy), (lx, cy), (dx, cy),
-                               (dx, dy)]
-                    else:  # zone-level: from the zone's bottom edge
-                        col = cols[g.site]
-                        pts = [(lx, col.y + col.h), (lx, cy), (dx, cy), (dx, dy)]
-                    if abs(lx - dx) < 0.5:
-                        pts = [pt for pt in pts if pt not in ((dx, cy), (lx, cy))]
-                    reps = f.repl
-                    kinds.add(fmt.repl_strength(reps))
-                    fwd = f.forward if here_a else f.backward
-                    bwd = f.backward if here_a else f.forward
-                    src, dst = (f.a, f.b) if here_a else (f.b, f.a)
-                    e = edge(f"{f.id}|{t}", src, dst, pts, _strength(reps),
-                             arrow_end=bool(fwd), arrow_start=bool(bwd),
-                             data={"kind": "replication"})
-                    if need_label:
-                        need_label = False
-                        lw = tlab_w[t]
-                        if tg.site is None:  # on the drop, under every channel
-                            lx_c = min(max(dx, MX + lw / 2), page.width - MX - lw / 2)
-                            e.labels.append(edge_label(labels[t], lx_c,
-                                                       label_top + lab_h / 2, bw))
-                        else:  # on the channel, beside the rise into the zone
-                            e.labels.append(edge_label(labels[t], dx, cy, bw))
-                    sc.edges.append(e)
+            for f in g.flows:
+                here_a = _endpoint_site(m, f.a, f.site_a) == g.site
+                src_card = cards.get(f.a if here_a else f.b)
+                if src_card is not None:
+                    yy = py(src_card, "R", f"{f.id}|{g.target}")
+                    pts = [(src_card.x + src_card.w, yy), (lx, yy), (lx, cy), (dx, cy),
+                           (dx, dy)]
+                else:  # zone-level: from the zone's bottom edge
+                    col = cols[g.site]
+                    pts = [(lx, col.y + col.h), (lx, cy), (dx, cy), (dx, dy)]
+                if abs(lx - dx) < 0.5:
+                    pts = [pt for pt in pts if pt not in ((dx, cy), (lx, cy))]
+                reps = f.repl
+                kinds.add(fmt.repl_strength(reps))
+                fwd = f.forward if here_a else f.backward
+                bwd = f.backward if here_a else f.forward
+                src, dst = (f.a, f.b) if here_a else (f.b, f.a)
+                e = edge(f"{f.id}|{t}", src, dst, pts, _strength(reps),
+                         arrow_end=bool(fwd), arrow_start=bool(bwd),
+                         data={"kind": "replication"})
+                if need_label:
+                    need_label = False
+                    trunk_edges.append((gi, e, lx, dx, cy, dy))
+                sc.edges.append(e)
+        # Each trunk's label goes on its own channel, in the free stretch (between the
+        # vertical runs that cross that channel) nearest its source; with no stretch
+        # wide enough, beside its entry into the target, on the freer side.
+        verticals = [(p0[0], min(p0[1], p1[1]), max(p0[1], p1[1]))
+                     for e in sc.edges if e.data.get("kind") == "replication"
+                     for p0, p1 in zip(e.points, e.points[1:], strict=False)
+                     if abs(p0[0] - p1[0]) < 0.01]
+        taken: list[tuple[float, float, float, float]] = []
+        for gi, e, lx, dx, cy, dy in trunk_edges:
+            _, lw, _ = label_block(labels[gi], 120)
+            run_lo, run_hi = sorted((lx, dx))
+            busy = [(x0, x1) for x0, y0, x1, y1 in taken if y0 < cy < y1]
+            cuts = sorted({x for x, y0, y1 in verticals
+                           if run_lo < x < run_hi and y0 < cy < y1}
+                          | {x for pair in busy for x in pair})
+            stops = [run_lo, *cuts, run_hi]
+            free = [(g0, g1) for g0, g1 in zip(stops, stops[1:], strict=False)
+                    if g1 - g0 >= lw + 8
+                    and not any(g0 < x0 < g1 or g0 < x1 < g1 for x0, x1 in busy)]
+            if free:
+                g0, g1 = min(free, key=lambda g: abs((g[0] + g[1]) / 2 - lx))
+                start = g0 if abs(g0 - lx) <= abs(g1 - lx) else g1 - lw - 8
+                lab = edge_label(labels[gi], start + 4 + lw / 2, cy, 120)
+            else:  # beside its entry: the side no other run or label crosses
+                options = [edge_label(labels[gi], c, (cy + dy) / 2, 120, background=False)
+                           for c in (dx + 3 + lw / 2, dx - 3 - lw / 2)]
+
+                def clear(lb: EdgeLabel, dx: float = dx) -> bool:
+                    if lb.x < MX or lb.x + lb.w > page.width - MX:
+                        return False
+                    hits = any(lb.x < x < lb.x + lb.w and y0 < lb.y + lb.h and lb.y < y1
+                               for x, y0, y1 in verticals if abs(x - dx) > 0.5)
+                    return not hits and not any(
+                        lb.x < x1 and x0 < lb.x + lb.w and lb.y < y1 and y0 < lb.y + lb.h
+                        for x0, y0, x1, y1 in taken)
+
+                lab = next((lb for lb in options if clear(lb)),
+                           options[0] if options[0].x + options[0].w <= page.width - MX
+                           else options[1])
+            e.labels.append(lab)
+            taken.append((lab.x, lab.y, lab.x + lab.w, lab.y + lab.h))
+        route.deoverlap(sc.edges, page.width - MX)
+
+    # Glue: an end whose cluster is not drawn here (a remote AZ's cluster, a zone in
+    # another part, a cluster in the "+N" card) attaches to what stands for it.
+    present = {n.id: n for n in sc.nodes}
+    for e in sc.edges:
+        if e.data.get("kind") != "replication":
+            continue
+        target = e.id.split("|", 1)[1] if "|" in e.id else None
+        for end in ("src", "dst"):
+            ident = getattr(e, end)
+            if ident in present:
+                continue
+            home = _endpoint_site(m, ident, "")
+            if home in present:
+                stand_in = home
+            elif target in present:
+                stand_in = str(target)
+            else:
+                stand_in = f"{home}:unprotected"
+            if stand_in not in present:
+                continue
+            setattr(e, end, stand_in)
+            extra = {f"{end}_cluster": ident}
+            if home in part_of and home not in pos:
+                extra["continues_in"] = f"part {part_of[home] + 1} of {len(parts)}"
+            e.data = dict(sorted({**e.data, **extra}.items()))
+
+    # Any crossing left gets a hop, so lines that cross are never read as joined.
+    hops = route.hop([e for e in sc.edges if e.data.get("kind") == "replication"])
 
     # Legend.
     items_l: list[tuple[str, Style, str]] = []
@@ -674,7 +841,7 @@ def _layout_part(m: DrModel, sites: list[DrSite], parts: list[list[DrSite]], pag
     right_x = max(right_x, max(n.x + n.w for n in sc.nodes))
     sc.width = q(min(page.width, right_x + MX))
     sc.height = q(content_bottom + 9 + lh + 1)
-    sc.meta = {"sites": [s.id for s in sites], "rung": rung}
+    sc.meta = {"sites": [s.id for s in sites], "rung": rung, "hops": hops}
     return sc
 
 
