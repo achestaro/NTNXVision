@@ -6,6 +6,28 @@ format older builds can't read. Windows shows the version as X.Y.Z.0 in Installe
 Every pull request that changes shipped code raises it with `node scripts/bump-version.mjs`
 and adds a section here (CI checks both).
 
+## 0.5.0 (2026-10-18)
+
+### Added
+- Collection of the data the architecture design diagrams need: blocks and slots, Controller
+  VMs, AHV virtual switches (bond mode, MTU, bridges, uplinks, LACP), host NICs (model, driver,
+  firmware, speed, LLDP neighbour when reported), external storage arrays (Pure FlashArray,
+  Dell PowerFlex, Dell PowerStore) and the containers on them, cluster type and fault
+  tolerance, Prism Central deployment (size, scale-out, hosting cluster, PC VMs), enabled PC
+  products, AZ registrations, protection policy sites and replication directions, v4 recovery
+  plans, NearSync capability, Files and Objects deployment status.
+- New collection area "Host networking (virtual switches, NICs)"; selecting it also collects
+  Hosts.
+- New Excel sheets and Inventory types: Virtual Switches, Host NICs, External Storage, PC VMs.
+
+### Fixed
+- A protection policy with an RPO of 0 is reported as Sync, not NearSync, including in
+  snapshots collected before this fix.
+- A cluster-scoped collection no longer keeps the AOS registrations of excluded clusters.
+- Collection area object counts count the area's main objects (Hosts counted blocks and CVMs too).
+- Nutanix Objects reads "not enabled" only when Prism Central says so (HTTP 503); other
+  errors read "status unknown".
+
 ## 0.4.2 (2026-10-18)
 
 ### Changed
