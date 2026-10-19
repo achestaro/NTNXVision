@@ -6,6 +6,31 @@ format older builds can't read. Windows shows the version as X.Y.Z.0 in Installe
 Every pull request that changes shipped code raises it with `node scripts/bump-version.mjs`
 and adds a section here (CI checks both).
 
+## 0.6.0 (2026-10-19)
+
+### Added
+- Solution Conceptual Overview in the Word and PDF reports (Logical Design chapter): each
+  availability zone with its Prism Central (version, deployment, size, services in use), its
+  clusters (hypervisor, nodes, RF, hardware, DSF storage, external arrays by product name,
+  Files / Objects / vCenter), AZ pairing (muted when not connected) and replication per
+  direction typed from the RPO, remote AZs, a design summary and an availability zones table.
+- Large estates split into parts of up to 3 availability zones (paired zones kept together)
+  and every zone is drawn at the same level of detail: the cluster hosting Prism Central, the
+  two largest clusters and a "+N more clusters" card listed in a clusters-per-AZ table.
+- The figure is vector in the PDF; in Word its page turns landscape when it needs the width.
+  The same estate always gives the same figure.
+- Demo estates for small, medium, enterprise and very large environments (sm-pc01,
+  md-pc01/02, en-pc01..04, xl-pc01..08).
+
+### Changed
+- The management and replication topology pictures are replaced by the conceptual overview.
+- Word keeps short hyphenated names ("Table 5-2", "X-Play", PC names) on one line.
+
+### Fixed
+- PDF contents could reserve one page too many and fail the export on reports with many
+  sections.
+- Word left a blank page before figures taller than the page body (the Flow VPC figure).
+
 ## 0.5.0 (2026-10-18)
 
 ### Added

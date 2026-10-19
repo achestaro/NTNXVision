@@ -26,6 +26,7 @@ from fpdf.enums import PageMode
 from fpdf.outline import OutlineSection
 from fpdf.prefs import ViewerPreferences
 
+from ntnxvision_core.diagrams.render.pdf import draw_scene
 from ntnxvision_core.exporters import theme as T
 from ntnxvision_core.exporters.content import (
     Bullets,
@@ -35,6 +36,7 @@ from ntnxvision_core.exporters.content import (
     FigureStrip,
     Paragraph,
     Report,
+    SceneFigure,
     Status,
     Table,
     build_report,
@@ -58,7 +60,9 @@ MAX_LINES = 4
 
 # Table of contents row heights (mm).
 TOC_H0, TOC_H1 = 7.4, 5.5
-TOC_TITLE_BLOCK = 22.0
+#: Height of the "Contents" heading block (marker heading cell + its 3 mm gap), exactly
+#: what `_render_toc` draws, so the reserved page count never disagrees with it.
+TOC_TITLE_BLOCK = 10.4 + 3.0
 
 
 class _Pdf(FPDF):
@@ -298,6 +302,8 @@ class PdfExporter:
             d = blk.diagram
             w = min(pdf.epw, d.width_in * 25.4)
             return min(w * d.height / d.width, pdf.h - TOP - BOTTOM - 16) + 10
+        if isinstance(blk, SceneFigure):
+            return self._scene_need(pdf, blk)
         if isinstance(blk, FigureRow) and blk.figures:
             return max(min(80.0, f.diagram.width_in * 25.4) * f.diagram.height
                        / f.diagram.width for f in blk.figures) + 12
@@ -337,6 +343,8 @@ class PdfExporter:
                 self._table(pdf, blk)
             elif isinstance(blk, Figure):
                 self._figure(pdf, blk)
+            elif isinstance(blk, SceneFigure):
+                self._scene_figure(pdf, blk)
             elif isinstance(blk, FigureRow):
                 self._figure_row(pdf, blk)
 
@@ -551,7 +559,122 @@ class PdfExporter:
         self._figure_caption(pdf, f, pdf.epw)
         pdf.ln(4.5)
 
-    def _figure_caption(self, pdf: _Pdf, f: Figure, width: float) -> None:
+    # ─── architecture diagrams (vector) ────────────────────────────
+    # One set of measurements serves `_scene_need` and `_scene_figure`, so the space
+    # reserved for a figure (with its summary, caption and note) is exactly what it draws.
+
+    SUMMARY_PT = 9.2
+    SUMMARY_LH = 4.6
+    SUMMARY_GAP = 1.4
+    EYEBROW_H = 6.0
+    SUMMARY_COL_GAP = 10.0
+    BESIDE_GAP = 9.0
+    CAP_GAP = 1.5
+    CAP_LH, NOTE_LH = 4.4, 4.2
+    AFTER = 4.5
+
+    def _scene_size(self, pdf: _Pdf, f: SceneFigure) -> tuple[float, float, float]:
+        """(width mm, height mm, mm per pt): 1:1 unless the page is narrower."""
+        k = 25.4 / 72
+        if f.scene.width * k > pdf.epw:
+            k = pdf.epw / f.scene.width
+        return f.scene.width * k, f.scene.height * k, k
+
+    def _summary_cols(self, f: SceneFigure) -> list[list[str]]:
+        if f.summary_beside or len(f.summary) <= 3:
+            return [f.summary]
+        half = (len(f.summary) + 1) // 2
+        return [f.summary[:half], f.summary[half:]]
+
+    def _lines_n(self, pdf: _Pdf, text: str, width: float, style: str, size: float) -> int:
+        pdf.set_font(SANS, style, size)
+        return len(cast(list[str], pdf.multi_cell(width, 4, T.clean(text), dry_run=True,
+                                                  output="LINES")))
+
+    def _bullets_h(self, pdf: _Pdf, items: list[str], width: float) -> float:
+        return sum(self._lines_n(pdf, it, width - 4.5, "", self.SUMMARY_PT) * self.SUMMARY_LH
+                   + self.SUMMARY_GAP for it in items)
+
+    def _beside_w(self, pdf: _Pdf, f: SceneFigure) -> float:
+        fw, _, _ = self._scene_size(pdf, f)
+        return min(pdf.epw - fw - self.BESIDE_GAP, 110.0)
+
+    def _summary_h(self, pdf: _Pdf, f: SceneFigure) -> float:
+        """Height of the summary block (eyebrow + bullets) where it is drawn."""
+        if not f.summary:
+            return 0.0
+        if f.summary_beside:
+            return self.EYEBROW_H + self._bullets_h(pdf, f.summary, self._beside_w(pdf, f))
+        cols = self._summary_cols(f)
+        col_w = (pdf.epw - self.SUMMARY_COL_GAP * (len(cols) - 1)) / len(cols)
+        return self.EYEBROW_H + max(self._bullets_h(pdf, c, col_w) for c in cols)
+
+    def _caption_h(self, pdf: _Pdf, f: SceneFigure) -> float:
+        h = self.CAP_GAP + self._lines_n(pdf, f.title, pdf.epw, "I", 8.4) * self.CAP_LH
+        if f.note:
+            h += self._lines_n(pdf, f.note, pdf.epw, "", 7.8) * self.NOTE_LH
+        return h + self.AFTER
+
+    def _scene_need(self, pdf: _Pdf, f: SceneFigure) -> float:
+        _, fh, _ = self._scene_size(pdf, f)
+        summary = self._summary_h(pdf, f)
+        body = max(fh, summary) if f.summary_beside else summary + 1.5 + fh
+        return body + self._caption_h(pdf, f)
+
+    def _summary_block(self, pdf: _Pdf, cols: list[list[str]], x: float, y: float,
+                       col_w: float) -> float:
+        pdf.set_xy(x, y)
+        pdf.set_font(SANS, "B", 7.4)
+        pdf.set_text_color(*T.INK_3_RGB)
+        pdf.set_char_spacing(0.6)
+        pdf.cell(0, 4, "DESIGN SUMMARY")
+        pdf.set_char_spacing(0)
+        bottom = y + self.EYEBROW_H
+        for ci, items in enumerate(cols):
+            cx = x + ci * (col_w + self.SUMMARY_COL_GAP)
+            cy = y + self.EYEBROW_H
+            for item in items:
+                pdf.set_fill_color(*T.IRIS_RGB)
+                pdf.rect(cx + 0.3, cy + 1.75, 1.3, 1.3, style="F")
+                pdf.set_xy(cx + 4.5, cy)
+                pdf.set_font(SANS, "", self.SUMMARY_PT)
+                pdf.set_text_color(*T.INK_RGB)
+                pdf.multi_cell(col_w - 4.5, self.SUMMARY_LH, T.clean(item), align="L",
+                               new_x="LEFT", new_y="NEXT")
+                cy = pdf.get_y() + self.SUMMARY_GAP
+            bottom = max(bottom, cy)
+        return bottom
+
+    def _scene_figure(self, pdf: _Pdf, f: SceneFigure) -> None:
+        fw, fh, k = self._scene_size(pdf, f)
+        need = self._scene_need(pdf, f)
+        # The summary, the figure and its caption always share a page.
+        if pdf.get_y() + need > pdf.page_break_trigger and need <= pdf.h - TOP - BOTTOM:
+            pdf.add_page()
+        y = pdf.get_y()
+        if f.summary and not f.summary_beside:
+            cols = self._summary_cols(f)
+            col_w = (pdf.epw - self.SUMMARY_COL_GAP * (len(cols) - 1)) / len(cols)
+            y = self._summary_block(pdf, cols, pdf.l_margin, y, col_w) + 1.5
+        # Drawn without fpdf2's automatic page break: the space was reserved above.
+        pdf.set_auto_page_break(False)
+        draw_scene(pdf, f.scene, pdf.l_margin, y, scale=k, family=SANS)
+        bottom = y + fh
+        if f.summary_beside and f.summary:
+            bx = pdf.l_margin + fw + self.BESIDE_GAP
+            bottom = max(bottom, self._summary_block(pdf, [f.summary], bx, y,
+                                                     self._beside_w(pdf, f)))
+        pdf.set_auto_page_break(True, margin=BOTTOM)
+        pdf.set_xy(pdf.l_margin, bottom + self.CAP_GAP)
+        self._figure_caption(pdf, f, pdf.epw)
+        if f.note:
+            pdf.set_font(SANS, "", 7.8)
+            pdf.set_text_color(*T.INK_3_RGB)
+            pdf.multi_cell(pdf.epw, self.NOTE_LH, T.clean(f.note), align="L",
+                           new_x="LMARGIN", new_y="NEXT")
+        pdf.ln(self.AFTER)
+
+    def _figure_caption(self, pdf: _Pdf, f: Figure | SceneFigure, width: float) -> None:
         pdf.set_font(SANS, "I", 8.4)
         pdf.set_text_color(*T.INK_3_RGB)
         pdf.multi_cell(width, 4.4, T.clean(f.title), align="L", new_x="LMARGIN", new_y="NEXT")
