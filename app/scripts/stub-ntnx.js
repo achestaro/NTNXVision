@@ -375,7 +375,7 @@
         areas: RUN.map((_, i) => areaObj(i, 'pending')),
       });
       if (req.lcmInventory) emit('progress', { type: 'lcm_inventory', runId, inventory: lcmInventory(opt.run === 'hold') });
-      const upto = opt.run === 'hold' ? 12 : RUN.length;
+      const upto = opt.run === 'hold' ? RUN.findIndex((r) => r[1] === 'running') + 1 : RUN.length;
       for (let i = 0; i < upto; i += 1) {
         const st = opt.run === 'hold' ? RUN[i][1] : RUN[i][1] === 'running' ? 'collected' : RUN[i][1];
         emit('progress', { type: 'area', runId, area: areaObj(i, st), objects_total: 1483, clusters: 4 });
