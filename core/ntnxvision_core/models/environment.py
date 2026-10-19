@@ -630,7 +630,14 @@ class Ova(SourcedObject):
 class PrismCentralConfig(_Base):
     """Prism Central management-plane configuration & sizing."""
 
+    # Collectors assign these fields after construction; validate assignments so a
+    # build string can never slip past the version validator below.
+    model_config = {**_Base.model_config, "validate_assignment": True}
+
     version: str | None = None
+    #: The full build string (``el8.5-release-…-stable-<commit>``), kept as reported.
+    #: Shown only as the "Build" row of the Excel Prism Central sheet; every other
+    #: place shows `version`.
     build: str | None = None
     num_vcpus: int | None = None
     memory_bytes: int | None = None
@@ -661,7 +668,7 @@ class PrismCentralConfig(_Base):
     #: Deployment status of the PC-managed data services (Files, Objects).
     services: list[PlatformService] = Field(default_factory=list)
 
-    @field_validator("version", "build", "ncc_version", mode="before")
+    @field_validator("version", "ncc_version", mode="before")
     @classmethod
     def _short_versions(cls, value: Any) -> Any:
         return short_version(value)
@@ -712,6 +719,11 @@ class PcProduct(_Base):
     cpu_count: int | None = None
     memory_bytes: int | None = None
     api_source: str = "v4"
+
+    @field_validator("version", mode="before")
+    @classmethod
+    def _short_versions(cls, value: Any) -> Any:
+        return short_version(value)
 
     @property
     def enabled(self) -> bool:
@@ -772,6 +784,11 @@ class PcRegistration(SourcedObject):
     #: CONNECTED / DISCONNECTED / PENDING (``$UNKNOWN`` reads as None).
     connectivity_status: str | None = None
     api_source: str = "v4"
+
+    @field_validator("version", mode="before")
+    @classmethod
+    def _short_versions(cls, value: Any) -> Any:
+        return short_version(value)
 
     @property
     def is_remote_pc(self) -> bool:
@@ -1238,6 +1255,9 @@ class AlertSummary(_Base):
 
 
 class PrismCentral(_Base):
+    # The engine and the clusters collector assign `version` after construction.
+    model_config = {**_Base.model_config, "validate_assignment": True}
+
     uuid: str | None = None
     host: str | None = None
     version: str | None = None

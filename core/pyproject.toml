@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "ntnxvision-core"
-version = "0.7.0"
+version = "0.7.1"
 description = "Inventory & documentation core for Nutanix Prism Central (NTNXVision)"
 readme = "README.md"
 # Cap the upper bound: brand-new Python releases (e.g. 3.14) often lack prebuilt wheels
