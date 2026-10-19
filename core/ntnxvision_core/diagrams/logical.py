@@ -13,6 +13,7 @@ block and node serials are never shown.
 
 from __future__ import annotations
 
+import hashlib
 import re
 from collections import Counter
 from dataclasses import asdict, dataclass, field
@@ -49,6 +50,10 @@ class NodeGroup:
     gpus: str | None = None
     #: Nodes of the group whose maintenance state is not NORMAL.
     maintenance: int = 0
+    #: "<cluster id>:nodes:<hash of the group key>" (identity, for the editor).
+    id: str = ""
+    #: A note line set on the Diagrams page.
+    note: str | None = None
 
 
 @dataclass
@@ -326,7 +331,9 @@ def _cluster(env: Environment, c: Any, host: str, src: Any, hosts: list[Any],
                              mem_gib=min(mems) or None,
                              mem_max_gib=max(mems) if max(mems) != min(mems) else None,
                              role=role, gpus=gpu or None,
-                             maintenance=down[(m, cpu, s, co, role, gpu)])
+                             maintenance=down[(m, cpu, s, co, role, gpu)],
+                             id=f"cluster:{c.uuid}:nodes:" + hashlib.sha256(
+                                 repr((m, cpu, s, co, role, gpu)).encode()).hexdigest()[:10])
                    for (m, cpu, s, co, role, gpu), mems in
                    sorted(groups.items(), key=lambda kv: (kv[0][4] != "", -len(kv[1]), kv[0]))]
     per = [len(b.nodes) for b in blocks if b.nodes]
