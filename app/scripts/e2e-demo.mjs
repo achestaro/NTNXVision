@@ -1100,8 +1100,7 @@ try {
   });
 
   // A per-AZ network figure (Network Segment Design): rename a segment in place, save,
-  // and the Word export draws the new name in the figure only (the segments table keeps
-  // the collected name).
+  // and the Word export redraws the figure and discloses the rename in its summary.
   await run('diagrams-segments-edit', async () => {
     await page.getByRole('button', { name: /Network segment design/ }).first().click();
     const seg = page.locator('[data-el^="subnet:"]').first();
@@ -1115,10 +1114,12 @@ try {
     await page.getByText('Diagram saved.').first().waitFor({ timeout: 30_000 });
     await page.getByText('No unsaved changes').waitFor();
     const docx = await exportWordFromDiagrams();
-    const before = docxFacts(editedDocx, 'E2E web segment');
-    const after = docxFacts(docx, 'E2E web segment');
+    const disclosed = 'renamed to \u201cE2E web segment\u201d';
+    const before = docxFacts(editedDocx, disclosed);
+    const after = docxFacts(docx, disclosed);
     if (![...after.media].some((h) => !before.media.has(h))) throw new Error('the segment edit did not change any Word figure');
-    if (after.mentions) throw new Error('"E2E web segment" leaked into the Word text or tables');
+    // The design summary discloses the rename; the segments table keeps the collected name.
+    if (!after.mentions) throw new Error('the segment rename is not disclosed in the design summary');
     await page.screenshot({ path: join(uxDir, 'diagrams-segments.png'), fullPage: true });
   });
 
