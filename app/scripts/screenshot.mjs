@@ -351,6 +351,18 @@ const SHOTS = [
     await p.getByRole('button', { name: 'Export pc01 Q4 review' }).click();
     await p.getByRole('dialog').getByText('Prism Central pc.2024.3').waitFor();
   }],
+  ['export-sections', {}, async (p) => {
+    await rail(p, 'Snapshots');
+    await p.getByRole('button', { name: 'Export pc01 Q4 review' }).click();
+    const dlg = p.getByRole('dialog');
+    await dlg.getByText('Prism Central pc.2024.3').waitFor();
+    await dlg.getByTestId('export-sections-toggle').click();
+    await dlg.getByRole('switch', { name: 'Customize order for this export' }).click();
+    await dlg.getByRole('button', { name: 'Move Data Protection & Disaster Recovery up' }).click();
+    await dlg.getByRole('button', { name: 'Move Data Protection & Disaster Recovery up' }).click();
+    await dlg.getByRole('checkbox', { name: 'Identity & Access Management' }).uncheck();
+    await dlg.getByText('No data in this snapshot').first().waitFor();
+  }, 1700],
   ['export-all', {}, async (p) => {
     await rail(p, 'Snapshots');
     await p.getByRole('button', { name: 'Export pc01 Q4 review' }).click();
@@ -447,6 +459,15 @@ const SHOTS = [
   }, 900, 1100],
   ['snapshots-empty', { empty: true }, async (p) => rail(p, 'Snapshots')],
   ['settings', {}, async (p) => rail(p, 'Settings')],
+  ['settings-section-order-off', {}, async (p) => {
+    await rail(p, 'Settings');
+    await p.getByTestId('section-order-setting').scrollIntoViewIfNeeded();
+  }],
+  ['settings-section-order-on', { customOrder: true }, async (p) => {
+    await rail(p, 'Settings');
+    await p.getByTestId('settings-section-list').waitFor();
+    await p.getByTestId('section-order-setting').scrollIntoViewIfNeeded();
+  }, 1600],
   ['theme-menu', {}, async (p) => {
     // Opens from the keyboard like Radix: focus lands on the first item.
     await p.getByTestId('theme-mode-menu').focus();
