@@ -32,8 +32,10 @@ def build(b: Any, ch: Chapter, dtype: Any) -> bool:
         scenes = layout_site(site, dtype.page, first_part_budget(bullets))
         figs = [SceneFigure(sc, sc.caption) for sc in scenes]
         figs[0].summary = bullets
-        table = make_table(CONTAINER_HEADERS, container_rows(site),
-                           f"User storage containers, {site.name}")
+        rows = container_rows(site)
+        # Combined runs attribute every row to its Prism Central (the house rule).
+        table = make_table(CONTAINER_HEADERS, rows, f"User storage containers, {site.name}",
+                           [site.name] * len(rows) if b.env.is_combined else None)
         title = f"{dtype.section}: {site.name}" if many else dtype.section
         ch.add(title, *figs, table)
         b.design_figures.setdefault(dtype.id, []).extend(figs)
