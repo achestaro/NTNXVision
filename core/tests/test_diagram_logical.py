@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import json
 import os
-import random
 import zipfile
 from datetime import datetime, timezone
 from pathlib import Path
@@ -31,6 +30,8 @@ from ntnxvision_core.diagrams.render.pdf import draw_scene
 from ntnxvision_core.diagrams.render.svg import render_svg
 from ntnxvision_core.models import Environment
 
+from .diagram_helpers import shuffled as _shuffled
+
 GOLDEN = Path(__file__).parent / "golden" / "diagrams"
 UPDATE = os.environ.get("NTNXVISION_UPDATE_GOLDEN") == "1"
 EM_DASH = chr(0x2014)
@@ -46,14 +47,6 @@ def _texts(sc: S.Scene) -> list[str]:
         [t.text for e in sc.edges for lb in e.labels for t in lb.lines]
 
 
-def _shuffled(env: Environment, seed: int) -> Environment:
-    r = random.Random(seed)
-    out = env.model_copy(deep=True)
-    for name in type(out).model_fields:
-        value = getattr(out, name)
-        if isinstance(value, list):
-            r.shuffle(value)
-    return out
 
 
 def _pdf_bytes(sc: S.Scene) -> bytes:

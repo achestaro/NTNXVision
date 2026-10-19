@@ -115,6 +115,20 @@ class NetworkModel:
     title: str = "Host network configuration"
 
 
+
+
+def _ident_hash(ident: str) -> str:
+    """A neighbour's id part from its identity (chassis MAC, device id or model), so
+    the id survives a change in the order neighbours are seen."""
+    return hashlib.sha256(ident.encode()).hexdigest()[:10]
+
+_DIGITS = re.compile(r"(\d+)")
+
+
+def natural(name: str) -> tuple[Any, ...]:
+    """Natural sort key: eth2 before eth10, vmnic9 before vmnic10."""
+    return tuple(int(p) if p.isdigit() else p.lower() for p in _DIGITS.split(name))
+
 def to_doc(m: NetworkModel) -> dict[str, Any]:
     return asdict(m)
 
@@ -235,7 +249,8 @@ def network_model(env: Environment) -> NetworkModel:
         return (c.name if c and c.name else fallback) or (uuid or "N/A")
 
     nics: dict[tuple[str, str], Any] = {}
-    for n in sorted(env.host_nics, key=lambda n: (n.host_uuid or "", n.name or "", n.uuid)):
+    for n in sorted(env.host_nics,
+                    key=lambda n: (n.host_uuid or "", natural(n.name or ""), n.uuid)):
         if n.host_uuid and n.name:
             nics.setdefault((n.host_uuid, n.name), n)
 
@@ -300,7 +315,7 @@ def _profile(env: Environment, sig: tuple[Any, ...], hosts: list[str], i: int,
 
     # LLDP neighbours on the representative host, keyed A, B, ... by first NIC name.
     rep_nics = sorted((n for (h, _), n in nics.items() if h == rep and n.has_neighbour),
-                      key=lambda n: (n.name or "", n.uuid))
+                      key=lambda n: (natural(n.name or ""), n.uuid))
     keys: dict[str, str] = {}
     neighbours: list[Neighbour] = []
     for n in rep_nics:
@@ -308,7 +323,7 @@ def _profile(env: Environment, sig: tuple[Any, ...], hosts: list[str], i: int,
         if ident not in keys:
             keys[ident] = _letter(len(keys))
             neighbours.append(Neighbour(
-                id=f"{pid}:lldp:{keys[ident]}", key=keys[ident],
+                id=f"{pid}:lldp:{_ident_hash(ident)}", key=keys[ident],
                 model=switch_model(n.switch_vendor) or n.switch_device_id,
                 chassis=n.switch_mac.upper() if n.switch_mac else None,
                 port=None))
@@ -323,7 +338,7 @@ def _profile(env: Environment, sig: tuple[Any, ...], hosts: list[str], i: int,
                                                       vh[0].name or "")):
         vid = f"{pid}:vs:{vs.name}"
         ups = []
-        for name in h.uplinks:
+        for name in sorted(h.uplinks, key=natural):
             n = nics.get((rep, name))
             sw = None
             if n is not None and n.has_neighbour:
@@ -346,7 +361,7 @@ def _profile(env: Environment, sig: tuple[Any, ...], hosts: list[str], i: int,
             lacp=vs.lacp or (h.lacp_status or "NIL").upper() not in ("NIL", ""),
             mtu=vs.mtu, uplinks=ups, traffic=traffic))
     rep_all = sorted((n for (hh, _), n in nics.items() if hh == rep),
-                     key=lambda n: (n.name or "", n.uuid))
+                     key=lambda n: (natural(n.name or ""), n.uuid))
     models = Counter(n.model for n in rep_all if n.model)
     drivers = Counter((n.driver_version or "").split(":")[0] for n in rep_all
                       if n.driver_version)
@@ -388,7 +403,7 @@ def _esxi(env: Environment) -> EsxiNote | None:
                     vcenters=sorted({c.vcenter_address for c in esx if c.vcenter_address}))
     if hosts:
         first = sorted((n for n in env.host_nics if n.host_uuid == hosts[0].uuid and n.name),
-                       key=lambda n: (n.name or "", n.uuid))
+                       key=lambda n: (natural(n.name or ""), n.uuid))
         note.nics = [n.name or "" for n in first]
         note.speeds = [n.speed_mbps or 0 for n in first]
     return note
