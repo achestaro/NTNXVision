@@ -1,31 +1,35 @@
 """Solution Conceptual Overview layout: availability zones side by side.
 
 Each site (one Prism Central) is an "AZ" container holding its Prism Central block
-(solid iris, services in use) and its cluster cards (hypervisor, nodes, RF, hardware,
-data services, DSF storage strip, external arrays when collected). The cluster hosting
-the PC comes first with a HOSTS PC chip.
+(solid iris, deployment and services in use) and its cluster cards (hypervisor, nodes,
+RF, hardware, data services, DSF storage, external arrays). The cluster hosting the PC
+comes first with a HOSTS PC chip.
 
 Links are drawn only where the data has them:
 
-* between adjacent sites, in a labelled gutter: AZ pairing (dashed, at the PC block)
-  and replication (solid, weight by the strongest type, labelled with type and RPO);
+* between adjacent sites, in a labelled gutter: AZ pairing (dashed, at the PC block;
+  muted when reported not connected) and replication (solid, weight by the strongest
+  type), labelled per direction: schedules present both ways read "both directions",
+  one-way schedules sit under "a to b";
 * to availability zones outside the part (remote AZs, or a site drawn in another part):
   in a dashed column on the right when every such link starts in the right-most site
-  ("side" mode), else as buses dropping to a row of dashed boxes under the sites
-  ("below" mode), one channel per target, ports sorted so channels do not cross;
+  ("side" mode), else as buses dropping to a row of boxes under the sites ("below"
+  mode): one channel per (target, kind), one edge and one label per source;
 * between non-adjacent sites of a part, through the same below channels.
 
 Scaling (text never shrinks below 6 pt; content splits instead):
 
 * parts of up to 3 sites, linked sites kept together;
 * per part, a density ladder: full cards in 1..N columns; then, per site, the cluster
-  hosting PC plus the largest clusters by node count and a "+N more clusters" card that
-  points at the clusters table.
+  hosting PC plus at least the 2 largest clusters and a short "+N more clusters" card
+  pointing at the clusters table;
+* a part that still does not fit its height budget gives up its last site to a new part.
 """
 
 from __future__ import annotations
 
 import math
+from collections.abc import Callable
 from dataclasses import dataclass, field
 
 from .. import fmt
@@ -33,6 +37,7 @@ from .. import text as tx
 from .. import tokens as K
 from ..build import (
     CHIP_H,
+    LabelText,
     Row,
     box,
     chip,
@@ -44,7 +49,8 @@ from ..build import (
     place_lines,
     text_h,
 )
-from ..model import Card, ConceptualModel, Link, Remote, Site
+from ..facts import short_name
+from ..model import Card, ConceptualModel, Link, Remote, Repl, Site
 from ..scene import Node, Scene, Style, q
 
 # Geometry (pt).
@@ -63,12 +69,19 @@ CG = 6.0  # card column gap
 RG = 4.5  # card row gap
 CHANNEL = 12.0  # below-mode channel pitch
 PER_PART = 3
+#: Clusters each summarised site keeps drawn: the PC host plus the 2 largest.
+MIN_KEEP = 3
+PILL_H = 8.5
+PILL_GAP = 2.5
 
 
 @dataclass(frozen=True)
 class Page:
+    """The page a figure is laid out for (pt): 672 pt fits 1:1 on Letter and A4
+    landscape; 440 pt leaves room for a caption on a landscape page."""
+
     width: float = 672.0
-    max_h: float = 380.0
+    max_h: float = 440.0
 
 
 @dataclass(frozen=True)
@@ -76,6 +89,11 @@ class Refs:
     """Cross references the figure text points at (filled in once tables are numbered)."""
 
     clusters_table: str = "the clusters table"
+
+
+#: Height budget for part 1 as a function of its width (the report fits the heading,
+#: the design summary and the caption on the same page).
+Budget = Callable[[float], float]
 
 
 @dataclass
@@ -88,6 +106,7 @@ class _Target:
     kind_line: str
     note: str
     chip: str
+    ref: bool = False  # a site of this inventory drawn in another part
 
 
 @dataclass
@@ -178,11 +197,11 @@ def _plan(model: ConceptualModel, sites: list[Site], parts: list[list[Site]],
             targets[y] = _target(model, y, part_of, len(parts))
     order = {r.id: i for i, r in enumerate(model.remotes)}
     plan.targets = sorted(targets.values(),
-                          key=lambda t: (t.id.startswith("az:"), order.get(t.id, -1), t.id))
-    plan.external.sort(key=lambda e: (pos[e[0]], [t.id for t in plan.targets].index(e[1])))
+                          key=lambda t: (not t.ref, order.get(t.id, -1), t.id))
+    tids = [t.id for t in plan.targets]
+    plan.external.sort(key=lambda e: (pos[e[0]], tids.index(e[1])))
     if plan.targets and not plan.inner and all(x == sites[-1].id for x, _, _ in plan.external):
-        gaps = _gaps(plan)
-        avail = page.width - 2 * MX - sum(gaps) - SIDE_GUT - REMOTE_W
+        avail = page.width - 2 * MX - sum(_gaps(plan)) - SIDE_GUT - REMOTE_W
         plan.side = avail / len(sites) >= MIN_SITE_W
     return plan
 
@@ -197,7 +216,7 @@ def _target(model: ConceptualModel, tid: str, part_of: dict[str, int], n_parts: 
     part = part_of.get(tid, 0) + 1
     return _Target(id=tid, name=name, sub="Availability zone in this inventory",
                    kind_line="Prism Central", note=f"drawn in part {part} of {n_parts}",
-                   chip="AZ")
+                   chip="AZ", ref=True)
 
 
 def _remote_target(r: Remote) -> _Target:
@@ -229,38 +248,55 @@ def _site_rows(s: Site) -> list[Row]:
                 K.SIZE_SMALL, False, K.INK_3, 2, gap_before=0.5)]
 
 
-def _pc_rows(s: Site) -> list[Row]:
+def _pc_rows(s: Site, inner_w: float) -> list[Row]:
     pc = s.pc
     assert pc is not None
     vms = pc.vms or 1
     shape = "single VM" if vms == 1 else f"scale-out, {vms:,} PCVMs"
     line1 = ", ".join(x for x in (pc.version, shape) if x)
-    sizing = []
-    if pc.size:
-        sizing.append(pc.size)
-    each = vms > 1 and (pc.vcpus or 0) % vms == 0 and (pc.mem_gib or 0) % vms == 0
-    if pc.vcpus:
-        sizing.append(f"{(pc.vcpus // vms if each else pc.vcpus):,} vCPU")
-    if pc.mem_gib:
-        sizing.append(f"{(pc.mem_gib // vms if each else pc.mem_gib):,} GiB")
-    line2 = ", ".join(sizing) + ((" each" if each else " total") if vms > 1 and sizing else "")
+    sizing = [pc.size] if pc.size else []
+    if pc.vm_vcpus or pc.vm_mem_gib:  # one PC VM's configured size
+        if pc.vm_vcpus:
+            sizing.append(f"{pc.vm_vcpus:,} vCPU")
+        if pc.vm_mem_gib:
+            sizing.append(f"{pc.vm_mem_gib:,} GiB")
+        suffix = " each" if vms > 1 else ""
+    else:  # older snapshots: totals across the PC VMs
+        if pc.vcpus:
+            sizing.append(f"{pc.vcpus:,} vCPU")
+        if pc.mem_gib:
+            sizing.append(f"{pc.mem_gib:,} GiB")
+        suffix = " total" if vms > 1 else ""
+    line2 = ", ".join(sizing) + (suffix if len(sizing) > (1 if pc.size else 0) else "")
     rows = [Row("Prism Central", K.SIZE_PC_TITLE, True, K.WHITE),
             Row(line1, K.SIZE_BODY, False, K.WHITE, 2, gap_before=0.5)]
     if line2:
         rows.append(Row(line2, K.SIZE_SMALL, False, K.WHITE, 2))
-    if pc.services:
-        rows.append(Row(" · ".join(f"{v.label} ({v.count:,})" for v in pc.services),
-                        K.SIZE_SMALL, False, K.IRIS_TINT, 2))
+    items = [f"{v.label}{fmt.NBSP}({v.count:,})" if v.count else v.label for v in pc.services]
+    for line in _pack(items, " · ", K.SIZE_SMALL, inner_w)[:2]:
+        rows.append(Row(line, K.SIZE_SMALL, False, K.IRIS_TINT, 1))
     return rows
+
+
+def _pack(items: list[str], sep: str, size: float, max_w: float) -> list[str]:
+    """Items joined by `sep` into lines, breaking between items (never after a
+    separator)."""
+    lines: list[str] = []
+    cur = ""
+    for it in items:
+        cand = f"{cur}{sep}{it}" if cur else it
+        if cur and tx.width(cand, size) > max_w:
+            lines.append(cur)
+            cur = it
+        else:
+            cur = cand
+    if cur:
+        lines.append(cur)
+    return lines
 
 
 def _pills(labels: list[str]) -> list[tuple[str, float]]:
     return [(lab, q(tx.width(lab, K.SIZE_SMALL, True) + 7)) for lab in labels]
-
-
-PILL_H = 8.5
-STRIP_H = 8.6
-PILL_GAP = 2.5
 
 
 def _pill_rows(pills: list[tuple[str, float]], inner: float) -> list[list[tuple[str, float]]]:
@@ -277,22 +313,69 @@ def _pill_rows(pills: list[tuple[str, float]], inner: float) -> list[list[tuple[
     return [r for r in rows if r]
 
 
+def _title_row(c: Card) -> Row:
+    # Up to three lines, down to the 6 pt floor, before anything is ellipsised.
+    return Row(c.name, K.SIZE_CARD_TITLE, True, K.INK, 3, tx.MIN_SIZE)
+
+
 def _card_parts(c: Card, w: float) -> tuple[list[Row], list[Row], bool, float]:
     """(title rows, body rows, pills on the title row, title width) for card `c`."""
     inner = w - 10
     pills = _pills(c.services)
-    pills_w = sum(pw for _, pw in pills) + 2.5 * max(0, len(pills) - 1)
+    pills_w = sum(pw for _, pw in pills) + PILL_GAP * max(0, len(pills) - 1)
     inline = bool(pills) and pills_w <= inner * 0.5
-    if inline:  # a name that would lose characters beside the pills keeps the full width
-        _, fitted = tx.fit(c.name, K.SIZE_CARD_TITLE, True, inner - pills_w - 4, 2, 6.5)
-        inline = not fitted[-1].endswith(tx.ELLIPSIS)
+    if inline:  # a name that would wrap or lose characters keeps the full width
+        _, fitted = tx.fit(c.name, K.SIZE_CARD_TITLE, True, inner - pills_w - 4, 1)
+        inline = len(fitted) == 1 and not fitted[0].endswith(tx.ELLIPSIS)
     title_w = inner - (pills_w + 4 if inline else 0)
     if c.kind != "cluster":
-        return ([Row(c.name, K.SIZE_CARD_TITLE, True, K.INK, 2, 6.5)],
+        return ([_title_row(c)],
                 [Row(c.note, K.SIZE_SMALL, False, K.INK_3, 2)] if c.note else [], inline,
                 title_w)
-    return ([Row(c.name, K.SIZE_CARD_TITLE, True, K.INK, 2, 6.5)],
-            [Row(fmt.card_body(c), K.SIZE_BODY, False, K.INK_2, 2)], inline, title_w)
+    return ([_title_row(c)], [Row(fmt.card_body(c), K.SIZE_BODY, False, K.INK_2, 3)],
+            inline, title_w)
+
+
+def _strips(c: Card, w: float) -> list[list[tuple[str, str, float]]]:
+    """Storage strip rows: [(kind, text, width)] per row, kind "dsf" or an array id.
+    The DSF strip and the arrays share a row when they fit, else stack."""
+    sw = w - 10
+    items: list[tuple[str, str, float]] = []
+    st = fmt.storage_text(c)
+    if st:
+        items.append(("dsf", st, q(tx.width(st, K.SIZE_SMALL) + 7)))
+    for xa in c.external:
+        label = f"{xa.product.split()[-1]}, {fmt.plural(xa.containers, 'ctr', 'ctr')}"
+        items.append((xa.id, label.replace(" ", fmt.NBSP), q(tx.width(label, K.SIZE_SMALL,
+                                                                        True) + 7)))
+    if not items:
+        return []
+    if sum(iw for _, _, iw in items) + PILL_GAP * (len(items) - 1) <= sw:
+        return [items]
+    return [[it] for it in items]
+
+
+def _strip_h(text: str, w: float, bold: bool) -> float:
+    return q(text_h([Row(text, K.SIZE_SMALL, bold, K.LIVE, 2)], w - 6) + 1.6)
+
+
+def _strips_h(c: Card, w: float) -> float:
+    rows = _strips(c, w)
+    h = 0.0
+    for row in rows:
+        widths = _row_widths(row, w - 10)
+        h += 2.5 + max(_strip_h(t, rw, k != "dsf") for (k, t, _), rw in zip(row, widths,
+                                                                              strict=True))
+    return q(h)
+
+
+def _row_widths(row: list[tuple[str, str, float]], sw: float) -> list[float]:
+    """Widths of the strips in one row: arrays at their text width, DSF takes the rest."""
+    if len(row) == 1:
+        return [sw]
+    fixed = sum(iw for k, _, iw in row if k != "dsf")
+    rest = sw - fixed - PILL_GAP * (len(row) - 1)
+    return [rest if k == "dsf" else iw for k, _, iw in row]
 
 
 def _card_h(c: Card, w: float) -> float:
@@ -300,17 +383,18 @@ def _card_h(c: Card, w: float) -> float:
     h = 5.0 + text_h(title, title_w) + text_h(body, w - 10)
     if c.services and not inline:
         h += len(_pill_rows(_pills(c.services), w - 10)) * (PILL_H + 2)
-    if c.kind == "cluster" and (fmt.storage_text(c) or c.external):
-        h += 2.5 + STRIP_H
+    if c.kind == "cluster":
+        h += _strips_h(c, w)
     return q(h + 4.0)
 
 
 def _more_rows(hidden: list[Card], refs: Refs) -> list[Row]:
     nodes = sum(c.nodes or 0 for c in hidden)
+    ref = refs.clusters_table.replace(" ", fmt.NBSP)
     return [Row(f"+{fmt.plural(len(hidden), 'more cluster')}", K.SIZE_CARD_TITLE, True,
                 K.INK_2),
             Row(f"{fmt.plural(nodes, 'node')} ({fmt.hypervisor_mix(hidden)}), listed in "
-                f"{refs.clusters_table}", K.SIZE_SMALL, False, K.INK_3, 2, gap_before=0.5)]
+                f"{ref}", K.SIZE_SMALL, False, K.INK_3, 3, gap_before=0.5)]
 
 
 # ─── one part ──────────────────────────────────────────────────────────
@@ -336,13 +420,13 @@ def _visible(s: Site, keep: int | None) -> tuple[list[Card], list[Card]]:
 def _ladder(plan: _Plan, max_cols: int) -> list[_Try]:
     tries = [_Try(c, None) for c in range(1, max_cols + 1)]
     most = max((len(s.cards) for s in plan.sites), default=0)
-    if most > 4:
+    if most > MIN_KEEP + 1:
         for c in range(max_cols, 1, -1):
             for r in range(math.ceil(most / c) - 1, 1, -1):
-                tries.append(_Try(c, c * r - 1))
-        # The PC host and the 2 largest clusters; when even that is too tall (long names
-        # on two lines, several remote rows), fewer cards rather than smaller text.
-        tries.extend([_Try(1, 3), _Try(1, 2), _Try(1, 1)])
+                if c * r - 1 >= MIN_KEEP:
+                    tries.append(_Try(c, c * r - 1))
+        # The PC host and the 2 largest clusters: the floor. Below it, the part splits.
+        tries.append(_Try(1, MIN_KEEP))
     return tries
 
 
@@ -364,20 +448,35 @@ def _layout_part(model: ConceptualModel, plan: _Plan, page: Page, refs: Refs,
 
     header_h = max((text_h(_site_rows(s), inner_w) for s in sites), default=0.0)
     has_pc = any(s.pc for s in sites)
-    pc_h = max((text_h(_pc_rows(s), inner_w - 10) + 10 for s in sites if s.pc), default=0.0)
-    card_h = 30.0
+    pc_h = max((text_h(_pc_rows(s, inner_w - 10), inner_w - 10) + 10 for s in sites if s.pc),
+               default=0.0)
+
+    # Grid per site; one height per grid row across the part (rows line up between
+    # sites), cluster cards stretch to their row, the "+N more" card keeps its own height.
+    grids: dict[str, list[list[Card | None]]] = {}
+    row_h: list[float] = []
     for s in sites:
         shown, hidden = vis[s.id]
-        for cd in shown:
-            card_h = max(card_h, _card_h(cd, card_w))
-        if hidden:
-            card_h = max(card_h, text_h(_more_rows(hidden, refs), card_w - 10) + 8)
-    card_h = q(card_h)
+        cells: list[Card | None] = [*shown, *([None] if hidden else [])]
+        rows_n = max(1, math.ceil(len(cells) / c))
+        per_row = math.ceil(len(cells) / rows_n) if cells else 1
+        grid = [cells[i:i + per_row] for i in range(0, len(cells), per_row)]
+        grids[s.id] = grid
+        for r, row in enumerate(grid):
+            hs = [_card_h(cd, card_w) for cd in row if cd is not None]
+            while len(row_h) <= r:
+                row_h.append(0.0)
+            row_h[r] = max(row_h[r], *hs, 26.0) if hs else max(row_h[r], 26.0)
+    more_h = {s.id: q(text_h(_more_rows(vis[s.id][1], refs), card_w - 10) + 9)
+              for s in sites if vis[s.id][1]}
 
     top = TOP
     head_top = top + CHIP_H / 2 + 4.5
     pc_y = q(head_top + header_h + 5)
     cards_y = q(pc_y + pc_h + 11) if has_pc else q(head_top + header_h + 7)
+    row_y = [cards_y]
+    for h in row_h:
+        row_y.append(q(row_y[-1] + h + RG))
 
     site_nodes: dict[str, Node] = {}
     pc_nodes: dict[str, Node] = {}
@@ -386,7 +485,8 @@ def _layout_part(model: ConceptualModel, plan: _Plan, page: Page, refs: Refs,
     summarised: list[str] = []
     bottoms = []
     x = MX
-    used = {"more": False, "strip": False, "external": False, "user": False}
+    used = {"more": False, "strip": False, "external": False, "user": False,
+            "compute": False}
     for i, s in enumerate(sites):
         cont = box(s.id, "container", x, top, site_w, _site_rows(s), K.SITE, pad_x=P,
                    pad_y=head_top - top, h=10, data=dict(s.data))
@@ -395,38 +495,35 @@ def _layout_part(model: ConceptualModel, plan: _Plan, page: Page, refs: Refs,
                              x + 5.5, top, K.TAG, parent=s.id))
         site_nodes[s.id] = cont
         if s.pc:
-            pcn = box(s.pc.id, "box", x + P, pc_y, inner_w, _pc_rows(s), K.PC, pad_x=5,
-                      pad_y=5, h=pc_h, valign="middle", parent=s.id,
+            pcn = box(s.pc.id, "box", x + P, pc_y, inner_w, _pc_rows(s, inner_w - 10), K.PC,
+                      pad_x=5, pad_y=5, h=pc_h, valign="middle", parent=s.id,
                       data={"prism_central": s.name})
             sc.nodes.append(pcn)
             pc_nodes[s.id] = pcn
         shown, hidden = vis[s.id]
-        k = len(shown) + (1 if hidden else 0)
-        rows_n = max(1, math.ceil(k / c))
-        per_row = math.ceil(k / rows_n) if k else 1
         row_tops: list[Node] = []
-        for j in range(k):
-            r, col = divmod(j, per_row)
-            in_row = min(per_row, k - r * per_row)
-            gx = x + P + (inner_w - (in_row * card_w + (in_row - 1) * CG)) / 2
-            cx, cy = q(gx + col * (card_w + CG)), q(cards_y + r * (card_h + RG))
-            if j < len(shown):
-                cd = shown[j]
-                node = _card(sc, s, cd, cx, cy, card_w, card_h, used)
-                drawn.append(cd.id)
-            else:
-                node = box(f"{s.id}:more", "box", cx, cy, card_w, _more_rows(hidden, refs),
-                           K.MORE, pad_x=5, h=card_h, valign="middle", parent=s.id,
-                           data={"clusters": str(len(hidden))})
-                sc.nodes.append(node)
-                summarised.extend(cd.id for cd in hidden)
-                used["more"] = True
-            if r == 0:
-                row_tops.append(node)
+        bottom = cards_y - 4
+        for r, row in enumerate(grids[s.id]):
+            gx = x + P + (inner_w - (len(row) * card_w + (len(row) - 1) * CG)) / 2
+            for col, cd in enumerate(row):
+                cx, cy = q(gx + col * (card_w + CG)), row_y[r]
+                if cd is not None:
+                    node = _card(sc, s, cd, cx, cy, card_w, row_h[r], used)
+                    drawn.append(cd.id)
+                else:
+                    node = box(f"{s.id}:more", "box", cx, cy, card_w,
+                               _more_rows(hidden, refs), K.MORE, pad_x=5, h=more_h[s.id],
+                               valign="middle", parent=s.id,
+                               data={"clusters": str(len(hidden))})
+                    sc.nodes.append(node)
+                    summarised.extend(h.id for h in hidden)
+                    used["more"] = True
+                bottom = max(bottom, node.y + node.h)
+                if r == 0:
+                    row_tops.append(node)
         if row_tops:
             first_cards[s.id] = row_tops[0]
-        rows_bottom = cards_y + rows_n * card_h + (rows_n - 1) * RG if k else cards_y - 4
-        bottoms.append(rows_bottom + P + 1.5)
+        bottoms.append(bottom + P + 1.5)
         if s.id in pc_nodes:
             pcn = pc_nodes[s.id]
             px, py = pcn.x + pcn.w / 2, pcn.y + pcn.h
@@ -443,8 +540,11 @@ def _layout_part(model: ConceptualModel, plan: _Plan, page: Page, refs: Refs,
     for nd in site_nodes.values():
         nd.h = q(site_bottom - nd.y)
 
-    kinds = {"pairing": False, "replication": False}
+    kinds: dict[str, bool] = {"pairing": False, "pairing_down": False, "replication": False}
     content_bottom = site_bottom
+
+    names = {s.id: short_name(s.name) for s in model.sites}
+    names.update({r.id: r.name for r in model.remotes})
 
     # Adjacent sites: the labelled gutter.
     for a, b, lks in plan.gutter:
@@ -452,41 +552,29 @@ def _layout_part(model: ConceptualModel, plan: _Plan, page: Page, refs: Refs,
         gx0, gx1 = na.x + na.w, nb.x
         gc = (gx0 + gx1) / 2
         y_p = _pair_y(pc_nodes.get(a), na)
-        pairing = [lk for lk in lks if lk.kind == "pairing"]
-        repls = [lk for lk in lks if lk.kind == "replication"]
-        if pairing:
-            kinds["pairing"] = True
-            e = edge(pairing[0].id, a, b, [(gx0 + 0.5, y_p), (gx1 - 0.5, y_p)], K.PAIRING,
-                     arrow_start=True, arrow_end=True, data={"kind": "pairing"})
-            e.labels.append(edge_label(["AZ pairing"], gc, y_p - 5.5, gx1 - gx0 - 6,
-                                       background=False))
-            sc.edges.append(e)
-        for lk in repls[:1]:
+        _pairing_edge(sc, [lk for lk in lks if lk.kind == "pairing"], a, b,
+                      (gx0 + 0.5, gx1 - 0.5), y_p, gc, gx1 - gx0 - 6, kinds)
+        for lk in [lk for lk in lks if lk.kind == "replication"][:1]:
             kinds["replication"] = True
-            lines = fmt.repl_lines(lk)
+            lines = _colored(fmt.link_lines(lk, names[lk.a], names[lk.b]))
             _, _, lh = label_block(lines, gx1 - gx0 - 6)
             card = first_cards.get(a)
             base = card.y + card.h / 2 if card else y_p + 20
             y_r = q(max(base, y_p + 7 + lh / 2 + 2))
-            fwd = lk.a == a
-            e = edge(lk.id, lk.a, lk.b, [(gx0 + 0.5, y_r), (gx1 - 0.5, y_r)]
-                     if fwd else [(gx1 - 0.5, y_r), (gx0 + 0.5, y_r)], _repl_style(lk),
-                     arrow_end=True, arrow_start=lk.both, data={"kind": "replication"})
+            left_to_right = [(gx0 + 0.5, y_r), (gx1 - 0.5, y_r)]
+            pts = left_to_right if lk.a == a else left_to_right[::-1]
+            e = edge(lk.id, lk.a, lk.b, pts, _repl_style(lk.repl),
+                     arrow_end=bool(lk.forward), arrow_start=bool(lk.backward),
+                     data={"kind": "replication"})
             e.labels.append(edge_label(lines, gc, y_r, gx1 - gx0 - 6))
-            if lk.both:
-                e.labels.append(edge_label(["both directions"], gc, y_r + lh / 2 + 6.5,
-                                           gx1 - gx0 - 4, color=K.INK_3, background=False))
             sc.edges.append(e)
 
     # Links leaving the drawn sites.
-    if plan.targets:
-        if plan.side:
-            content_bottom = max(content_bottom, _side(sc, plan, site_nodes, pc_nodes,
-                                                       first_cards, kinds))
-        else:
-            content_bottom = max(content_bottom, _below(sc, plan, site_nodes, page, kinds))
-    elif plan.inner:
-        content_bottom = max(content_bottom, _below(sc, plan, site_nodes, page, kinds))
+    if plan.targets and plan.side:
+        content_bottom = max(content_bottom, _side(sc, plan, site_nodes, pc_nodes,
+                                                   first_cards, kinds, names))
+    elif plan.targets or plan.inner:
+        content_bottom = max(content_bottom, _below(sc, plan, site_nodes, page, kinds, names))
 
     items: list[tuple[str, Style, str]] = []
     if has_pc:
@@ -496,9 +584,10 @@ def _layout_part(model: ConceptualModel, plan: _Plan, page: Page, refs: Refs,
         items.append(("box", K.STORAGE, "DSF storage"))
     if used["external"]:
         items.append(("box", K.EXTERNAL, "External storage"))
-    if plan.targets:
-        items.append(("box", K.REMOTE, "Outside this part" if all(
-            not t.id.startswith("az:") for t in plan.targets) else "Outside this inventory"))
+    if any(not t.ref for t in plan.targets):
+        items.append(("box", K.REMOTE, "Outside this inventory"))
+    if any(t.ref for t in plan.targets):
+        items.append(("box", K.REF, "Drawn in another part"))
     if used["more"]:
         items.append(("box", K.MORE, "Summary card"))
     if used["user"]:
@@ -507,6 +596,9 @@ def _layout_part(model: ConceptualModel, plan: _Plan, page: Page, refs: Refs,
         items.append(("line", K.LEGEND_REPL, "Replication"))
     if kinds["pairing"]:
         items.append(("line", K.PAIRING, "AZ pairing"))
+    if kinds["pairing_down"]:
+        states = sorted(k.split(":", 1)[1] for k in kinds if k.startswith("state:"))
+        items.append(("line", K.PAIRING_DOWN, f"AZ pairing, {' or '.join(states)}"))
     if has_pc:
         items.append(("line", K.MANAGES, "Manages"))
     content_w = max((nd.x + nd.w for nd in sc.nodes), default=200.0)
@@ -522,14 +614,40 @@ def _layout_part(model: ConceptualModel, plan: _Plan, page: Page, refs: Refs,
     return sc
 
 
+_ROLE_COLOR = {"type": K.IRIS, "direction": K.INK_2, "note": K.INK_3}
+
+
+def _colored(lines: list[fmt.LabelLine]) -> list[LabelText]:
+    return [(ln.text, _ROLE_COLOR[ln.role]) for ln in lines]
+
+
+def _pairing_edge(sc: Scene, pairing: list[Link], a: str, b: str, xs: tuple[float, float],
+                  y: float, label_x: float, label_w: float, kinds: dict[str, bool]) -> None:
+    """A horizontal AZ pairing edge, its label above the line (never crossed by it)."""
+    if not pairing:
+        return
+    lk = pairing[0]
+    up = lk.connected
+    kinds["pairing" if up else "pairing_down"] = True
+    if not up:
+        kinds[f"state:{lk.state or 'not connected'}"] = True
+    e = edge(lk.id, a, b, [(xs[0], y), (xs[1], y)], K.PAIRING if up else K.PAIRING_DOWN,
+             arrow_start=True, arrow_end=True, data={"kind": "pairing"})
+    text: list[LabelText] = ["AZ pairing" if up else f"AZ pairing, {lk.state or 'not connected'}"]
+    _, _, lh = label_block(text, label_w)
+    e.labels.append(edge_label(text, label_x, y - 1.5 - lh / 2, label_w, background=False,
+                               color=K.IRIS if up else K.INK_3))
+    sc.edges.append(e)
+
+
 def _pair_y(pcn: Node | None, site: Node) -> float:
     if pcn is not None:
         return q(pcn.y + pcn.h / 2)
     return q(site.y + 18)
 
 
-def _repl_style(lk: Link) -> Style:
-    return {"sync": K.REPL_SYNC, "nearsync": K.REPL_NEARSYNC}.get(fmt.repl_strength(lk),
+def _repl_style(reps: list[Repl]) -> Style:
+    return {"sync": K.REPL_SYNC, "nearsync": K.REPL_NEARSYNC}.get(fmt.repl_strength(reps),
                                                                   K.REPL_ASYNC)
 
 
@@ -568,213 +686,241 @@ def _card(sc: Scene, s: Site, cd: Card, x: float, y: float, w: float, h: float,
                                     pad_y=0, h=PILL_H, valign="middle", parent=cd.id))
                 px += pw + PILL_GAP
             py += PILL_H + 2
-    st = fmt.storage_text(cd) if is_cluster else ""
-    if is_cluster and (st or cd.external):
-        sy = y + h - 4 - STRIP_H
-        sx, sw = x + 5, w - 10
-        ext_nodes = []
-        for xa in reversed(cd.external):
-            label = f"{xa.product.split()[-1]}, {xa.containers:,} ctr"
-            ew = q(min(tx.width(label, K.SIZE_SMALL, True) + 7, sw * 0.6))
-            ext_nodes.append((xa, label, sx + sw - ew, ew))
-            sw = q(sw - ew - 2.5)
-        if st:
-            used["strip"] = True
-            sc.nodes.append(box(f"{cd.id}:storage", "strip", sx, sy, sw,
-                                [Row(st, K.SIZE_SMALL, False, K.LIVE)], K.STORAGE, pad_x=3,
-                                pad_y=0, h=STRIP_H, valign="middle", parent=cd.id))
-        for xa, label, ex, ew in reversed(ext_nodes):
-            used["external"] = True
-            sc.nodes.append(box(xa.id, "strip", ex, sy, ew,
-                                [Row(label, K.SIZE_SMALL, True, K.WHITE)], K.EXTERNAL,
-                                pad_x=3, pad_y=0, h=STRIP_H, valign="middle", parent=cd.id,
-                                data={"product": xa.product, **({"name": xa.name}
-                                                                if xa.name else {})}))
+    if is_cluster:
+        # Strips pinned to the bottom of the card, so they line up along a grid row.
+        rows_s = _strips(cd, w)
+        heights = []
+        for srow in rows_s:
+            widths = _row_widths(srow, w - 10)
+            heights.append(max(_strip_h(t, rw, k != "dsf")
+                               for (k, t, _), rw in zip(srow, widths, strict=True)))
+        sy = y + h - 4 - sum(heights) - 2.5 * (len(heights) - 1)
+        arrays = {xa.id: xa for xa in cd.external}
+        for srow, rh in zip(rows_s, heights, strict=True):
+            sx = x + 5
+            for (k, t, _), rw in zip(srow, _row_widths(srow, w - 10), strict=True):
+                if k == "dsf":
+                    used["strip"] = True
+                    sc.nodes.append(box(f"{cd.id}:storage", "strip", sx, sy, rw,
+                                        [Row(t, K.SIZE_SMALL, False, K.LIVE, 2)], K.STORAGE,
+                                        pad_x=3, pad_y=0, h=rh, valign="middle",
+                                        parent=cd.id))
+                else:
+                    used["external"] = True
+                    xa = arrays[k]
+                    sc.nodes.append(box(k, "strip", sx, sy, rw,
+                                        [Row(t, K.SIZE_SMALL, True, K.WHITE, 2)], K.EXTERNAL,
+                                        pad_x=3, pad_y=0, h=rh, valign="middle",
+                                        parent=cd.id,
+                                        data={"product": xa.product,
+                                              **({"name": xa.name} if xa.name else {})}))
+                sx += rw + PILL_GAP
+            sy += rh + 2.5
     return node
 
 
 def _target_rows(t: _Target, below: bool) -> list[Row]:
     if below:
-        return [Row(t.name, K.SIZE_REMOTE_TITLE, True, K.INK, 1, 6.5),
+        return [Row(t.name, K.SIZE_REMOTE_TITLE, True, K.INK, 2, 6.5),
                 Row(f"{t.sub} · {t.note}", K.SIZE_SMALL, False, K.INK_2, 2,
                     gap_before=0.5)]
-    return [Row(t.name, K.SIZE_REMOTE_TITLE, True, K.INK, 2, 6.5),
+    return [Row(t.name, K.SIZE_REMOTE_TITLE, True, K.INK, 3, tx.MIN_SIZE),
             Row(t.sub, K.SIZE_SMALL, False, K.INK_2, 2, gap_before=0.5),
             Row(t.kind_line, K.SIZE_SMALL, False, K.INK_3, 1),
             Row(t.note, K.SIZE_SMALL, False, K.INK_3, 2)]
 
 
 def _target_style(t: _Target) -> Style:
-    return K.REMOTE
+    return K.REF if t.ref else K.REMOTE
 
 
 def _side(sc: Scene, plan: _Plan, site_nodes: dict[str, Node], pc_nodes: dict[str, Node],
-          first_cards: dict[str, Node], kinds: dict[str, bool]) -> float:
+          first_cards: dict[str, Node], kinds: dict[str, bool], names: dict[str, str]
+          ) -> float:
     src = site_nodes[plan.sites[-1].id]
     x0 = src.x + src.w
     bx = q(x0 + SIDE_GUT)
     pcn = pc_nodes.get(src.id)
     y = pcn.y if pcn else src.y + 18
     by_target = {t: lks for _, t, lks in plan.external}
-    for t in plan.targets:
+    for ti, t in enumerate(plan.targets):
         lks = by_target.get(t.id, [])
         pairing = [lk for lk in lks if lk.kind == "pairing"]
         repls = [lk for lk in lks if lk.kind == "replication"]
         rows = _target_rows(t, below=False)
         th = text_h(rows, REMOTE_W - 8)
-        lines = fmt.repl_lines(repls[0]) if repls else []
-        _, _, lh = label_block(lines, SIDE_GUT - 6) if lines else (None, 0.0, 0.0)
-        y_p = q((pcn.y + pcn.h / 2) if (pcn and y == pcn.y) else y + 14)
-        if pairing and repls:
+        lines = _colored(fmt.link_lines(repls[0], names[repls[0].a], names[repls[0].b])) \
+            if repls else []
+        lh = label_block(lines, SIDE_GUT - 4)[2] if lines else 0.0
+        first = ti == 0 and pcn is not None
+        y_p = q(pcn.y + pcn.h / 2) if first and pcn else q(y + 14)
+        if repls:
             card = first_cards.get(src.id)
-            base = card.y + card.h / 2 if (card and y == (pcn.y if pcn else -1)) else 0
-            y_r = q(max(base, y_p + 7 + lh + 6))
+            base = card.y + card.h / 2 if (card and first) else 0.0
+            y_r = q(max(base, (y_p + 6 if pairing else y + 6) + lh + 2.5))
         else:
-            y_r = y_p if not pairing else y_p
+            y_r = y_p
         need = max(th + CHIP_H / 2 + 4.5 + 6, (y_r - y) + 12)
         node = box(t.id, "box", bx, y, REMOTE_W, rows, _target_style(t), pad_x=4,
-                   pad_y=CHIP_H / 2 + 4.5, h=q(need), data={"availability_zone": t.name})
+                   pad_y=CHIP_H / 2 + 4.5, h=q(need),
+                   data={"availability_zone": t.name, "name": t.name})
         sc.nodes.append(node)
-        sc.nodes.append(chip(f"{t.id}:tag", t.chip, bx + 5.5, y, K.TAG_MUTED, parent=t.id))
-        if pairing:
-            kinds["pairing"] = True
-            e = edge(pairing[0].id, src.id, t.id, [(x0 + 0.5, y_p), (bx - 0.5, y_p)],
-                     K.PAIRING, arrow_start=True, arrow_end=True, data={"kind": "pairing"})
-            e.labels.append(edge_label(["AZ pairing"], x0 + SIDE_GUT / 2, y_p - 5.5,
-                                       SIDE_GUT - 4, background=False))
-            sc.edges.append(e)
+        sc.nodes.append(chip(f"{t.id}:tag", t.chip, bx + 5.5, y,
+                             K.TAG if t.ref else K.TAG_MUTED, parent=t.id))
+        _pairing_edge(sc, pairing, src.id, t.id, (x0 + 0.5, bx - 0.5), y_p,
+                      x0 + SIDE_GUT / 2, SIDE_GUT - 4, kinds)
         for lk in repls[:1]:
             kinds["replication"] = True
-            fwd = lk.a == src.id
             pts = [(x0 + 0.5, y_r), (bx - 0.5, y_r)]
-            e = edge(lk.id, lk.a, lk.b, pts if fwd else pts[::-1], _repl_style(lk),
-                     arrow_end=True, arrow_start=lk.both, data={"kind": "replication"})
-            e.labels.append(edge_label(lines, x0 + SIDE_GUT / 2, y_r - lh / 2 - 2.5,
+            e = edge(lk.id, lk.a, lk.b, pts if lk.a == src.id else pts[::-1],
+                     _repl_style(lk.repl), arrow_end=bool(lk.forward),
+                     arrow_start=bool(lk.backward), data={"kind": "replication"})
+            # Above the line, so the line never crosses its own label.
+            e.labels.append(edge_label(lines, x0 + SIDE_GUT / 2, y_r - lh / 2 - 2,
                                        SIDE_GUT - 4))
             sc.edges.append(e)
         y = q(node.y + node.h + 12)
     return y - 12
 
 
+@dataclass
+class _Group:
+    target: str
+    kind: str  # replication | pairing
+    sources: list[tuple[str, Link]]
+    inner: bool  # the target is a site of this part
+
+
 def _below(sc: Scene, plan: _Plan, site_nodes: dict[str, Node], page: Page,
-           kinds: dict[str, bool]) -> float:
-    """Buses under the sites: one channel per (target, kind); remote boxes in a row."""
+           kinds: dict[str, bool], names: dict[str, str]) -> float:
+    """Buses under the sites: one channel per (target, kind), one edge and one label
+    per source; remote boxes in a row below."""
     site_bottom = max(n.y + n.h for n in site_nodes.values())
-    # Groups: (target id, kind, [(source site id, link)])
-    groups: list[tuple[str, str, list[tuple[str, Link]], bool]] = []
+    groups: list[_Group] = []
     by_target: dict[str, list[tuple[str, list[Link]]]] = {}
     for x, t, lks in plan.external:
         by_target.setdefault(t, []).append((x, lks))
     for t in [tg.id for tg in plan.targets]:
-        by_src = by_target.get(t, [])
-        rep_g: list[tuple[str, Link]] = [(x, lk) for x, lks in by_src for lk in lks
-                                         if lk.kind == "replication"]
-        rep_src = {x for x, _ in rep_g}
-        pair_g: list[tuple[str, Link]] = [(x, lk) for x, lks in by_src for lk in lks
-                                          if lk.kind == "pairing" and x not in rep_src]
-        if rep_g:
-            groups.append((t, "replication", rep_g, False))
-        if pair_g:
-            groups.append((t, "pairing", pair_g, False))
+        for kind in ("replication", "pairing"):
+            srcs = [(x, lk) for x, lks in by_target.get(t, []) for lk in lks if lk.kind == kind]
+            if srcs:
+                groups.append(_Group(t, kind, srcs, False))
     for x, y, lks in plan.inner:
-        rep_links = [lk for lk in lks if lk.kind == "replication"]
-        chosen = rep_links[0] if rep_links else lks[0]
-        groups.append((y, chosen.kind, [(x, chosen)], True))
+        for kind in ("replication", "pairing"):
+            for lk in lks:
+                if lk.kind == kind:
+                    groups.append(_Group(y, kind, [(x, lk)], True))
 
     def centre(sid: str) -> float:
         n = site_nodes[sid]
         return n.x + n.w / 2
 
-    def proxy_x(g: tuple[str, str, list[tuple[str, Link]], bool]) -> float:
-        if g[3]:
-            return centre(g[0])
-        return sum(centre(x) for x, _ in g[2]) / len(g[2])
+    def proxy_x(g: _Group) -> float:
+        return centre(g.target) if g.inner else sum(centre(x) for x, _ in g.sources) / len(
+            g.sources)
 
-    groups.sort(key=lambda g: (proxy_x(g), g[1] != "replication", g[0]))
-    # Ports along each site's bottom, in group order (so channels do not cross).
+    groups.sort(key=lambda g: (proxy_x(g), g.kind != "replication", g.target))
     ports: dict[str, list[tuple[int, str]]] = {}
     for gi, g in enumerate(groups):
-        for x, _ in g[2]:
+        for x, _ in g.sources:
             ports.setdefault(x, []).append((gi, "src"))
-        if g[3]:
-            ports.setdefault(g[0], []).append((gi, "dst"))
+        if g.inner:
+            ports.setdefault(g.target, []).append((gi, "dst"))
     port_x: dict[tuple[int, str, str], float] = {}
+    port_i: dict[tuple[int, str, str], int] = {}
     for sid, lst in ports.items():
         n = site_nodes[sid]
         m = len(lst)
         for i, (gi, role) in enumerate(lst):
-            px = n.x + n.w / 2 if m == 1 else n.x + n.w * (0.2 + 0.6 * i / (m - 1))
+            px = n.x + n.w / 2 if m == 1 else n.x + n.w * (0.1 + 0.8 * i / (m - 1))
             port_x[(gi, sid, role)] = q(px)
+            port_i[(gi, sid, role)] = i
 
-    chan0 = site_bottom + 12
-    remote_groups = [g for g in groups if not g[3]]
+    # Labels on each source's drop, just under the site; alternate rows when ports are
+    # close together.
+    labels: dict[tuple[int, str], tuple[list[LabelText], float, float]] = {}
+    for gi, g in enumerate(groups):
+        if g.kind != "replication":
+            continue
+        for x, lk in g.sources:
+            text = _colored(fmt.link_lines(lk, names[lk.a], names[lk.b]))
+            _, lw, lh = label_block(text, 150)
+            labels[(gi, x)] = (text, lw, lh)
+    label_h = max((lh for _, _, lh in labels.values()), default=0.0)
+    stagger = any(len(lst) > 2 for lst in ports.values())
+    chan0 = q(site_bottom + 6 + label_h * (2 if stagger else 1) + (3 if stagger else 0)
+              + (4 if labels else 0))
+    remote_groups = [g for g in groups if not g.inner]
     n_ch = len(groups)
     row_y = q(chan0 + CHANNEL * (n_ch - 1) + 14) if remote_groups else 0.0
-    # Remote boxes, centred under their sources, de-overlapped.
     targets = {t.id: t for t in plan.targets}
     want: dict[str, list[float]] = {}
     for gi, g in enumerate(groups):
-        if not g[3]:
-            want.setdefault(g[0], []).extend(port_x[(gi, x, "src")] for x, _ in g[2])
+        if not g.inner:
+            want.setdefault(g.target, []).extend(port_x[(gi, x, "src")] for x, _ in g.sources)
     order = sorted(want, key=lambda t: (sum(want[t]) / len(want[t]), t))
     xs = _deoverlap([sum(want[t]) / len(want[t]) - BELOW_W / 2 for t in order], BELOW_W, 12,
                     MX, page.width - MX)
     boxes: dict[str, Node] = {}
     for t, bx in zip(order, xs, strict=True):
         tg = targets[t]
-        node = box(t, "box", bx, row_y, BELOW_W, _target_rows(tg, below=True), K.REMOTE,
-                   pad_x=5, pad_y=CHIP_H / 2 + 4, data={"availability_zone": tg.name})
+        node = box(t, "box", bx, row_y, BELOW_W, _target_rows(tg, below=True),
+                   _target_style(tg), pad_x=5, pad_y=CHIP_H / 2 + 4,
+                   data={"availability_zone": tg.name, "name": tg.name})
         sc.nodes.append(node)
-        sc.nodes.append(chip(f"{t}:tag", tg.chip, bx + 5.5, row_y, K.TAG_MUTED, parent=t))
+        sc.nodes.append(chip(f"{t}:tag", tg.chip, bx + 5.5, row_y,
+                             K.TAG if tg.ref else K.TAG_MUTED, parent=t))
         boxes[t] = node
     if boxes:
         hmax = max(b.h for b in boxes.values())
         for b in boxes.values():
             b.h = hmax
-    # Target ports on each box top, spread when several groups land on one box.
     into: dict[str, list[int]] = {}
     for gi, g in enumerate(groups):
-        if not g[3]:
-            into.setdefault(g[0], []).append(gi)
+        if not g.inner:
+            into.setdefault(g.target, []).append(gi)
     for gi, g in enumerate(groups):
-        t, kind, members, inner = g
         cy = q(chan0 + CHANNEL * gi)
-        if inner:
-            tx_ = port_x[(gi, t, "dst")]
+        if g.inner:
+            tx_ = port_x[(gi, g.target, "dst")]
             ty = site_bottom
         else:
-            b = boxes[t]
-            k, m = into[t].index(gi), len(into[t])
+            b = boxes[g.target]
+            k, m = into[g.target].index(gi), len(into[g.target])
             tx_ = q(b.x + b.w * (k + 1) / (m + 1))
             ty = b.y
-        style = K.PAIRING if kind == "pairing" else _repl_style(members[0][1])
-        kinds[kind] = True
-        lines = (["AZ pairing"] if kind == "pairing"
-                 else list(dict.fromkeys(ln for _, m in members for ln in fmt.repl_lines(m))))
-        if len(lines) > 3:
-            lines = [", ".join(lines[:2]), f"+{len(lines) - 2:,} more"]
-        if kind == "replication" and any(m.both for _, m in members):
-            lines.append("both directions")
-        for si, (x, lk) in enumerate(members):
+        pairing = g.kind == "pairing"
+        if pairing:
+            up = all(lk.connected for _, lk in g.sources)
+            kinds["pairing" if up else "pairing_down"] = True
+            for _, lk in g.sources:
+                if not lk.connected:
+                    kinds[f"state:{lk.state or 'not connected'}"] = True
+        else:
+            kinds["replication"] = True
+        for x, lk in g.sources:
             px = port_x[(gi, x, "src")]
             pts = [(px, site_bottom), (px, cy), (tx_, cy), (tx_, ty)]
             if abs(px - tx_) < 0.5:
                 pts = [(px, site_bottom), (tx_, ty)]
-            fwd = lk.a == x or lk.kind == "pairing"
-            e = edge(f"{lk.id}|{x}" if len(members) > 1 else lk.id, x, t,
-                     pts if fwd else pts[::-1], style, arrow_end=fwd or lk.both,
-                     arrow_start=(not fwd) or (inner and (lk.both or kind == "pairing")),
-                     data={"kind": kind})
-            if si == 0:
-                text = [", ".join(lines)]
-                _, lw, lh = label_block(text, 200)
-                lx = tx_ + 5 + lw / 2
-                if lx + lw / 2 > page.width - MX:
-                    lx = tx_ - 5 - lw / 2
-                e.labels.append(edge_label(text, lx, cy, 200))
+            if pairing:
+                style = K.PAIRING if lk.connected else K.PAIRING_DOWN
+                a_end, a_start = True, True
+            else:
+                fwd = lk.a == x
+                style = _repl_style(lk.repl)
+                a_end = bool(lk.forward if fwd else lk.backward)
+                a_start = bool(lk.backward if fwd else lk.forward)
+            e = edge(f"{lk.id}|{x}" if len(g.sources) > 1 else lk.id, x, g.target, pts,
+                     style, arrow_end=a_end, arrow_start=a_start, data={"kind": g.kind})
+            if (gi, x) in labels:
+                text, lw, lh = labels[(gi, x)]
+                row = port_i[(gi, x, "src")] % 2 if stagger else 0
+                ly = site_bottom + 3 + lh / 2 + row * (label_h + 3)
+                lx = min(max(px, MX + lw / 2), page.width - MX - lw / 2)
+                e.labels.append(edge_label(text, lx, ly, 150))
             sc.edges.append(e)
-    bottom = max([b.y + b.h for b in boxes.values()] +
-                 [chan0 + CHANNEL * (n_ch - 1) + 6])
+    bottom = max([b.y + b.h for b in boxes.values()] + [chan0 + CHANNEL * (n_ch - 1) + 6])
     return q(bottom)
 
 
@@ -800,8 +946,6 @@ def _caption(sites: list[Site], part: tuple[int, int]) -> str:
     cards = [c for s in sites for c in s.cards if c.kind == "cluster"]
     nodes = sum(c.nodes or 0 for c in cards)
     if part[1] > 1:
-        from ..facts import short_name
-
         names = fmt.join_names([short_name(s.name) for s in sites])
         return (f"Solution conceptual overview, part {part[0]} of {part[1]}: {names} "
                 f"({fmt.plural(len(cards), 'cluster')}, {fmt.plural(nodes, 'node')}).")
@@ -812,27 +956,50 @@ def _caption(sites: list[Site], part: tuple[int, int]) -> str:
             f"{fmt.plural(len(cards), 'cluster')}, {fmt.plural(nodes, 'node')}.")
 
 
-def layout(model: ConceptualModel, page: Page | None = None,
-           refs: Refs | None = None) -> list[Scene]:
-    """Scenes (parts) for the model; each fits `page.width` and, whenever the density
-    ladder allows, `page.max_h`."""
+def _best(model: ConceptualModel, sites: list[Site], parts: list[list[Site]], page: Page,
+          refs: Refs, limit: Budget, sid: str) -> tuple[Scene, bool]:
+    """The first ladder rung that fits `limit`, else the most compact one."""
+    plan = _plan(model, sites, parts, page)
+    side_w = (SIDE_GUT + REMOTE_W) if plan.side else 0.0
+    avail = (page.width - 2 * MX - sum(_gaps(plan)) - side_w) / max(1, len(sites))
+    max_cols = max(1, int((avail - 2 * P + CG) // (CARD_MIN_W + CG)))
+    sc: Scene | None = None
+    for attempt in _ladder(plan, max_cols):
+        sc = _layout_part(model, plan, page, refs, attempt, sid)
+        if sc.height <= limit(sc.width):
+            return sc, True
+    assert sc is not None
+    return sc, False
+
+
+def layout(model: ConceptualModel, page: Page | None = None, refs: Refs | None = None,
+           first_budget: Budget | None = None) -> list[Scene]:
+    """Scenes (parts) for the model. Every part fits `page.max_h`, and part 1 fits
+    `first_budget(width)` (the room the report leaves under the heading and summary);
+    a part that cannot fit, even with "+N more" cards, gives its last site to a new
+    part."""
     page = page or Page()
     refs = refs or Refs()
     parts = plan_parts(model)
+
+    def limit(pi: int) -> Budget:
+        if pi == 0 and first_budget is not None:
+            return lambda w: min(page.max_h, first_budget(w))
+        return lambda _w: page.max_h
+
+    # Pass 1: settle the parts (split any that cannot fit).
+    pi = 0
+    while pi < len(parts):
+        _, ok = _best(model, parts[pi], parts, page, refs, limit(pi), "probe")
+        if not ok and len(parts[pi]) > 1:
+            parts = parts[:pi] + [parts[pi][:-1], parts[pi][-1:]] + parts[pi + 1:]
+            continue
+        pi += 1
+    # Pass 2: lay out with the final part numbers (reference boxes name them).
     scenes: list[Scene] = []
     for pi, sites in enumerate(parts):
-        plan = _plan(model, sites, parts, page)
-        gaps = _gaps(plan)
-        side_w = (SIDE_GUT + REMOTE_W) if plan.side else 0.0
-        avail = (page.width - 2 * MX - sum(gaps) - side_w) / max(1, len(sites))
-        max_cols = max(1, int((avail - 2 * P + CG) // (CARD_MIN_W + CG)))
-        sc: Scene | None = None
         sid = "conceptual" if len(parts) == 1 else f"conceptual-{pi + 1}"
-        for attempt in _ladder(plan, max_cols):
-            sc = _layout_part(model, plan, page, refs, attempt, sid)
-            if sc.height <= page.max_h:
-                break
-        assert sc is not None
+        sc, _ = _best(model, sites, parts, page, refs, limit(pi), sid)
         sc.part = (pi + 1, len(parts))
         sc.caption = _caption(sites, sc.part)
         scenes.append(sc)

@@ -57,6 +57,8 @@ from ntnxvision_core.numfmt import NA
 
 #: The status glyph: a small filled square in the status colour, then the ink label.
 GLYPH = "■"
+#: The narrowest design-summary column beside a figure (pt).
+SUMMARY_MIN_W = 170.0
 
 _INK = RGBColor.from_string(T.INK)
 _INK_2 = RGBColor.from_string(T.INK_2)
@@ -241,12 +243,14 @@ class WordExporter:
         self._orientation(doc, bool(wide) and wide[0])
         h = doc.add_heading(T.clean(ch.heading), level=1)
         h.paragraph_format.page_break_before = not self._fresh
+        h.paragraph_format.keep_with_next = True
         self._fresh = False
         self._blocks(doc, ch.blocks)
         for section, is_wide in zip(ch.sections, wide, strict=True):
             if is_wide != self._landscape:
                 self._orientation(doc, is_wide)
             head = doc.add_heading(T.clean(section.heading), level=2)
+            head.paragraph_format.keep_with_next = True
             if self._fresh:
                 head.paragraph_format.space_before = Pt(0)
             self._fresh = False
@@ -259,9 +263,12 @@ class WordExporter:
         return min(w, h) - int(s.left_margin or 0) - int(s.right_margin or 0)
 
     def _is_wide(self, doc: DocumentObject, blocks: list[Any]) -> bool:
+        """A figure (with its summary column when it sits beside it) wider than the
+        portrait text width needs a landscape page."""
         limit = self._portrait_width(doc)
-        return any(isinstance(b, SceneFigure) and int(Pt(b.scene.width)) > limit
-                   for b in blocks)
+        return any(isinstance(b, SceneFigure)
+                   and int(Pt(b.scene.width + (SUMMARY_MIN_W if b.summary_beside else 0)))
+                   > limit for b in blocks)
 
     def _orientation(self, doc: DocumentObject, landscape: bool) -> None:
         """Start a new section (on a new page) in the wanted orientation, if needed."""
@@ -381,6 +388,9 @@ class WordExporter:
         self._figure_caption(doc.add_paragraph(style="Caption"), f)
 
     # ─── architecture diagrams ─────────────────────────────────────
+    # Heading, summary, figure and caption are chained with keep-with-next, and part 1
+    # of a diagram is laid out to fit under them (content.first_part_budget), so they
+    # share a page.
 
     @staticmethod
     def _eyebrow(p: Any) -> None:
@@ -391,25 +401,33 @@ class WordExporter:
         _letter_spacing(r, 16)
 
     @staticmethod
-    def _summary_items(cell_or_doc: Any, items: list[str]) -> None:
+    def _summary_items(container: Any, items: list[str]) -> None:
+        """Bullets with the iris square marker the PDF and the mocks use."""
         for item in items:
-            b = cell_or_doc.add_paragraph(style="List Bullet")
-            b.paragraph_format.space_after = Pt(2)
-            b.paragraph_format.keep_with_next = True
-            _run(b.add_run(T.clean(item)), 9.5, _INK)
+            b = container.add_paragraph()
+            pf = b.paragraph_format
+            pf.left_indent = Inches(0.17)
+            pf.first_line_indent = -Inches(0.17)
+            pf.space_after = Pt(3)
+            pf.keep_with_next = True
+            pf.tab_stops.add_tab_stop(Inches(0.17))
+            _run(b.add_run(GLYPH), 5.5, _IRIS)
+            _run(b.add_run("\t" + T.clean(item)), 9.5, _INK)
 
     def _scene_figure(self, doc: DocumentObject, f: SceneFigure) -> None:
         text_w = _text_width(doc)
         width = min(text_w, int(Pt(f.scene.width)))
         png = render_png(f.scene, dpi=220)
-        if f.summary_beside and text_w - width >= int(Inches(1.8)):
-            table = doc.add_table(rows=1, cols=2)
+        if f.summary_beside:
+            # Decision 3: beside the figure when it is 480 pt or narrower.
             gap = int(Inches(0.2))
-            _fixed_layout(table, [width + gap, text_w - width - gap])
+            table = doc.add_table(rows=1, cols=2)
+            _fixed_layout(table, [width + gap, max(text_w - width - gap, int(Inches(1)))])
             _cell_margins(table, top=0, bottom=0, left=0, right=0)
             left, right = table.rows[0].cells
             pic = left.paragraphs[0]
             pic.paragraph_format.space_after = Pt(0)
+            pic.paragraph_format.keep_with_next = True
             pic.add_run().add_picture(io.BytesIO(png), width=Emu(width))
             _alt_text(pic, T.clean(f.title))
             self._eyebrow(right.paragraphs[0])
@@ -437,6 +455,7 @@ class WordExporter:
         self._figure_caption(cap, f)
         if f.note:
             cap.paragraph_format.space_after = Pt(2)
+            cap.paragraph_format.keep_with_next = True
             note = doc.add_paragraph()
             note.paragraph_format.space_after = Pt(10)
             _run(note.add_run(T.clean(f.note)), 8, _INK_3)

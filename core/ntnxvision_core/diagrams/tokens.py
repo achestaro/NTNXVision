@@ -63,3 +63,8 @@ REPL_ASYNC = Style(stroke=IRIS, stroke_w=0.7)
 
 #: Legend swatches (line samples use the edge styles above).
 LEGEND_REPL = REPL_NEARSYNC
+
+#: A site of this inventory drawn in another part (a reference box).
+REF = Style(fill=WHITE, stroke=IRIS, stroke_w=0.75, dash=(2.6, 1.9), radius=4.5)
+#: AZ pairing whose connection is reported down.
+PAIRING_DOWN = Style(stroke=RULE_STRONG, stroke_w=0.75, dash=(1.5, 2.0))

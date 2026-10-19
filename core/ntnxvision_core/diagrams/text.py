@@ -19,7 +19,8 @@ from ntnxvision_core.exporters import theme as T
 
 from .scene import q
 
-ELLIPSIS = "…"
+ELLIPSIS = "\u2026"
+_SPACES = re.compile(r"[ \t\r\n]+")
 #: Extra width reserved when fitting, for a substituted font in editable copies.
 SAFETY = 1.06
 #: Line height as a multiple of the font size.
@@ -102,7 +103,8 @@ def wrap(text: str, size: float, bold: bool, max_w: float, max_lines: int) -> li
     inside a part; the last kept line is ellipsised."""
     # (separator before the piece, piece)
     pieces: list[tuple[str, str]] = []
-    for wi, w in enumerate(text.split()):
+    # Split on ordinary whitespace only: a no-break space keeps its words together.
+    for wi, w in enumerate(_SPACES.split(text.strip()) if text.strip() else []):
         parts = re.findall(r"[^-]+-*|-+", w) if width(w, size, bold) > max_w else [w]
         for pi, part in enumerate(parts):
             sep = (" " if wi else "") if pi == 0 else ""

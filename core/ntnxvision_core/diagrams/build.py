@@ -90,17 +90,22 @@ def chip(id: str, label: str, x: float, edge_y: float, style: Style,
                h=CHIP_H, valign="middle", parent=parent)
 
 
-def label_block(lines: list[str], max_w: float, *, size: float = K.SIZE_SMALL,
-                color: str = K.IRIS, max_lines_each: int = 2) -> tuple[list[Measured], float,
-                                                                      float]:
-    """Edge label text: each line fitted to `max_w`; returns (measured, width, height)."""
-    rows = [Row(ln, size, False, color, max_lines_each) for ln in lines]
+LabelText = str | tuple[str, str]
+
+
+def label_block(lines: list[LabelText], max_w: float, *, size: float = K.SIZE_SMALL,
+                color: str = K.IRIS, max_lines_each: int = 3) -> tuple[list[Measured], float,
+                                                                       float]:
+    """Edge label text: each line (text, or (text, colour)) fitted to `max_w`; returns
+    (measured, width, height)."""
+    rows = [Row(ln, size, False, color, max_lines_each) if isinstance(ln, str)
+            else Row(ln[0], size, False, ln[1], max_lines_each) for ln in lines]
     measured, h = measure(rows, max_w - 4)
     w = max((m.width for m in measured), default=0.0)
     return measured, q(w * tx.SAFETY + 4), q(h + 2)
 
 
-def edge_label(lines: list[str], cx: float, cy: float, max_w: float, *,
+def edge_label(lines: list[LabelText], cx: float, cy: float, max_w: float, *,
                color: str = K.IRIS, background: bool = True,
                size: float = K.SIZE_SMALL) -> EdgeLabel:
     """A label centred on (cx, cy)."""
@@ -118,27 +123,60 @@ def edge(id: str, src: str, dst: str, pts: list[tuple[float, float]], style: Sty
                 data=dict(sorted((data or {}).items())))
 
 
+def _legend_rows(widths: list[float], gap: float, max_w: float) -> list[int]:
+    """Items per row: as few rows as a greedy fill needs, balanced so no row is left
+    with a lone item when the others are full."""
+    def fill(limit: float) -> list[int]:
+        rows: list[int] = []
+        cur = 0.0
+        for w in widths:
+            if rows and cur + gap + w <= limit:
+                rows[-1] += 1
+                cur += gap + w
+            else:
+                rows.append(1)
+                cur = w
+        return rows
+
+    greedy = fill(max_w)
+    total = sum(widths) + gap * (len(widths) - 1)
+    target = max(max(widths, default=0.0), total / len(greedy) if greedy else 0.0)
+    limit = target
+    while limit < max_w:
+        rows = fill(limit)
+        if len(rows) <= len(greedy):
+            return rows
+        limit += 4.0
+    return greedy
+
+
 def legend(scene: Scene, items: list[tuple[str, Style, str]], x: float, y: float,
            max_w: float) -> float:
-    """Append a legend (swatch + label per item, wrapping into rows within `max_w`) as
+    """Append a legend (swatch + label per item, in balanced rows within `max_w`) as
     ordinary nodes and edges; returns its height."""
     row_h = 11.0
-    cx, cy = x, y
-    for i, (kind, style, label) in enumerate(items):
-        lw = tx.width(label, K.SIZE_SMALL)
-        item_w = 20 + 4 + lw
-        if cx > x and cx + item_w > x + max_w:
-            cx, cy = x, cy + row_h
-        sid = f"legend:{i}"
-        if kind == "box":
-            scene.nodes.append(Node(id=sid, kind="swatch", x=q(cx), y=q(cy + 1.5), w=17,
-                                    h=7.5, style=style))
-        else:
-            scene.edges.append(edge(sid, "", "", [(cx, cy + 5.25), (cx + 17, cy + 5.25)],
-                                    style, arrow_end=False))
-        scene.nodes.append(box(f"{sid}:label", "label", cx + 21, cy, lw + 1,
-                               [Row(label, K.SIZE_SMALL, False, K.INK_2)], K.LABEL,
-                               pad_x=0, pad_y=0, align="left", h=row_h - 0.5,
-                               valign="middle"))
-        cx = q(cx + item_w + 12)
-    return q(cy + row_h - y)
+    gap = 12.0
+    widths = [20 + 4 + tx.width(label, K.SIZE_SMALL) for _, _, label in items]
+    rows = _legend_rows(widths, gap, max_w)
+    i = 0
+    cy = y
+    for count in rows:
+        cx = x
+        for _ in range(count):
+            kind, style, label = items[i]
+            lw = tx.width(label, K.SIZE_SMALL)
+            sid = f"legend:{i}"
+            if kind == "box":
+                scene.nodes.append(Node(id=sid, kind="swatch", x=q(cx), y=q(cy + 1.5), w=17,
+                                        h=7.5, style=style))
+            else:
+                scene.edges.append(edge(sid, "", "", [(cx, cy + 5.25), (cx + 17, cy + 5.25)],
+                                        style, arrow_end=False))
+            scene.nodes.append(box(f"{sid}:label", "label", cx + 21, cy, lw + 1,
+                                   [Row(label, K.SIZE_SMALL, False, K.INK_2)], K.LABEL,
+                                   pad_x=0, pad_y=0, align="left", h=row_h - 0.5,
+                                   valign="middle"))
+            cx = q(cx + widths[i] + gap)
+            i += 1
+        cy += row_h
+    return q(cy - y)
