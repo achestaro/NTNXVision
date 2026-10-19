@@ -6,6 +6,22 @@ format older builds can't read. Windows shows the version as X.Y.Z.0 in Installe
 Every pull request that changes shipped code raises it with `node scripts/bump-version.mjs`
 and adds a section here (CI checks both).
 
+## 0.9.0 (2026-10-19)
+
+### Added
+- LCM inventory before collection (opt-in, off by default, never from schedules): New
+  collection and Multiple PCs can run a real LCM inventory on Prism Central and each in-scope
+  cluster first, so firmware and software versions are current. Progress, per-target results
+  and LCM's own error messages (for example a failed precheck) appear in the run and its notes;
+  collection always continues.
+- Prism Central pc.2024.3 and later use the v4 lifecycle API; pc.2024.1 and pc.2024.2 use
+  LCM's legacy interface (validated against the demo estate only).
+
+### Security
+- The read-only guard still refuses every write except this one request, only while the
+  user's opt-in is active. Legacy request bodies are decoded and checked exactly (method,
+  arguments, the catalogue URL LCM itself reported), and their URLs are matched undecoded.
+
 ## 0.8.0 (2026-10-19)
 
 ### Added
