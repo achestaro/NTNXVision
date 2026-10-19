@@ -42,6 +42,8 @@ def build(b: Any, ch: Chapter, dtype: DiagramType) -> bool:
     ch.add(dtype.section, *figs, table)
 
     def finalize() -> None:
+        if not figs[0].label:  # the chapter is left out of this report
+            return
         if table is None:
             return
         ref = table.label.rstrip(".")

@@ -62,6 +62,8 @@ def build(b: Any, ch: Chapter, dtype: DiagramType) -> bool:
     ch.add(dtype.section, *figs, pcs, clusters)
 
     def finalize() -> None:
+        if not figs[0].label:  # the chapter is left out of this report
+            return
         labels = [f.label.rstrip(".") for f in figs]
         if clusters is not None:
             ref = clusters.label.rstrip(".")
