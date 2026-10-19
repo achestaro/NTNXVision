@@ -1,8 +1,11 @@
 // Export dialog (mock: Export.dc.html). Opened from anywhere via useExportDialog().open(path).
 
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
-import type { ExportFormat, ExportResult, ExportSection, SnapshotDetail } from '@shared/ipc';
+import { CaretDownIcon, CaretRightIcon } from '@phosphor-icons/react';
+import type { ExportFormat, ExportResult, ReportSectionId, SnapshotDetail } from '@shared/ipc';
+import { MOVABLE_SECTION_IDS, REPORT_SECTION_IDS, normalizeSectionOrder } from '@shared/reportSections';
 import {
+  Badge,
   Button,
   Callout,
   Checkbox,
@@ -11,10 +14,14 @@ import {
   Field,
   FilePrefixField,
   FormatCard,
+  Icon,
   Loading,
   SelectAllLink,
+  Switch,
   useToast,
 } from '../components';
+import { ReportSectionList } from './ReportSectionList';
+import type { SectionAvailability } from './ReportSectionList';
 import { REPORT_EXT, errorMessage, fmtAbs, fmtBytes, fmtCount, reportFileName, tildify } from '../lib/format';
 import { revealLabel, useSettings } from '../lib/settings';
 import { useRun } from '../lib/run';
@@ -61,16 +68,23 @@ const FORMATS: { id: ExportFormat; label: string; desc: string }[] = [
   { id: 'word', label: 'Word ADD', desc: 'Editable design document' },
 ];
 
-const SECTIONS: { id: ExportSection; label: string }[] = [
-  { id: 'executive_summary', label: 'Executive summary' },
-  { id: 'clusters_hosts', label: 'Clusters and hosts' },
-  { id: 'workloads_storage', label: 'Workloads and storage' },
-  { id: 'data_protection', label: 'Data protection' },
-  { id: 'security_networking', label: 'Security and networking' },
-  { id: 'platform_services', label: 'Platform services' },
-  { id: 'licensing_lcm', label: 'Licensing and LCM' },
-  { id: 'collection_notes', label: 'Collection notes appendix' },
-];
+type Availability = Partial<Record<ReportSectionId, SectionAvailability>>;
+
+/** Per-section data across the snapshots being exported: available when any has data. */
+async function loadAvailability(paths: string[]): Promise<Availability> {
+  const all = await Promise.all(paths.map((p) => window.ntnx.getReportSections(p)));
+  const out: Availability = {};
+  for (const res of all) {
+    for (const s of res.sections) {
+      const prev = out[s.id];
+      out[s.id] = prev?.available ? prev : { available: s.available, hint: s.hint };
+    }
+  }
+  return out;
+}
+
+const allSections = (on: boolean) =>
+  Object.fromEntries(REPORT_SECTION_IDS.map((id) => [id, on])) as Record<ReportSectionId, boolean>;
 
 function sourceLine(s: SnapshotDetail): string {
   const parts: string[] = [];
@@ -107,9 +121,15 @@ function ExportDialog({
     const init = initialFormats ?? ['excel', 'word'];
     return { excel: init.includes('excel'), pdf: init.includes('pdf'), word: init.includes('word') };
   });
-  const [sections, setSections] = useState<Record<ExportSection, boolean>>(
-    () => Object.fromEntries(SECTIONS.map((s) => [s.id, true])) as Record<ExportSection, boolean>,
+  // Sections and order: collapsed by default, applies to this export only. The order
+  // starts from Settings > Reports when its custom order is on.
+  const [sectionsOpen, setSectionsOpen] = useState(false);
+  const [included, setIncluded] = useState<Record<ReportSectionId, boolean>>(() => allSections(true));
+  const [customOrder, setCustomOrder] = useState(settings.customSectionOrder === true);
+  const [order, setOrder] = useState<ReportSectionId[]>(() =>
+    settings.customSectionOrder === true ? normalizeSectionOrder(settings.sectionOrder) : [...MOVABLE_SECTION_IDS],
   );
+  const [avail, setAvail] = useState<Availability | undefined>(undefined);
   const [template, setTemplate] = useState('standard');
   const [templatePath, setTemplatePath] = useState<string | null>(null);
   const [preparedFor, setPreparedFor] = useState('');
@@ -127,6 +147,25 @@ function ExportDialog({
       .catch((e) => setLoadErr(errorMessage(e)));
   }, [snapshotPath]);
 
+  const pathsKey = snapshotPaths.join('\n');
+  useEffect(() => {
+    loadAvailability(pathsKey.split('\n'))
+      .then(setAvail)
+      .catch(() => setAvail(undefined)); // unknown: every section stays selectable
+  }, [pathsKey]);
+
+  const usable = REPORT_SECTION_IDS.filter((id) => avail?.[id]?.available !== false);
+  const picked = usable.filter((id) => included[id]);
+  const allPicked = picked.length === usable.length;
+  const orderChanged = customOrder && order.some((id, i) => id !== MOVABLE_SECTION_IDS[i]);
+  const sectionSummary = [
+    allPicked ? 'All sections' : `${fmtCount(picked.length)} of ${fmtCount(usable.length)} sections`,
+    orderChanged ? 'custom order' : 'default order',
+  ].join(' · ');
+  const toggleCustomOrder = (v: boolean) => {
+    setCustomOrder(v);
+    if (v && !orderChanged) setOrder(normalizeSectionOrder(settings.customSectionOrder === true ? settings.sectionOrder : undefined));
+  };
   const chosen = FORMATS.filter((f) => fmt[f.id]).map((f) => f.id);
   const n = chosen.length;
   const name = many ? `${fmtCount(snapshotPaths.length)} snapshots` : snap?.name ?? snapName(snapshotPath);
@@ -152,7 +191,7 @@ function ExportDialog({
   };
 
   const doExport = async () => {
-    if (!n || busy) return;
+    if (!n || busy || !picked.length) return;
     setBusy(true);
     setError(null);
     try {
@@ -163,7 +202,13 @@ function ExportDialog({
           formats: chosen,
           exportDir: dir || undefined,
           filePrefix: prefix,
-          sections: SECTIONS.filter((s) => sections[s.id]).map((s) => s.id),
+          // Sent only when something is unticked. With every section that has data picked,
+          // omitting it gives the default report exactly, and a section that later gains
+          // data (a re-export of another snapshot, a newer catalogue) is never silently
+          // dropped by a list that predates it. Sections with no data are not in `picked`.
+          chapters: allPicked ? undefined : picked,
+          // Off here while the Settings order is on: null asks for the default order.
+          sectionOrder: customOrder ? order : settings.customSectionOrder === true ? null : undefined,
           word: fmt.word
             ? { template: template === 'custom' && templatePath ? templatePath : 'standard', preparedFor, author }
             : undefined,
@@ -239,8 +284,10 @@ function ExportDialog({
                 Email…
               </Button>
             )}
-            <span className="hint">{busy ? 'Exporting…' : n ? 'Takes about 10 s' : 'Choose at least one format'}</span>
-            <Button variant="primary" onClick={doExport} disabled={!n || busy} kbd={n ? '⌘↵' : undefined}>
+            <span className="hint">
+              {busy ? 'Exporting…' : !n ? 'Choose at least one format' : !picked.length ? 'Choose at least one section' : 'Takes about 10 s'}
+            </span>
+            <Button variant="primary" onClick={doExport} disabled={!n || busy || !picked.length} kbd={n ? '⌘↵' : undefined}>
               {n === 0 ? 'Export' : n * snapshotPaths.length === 1 ? 'Export 1 file' : `Export ${fmtCount(n * snapshotPaths.length)} files`}
             </Button>
           </span>
@@ -286,23 +333,74 @@ function ExportDialog({
           </div>
         )}
 
-        <div role="group" aria-labelledby="exp-sections">
-          <ChecklistHeader label="Sections in PDF and Word" id="exp-sections" variant="lbl">
-            <SelectAllLink
-              selected={SECTIONS.filter((s) => sections[s.id]).length}
-              total={SECTIONS.length}
-              noun="sections"
-              disabled={!fmt.pdf && !fmt.word}
-              onSelectAll={() => setSections(Object.fromEntries(SECTIONS.map((s) => [s.id, true])) as Record<ExportSection, boolean>)}
-            />
-          </ChecklistHeader>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 200px), 1fr))', gap: '0 16px' }}>
-            {SECTIONS.map((s) => (
-              <Checkbox key={s.id} checked={sections[s.id]} onChange={(v) => setSections((p) => ({ ...p, [s.id]: v }))} disabled={!fmt.pdf && !fmt.word}>
-                {s.label}
-              </Checkbox>
-            ))}
+        <div data-testid="export-sections">
+          <div className="chk-head" style={{ marginBottom: 0 }}>
+            <span className="lbl" id="exp-sections" style={{ marginBottom: 0 }}>
+              Sections and order
+            </span>
+            <button
+              type="button"
+              className="textlink"
+              aria-expanded={sectionsOpen}
+              aria-controls="exp-sections-body"
+              data-testid="export-sections-toggle"
+              onClick={() => setSectionsOpen((v) => !v)}
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}
+            >
+              <Icon icon={sectionsOpen ? CaretDownIcon : CaretRightIcon} size={12} />
+              {sectionsOpen ? 'Hide' : 'Customize'}
+            </button>
           </div>
+          <p className="hint below" data-testid="export-sections-summary" style={{ marginTop: 2 }}>
+            {sectionSummary}
+            {(!allPicked || orderChanged) && (
+              <>
+                {' '}
+                <Badge>This export only</Badge>
+              </>
+            )}
+          </p>
+          {sectionsOpen && (
+            <div id="exp-sections-body" role="group" aria-labelledby="exp-sections" style={{ marginTop: 8 }}>
+              <ChecklistHeader label="Included in the PDF, Word and Excel reports" variant="lbl">
+                <SelectAllLink
+                  selected={picked.length}
+                  total={usable.length}
+                  noun="sections"
+                  onSelectAll={() => setIncluded(allSections(true))}
+                  onClear={() => setIncluded(allSections(false))}
+                />
+              </ChecklistHeader>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, margin: '4px 0 10px', flexWrap: 'wrap' }}>
+                <Switch checked={customOrder} onChange={toggleCustomOrder} labelledBy="exp-custom-order" />
+                <span id="exp-custom-order">Customize order for this export</span>
+                {customOrder && (
+                  <button
+                    type="button"
+                    className="textlink"
+                    style={{ marginLeft: 'auto' }}
+                    disabled={!orderChanged}
+                    onClick={() => setOrder([...MOVABLE_SECTION_IDS])}
+                  >
+                    Reset to default order
+                  </button>
+                )}
+              </div>
+              <ReportSectionList
+                label="Report sections"
+                order={customOrder ? order : [...MOVABLE_SECTION_IDS]}
+                onOrderChange={setOrder}
+                reorderable={customOrder}
+                selected={included}
+                onToggle={(id, v) => setIncluded((p) => ({ ...p, [id]: v }))}
+                availability={avail}
+                testId="export-section-list"
+              />
+              <p className="hint below">
+                The cover and contents always lead. The Excel workbook keeps its summary sheets and groups its object sheets by section.
+              </p>
+            </div>
+          )}
         </div>
 
         <FilePrefixField id="exp-prefix" value={prefix} onChange={setPrefix} names={previewNames} more={previewMore} />
