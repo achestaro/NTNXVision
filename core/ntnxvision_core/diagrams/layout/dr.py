@@ -72,7 +72,8 @@ GUT_BENT_MAX = 170.0
 BEND_LANE = 8.0
 MAX_COL = 230.0
 CARD_GAP = 7.0
-LANE = 5.0  # pitch of the down lanes on a column's right
+#: Pitch of the down lanes beside a column: parallel trunks read as separate lines.
+LANE = 12.0
 #: Smallest pitch of the trunk channels under the columns.
 CHANNEL_MIN = 10.0
 BOX_W = 132.0
@@ -475,7 +476,7 @@ def _layout_part(m: DrModel, sites: list[DrSite], parts: list[list[DrSite]], pag
     # Measure.
     def margins(s: DrSite) -> tuple[float, float]:
         left = P + len(lanes_left[s.id]) * lane_w[s.id] if lanes_left[s.id] else P
-        down = down_lanes[s.id] * LANE + 5 if down_lanes[s.id] else 0
+        down = (down_lanes[s.id] - 1) * LANE + 10 if down_lanes[s.id] else 0
         if down_side[s.id] == "L":
             return left + down, P
         return left, P + down
@@ -775,8 +776,28 @@ def _layout_part(m: DrModel, sites: list[DrSite], parts: list[list[DrSite]], pag
             else:
                 e_lo = box_x[t] + 5.5 + chip_w(targets[t].chip) + 6
                 e_hi = box_x[t] + bw - 8
-            entry.update({int(k): v for k, v in route.spread(
-                e_lo, e_hi, [(lane_x[gi], str(gi)) for gi in gis]).items()})
+            spread = {int(k): v for k, v in route.spread(
+                e_lo, e_hi, [(lane_x[gi], str(gi)) for gi in gis]).items()}
+            # A drop never runs beside another trunk's lane (closer than a lane
+            # pitch): it moves under its own lane, or the least distance along the
+            # target, staying between its neighbours' entries.
+            seq = sorted(gis, key=lambda gi: spread[gi])
+            for k, gi in enumerate(seq):
+                w0 = max(e_lo, spread[seq[k - 1]] + LANE) if k else e_lo
+                w1 = min(e_hi, spread[seq[k + 1]] - LANE) if k + 1 < len(seq) else e_hi
+                others = [x for gj, x in lane_x.items() if gj != gi]
+
+                def ok(x: float, w0: float = w0, w1: float = w1,
+                       others: list[float] = others) -> bool:
+                    return w0 <= x <= w1 and all(abs(x - o) >= LANE - 0.5 for o in others)
+
+                at = spread[gi]
+                if not ok(at):
+                    tries = [lane_x[gi]] + sorted(
+                        (at + d * sgn for d in range(1, int(e_hi - e_lo) + 1)
+                         for sgn in (1, -1)), key=lambda x: (abs(x - at), x))
+                    spread[gi] = q(next((x for x in tries if ok(x)), at))
+            entry.update(spread)
         lab_h = max(label_block(v, 120)[2] for v in labels.values())
         pitch = q(max(CHANNEL_MIN, lab_h + 3))
         chan_top = q(site_bottom + 6 + lab_h / 2)
@@ -813,6 +834,7 @@ def _layout_part(m: DrModel, sites: list[DrSite], parts: list[list[DrSite]], pag
         else:
             content_bottom = max(content_bottom, max(chan.values()) + lab_h / 2 + 4)
         trunk_edges: list[tuple[int, Edge, float, float, float, float]] = []
+        group_of: dict[str, int] = {}  # trunk edge -> its trunk (they share the run)
         for gi, g in enumerate(groups):
             t = g.target
             tg = targets[t]
@@ -845,46 +867,40 @@ def _layout_part(m: DrModel, sites: list[DrSite], parts: list[list[DrSite]], pag
                 if need_label:
                     need_label = False
                     trunk_edges.append((gi, e, lx, dx, cy, dy))
+                group_of[e.id] = gi
                 sc.edges.append(e)
         # Each trunk's label goes on its own channel, in the free stretch (between the
         # vertical runs that cross that channel) nearest its source; with no stretch
-        # wide enough, beside its entry into the target, on the freer side.
+        # wide enough, beside its drop into the target, on the side and at the height
+        # where no other trunk's run, no label and no card lies under it.
+        segs = [(group_of.get(e.id), p0, p1) for e in sc.edges
+                if e.data.get("kind") == "replication"
+                for p0, p1 in zip(e.points, e.points[1:], strict=False)]
         verticals = [(p0[0], min(p0[1], p1[1]), max(p0[1], p1[1]))
-                     for e in sc.edges if e.data.get("kind") == "replication"
-                     for p0, p1 in zip(e.points, e.points[1:], strict=False)
-                     if abs(p0[0] - p1[0]) < 0.01]
-        taken: list[tuple[float, float, float, float]] = []
+                     for _, p0, p1 in segs if abs(p0[0] - p1[0]) < 0.01]
+        taken: list[tuple[float, float, float, float]] = [
+            (lb.x, lb.y, lb.x + lb.w, lb.y + lb.h) for e in sc.edges for lb in e.labels]
+        solid = [(n.x, n.y, n.x + n.w, n.y + n.h) for n in sc.nodes if n.kind == "box"]
         for gi, e, lx, dx, cy, dy in trunk_edges:
             _, lw, _ = label_block(labels[gi], 120)
             run_lo, run_hi = sorted((lx, dx))
             busy = [(x0, x1) for x0, y0, x1, y1 in taken if y0 < cy < y1]
             cuts = sorted({x for x, y0, y1 in verticals
-                           if run_lo < x < run_hi and y0 < cy < y1}
-                          | {x for pair in busy for x in pair})
+                           if run_lo < x < run_hi and y0 < cy < y1})
             stops = [run_lo, *cuts, run_hi]
-            free = [(g0, g1) for g0, g1 in zip(stops, stops[1:], strict=False)
-                    if g1 - g0 >= lw + 8
-                    and not any(g0 < x0 < g1 or g0 < x1 < g1 for x0, x1 in busy)]
+            # The stretches between those runs, less what labels already cover there.
+            pieces = list(zip(stops, stops[1:], strict=False))
+            for b0, b1 in sorted(busy):
+                pieces = [p for g0, g1 in pieces
+                          for p in ((g0, min(g1, b0)), (max(g0, b1), g1)) if p[1] > p[0]]
+            free = [(g0, g1) for g0, g1 in pieces if g1 - g0 >= lw + 8]
             if free:
                 g0, g1 = min(free, key=lambda g: abs((g[0] + g[1]) / 2 - lx))
                 start = g0 if abs(g0 - lx) <= abs(g1 - lx) else g1 - lw - 8
                 lab = edge_label(labels[gi], start + 4 + lw / 2, cy, 120)
-            else:  # beside its entry: the side no other run or label crosses
-                options = [edge_label(labels[gi], c, (cy + dy) / 2, 120, background=False)
-                           for c in (dx + 3 + lw / 2, dx - 3 - lw / 2)]
-
-                def clear(lb: EdgeLabel, dx: float = dx) -> bool:
-                    if lb.x < MX or lb.x + lb.w > page.width - MX:
-                        return False
-                    hits = any(lb.x < x < lb.x + lb.w and y0 < lb.y + lb.h and lb.y < y1
-                               for x, y0, y1 in verticals if abs(x - dx) > 0.5)
-                    return not hits and not any(
-                        lb.x < x1 and x0 < lb.x + lb.w and lb.y < y1 and y0 < lb.y + lb.h
-                        for x0, y0, x1, y1 in taken)
-
-                lab = next((lb for lb in options if clear(lb)),
-                           options[0] if options[0].x + options[0].w <= page.width - MX
-                           else options[1])
+            else:
+                lab = _beside_drop(labels[gi], lw, dx, cy, dy, gi, segs, taken, solid,
+                                   page.width)
             e.labels.append(lab)
             taken.append((lab.x, lab.y, lab.x + lab.w, lab.y + lab.h))
         route.deoverlap(sc.edges, page.width - MX)
@@ -947,6 +963,44 @@ def _layout_part(m: DrModel, sites: list[DrSite], parts: list[list[DrSite]], pag
     sc.height = q(content_bottom + 9 + lh + 1)
     sc.meta = {"sites": [s.id for s in sites], "rung": rung, "hops": hops}
     return sc
+
+
+#: A run of a flow: (its trunk, or None for a gutter or bracket flow, start, end).
+Seg = tuple[int | None, tuple[float, float], tuple[float, float]]
+
+
+def _beside_drop(lines: list[LabelText], lw: float, dx: float, cy: float, dy: float,
+                 gi: int, segs: list[Seg], taken: list[tuple[float, float, float, float]],
+                 solid: list[tuple[float, float, float, float]], width: float) -> EdgeLabel:
+    """Trunk `gi`'s label beside its drop (x `dx`, from channel `cy` down to `dy`): the
+    middle first, then nearer either end, right side before left; the first spot that
+    no other trunk's run, no label and no card touches; with none clear, the spot
+    touching the fewest."""
+    probe = edge_label(lines, dx + 3 + lw / 2, (cy + dy) / 2, 120, background=False)
+    lo, hi = cy + 1 + probe.h / 2, dy - 1 - probe.h / 2
+    mid = (cy + dy) / 2
+    ys = [mid]
+    if hi > lo:
+        steps = max(1, int((hi - lo) // 2))
+        ys += sorted((lo + (hi - lo) * k / steps for k in range(steps + 1)),
+                     key=lambda y: (abs(y - mid), y))
+    best: tuple[int, EdgeLabel] | None = None
+    for y in ys:
+        for c in (dx + 3 + lw / 2, dx - 3 - lw / 2):
+            lb = edge_label(lines, c, y, 120, background=False)
+            if lb.x < MX or lb.x + lb.w > width - MX:
+                continue
+            x0, y0, x1, y1 = lb.x, lb.y, lb.x + lb.w, lb.y + lb.h
+            hits = sum(1 for g, p0, p1 in segs if g != gi and
+                       min(p0[0], p1[0]) < x1 and x0 < max(p0[0], p1[0]) and
+                       min(p0[1], p1[1]) < y1 and y0 < max(p0[1], p1[1]))
+            hits += sum(1 for a0, b0, a1, b1 in [*taken, *solid]
+                        if a0 < x1 and x0 < a1 and b0 < y1 and y0 < b1)
+            if hits == 0:
+                return lb
+            if best is None or hits < best[0]:
+                best = (hits, lb)
+    return best[1] if best else probe
 
 
 # ─── entry point ───────────────────────────────────────────────────────

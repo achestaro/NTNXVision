@@ -3,6 +3,7 @@ route edges through gutters and channels (management plane, DR design)."""
 
 from __future__ import annotations
 
+import itertools
 from typing import Any
 
 import pytest
@@ -85,3 +86,77 @@ def test_report_figures_cross_nothing(design_envs: dict[str, Any], name: str) ->
                     sc = b.scene
                     assert not sc.meta.get("hops"), (sc.id, sc.meta.get("hops"))
                     assert R.crossings(sc.edges) == [], sc.id
+
+
+def _through(x0: float, y0: float, x1: float, y1: float,
+             p0: tuple[float, float], p1: tuple[float, float], m: float = 0.5) -> bool:
+    """Whether the axis-aligned run p0-p1 passes through the box (x0, y0)-(x1, y1)."""
+    (ax, ay), (bx, by) = p0, p1
+    if abs(ax - bx) < 0.01:
+        return x0 + m < ax < x1 - m and min(ay, by) < y1 - m and max(ay, by) > y0 + m
+    if abs(ay - by) < 0.01:
+        return y0 + m < ay < y1 - m and min(ax, bx) < x1 - m and max(ax, bx) > x0 + m
+    return False
+
+
+def _on(p0: tuple[float, float], p1: tuple[float, float],
+        runs: list[tuple[tuple[float, float], tuple[float, float]]]) -> bool:
+    """Whether run p0-p1 lies along one of `runs` (flows sharing one trunk)."""
+    for (a, b) in runs:
+        if abs(p0[0] - p1[0]) < 0.01 and abs(a[0] - b[0]) < 0.01 and abs(a[0] - p0[0]) < 0.01:
+            return True
+        if abs(p0[1] - p1[1]) < 0.01 and abs(a[1] - b[1]) < 0.01 and abs(a[1] - p0[1]) < 0.01:
+            return True
+    return False
+
+
+def label_overlaps(sc: Any) -> list[tuple[str, str]]:
+    """(edge, label owner) for every run of one edge through another edge's label; a
+    run along the owner's own line (flows sharing a trunk) does not count."""
+    out = []
+    for e in sc.edges:
+        own = list(zip(e.points, e.points[1:], strict=False))
+        for lb in e.labels:
+            for o in sc.edges:
+                if o is e:
+                    continue
+                for p0, p1 in zip(o.points, o.points[1:], strict=False):
+                    if _through(lb.x, lb.y, lb.x + lb.w, lb.y + lb.h, p0, p1) and \
+                            not _on(p0, p1, own):
+                        out.append((o.id, e.id))
+    return out
+
+
+@pytest.mark.parametrize("name", ["small", "medium", "enterprise", "xlarge", "pc01"])
+def test_no_run_through_another_flows_label(design_envs: dict[str, Any], name: str) -> None:
+    """No connector runs through another connector's label, in the report (part 1
+    fitted under its summary) or on a page of its own: a trunk's label beside its drop
+    takes a side and height clear of the other trunks (xlarge's dr-2 had a drop
+    through the Dallas flow's label)."""
+    from ntnxvision_core.exporters import ExportOptions
+    from ntnxvision_core.exporters.content import SceneFigure, build_report
+
+    env = design_envs[name]
+    report = build_report(env, ExportOptions(), "x")
+    scenes = [b.scene for ch in report.chapters for s in ch.sections for b in s.blocks
+              if isinstance(b, SceneFigure)]
+    for t in TYPES.values():
+        if t.applies(env):
+            scenes += t.layout(t.build_model(env), t.page)
+    for sc in scenes:
+        assert label_overlaps(sc) == [], (sc.type, sc.id)
+
+
+@pytest.mark.parametrize("name", ["pc01", "xlarge"])
+def test_dr_down_lanes_read_as_separate_lines(design_envs: dict[str, Any], name: str) -> None:
+    """Trunks dropping beside one column keep a 12 pt pitch: pc01's three flows to
+    pc-dr and its flow to pc02 ran 6 pt apart."""
+    t = TYPES["dr"]
+    for sc in t.layout(t.build_model(design_envs[name]), t.page):
+        vs = [(e.id, p0[0], min(p0[1], p1[1]), max(p0[1], p1[1])) for e in sc.edges
+              if e.data.get("kind") == "replication"
+              for p0, p1 in zip(e.points, e.points[1:], strict=False)
+              if abs(p0[0] - p1[0]) < 0.01 and abs(p0[1] - p1[1]) > 0.01]
+        for (i1, x1, a1, b1), (i2, x2, a2, b2) in itertools.combinations(vs, 2):
+            if i1 != i2 and 0.5 < abs(x1 - x2) < 11.5 and a1 < b2 and a2 < b1:
+                pytest.fail(f"{sc.id}: {i1} and {i2} run {abs(x1 - x2):.1f} pt apart")

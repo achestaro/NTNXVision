@@ -4,8 +4,8 @@ Containers (an availability zone, a POD) are draw.io containers: their members u
 parent-relative geometry and move with them. Every node keeps its text as HTML runs
 (size, weight and colour per line) and its semantic data as cell attributes. Connectors
 keep their source and target (when the edge has ends), their orthogonal waypoints and
-their first label; further labels are text cells. Fonts: Figtree, then Calibri, Segoe UI
-and Arial. Numbers print through `num`, so equal scenes give equal bytes.
+their first label; further labels are text cells. Fonts: Calibri, then Figtree, Carlito,
+Segoe UI and Arial (`FONT`). Numbers print through `num`, so equal scenes give equal bytes.
 """
 
 from __future__ import annotations
