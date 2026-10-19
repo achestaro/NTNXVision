@@ -103,15 +103,6 @@ def test_alert_severity_chart_renders_and_omits_when_empty() -> None:
     assert diagrams.alert_severity_chart(Environment()) is None
 
 
-def test_executive_dashboard_shows_alert_count() -> None:
-    env = Environment()
-    env.clusters.append(Cluster(uuid="c1", name="clu-prod"))
-    env = _collect_into(env, [_entity(id="a1"), _entity(id="a2")])
-    diag = diagrams.executive_dashboard(env)
-    assert diag is not None
-    assert diag.png.startswith(b"\x89PNG")
-
-
 def test_word_and_pdf_export_include_alerts_section(tmp_path: Any) -> None:
     from ntnxvision_core.exporters.pdf import PdfExporter
     from ntnxvision_core.exporters.word import WordExporter

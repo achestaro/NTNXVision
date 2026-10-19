@@ -1150,19 +1150,26 @@ class _Builder:
              for h in env.hosts],
             "Physical hosts", self.src(env.hosts), prune=("GPUs", "Maintenance")))
         cap = diagrams.storage_capacity_chart(env)
-        shown = len([c for c in env.storage_containers if c.max_capacity_bytes][:8])
-        total = len([c for c in env.storage_containers if c.max_capacity_bytes])
-        ch.add("Storage Containers", make_table(
+        shown, total = diagrams.capacity_containers(env)
+        ctr_table = make_table(
             ["Container", "Cluster", "RF", "Compression", "Dedup", "EC-X", "Max (GiB)",
              "Used (GiB)"],
             [[s.name, self.cluster(s), s.replication_factor,
               "On" if s.compression_enabled else "Off", _switch(s.deduplication),
               _switch(s.erasure_coding), gib(s.max_capacity_bytes), gib(s.used_bytes)]
              for s in env.storage_containers],
-            "Storage containers and data-reduction settings", self.src(env.storage_containers)),
-            Figure(cap, "Storage container capacity: used and free"
-                   + (f" (first {shown} of {total} containers)." if total > shown else "."))
-            if cap else None)
+            "Storage containers and data-reduction settings", self.src(env.storage_containers))
+        cap_fig = Figure(cap, "") if cap else None
+        if cap_fig is not None:
+            def caption(f: Figure = cap_fig, t: Table | None = ctr_table,
+                        n: int = len(shown), total: int = total) -> None:
+                ref = t.label.rstrip(".") if t is not None else "the containers table"
+                f.caption = ("User storage containers: used and free capacity"
+                             + (f" ({n:,} of {total:,}; {ref} lists every container)."
+                                if total > n else "."))
+            caption()
+            self.finalizers.append(caption)
+        ch.add("Storage Containers", ctr_table, cap_fig)
         self.design_sections(ch)
         self.capacity_section(ch)
         return ch
@@ -1254,14 +1261,23 @@ class _Builder:
                 f"{size_label(sum(v.memory_bytes or 0 for v in env.vms))} of memory "
                 "allocated. Nutanix system VMs (CVMs and Prism Central) are listed "
                 "separately. The Excel workbook lists every VM.")
+            per_cluster = _fig(diagrams.vms_per_cluster_chart(env),
+                               "Virtual machines per cluster.")
             charts = [f for f in (
                 _fig(diagrams.vm_power_state_chart(env), "VM power state distribution."),
-                _fig(diagrams.vms_per_cluster_chart(env), "Virtual machines per cluster."),
-            ) if f]
-            ch.add("Virtual Machine Distribution", lead, make_table(
+                per_cluster) if f]
+            vm_table = make_table(
                 ["Cluster", "VMs", "Powered On", "vCPU", "Memory (GiB)", "Provisioned (GiB)"],
-                rows, "User virtual machines per cluster", self.src(clusters)),
-                FigureRow(charts) if charts else None)
+                rows, "User virtual machines per cluster", self.src(clusters))
+            more = len(diagrams.vm_cluster_counts(env)) - diagrams.MAX_CLUSTERS
+            if per_cluster is not None and more > 0 and vm_table is not None:
+                def name_more(f: Figure = per_cluster, t: Table = vm_table,
+                              more: int = more) -> None:
+                    f.caption = (f"Virtual machines per cluster, top {diagrams.MAX_CLUSTERS:,}"
+                                 f" (+{more:,} more clusters in {t.label.rstrip('.')}).")
+                self.finalizers.append(name_more)
+            ch.add("Virtual Machine Distribution", lead, vm_table,
+                   FigureRow(charts) if charts else None)
         ch.add("Nutanix System VMs", make_table(
             ["Name", "Type", "Power", "Cluster", "vCPU", "Memory (GiB)"],
             [[v.name, v.vm_type, power_label(v.power_state), self.cluster(v), v.vcpu_total,
@@ -1606,7 +1622,7 @@ class _Builder:
 
 def _vlan_subnet(s: Any) -> bool:
     """A VLAN subnet on a cluster: drawn and listed by the Network Segment Design."""
-    return bool(s.cluster_uuid) and not s.vpc_name and \
+    return bool(s.cluster_uuid or s.cluster_name) and not s.vpc_name and \
         (s.subnet_type or "VLAN").upper() != "OVERLAY"
 
 

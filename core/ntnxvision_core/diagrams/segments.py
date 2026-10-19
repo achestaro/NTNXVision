@@ -137,7 +137,16 @@ def _is_vlan(s: Any) -> bool:
 
 
 def applies(env: Environment) -> bool:
-    return bool(env.port_groups) or any(_is_vlan(s) and s.cluster_uuid for s in env.subnets)
+    return bool(env.port_groups) or any(_is_vlan(s) and (s.cluster_uuid or s.cluster_name)
+                                        for s in env.subnets)
+
+
+def _on(obj: Any, c: Any) -> bool:
+    """`obj` belongs to cluster `c`: by uuid, or by name when the payload has no uuid
+    (callers already keep to one Prism Central, so a repeated name cannot merge)."""
+    if obj.cluster_uuid:
+        return bool(obj.cluster_uuid == c.uuid)
+    return bool(obj.cluster_name) and obj.cluster_name == c.name
 
 
 def _vm_counts(env: Environment) -> dict[str, int]:
@@ -186,10 +195,9 @@ def _cluster(env: Environment, c: Any, host: str, src: Any, vms: dict[str, int]
     hyps = [x for x in dict.fromkeys(hypervisor_label(t) for t in c.hypervisor_types) if x]
     switches: list[SSwitch] = []
     vss = sorted((v for v in env.virtual_switches
-                  if v.cluster_uuid == c.uuid and src(v) == host),
+                  if _on(v, c) and src(v) == host),
                  key=lambda v: (natural(v.name), v.uuid))
-    subs = [s for s in env.subnets if s.cluster_uuid == c.uuid and src(s) == host
-            and _is_vlan(s)]
+    subs = [s for s in env.subnets if _on(s, c) and src(s) == host and _is_vlan(s)]
     names: dict[str, Any] = {}
     for v in vss:
         names.setdefault(v.name or NO_SWITCH, v)
@@ -209,7 +217,7 @@ def _cluster(env: Environment, c: Any, host: str, src: Any, vms: dict[str, int]
             default=bool(v is not None and v.is_default), mtu=v.mtu if v is not None else None,
             segments=segs, data={"cluster_uuid": c.uuid, "virtual_switch": sw_name}))
     switches.sort(key=lambda w: (not w.default, w.name == NO_SWITCH, natural(w.name)))
-    pgs = [p for p in env.port_groups if p.cluster_uuid == c.uuid and src(p) == host]
+    pgs = [p for p in env.port_groups if _on(p, c) and src(p) == host]
     if pgs:
         segs = [Segment(id=f"pg:{p.uuid}", name=p.name or p.uuid[:8], kind="portgroup",
                         vlan=p.vlan_id, vms=p.vm_count, switch_type=p.switch_type,

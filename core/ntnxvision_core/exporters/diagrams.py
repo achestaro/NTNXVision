@@ -1,20 +1,13 @@
-"""Topology diagram renderer for the Word / PDF reports.
+"""Data charts for the Word / PDF reports: storage capacity, VM power state, VMs per
+cluster and open alerts by severity.
 
-Draws flat, modern node-and-connector diagrams (rounded cards, elbow connectors,
-status pills) as high-resolution PNGs with Pillow — the visual language of
-contemporary infrastructure dashboards. A single raster renderer embeds
-identically in python-docx and fpdf2, and Pillow is already a transitive
-dependency of fpdf2, so it adds no packaging weight.
-
-Geometry is computed in logical (1x) pixels and drawn at ``S``x supersampling so
-the output stays crisp in print. Every public builder returns ``None`` when the
-environment lacks the data to draw, letting exporters skip the figure without
-special-casing.
-
-The architecture diagrams (the Solution Conceptual Overview, which replaced the old
-management and replication topology figures) live in `ntnxvision_core.diagrams`:
-vector scenes drawn natively in the PDF. This module keeps the charts and the
-per-cluster raster figures.
+Every architecture figure is an engine diagram (`ntnxvision_core.diagrams`: vector
+scenes, editable on the Diagrams page). These four are quantities, not architecture, so
+they stay Pillow PNG charts in the Runway palette, drawn without a frame so they sit on
+the page like the scenes. Geometry is in logical pixels at `BASE_DPI` and drawn at
+``S``x supersampling; every chart is narrower than the page column it is placed in, so
+it prints at 1:1 and no text is under 6 pt (`_MIN_PX`). Every builder returns ``None``
+when the environment lacks the data.
 """
 
 from __future__ import annotations
@@ -22,7 +15,7 @@ from __future__ import annotations
 import io
 from collections import Counter
 from collections.abc import Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from functools import lru_cache
 from typing import Any
 
@@ -30,36 +23,20 @@ from PIL import Image, ImageDraw, ImageFont
 
 from ntnxvision_core.exporters import theme as T
 from ntnxvision_core.models import Cluster, Environment
-from ntnxvision_core.numfmt import NA, fmt_count
+from ntnxvision_core.numfmt import fmt_count
 
 GIB = 1024**3
 #: Supersampling factor for crisp print output.
 S = 3
-#: Logical pixels per inch when embedding (keeps body text ~7pt on the page).
+#: Logical pixels per inch when embedding.
 BASE_DPI = 120
+#: The smallest text (logical px): 10 px at 120 dpi is 6 pt.
+_MIN_PX = 10.0
 
 # ─── palette (Runway, light) ───────────────────────────────────────────
-# Neutral cards on white with cool grey rules; the iris accent only marks the root card;
-# colour otherwise means a status (ok / warn / error) or a chart series in Runway order.
-
 _INK = T.INK_RGB
 _SUB = T.INK_3_RGB
-_NAVY = T.INK_RGB
-_ACCENT = T.IRIS_RGB
-_FRAME = T.RULE_2_RGB
-_CARD_FILL = T.SURFACE_RGB
-_CARD_BORDER = T.RULE_RGB
-_DIM_FILL = (255, 255, 255)
-_DIM_BORDER = T.RULE_2_RGB
-_OK_TEXT = T.INK_2_RGB
-_OK_GLYPH = T.STATUS_RGB["ok"]
-_PILL_FILL = T.BODY_RGB
-_PILL_TEXT = T.INK_2_RGB
-_GREY_PILL_FILL = T.BODY_RGB
-_EDGE = (178, 192, 204)
-
-# Figure strip, donuts, and bars (executive summary + inventory charts).
-_TRACK = T.RULE_2_RGB
+_RULE = T.RULE_RGB
 _VM_ON = T.CHART_RGB[0]
 _VM_OFF = T.RULE_RGB
 _VM_OTHER = T.CHART_RGB[1]
@@ -67,37 +44,28 @@ _ALERT_CRIT = T.STATUS_RGB["error"]
 _ALERT_WARN = T.STATUS_RGB["warn"]
 _ALERT_INFO = T.INK_3_RGB
 _ALERT_OTHER = T.RULE_RGB
+#: One series, one hue (bars of a single-series chart are never coloured per bar).
+_SERIES = T.CHART_RGB[0]
 _USED = T.CHART_RGB[0]
+_USED_WARN = T.STATUS_RGB["warn"]
+_USED_FULL = T.STATUS_RGB["error"]
 _FREE = T.RULE_2_RGB
-#: Fixed hue order for per-cluster identity (the Runway chart palette), never reassigned
-#: per render, so the same cluster keeps its colour across a report's charts.
-_CLUSTER_PALETTE = list(T.CHART_RGB)
+#: Used share at which a container bar turns amber, then red.
+WARN_AT, FULL_AT = 0.80, 0.90
 
 # ─── geometry (logical px) ─────────────────────────────────────────────
-
-_FRAME_PAD = 24
-_COL_GAP = 88
-_V_GAP = 12
-_ROOT_GAP = 28
-_PAD_X = 13
-_PAD_Y = 9
-_TITLE_H = 19
-_LINE_H = 15
-_RADIUS = 9
-_MIN_NODE_H = 42
-
-# Chart geometry (stat tiles, donuts, bars).
-_TILE_W = 132
-_TILE_H = 88
-_TILE_GAP = 14
+_PAD = 12
 _DONUT_R = 74
 _DONUT_THICK = 24
 _DONUT_GAP_DEG = 1.6
-_BAR_ROW_H = 34
-_BAR_ROW_GAP = 12
-_BAR_LABEL_W = 150
+_BAR_ROW_H = 30
+_BAR_ROW_GAP = 8
+_BAR_LABEL_W = 230
 _BAR_VALS_W = 190
-_BAR_TRACK_W = 400
+_BAR_TRACK_W = 330
+#: Containers drawn in the capacity chart, clusters in the VMs per cluster chart.
+MAX_CONTAINERS = 12
+MAX_CLUSTERS = 8
 
 # (path, collection-index); checked in order, first loadable + style match wins. The
 # vendored Figtree comes first so figures look the same on every platform and match the
@@ -140,20 +108,6 @@ def _font(size: float, bold: bool = False) -> ImageFont.FreeTypeFont | ImageFont
         return ImageFont.load_default()
 
 
-# ─── model ─────────────────────────────────────────────────────────────
-
-
-@dataclass
-class Node:
-    """One card in the diagram; children connect via elbow connectors."""
-
-    title: str
-    lines: list[str] = field(default_factory=list)
-    tag: str | None = None
-    tag_style: str = "blue"  # blue | ok | grey
-    style: str = "card"  # card | root | dim
-    edge_label: str | None = None  # small label on the connector from the parent
-    children: list[Node] = field(default_factory=list)
 
 
 @dataclass
@@ -173,163 +127,13 @@ class Diagram:
         return self.height / BASE_DPI
 
 
-# ─── renderer ──────────────────────────────────────────────────────────
-
-
-def _node_h(n: Node) -> float:
-    return max(_MIN_NODE_H, 2 * _PAD_Y + _TITLE_H + len(n.lines) * _LINE_H)
-
-
-def _subtree_h(n: Node) -> float:
-    if not n.children:
-        return _node_h(n)
-    kids = sum(_subtree_h(c) for c in n.children) + _V_GAP * (len(n.children) - 1)
-    return max(_node_h(n), kids)
-
-
-def _depth(nodes: list[Node]) -> int:
-    return 1 + max((_depth(n.children) for n in nodes if n.children), default=0)
-
-
 def _fit(draw: ImageDraw.ImageDraw, text: str, font: Any, max_w: float) -> str:
-    """Truncate `text` with an ellipsis to fit `max_w` scaled pixels."""
+    """`text`, ellipsised to fit `max_w` (supersampled px)."""
     if draw.textlength(text, font=font) <= max_w:
         return text
-    while text and draw.textlength(text + "…", font=font) > max_w:
+    while text and draw.textlength(text + "\u2026", font=font) > max_w:
         text = text[:-1]
-    return text + "…"
-
-
-def _render(roots: list[Node], col_w: list[float], col_gap: float = _COL_GAP) -> Diagram:
-    levels = _depth(roots)
-    widths = (col_w + [col_w[-1]] * levels)[:levels]
-    total_h = sum(_subtree_h(r) for r in roots) + _ROOT_GAP * (len(roots) - 1)
-    w = 2 * _FRAME_PAD + sum(widths) + col_gap * (levels - 1)
-    h = 2 * _FRAME_PAD + total_h
-
-    img = Image.new("RGB", (round(w * S), round(h * S)), "white")
-    draw = ImageDraw.Draw(img)
-    # Subtle outer card so the figure reads as one component on the page.
-    draw.rounded_rectangle(
-        [S, S, round(w * S) - S, round(h * S) - S],
-        radius=round(12 * S), outline=_FRAME, width=S,
-    )
-
-    def place(n: Node, level: int, slot_y: float) -> tuple[float, float]:
-        sub_h = _subtree_h(n)
-        nh = _node_h(n)
-        x = _FRAME_PAD + sum(widths[:level]) + col_gap * level
-        y = slot_y + (sub_h - nh) / 2
-        _draw_node(draw, n, x, y, widths[level], nh)
-        cy = slot_y
-        for c in n.children:
-            child_x, child_cy = place(c, level + 1, cy)
-            _draw_elbow(draw, x + widths[level], y + nh / 2, child_x, child_cy,
-                        c.edge_label)
-            cy += _subtree_h(c) + _V_GAP
-        return x, y + nh / 2
-
-    ry: float = _FRAME_PAD
-    for r in roots:
-        place(r, 0, ry)
-        ry += _subtree_h(r) + _ROOT_GAP
-
-    return Diagram(png=_png(img), width=round(w), height=round(h))
-
-
-def _draw_node(draw: ImageDraw.ImageDraw, n: Node, x: float, y: float,
-               w: float, h: float) -> None:
-    fill, border = {
-        "root": (_CARD_FILL, _CARD_BORDER),
-        "dim": (_DIM_FILL, _DIM_BORDER),
-    }.get(n.style, (_CARD_FILL, _CARD_BORDER))
-    title_col = _NAVY if n.style == "root" else (_SUB if n.style == "dim" else _INK)
-
-    box = [round(x * S), round(y * S), round((x + w) * S), round((y + h) * S)]
-    draw.rounded_rectangle(box, radius=round(_RADIUS * S), fill=fill,
-                           outline=border, width=S)
-    tx = x + _PAD_X
-    if n.style == "root":
-        # Brand accent stripe down the left edge.
-        draw.rounded_rectangle(
-            [round((x + 5) * S), round((y + 7) * S),
-             round((x + 8.5) * S), round((y + h - 7) * S)],
-            radius=round(1.75 * S), fill=_ACCENT,
-        )
-        tx += 6
-
-    f_title = _font(12.5, bold=True)
-    f_line = _font(10.5)
-    title_cy = round((y + _PAD_Y + _TITLE_H / 2) * S)
-    max_title_w = (x + w - _PAD_X - tx) * S
-
-    if n.tag:
-        f_tag = _font(9)
-        if n.tag_style == "ok":
-            # A status, Runway style: a small square glyph and an ink label, no pill.
-            glyph = 7 * S
-            tag_w = draw.textlength(n.tag, font=f_tag) + glyph + 5 * S
-            tx2 = round((x + w - _PAD_X) * S - tag_w)
-            draw.rectangle([tx2, title_cy - glyph // 2, tx2 + glyph, title_cy + glyph // 2],
-                           fill=_OK_GLYPH)
-            draw.text((tx2 + glyph + 5 * S, title_cy), n.tag, font=f_tag, fill=_OK_TEXT,
-                      anchor="lm")
-        else:
-            tag_w = draw.textlength(n.tag, font=f_tag) + 12 * S
-            tag_h = 15 * S
-            tx2 = round((x + w - _PAD_X) * S - tag_w)
-            pill_text = _SUB if n.tag_style == "grey" else _PILL_TEXT
-            draw.rounded_rectangle(
-                [tx2, title_cy - tag_h // 2, tx2 + round(tag_w), title_cy + tag_h // 2],
-                radius=round(3 * S), fill=_PILL_FILL,
-            )
-            draw.text((tx2 + round(tag_w) // 2, title_cy), n.tag, font=f_tag,
-                      fill=pill_text, anchor="mm")
-        max_title_w -= tag_w + 8 * S
-
-    draw.text((round(tx * S), title_cy),
-              _fit(draw, n.title, f_title, max_title_w),
-              font=f_title, fill=title_col, anchor="lm")
-
-    ly = y + _PAD_Y + _TITLE_H + _LINE_H / 2
-    for line in n.lines:
-        draw.text((round(tx * S), round(ly * S)),
-                  _fit(draw, line, f_line, (x + w - _PAD_X - tx) * S),
-                  font=f_line, fill=_SUB, anchor="lm")
-        ly += _LINE_H
-
-
-def _draw_elbow(draw: ImageDraw.ImageDraw, x1: float, y1: float, x2: float,
-                y2: float, label: str | None) -> None:
-    """Parent-right → short stub → vertical trunk → horizontal into the child."""
-    trunk = x1 + 24
-    lw = max(1, round(1.2 * S))
-    pts = [(x1, y1), (trunk, y1), (trunk, y2), (x2, y2)]
-    for (ax, ay), (bx, by) in zip(pts, pts[1:], strict=False):
-        draw.line([round(ax * S), round(ay * S), round(bx * S), round(by * S)],
-                  fill=_EDGE, width=lw)
-    if label:
-        f = _font(8.5)
-        cx = (trunk + x2) / 2 * S
-        cy = y2 * S
-        tw = draw.textlength(label, font=f)
-        pw, ph = tw + 12 * S, 14 * S
-        draw.rounded_rectangle(
-            [round(cx - pw / 2), round(cy - ph / 2),
-             round(cx + pw / 2), round(cy + ph / 2)],
-            radius=round(ph / 2), fill=_GREY_PILL_FILL,
-        )
-        draw.text((round(cx), round(cy)), label, font=f, fill=_SUB, anchor="mm")
-
-
-# ─── shared formatting ─────────────────────────────────────────────────
-
-
-def _cap(nodes: list[Node], limit: int, noun: str) -> list[Node]:
-    if len(nodes) <= limit:
-        return nodes
-    extra = len(nodes) - (limit - 1)
-    return nodes[: limit - 1] + [Node(f"+ {fmt_count(extra)} more {noun}", style="dim")]
+    return text + "\u2026"
 
 
 def _gib(value: int | None) -> int | None:
@@ -399,105 +203,7 @@ def _cluster_labels(env: Environment) -> dict[int, str]:
     return labels
 
 
-# ─── public builders ───────────────────────────────────────────────────
-
-
-def cluster_compute(env: Environment, cluster: Cluster) -> Diagram | None:
-    """One cluster and its physical nodes with CPU / memory / VM density."""
-    resolve = _cluster_resolver(env)
-    hosts = [h for h in env.hosts if resolve(h) is cluster]
-    if not hosts:
-        return None
-    root = Node(
-        cluster.name or cluster.uuid,
-        [f"AOS {cluster.aos_version or NA}",
-         f"{fmt_count(cluster.num_nodes or len(hosts))} node(s)"
-         + (f" · RF {cluster.redundancy_factor}" if cluster.redundancy_factor else "")],
-        style="root",
-    )
-    for h in hosts:
-        specs = " · ".join(p for p in (
-            f"{fmt_count(h.num_cpu_cores)} cores" if h.num_cpu_cores else None,
-            f"{fmt_count(_gib(h.memory_bytes))} GiB" if h.memory_bytes else None,
-            f"{fmt_count(h.num_vms)} VM(s)" if h.num_vms is not None else None,
-        ) if p)
-        lines = [line for line in (h.cpu_model, specs, h.block_model) if line]
-        in_maint = (h.maintenance_state is not None
-                    and h.maintenance_state.lower() not in ("", "normal"))
-        root.children.append(Node(
-            h.name or h.uuid, lines,
-            tag="maintenance" if in_maint else ("GPU" if h.gpu_list else "up"),
-            tag_style="grey" if in_maint else ("blue" if h.gpu_list else "ok"),
-            style="dim" if in_maint else "card",
-        ))
-    root.children = _cap(root.children, 10, "node(s)")
-    return _render([root], col_w=[270, 390])
-
-
-def network_topology(env: Environment, cluster: Cluster) -> Diagram | None:
-    """Cluster → virtual switches → VLAN subnets (the cabling-diagram view)."""
-    resolve = _cluster_resolver(env)
-    subs = [s for s in env.subnets
-            if resolve(s) is cluster and (s.subnet_type or "VLAN").upper() != "OVERLAY"]
-    if not subs:
-        return None
-    groups: dict[str, list] = {}
-    for s in subs:
-        groups.setdefault(s.virtual_switch or "default", []).append(s)
-
-    root = Node(cluster.name or cluster.uuid,
-                [f"{fmt_count(len(subs))} VLAN subnet(s)"], style="root")
-    for vs_name in sorted(groups):
-        vs = Node(vs_name, ["virtual switch"])
-        for s in sorted(groups[vs_name], key=lambda s: (s.vlan_id or 0, s.name or "")):
-            detail = s.ip_prefix or "no managed IP range"
-            if s.dhcp_enabled:
-                detail += " · DHCP"
-            vs.children.append(Node(
-                s.name or s.uuid, [detail],
-                tag=f"VLAN {s.vlan_id}" if s.vlan_id is not None else (s.subnet_type or None),
-            ))
-        vs.children = _cap(vs.children, 8, "subnet(s)")
-        root.children.append(vs)
-    root.children = _cap(root.children, 6, "switch(es)")
-    return _render([root], col_w=[230, 210, 330], col_gap=72)
-
-
-def vpc_topology(env: Environment) -> Diagram | None:
-    """Flow Virtual Networking: VPCs with their overlay and external subnets."""
-    if not env.vpcs:
-        return None
-    by_vpc: dict[str, list] = {}
-    for s in env.subnets:
-        if s.vpc_name:
-            by_vpc.setdefault(s.vpc_name, []).append(s)
-
-    roots = []
-    for v in env.vpcs[:6]:
-        lines = []
-        if v.route_count is not None or v.routing_policy_count is not None:
-            lines.append(f"{fmt_count(v.route_count or 0)} route(s) · "
-                         f"{fmt_count(v.routing_policy_count or 0)} routing policy(ies)")
-        root = Node(v.name or v.uuid, lines, style="root")
-        overlay = by_vpc.get(v.name or "", [])
-        names_seen = {s.name for s in overlay}
-        for s in overlay:
-            root.children.append(Node(s.name or s.uuid,
-                                      [s.ip_prefix or ""], tag="overlay"))
-        for name in v.subnet_names:
-            if name not in names_seen:
-                root.children.append(Node(name, tag="overlay"))
-        for ext in v.external_subnets:
-            root.children.append(Node(ext, ["external connectivity"],
-                                      tag="external", tag_style="grey"))
-        if not root.children:
-            root.children.append(Node("No subnets attached", style="dim"))
-        root.children = _cap(root.children, 8, "subnet(s)")
-        roots.append(root)
-    return _render(roots, col_w=[280, 340])
-
-
-# ─── chart primitives (figure strip, donuts, bars) ──────────────────────
+# ─── chart primitives ────────────────────────────────────────────────
 
 
 @lru_cache(maxsize=8)
@@ -509,16 +215,10 @@ def _light_font(size: float) -> ImageFont.FreeTypeFont | ImageFont.ImageFont:
         return _font(size)
 
 
-def _new_canvas(w: float, h: float, frame: bool = True
-                ) -> tuple[Image.Image, ImageDraw.ImageDraw]:
+def _new_canvas(w: float, h: float) -> tuple[Image.Image, ImageDraw.ImageDraw]:
+    """A white canvas with no frame: charts sit on the page like the vector scenes."""
     img = Image.new("RGB", (round(w * S), round(h * S)), "white")
-    draw = ImageDraw.Draw(img)
-    if frame:
-        draw.rounded_rectangle(
-            [S, S, round(w * S) - S, round(h * S) - S],
-            radius=round(6 * S), outline=_FRAME, width=S,
-        )
-    return img, draw
+    return img, ImageDraw.Draw(img)
 
 
 def _png(img: Image.Image) -> bytes:
@@ -566,45 +266,28 @@ def _draw_donut(draw: ImageDraw.ImageDraw, cx: float, cy: float, r: float, thick
                   font=_light_font(24), fill=_INK, anchor="mm")
     if center_label:
         draw.text((round(cx * S), round((cy + 15) * S)), center_label,
-                  font=_font(8.5), fill=_SUB, anchor="mm")
+                  font=_font(_MIN_PX), fill=_SUB, anchor="mm")
 
 
 # ─── public chart builders ──────────────────────────────────────────────
 
 
-def executive_dashboard(env: Environment) -> Diagram | None:
-    """At-a-glance figure strip: clusters, hosts, VMs, storage, open alerts, projects.
-
-    Runway draws headline numbers as one ruled row of light numerals with small labels
-    above, separated by hairlines (never a grid of coloured KPI tiles). The PDF and Word
-    exporters draw this strip natively; this raster version serves any other consumer.
-    """
-    if not env.clusters and not env.hosts and not env.vms:
-        return None
-    storage_total = sum(c.max_capacity_bytes or 0 for c in env.storage_containers)
-    items = [
-        ("Clusters", fmt_count(len(env.clusters))),
-        ("Hosts", fmt_count(len(env.hosts))),
-        ("Virtual machines", fmt_count(len(env.vms))),
-        ("Storage capacity", _size_label(storage_total) if storage_total else NA),
-        ("Open alerts", fmt_count(sum(1 for a in env.alerts if not a.resolved))),
-        ("Projects", fmt_count(len(env.projects))),
-    ]
-    cell_w, h = 150.0, 78.0
-    w = cell_w * len(items)
-    img, draw = _new_canvas(w, h, frame=False)
-    draw.line([0, S, round(w * S), S], fill=_FRAME, width=S)
-    draw.line([0, round((h - 1) * S), round(w * S), round((h - 1) * S)], fill=_FRAME, width=S)
-    for i, (label, value) in enumerate(items):
-        x = i * cell_w
-        if i:
-            draw.line([round(x * S), round(12 * S), round(x * S), round((h - 12) * S)],
-                      fill=_CARD_BORDER, width=S)
-        draw.text((round((x + 14) * S), round(22 * S)), label, font=_font(9.5), fill=_SUB,
-                  anchor="lm")
-        draw.text((round((x + 14) * S), round(50 * S)),
-                  _fit(draw, value, _light_font(26), (cell_w - 20) * S),
-                  font=_light_font(26), fill=_INK, anchor="lm")
+def _donut_chart(segments: list[tuple[int, tuple[int, int, int]]],
+                 labelled: list[tuple[str, tuple[int, int, int]]], center_value: str,
+                 center_label: str) -> Diagram:
+    legend_w = 230
+    w = _PAD * 2 + _DONUT_R * 2 + 30 + legend_w
+    h = _PAD * 2 + _DONUT_R * 2
+    img, draw = _new_canvas(w, h)
+    cx, cy = _PAD + _DONUT_R, h / 2
+    _draw_donut(draw, cx, cy, _DONUT_R, _DONUT_THICK, segments,
+                center_value=center_value, center_label=center_label)
+    f_leg = _font(_MIN_PX)
+    lx = _PAD + _DONUT_R * 2 + 30
+    ly = cy - (len(labelled) - 1) * 11
+    for label, color in labelled:
+        _legend_item(draw, lx, ly, label, color, f_leg)
+        ly += 22
     return _finish(img, w, h)
 
 
@@ -616,32 +299,14 @@ def vm_power_state_chart(env: Environment) -> Diagram | None:
     on = sum(1 for v in env.vms if T.power_label(v.power_state) == "On")
     off = sum(1 for v in env.vms if T.power_label(v.power_state) == "Off")
     other = total - on - off
-    segments = [(v, c) for v, c in
-                [(on, _VM_ON), (off, _VM_OFF), (other, _VM_OTHER)] if v > 0]
-
-    legend_w = 230
-    pad = _FRAME_PAD
-    w = pad * 2 + _DONUT_R * 2 + 30 + legend_w
-    h = pad * 2 + _DONUT_R * 2
-    img, draw = _new_canvas(w, h)
-    cx, cy = pad + _DONUT_R, h / 2
+    rows = [(f"Powered on: {fmt_count(on)} ({on / total:.0%})", _VM_ON, on),
+            (f"Powered off: {fmt_count(off)} ({off / total:.0%})", _VM_OFF, off),
+            (f"Other or suspended: {fmt_count(other)} ({other / total:.0%})", _VM_OTHER,
+             other)]
     # The centre carries the share powered on: the VM total is already a headline figure.
-    _draw_donut(draw, cx, cy, _DONUT_R, _DONUT_THICK, segments,
-                center_value=f"{on / total:.0%}", center_label="powered on")
-
-    labelled = [
-        (f"Powered on: {fmt_count(on)} ({on / total:.0%})", _VM_ON, on),
-        (f"Powered off: {fmt_count(off)} ({off / total:.0%})", _VM_OFF, off),
-        (f"Other or suspended: {fmt_count(other)} ({other / total:.0%})", _VM_OTHER, other),
-    ]
-    labelled = [item for item in labelled if item[2] > 0]
-    f_leg = _font(9.5)
-    lx = pad + _DONUT_R * 2 + 30
-    ly = cy - (len(labelled) - 1) * 11
-    for label, color, _count in labelled:
-        _legend_item(draw, lx, ly, label, color, f_leg)
-        ly += 22
-    return _finish(img, w, h)
+    return _donut_chart([(v, c) for _, c, v in rows if v > 0],
+                        [(t, c) for t, c, v in rows if v > 0], f"{on / total:.0%}",
+                        "powered on")
 
 
 def alert_severity_chart(env: Environment) -> Diagram | None:
@@ -658,115 +323,123 @@ def alert_severity_chart(env: Environment) -> Diagram | None:
     total = len(pool)
     sev = Counter((a.severity or "").upper() for a in pool)
     other = total - sev["CRITICAL"] - sev["WARNING"] - sev["INFO"]
-    counts = [
-        ("Critical", _ALERT_CRIT, sev["CRITICAL"]),
-        ("Warning", _ALERT_WARN, sev["WARNING"]),
-        ("Info", _ALERT_INFO, sev["INFO"]),
-        ("Other", _ALERT_OTHER, other),
-    ]
-    segments = [(v, c) for _label, c, v in counts if v > 0]
+    counts = [("Critical", _ALERT_CRIT, sev["CRITICAL"]), ("Warning", _ALERT_WARN,
+                                                           sev["WARNING"]),
+              ("Info", _ALERT_INFO, sev["INFO"]), ("Other", _ALERT_OTHER, other)]
+    return _donut_chart([(v, c) for _, c, v in counts if v > 0],
+                        [(f"{t}: {fmt_count(v)} ({v / total:.0%})", c)
+                         for t, c, v in counts if v > 0],
+                        fmt_count(total), "open alerts" if is_open else "alerts")
 
-    legend_w = 230
-    pad = _FRAME_PAD
-    w = pad * 2 + _DONUT_R * 2 + 30 + legend_w
-    h = pad * 2 + _DONUT_R * 2
-    img, draw = _new_canvas(w, h)
-    cx, cy = pad + _DONUT_R, h / 2
-    _draw_donut(draw, cx, cy, _DONUT_R, _DONUT_THICK, segments,
-                center_value=fmt_count(total), center_label="open alerts" if is_open
-                else "alerts")
 
-    labelled = [(f"{label}: {fmt_count(v)} ({v / total:.0%})", c)
-                for label, c, v in counts if v > 0]
-    f_leg = _font(9.5)
-    lx = pad + _DONUT_R * 2 + 30
-    ly = cy - (len(labelled) - 1) * 11
-    for label, color in labelled:
-        _legend_item(draw, lx, ly, label, color, f_leg)
-        ly += 22
-    return _finish(img, w, h)
+def capacity_containers(env: Environment) -> tuple[list[tuple[str, Any]], int]:
+    """(label, container) for the capacity chart, and how many user containers there
+    are: system containers left out (as in the Logical Cluster Design), ordered by
+    cluster, then used share (fullest first), the first `MAX_CONTAINERS` kept."""
+    from ntnxvision_core.diagrams.logical import _is_system
+
+    labels = _cluster_labels(env)
+    resolve = _cluster_resolver(env)
+    order = {id(c): i for i, c in enumerate(sorted(
+        env.clusters, key=lambda c: ((c.name or "").lower(), c.source_pc or "", c.uuid)))}
+    rows = []
+    for c in env.storage_containers:
+        if not c.max_capacity_bytes or c.is_internal or _is_system(c.name):
+            continue
+        cl = resolve(c)
+        share = (c.used_bytes or 0) / c.max_capacity_bytes
+        label = f"{labels[id(cl)] if cl else (c.cluster_name or 'N/A')} \u00b7 " \
+            f"{c.name or c.uuid}"
+        rows.append(((order.get(id(cl), len(order)) if cl else len(order), -share,
+                      (c.name or "").lower(), c.uuid), label, c))
+    rows.sort(key=lambda r: r[0])
+    return [(label, c) for _, label, c in rows[:MAX_CONTAINERS]], len(rows)
 
 
 def storage_capacity_chart(env: Environment) -> Diagram | None:
-    """Horizontal stacked bars: used vs. free capacity per storage container."""
-    containers = [c for c in env.storage_containers if c.max_capacity_bytes]
-    if not containers:
+    """Horizontal used / free bars per user container ("Cluster · container"); the
+    used bar turns amber at 80% and red at 90% used."""
+    rows, _total = capacity_containers(env)
+    if not rows:
         return None
-    containers = containers[:8]
-    max_cap = max(c.max_capacity_bytes or 0 for c in containers)
+    max_cap = max(c.max_capacity_bytes or 0 for _, c in rows)
     scale = _BAR_TRACK_W / max_cap if max_cap else 0
-
-    pad = _FRAME_PAD
-    w = pad * 2 + _BAR_LABEL_W + _BAR_TRACK_W + 14 + _BAR_VALS_W
-    rows_h = len(containers) * (_BAR_ROW_H + _BAR_ROW_GAP) - _BAR_ROW_GAP
-    h = pad * 2 + rows_h + 28
+    w = _PAD * 2 + _BAR_LABEL_W + _BAR_TRACK_W + 12 + _BAR_VALS_W
+    rows_h = len(rows) * (_BAR_ROW_H + _BAR_ROW_GAP) - _BAR_ROW_GAP
+    h = _PAD * 2 + rows_h + 26
     img, draw = _new_canvas(w, h)
-
-    f_label = _font(10.5, bold=True)
-    f_vals = _font(9)
-    track_x = pad + _BAR_LABEL_W
-    y: float = pad
+    f_label, f_vals = _font(10.5, bold=True), _font(_MIN_PX)
+    track_x = _PAD + _BAR_LABEL_W
+    y: float = _PAD
     bar_h = _BAR_ROW_H * 0.6
-    for c in containers:
+    for label, c in rows:
+        cap = c.max_capacity_bytes or 0
         used = c.used_bytes or 0
-        free = max((c.max_capacity_bytes or 0) - used, 0)
-        used_w = used * scale
+        free = max(cap - used, 0)
+        share = used / cap if cap else 0
+        color = _USED_FULL if share >= FULL_AT else _USED_WARN if share >= WARN_AT else _USED
         mid_y = y + _BAR_ROW_H / 2
         top, bottom = mid_y - bar_h / 2, mid_y + bar_h / 2
-        cap_w = (c.max_capacity_bytes or 0) * scale
         draw.rectangle([round(track_x * S), round(top * S),
-                        round((track_x + cap_w) * S), round(bottom * S)], fill=_FREE)
-        if used_w > 0:
+                        round((track_x + cap * scale) * S), round(bottom * S)], fill=_FREE)
+        if used:
             draw.rectangle([round(track_x * S), round(top * S),
-                            round((track_x + used_w) * S), round(bottom * S)], fill=_USED)
-        draw.text((round(pad * S), round(mid_y * S)),
-                  _fit(draw, c.name or c.uuid, f_label, (_BAR_LABEL_W - 8) * S),
+                            round((track_x + used * scale) * S), round(bottom * S)],
+                           fill=color)
+        draw.text((round(_PAD * S), round(mid_y * S)),
+                  _fit(draw, label, f_label, (_BAR_LABEL_W - 8) * S),
                   font=f_label, fill=_INK, anchor="lm")
-        draw.text((round((track_x + _BAR_TRACK_W + 14) * S), round(mid_y * S)),
-                  f"{_size_label(used)} used · {_size_label(free)} free",
+        draw.text((round((track_x + _BAR_TRACK_W + 12) * S), round(mid_y * S)),
+                  f"{_size_label(used)} used ({share:.0%}) \u00b7 {_size_label(free)} free",
                   font=f_vals, fill=_SUB, anchor="lm")
         y += _BAR_ROW_H + _BAR_ROW_GAP
-
     lx: float = track_x
-    ly = y + 8
-    for label, color in [("Used capacity", _USED), ("Free capacity", _FREE)]:
-        lx += _legend_item(draw, lx, ly, label, color, f_vals) + 24
+    ly = y + 6
+    for label, color in [("Used", _USED), (f"Used, {WARN_AT:.0%} or more", _USED_WARN),
+                         (f"Used, {FULL_AT:.0%} or more", _USED_FULL), ("Free", _FREE)]:
+        lx += _legend_item(draw, lx, ly, label, color, f_vals) + 20
     return _finish(img, w, h)
 
 
-def vms_per_cluster_chart(env: Environment) -> Diagram | None:
-    """Bar chart of VM count per cluster; bar colours follow the Runway chart order."""
-    if not env.clusters or not env.vms:
-        return None
+def vm_cluster_counts(env: Environment) -> list[tuple[str, int]]:
+    """(cluster label, user VMs) for every cluster with VMs, most first."""
     counts = _counts_per_cluster(env, env.vms)
     labels = _cluster_labels(env)
     bars = [(labels[id(c)], counts.get(id(c), 0)) for c in env.clusters]
-    bars = sorted((b for b in bars if b[1] > 0), key=lambda b: -b[1])[:8]
+    return sorted((b for b in bars if b[1] > 0), key=lambda b: (-b[1], b[0].lower()))
+
+
+def vms_per_cluster_chart(env: Environment) -> Diagram | None:
+    """Horizontal bars of user VMs per cluster, top `MAX_CLUSTERS`, one series colour."""
+    if not env.clusters or not env.vms:
+        return None
+    bars = vm_cluster_counts(env)[:MAX_CLUSTERS]
     if not bars:
         return None
     max_v = max(v for _, v in bars)
-
-    pad, bar_w, bar_gap, plot_h, label_h = _FRAME_PAD, 82, 26, 150, 34
-    w = max(pad * 2 + len(bars) * bar_w + (len(bars) - 1) * bar_gap, 300)
-    h = pad * 2 + plot_h + label_h
+    label_w, track_w, val_w, row_h, gap = 170.0, 220.0, 42.0, 20.0, 6.0
+    w = _PAD * 2 + label_w + track_w + val_w
+    h = _PAD * 2 + len(bars) * (row_h + gap) - gap
     img, draw = _new_canvas(w, h)
-    baseline = pad + plot_h
-    draw.line([round(pad * S), round(baseline * S), round((w - pad) * S), round(baseline * S)],
-              fill=_CARD_BORDER, width=S)
-
-    f_val, f_name = _font(11), _font(9.5)
-    x = pad
-    for i, (name, count) in enumerate(bars):
-        bh = max(6.0, count / max_v * (plot_h - 24))
-        color = _CLUSTER_PALETTE[i % len(_CLUSTER_PALETTE)]
-        draw.rectangle(
-            [round(x * S), round((baseline - bh) * S),
-             round((x + bar_w) * S), round(baseline * S)],
-            fill=color,
-        )
-        draw.text((round((x + bar_w / 2) * S), round((baseline - bh - 12) * S)),
-                  fmt_count(count), font=f_val, fill=_INK, anchor="mm")
-        draw.text((round((x + bar_w / 2) * S), round((baseline + 16) * S)),
-                  _fit(draw, name, f_name, bar_w * S), font=f_name, fill=_SUB, anchor="mm")
-        x += bar_w + bar_gap
+    f_name, f_val = _font(_MIN_PX + 0.5), _font(_MIN_PX + 0.5, bold=True)
+    x0 = _PAD + label_w
+    draw.line([round(x0 * S), round(_PAD * S), round(x0 * S), round((h - _PAD) * S)],
+              fill=_RULE, width=S)
+    y = float(_PAD)
+    for name, count in bars:
+        mid = y + row_h / 2
+        bw = max(2.0, count / max_v * track_w)
+        draw.rectangle([round(x0 * S), round((mid - row_h * 0.32) * S),
+                        round((x0 + bw) * S), round((mid + row_h * 0.32) * S)], fill=_SERIES)
+        draw.text((round((x0 - 8) * S), round(mid * S)),
+                  _fit(draw, name, f_name, (label_w - 12) * S), font=f_name, fill=_INK,
+                  anchor="rm")
+        draw.text((round((x0 + bw + 6) * S), round(mid * S)), fmt_count(count), font=f_val,
+                  fill=_INK, anchor="lm")
+        y += row_h + gap
     return _finish(img, w, h)
+
+
+__all__ = ["BASE_DPI", "Diagram", "alert_severity_chart", "capacity_containers",
+           "storage_capacity_chart", "vm_cluster_counts", "vm_power_state_chart",
+           "vms_per_cluster_chart"]
