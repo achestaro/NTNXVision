@@ -28,6 +28,7 @@ from typing import TYPE_CHECKING, Any
 from ntnxvision_core.api.errors import NutanixApiError
 from ntnxvision_core.models import ClusterScope, ScopeCluster, place_arrays_by_containers
 from ntnxvision_core.numfmt import fmt_count
+from ntnxvision_core.versions import short_version
 
 if TYPE_CHECKING:  # pragma: no cover
     from ntnxvision_core.api import PrismConnection
@@ -63,6 +64,10 @@ class RegisteredCluster:
     hypervisors: list[str] = field(default_factory=list)
     #: The vCenter an ESXi cluster is registered to, as Prism reports it.
     vcenter: str | None = None
+
+    def __post_init__(self) -> None:
+        # The cluster picker shows "AOS <version>": never a full build string.
+        self.aos_version = short_version(self.aos_version)
 
     def as_dict(self) -> dict[str, Any]:
         return {"uuid": self.uuid, "name": self.name, "aos_version": self.aos_version,

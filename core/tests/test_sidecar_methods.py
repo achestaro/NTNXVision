@@ -64,7 +64,7 @@ def test_inventory_result_carries_run_metadata(two_snapshots: Any) -> None:
     stops = [row for row in first["api_routing"] if row["after_sunset"]["tone"] == "warn"]
     assert any("X-Play" in row["areas"] for row in stops)
     assert first["compat"] == {"version": "pc.2024.3", "supported": True,
-                               "range": "pc.2024.1 – 7.5.1.6"}
+                               "range": "pc.2024.1 to 7.5.1.6"}
 
 
 def test_overview(demo: Any, data_dir: Path) -> None:

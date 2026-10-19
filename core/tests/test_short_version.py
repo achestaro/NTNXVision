@@ -38,7 +38,8 @@ def test_model_shortens_on_load() -> None:
         "clusters": [{"uuid": "c1", "aos_version": LONG}],
     })
     assert env.prism_central.version == "7.5.1.1"
-    assert env.pc_config.version == env.pc_config.build == "7.5.1.1"
+    assert env.pc_config.version == "7.5.1.1"
+    assert env.pc_config.build == LONG  # the Excel "Build" row keeps the full string
     assert env.clusters[0].aos_version == "7.5.1.1"
     assert Cluster(uuid="c2", aos_version=LONG).aos_version == "7.5.1.1"
 

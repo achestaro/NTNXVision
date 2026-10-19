@@ -18,6 +18,8 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
+from ntnxvision_core.versions import short_version
+
 # Supported windows as comparable numeric tuples.
 PC_MIN = (2024, 1)  # pc.2024.1
 PC_MAX = (7, 5, 1, 6)  # 7.5.1.6
@@ -47,7 +49,9 @@ def parse_version(raw: str | None) -> tuple[tuple[int, ...] | None, str]:
     """
     if not raw:
         return None, "unknown"
-    match = _VERSION_RE.search(raw)
+    # A full build string ("el8.5-release-…-7.5.1.1-stable-<commit>") would otherwise
+    # parse as its "8.5" OS prefix.
+    match = _VERSION_RE.search(short_version(raw) or "")
     if not match:
         return None, "unknown"
     parts = tuple(int(p) for p in match.group(1).split("."))
@@ -63,6 +67,7 @@ def _is_calendar(parsed: tuple[int, ...]) -> bool:
 
 def check_prism_central(raw: str | None) -> CompatResult:
     """Assess a Prism Central version against the supported window."""
+    raw = short_version(raw)
     parsed, scheme = parse_version(raw)
     if parsed is None:
         return CompatResult(raw, None, scheme, in_range=True,
@@ -101,7 +106,8 @@ def check_prism_central(raw: str | None) -> CompatResult:
 
 
 def check_aos(raw: str | None) -> CompatResult:
-    """Assess an AOS (cluster) version against the supported window (6.5–7.5)."""
+    """Assess an AOS (cluster) version against the supported window (6.5 to 7.5)."""
+    raw = short_version(raw)
     parsed, scheme = parse_version(raw)
     if parsed is None:
         return CompatResult(raw, None, scheme, in_range=True,
