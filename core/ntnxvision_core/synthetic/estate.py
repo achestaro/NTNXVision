@@ -900,9 +900,14 @@ def pc_vm_ips(est: PcEstate) -> list[str]:
     return [f"{base}.{int(last) + i}" for i in range(1, count + 1)]
 
 
+def pc_host_cluster(est: PcEstate) -> dict[str, Any]:
+    """The cluster running the PC VM(s) (`Features.pc_cluster`)."""
+    return est.clusters[min(max(est.features.pc_cluster, 0), len(est.clusters) - 1)]
+
+
 def _system_vms(est: PcEstate) -> None:
     """The Prism Central VM(s), which collectors must reclassify as PRISM_CENTRAL."""
-    c = est.clusters[min(max(est.features.pc_cluster, 0), len(est.clusters) - 1)]
+    c = pc_host_cluster(est)
     hosts = [h for h in est.hosts if h["cluster_uuid"] == c["uuid"]]
     ctr = next(ct for ct in est.containers if ct["cluster_uuid"] == c["uuid"])
     subnet = next((s for s in est.subnets if s["cluster_uuid"] == c["uuid"]), None)
