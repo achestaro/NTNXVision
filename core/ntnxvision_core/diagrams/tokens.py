@@ -93,3 +93,16 @@ ESXI = "#B38C15"
 #: A part of the conceptual overview: a dashed frame around its AZ tiles.
 FRAME = Style(stroke=RULE_STRONG, stroke_w=0.75, dash=(3.0, 2.5), radius=5.25)
 
+# ─── host network (A4) ─────────────────────────────────────────────────
+#: Virtual switch bar, uplink bond, physical NIC, traffic (what uses a switch).
+NET_SWITCH = Style(fill=IRIS_TINT, stroke=IRIS, stroke_w=0.75, radius=2.25)
+NET_BOND = Style(fill=WHITE, stroke=INK_2, stroke_w=0.68, radius=2.25)
+NET_NIC = Style(fill=WHITE, stroke=INK, stroke_w=0.75, radius=1.5)
+NET_TRAFFIC = Style(fill=WHITE, stroke=RULE, stroke_w=0.68, radius=2.25)
+NET_MTU = Style(fill=WHITE, stroke=INK_2, stroke_w=0.6, radius=1.5)
+NET_LINK = Style(stroke=RULE_STRONG, stroke_w=0.68)
+#: "LLDP NEIGHBOUR" chip; the dashed "not reported by Nutanix APIs" note.
+TAG_NEIGHBOUR = Style(fill=INK_2, radius=1.9)
+NOT_REPORTED = Style(fill=WHITE, stroke=RULE_STRONG, stroke_w=0.75, dash=(2.6, 1.9),
+                     radius=3.75)
+
