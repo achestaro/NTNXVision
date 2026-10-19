@@ -431,7 +431,7 @@ const SHOTS = [
     await rail(p, 'Diagrams');
     await p.getByRole('dialog', { name: 'Carry your edits to the new snapshot?' }).waitFor();
   }],
-  ['diagrams-empty', { empty: true }, async (p) => {
+  ['diagrams-empty', { empty: true, demo: true }, async (p) => {
     await rail(p, 'Diagrams');
     await p.getByText('No snapshot to draw yet').waitFor();
   }],
