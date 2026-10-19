@@ -33,6 +33,7 @@ from ntnxvision_core.capacity import target_label, valid_ratio
 from ntnxvision_core.exporters.csvsafe import neutralize
 from ntnxvision_core.exporters.tables import COMPARE_TYPES, SPECS, Ctx, TableSpec
 from ntnxvision_core.inventory import display, fmt_bytes
+from ntnxvision_core.lcm_inventory import provenance
 from ntnxvision_core.models import Environment
 from ntnxvision_core.numfmt import NA, fmt_count
 
@@ -739,8 +740,8 @@ def _summary_sheet(ws: Any, base: Environment, cur: Environment, base_name: str,
     row += 1
     note = ws.cell(row=row, column=1, value=(
         "Timestamps are UTC. Objects are matched by their Nutanix ID, then by name and "
-        "location. Areas either run did not collect are not compared. Generated from "
-        "read-only inventory snapshots; no configuration was changed."))
+        "location. Areas either run did not collect are not compared. "
+        + provenance(base.lcm_inventory, cur.lcm_inventory, snapshots=2)))
     note.font = Font(name=font, size=9, italic=True, color=TH.INK_3)
     note.alignment = XL._TOP_LEFT
     ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=5)
