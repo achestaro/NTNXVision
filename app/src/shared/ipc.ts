@@ -264,7 +264,7 @@ export interface TestConnectionResult {
   name?: string | null;
   version?: string | null;
   version_supported?: boolean | null;
-  /** e.g. "pc.2024.1 to 7.5.1.6" or "AOS 6.5 to 7.5". */
+  /** e.g. "pc.2024.1 to pc.7.5.1.6" or "AOS 6.5 to 7.5". */
   supported_range?: string | null;
   clusters?: number | null;
   hosts?: number | null;
@@ -510,7 +510,7 @@ export interface ApiRoutingRow {
 export interface CompatInfo {
   version?: string | null;
   supported: boolean;
-  /** e.g. "pc.2024.1 to 7.5.1.6". */
+  /** e.g. "pc.2024.1 to pc.7.5.1.6". */
   range: string;
 }
 

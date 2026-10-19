@@ -34,3 +34,18 @@ def short_version(value: str | None) -> str | None:
         if found:
             return found.group(0)
     return text
+
+
+def pc_version(value: str | None) -> str | None:
+    """The one display form of a Prism Central version: ``pc.7.5.1.1``, ``pc.2024.3``.
+
+    Every part the API reports is kept (never cut to three), and a numeric 7.x version
+    gains the ``pc.`` prefix the calendar builds already carry. The model stores the plain
+    value (compat parsing reads it); reports, the UI and the snapshot index show this.
+    """
+    v = short_version(value)
+    if not v:
+        return None
+    if v[:3].lower() == "pc.":
+        return "pc." + v[3:]
+    return f"pc.{v}" if v[0].isdigit() else v

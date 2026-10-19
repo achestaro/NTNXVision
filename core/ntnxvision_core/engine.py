@@ -38,6 +38,7 @@ from ntnxvision_core.models import (
 )
 from ntnxvision_core.runinfo import RunTracker, classify
 from ntnxvision_core.scope import Scope, registered_clusters
+from ntnxvision_core.versions import pc_version
 
 # progress(step_index, total_steps, collector_label, status)
 ProgressFn = Callable[[int, int, str, str], None]
@@ -105,7 +106,7 @@ def collect_environment(
         conn.scope = scope
 
         if tracker is not None:
-            tracker.start(planned, conn.pc_version)
+            tracker.start(planned, pc_version(conn.pc_version))
 
         try:
             for idx, area in enumerate(run_areas):

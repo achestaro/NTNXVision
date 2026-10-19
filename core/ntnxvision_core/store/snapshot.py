@@ -31,6 +31,7 @@ from typing import Any
 from ntnxvision_core.models import Environment
 from ntnxvision_core.paths import private_dir, write_private_text
 from ntnxvision_core.store.names import max_stem_for, safe_name, unique_name
+from ntnxvision_core.versions import pc_version
 
 SNAP_SUFFIX = ".ntnxsnap.json"
 META_SUFFIX = ".ntnxmeta.json"
@@ -127,6 +128,8 @@ def describe(env: Environment, path: Path) -> dict[str, Any]:
         version = env.prism_central.version
         if kind == "pe" and version and not version.upper().startswith("AOS"):
             version = f"AOS {version}"
+        elif kind != "pe":
+            version = pc_version(version)
     return {
         "name": snapshot_name(path),
         "snapshot_id": env.snapshot_id,
@@ -210,13 +213,16 @@ def read_meta(path: Path, cache: EnvironmentCache | None = None) -> dict[str, An
 
 
 def _shorten_versions(meta: dict[str, Any]) -> None:
-    """Indexes written before `versions.short_version` hold full build strings."""
+    """Indexes written before `versions.short_version` hold full build strings, and
+    those written before `versions.pc_version` a PC version without its ``pc.`` prefix."""
     from ntnxvision_core.versions import short_version
 
     version = meta.get("version")
     if isinstance(version, str):
-        prefix = "AOS " if version.startswith("AOS ") else ""
-        meta["version"] = prefix + (short_version(version.removeprefix(prefix)) or "")
+        if version.startswith("AOS "):
+            meta["version"] = "AOS " + (short_version(version.removeprefix("AOS ")) or "")
+        else:
+            meta["version"] = pc_version(version)
     stats = meta.get("stats")
     if isinstance(stats, dict):
         for key in ("aos_min", "aos_max"):

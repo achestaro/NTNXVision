@@ -54,5 +54,5 @@ def test_old_index_shortened_on_read(tmp_path) -> None:
     meta["stats"]["aos_min"] = LONG
     meta_path(path).write_text(json.dumps(meta), encoding="utf-8")
     again = read_meta(path)
-    assert again["version"] == "7.5.1.1"
+    assert again["version"] == "pc.7.5.1.1"  # shortened, and shown with its prefix
     assert again["stats"]["aos_min"] == "7.5.1.1"
