@@ -300,6 +300,49 @@ def test_carry_forward(tmp_path: Path, env: Environment) -> None:
                for c in got["stale"]["changes"])
 
 
+@pytest.mark.parametrize("password", [None, "s3cret-pass"])
+def test_snapshot_files_carry_the_edits(tmp_path: Path, env: Environment,
+                                        password: str | None) -> None:
+    from ntnxvision_core.store import transfer
+
+    src_store = SnapshotStore(tmp_path / "a")
+    snap = src_store.save(env.model_copy(deep=True), "week1")
+    ST.save_result(snap, env, "conceptual", _ops(env))
+    item = transfer.ExportItem(env=src_store.load(snap), meta=snapstore.read_meta(snap))
+    dest = tmp_path / "week1.ntnxsnap"
+    transfer.export_file([item], dest, password=password)
+    dst_store = SnapshotStore(tmp_path / "b")
+    result = transfer.import_file(dest, dst_store, password=password)
+    imported = Path(result["imported"][0]["path"])
+    entry = ST.load(imported)["conceptual"]
+    assert entry["ops"] == ST.load(snap)["conceptual"]["ops"]
+    assert entry["base_hash"] == ST.load(snap)["conceptual"]["base_hash"]
+    got = ST.get_result(imported, env, "conceptual")
+    assert got["edited"] and got["stale"] is None and got["problems"] == []
+    # A file without edits imports without a diagrams file.
+    plain = src_store.save(env.model_copy(deep=True), "week2")
+    item = transfer.ExportItem(env=src_store.load(plain), meta=snapstore.read_meta(plain))
+    transfer.export_file([item], tmp_path / "week2.ntnxsnap", password=password)
+    res = transfer.import_file(tmp_path / "week2.ntnxsnap", dst_store, password=password)
+    assert not ST.path_for(Path(res["imported"][0]["path"])).exists()
+
+
+def test_restore_drops_bad_entries(tmp_path: Path, env: Environment) -> None:
+    snap = SnapshotStore(tmp_path).save(env.model_copy(deep=True), "x")
+    gen = ST.generated(env, "conceptual")
+    doc = {"schema": ST.SCHEMA, "diagrams": {
+        "conceptual": {"ops": E.clean_ops(_ops(env)), "base_model": gen,
+                       "base_hash": "forged", "saved_at": "x" * 500},
+        "evil": {"ops": [{"op": "rm -rf"}], "base_model": {}},
+        "nomodel": {"ops": [{"op": "delete", "id": "a"}], "base_model": "no"},
+    }}
+    assert ST.restore(snap, doc) == 1
+    entry = ST.load(snap)["conceptual"]
+    assert entry["base_hash"] == E.payload_hash("conceptual", gen)  # recomputed
+    assert entry["saved_at"] is None
+    assert ST.restore(snap, {"schema": "other"}) == 0
+
+
 # ─── exports ───────────────────────────────────────────────────────────
 
 
