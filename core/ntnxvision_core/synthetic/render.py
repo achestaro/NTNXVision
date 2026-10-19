@@ -524,6 +524,9 @@ def subnet_v3(est: PcEstate, s: dict[str, Any]) -> dict[str, Any]:
         resources["vlan_id"] = s["vlan"]
     if s["vswitch_uuid"]:
         resources["virtual_switch_uuid"] = s["vswitch_uuid"]
+    if s.get("external"):
+        resources["is_external"] = True
+        resources["enable_nat"] = bool(s.get("nat"))
     if s["vpc"]:
         vpc = next(v for v in est.vpcs if v["name"] == s["vpc"])
         resources["vpc_reference"] = ref("vpc", vpc["uuid"], vpc["name"])
@@ -538,6 +541,8 @@ def subnet_v4(s: dict[str, Any]) -> dict[str, Any]:
         "extId": s["uuid"], "name": s["name"], "subnetType": s["type"],
         "networkId": s["vlan"], "clusterReference": s["cluster_uuid"],
         "virtualSwitchReference": s["vswitch_uuid"],
+        **({"isExternal": True, "isNatEnabled": bool(s.get("nat"))}
+           if s.get("external") else {}),
     })
 
 

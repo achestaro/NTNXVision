@@ -7,8 +7,11 @@ from __future__ import annotations
 
 from . import DiagramType
 from . import segments as _segments
+from . import vpc as _vpc
 from .edit_segments import SPEC as SEGMENTS_EDIT
+from .edit_vpc import SPEC as VPC_EDIT
 from .layout.segments import layout as segments_layout
+from .layout.vpc import layout as vpc_layout
 
 TYPES: dict[str, DiagramType] = {
     "segments": DiagramType(
@@ -17,4 +20,9 @@ TYPES: dict[str, DiagramType] = {
         build_model=_segments.segments_model, layout=segments_layout,
         to_doc=_segments.to_doc, from_doc=_segments.from_doc, edit=SEGMENTS_EDIT,
         slug="network-segments"),
+    "vpc": DiagramType(
+        id="vpc", title="Flow virtual networking design", chapter="networking",
+        section="Virtual Networking Design", applies=_vpc.applies,
+        build_model=_vpc.vpc_model, layout=vpc_layout, to_doc=_vpc.to_doc,
+        from_doc=_vpc.from_doc, edit=VPC_EDIT, slug="virtual-networking"),
 }
