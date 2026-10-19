@@ -284,7 +284,7 @@ def test_per_cluster_targets_are_recorded_and_used(demo: Any, data_dir: Path) ->
     cpu = next(t for t in tables if any(c.text == "vCPU:pCore N-1" for c in t.rows[0].cells))
     heads = [c.text for c in cpu.rows[0].cells]
     assert heads[0] == "Cluster" and "Target" in heads
-    assert any(r.cells[0].text == "SEA-ROBO-01" and
+    assert any(r.cells[0].text.replace("\u2011", "-") == "SEA-ROBO-01" and
                r.cells[heads.index("Target")].text == "6.5 : 1 (custom)" for r in cpu.rows)
 
     # A re-export passed another ratio keeps the recorded targets.

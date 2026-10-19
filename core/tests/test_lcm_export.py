@@ -156,7 +156,9 @@ def test_combined_run_attributes_lcm_rows_in_pdf_and_word(tmp_path) -> None:
     table = next(t for t in doc.tables
                  if len(t.rows[0].cells) > 2 and t.rows[0].cells[2].text == "Component")
     assert [c.text for c in table.rows[0].cells[:2]] == ["Cluster", "Prism Central"]
-    assert {r.cells[1].text for r in table.rows[1:]} == {"pc-a.lab.local", "pc-b.lab.local"}
+    # Word text carries non-breaking hyphens (U+2011) in short hyphenated tokens.
+    assert {r.cells[1].text.replace("\u2011", "-") for r in table.rows[1:]} == {
+        "pc-a.lab.local", "pc-b.lab.local"}
 
     # The PDF's column widths are rescaled around the extra column; assert it renders.
     assert PdfExporter().export(combined, tmp_path / "combined.pdf").stat().st_size > 1000
