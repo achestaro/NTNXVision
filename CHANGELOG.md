@@ -6,6 +6,26 @@ format older builds can't read. Windows shows the version as X.Y.Z.0 in Installe
 Every pull request that changes shipped code raises it with `node scripts/bump-version.mjs`
 and adds a section here (CI checks both).
 
+## 0.7.1 (2026-10-19)
+
+### Fixed
+- Reports exported straight after a collection showed the full Prism Central build string
+  (`el8.5-release-…-stable-<commit>`) on the Word / PDF cover, in the compatibility row and
+  in the Results page header. Every report, export and app view now shows the version,
+  whether the snapshot is fresh or loaded from disk.
+- Compatibility checks read the version inside a build string instead of its `el8.5` prefix.
+
+### Changed
+- One Prism Central version format everywhere: `pc.` plus every part the API reports
+  (`pc.7.5.1.1`, `pc.2024.3`), on the cover, in tables and prose, the diagrams, Excel, the
+  snapshot list, the connection test and compatibility messages. AOS stays `AOS 7.5`.
+- The supported range reads "pc.2024.1 to pc.7.5.1.6" (and "AOS 6.5 to 7.5") instead of
+  using a dash.
+- The full build string is kept in one place only: a "Build" row on the Excel Prism Central
+  sheet, for support cases and LCM matching.
+- Demo mode: `pc04.demo.local` reports a numeric version (7.5.1.1), and the scenario estates
+  run pc.7.5.1.1.
+
 ## 0.7.0 (2026-10-19)
 
 ### Added
