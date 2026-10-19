@@ -35,6 +35,7 @@ answers ``{"cancelled": false}`` — a half-written snapshot is never left behin
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import shutil
@@ -429,11 +430,10 @@ def _finalize(env: Any, name: str, params: dict[str, Any], *,
         handle.commit()
     if tracker is not None and tracker.finished_at is None:
         tracker.finish()
-    asked = params.get("formats")
-    if asked is None:
-        asked = ["excel"] if params.get("export", True) else []
-    # Reports with figures: replay the source's saved diagram edits when they all apply.
-    carry = _auto_carry_plan(env) if any(f in ("pdf", "word") for f in asked) else None
+    # Every fresh collection replays the source's saved diagram edits when they all
+    # apply, whatever it exports now: a schedule collects first and writes its reports
+    # later (send_email), and those reports must draw the edits too.
+    carry = _auto_carry_plan(env)
     env.run = build_run_metadata(env, tracker, mode=mode)
     result: dict[str, Any] = {
         "summary": env.summary(),
@@ -456,7 +456,14 @@ def _finalize(env: Any, name: str, params: dict[str, Any], *,
         result["snapshot_name"] = snapstore.snapshot_name(snap_path)
         _cache.invalidate(snap_path)
         if carry is not None:
-            _auto_carry(carry, snap_path, env)
+            failed = _auto_carry(carry, snap_path, env)
+            if failed:
+                env.warnings.append(failed)
+                result["warnings"].append(failed)
+                with contextlib.suppress(Exception):  # keep the warning with the snapshot
+                    SnapshotStore(snapshots_dir()).save(env, result["snapshot_name"],
+                                                        path=snap_path)
+                    _cache.invalidate(snap_path)
     except Exception as exc:  # noqa: BLE001 — don't lose a successful run on a save error
         result["warnings"].append(f"Snapshot could not be saved: {exc}")
 
@@ -504,15 +511,19 @@ def _auto_carry_plan(env: Any) -> dict[str, Any] | None:
     edits = sum(d["edits"] for d in offer["diagrams"])
     bad = sum(d["edits"] - d["applies"] for d in offer["diagrams"])
     if bad:
+        verb = "matches" if bad == 1 else "match"
+        count = (f"{bad:,} {'edit' if bad == 1 else 'edits'} no longer {verb}" if bad == edits
+                 else f"{bad:,} of {edits:,} edits no longer {verb}")
         env.warnings.append(
             f"Saved diagram edits from {offer['snapshot'].get('name')} were not applied: "
-            f"{bad:,} of {edits:,} edits no longer match the collected data. The reports "
-            "draw the generated diagrams; open the Diagrams page to carry or redo them.")
+            f"{count} the collected data. The reports draw the generated diagrams; open "
+            "the Diagrams page to carry or redo them.")
         return None
     return offer
 
 
-def _auto_carry(offer: dict[str, Any], snap_path: Path, env: Any) -> None:
+def _auto_carry(offer: dict[str, Any], snap_path: Path, env: Any) -> str | None:
+    """Replay the offer's edits on the new snapshot; the warning text if that failed."""
     from ntnxvision_core.diagrams import store as diagram_store
 
     src = offer["snapshot"]
@@ -522,8 +533,11 @@ def _auto_carry(offer: dict[str, Any], snap_path: Path, env: Any) -> None:
             {"name": src.get("name"), "collected_at": src.get("collected_at"),
              "snapshot_id": src.get("snapshot_id"), "auto": True},
             snap_path, env)
-    except Exception:  # noqa: BLE001 — the reports then draw the generated diagrams
-        return
+    except Exception as exc:  # noqa: BLE001 — the reports then draw the generated diagrams
+        return (f"Saved diagram edits from {src.get('name')} were not applied: they could "
+                f"not be saved with this snapshot ({exc}). The reports draw the generated "
+                "diagrams; open the Diagrams page to carry or redo them.")
+    return None
 
 
 def _diagram_notes(snap_path: Path, env: Any) -> list[str]:
