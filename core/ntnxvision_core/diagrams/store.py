@@ -206,6 +206,18 @@ def edited_models(snapshot: Path | None, env: Any) -> dict[str, Any]:
     return out
 
 
+def carried_origins(snapshot: Path | None) -> dict[str, str]:
+    """type id -> the snapshot name its saved edits were carried from automatically."""
+    if snapshot is None:
+        return {}
+    out = {}
+    for type_id, entry in load(snapshot).items():
+        src = entry.get("carried_from") or {}
+        if src.get("auto") and src.get("name"):
+            out[type_id] = str(src["name"])
+    return out
+
+
 # ─── the editor's view of one diagram ──────────────────────────────────
 
 

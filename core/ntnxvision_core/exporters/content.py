@@ -840,7 +840,9 @@ class _Builder:
             return None
         from ntnxvision_core.diagrams.edits import disclosure
 
-        return disclosure(dtype.to_doc(generated), dtype.to_doc(drawn), dtype.edit_spec)
+        origins = getattr(self.opts, "diagram_origins", None) or {}
+        return disclosure(dtype.to_doc(generated), dtype.to_doc(drawn), dtype.edit_spec,
+                          origins.get(dtype.id))
 
     def design_sections(self, ch: Chapter) -> bool:
         """The architecture diagrams registered for this chapter (`diagrams.TYPES`), each

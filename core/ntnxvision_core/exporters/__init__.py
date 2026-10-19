@@ -49,6 +49,10 @@ class ExportOptions:
     #: `diagrams.store.edited_models`). Figures only: tables use the generated model.
     diagram_models: Mapping[str, Any] | None = field(default=None, compare=False,
                                                      hash=False)
+    #: Diagram type id -> the snapshot its edits were carried from automatically, for
+    #: the figure's disclosure bullet.
+    diagram_origins: Mapping[str, str] | None = field(default=None, compare=False,
+                                                      hash=False)
 
     def includes(self, section: str) -> bool:
         return self.sections is None or section in self.sections
@@ -67,6 +71,7 @@ class ExportOptions:
             author=str(value.get("author") or ""),
             vcpu_ratio=coerce_ratio(value.get("vcpu_ratio")),
             diagram_models=value.get("diagram_models") or None,
+            diagram_origins=value.get("diagram_origins") or None,
         )
 
 

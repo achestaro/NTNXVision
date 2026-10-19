@@ -391,7 +391,8 @@ def _write_reports(env: Any, name: str, formats: list[str], out_dir: Path,
     if snapshot is not None:  # every format: the diagrams bundle draws them too
         from ntnxvision_core.diagrams import store as diagram_store
 
-        options = {**options, "diagram_models": diagram_store.edited_models(snapshot, env)}
+        options = {**options, "diagram_models": diagram_store.edited_models(snapshot, env),
+                   "diagram_origins": diagram_store.carried_origins(snapshot)}
     files: list[dict[str, Any]] = []
     errors: dict[str, str] = {}
     for fmt in formats:
@@ -457,6 +458,10 @@ def _finalize(env: Any, name: str, params: dict[str, Any], *,
         _cache.invalidate(snap_path)
         if carry is not None:
             failed = _auto_carry(carry, snap_path, env)
+            if not failed:
+                result["diagram_carry"] = {
+                    "from": carry["snapshot"].get("name"),
+                    "diagrams": [d["title"] for d in carry["diagrams"]]}
             if failed:
                 env.warnings.append(failed)
                 result["warnings"].append(failed)
@@ -1106,27 +1111,31 @@ def _carry_candidate(snap_path: Path, env: Any) -> dict[str, Any] | None:
 
 def _carry_offer(source: Any, collected_at: Any, exclude: Path | None, env: Any
                  ) -> dict[str, Any] | None:
-    """The newest snapshot of `source` collected before `collected_at` (other than
-    `exclude`) with saved diagram edits, and what replaying them on `env` would do."""
+    """The edits of the newest snapshot of `source` collected before `collected_at`
+    (other than `exclude`), and what replaying them on `env` would do.
+
+    Only that one snapshot counts: when it has no edits (never edited, or reset by the
+    author) there is nothing to carry, so a reset is never undone by edits from an
+    older snapshot further back, and a warning about edits that no longer apply is not
+    repeated on every later collection."""
     from ntnxvision_core.diagrams import store as diagram_store
     from ntnxvision_core.overview import all_metas, collected_key
 
     if not source:
         return None
     when = collected_key(collected_at)
-    # all_metas is newest first: the first older snapshot with edits wins.
-    older = [m for m in all_metas(_store().list_snapshots(), _cache)
-             if m.get("source") == source
-             and (exclude is None or Path(str(m.get("path"))).resolve() != exclude)
-             and collected_key(m.get("collected_at")) <= when]
-    for meta in older:
-        src = Path(str(meta["path"]))
-        if not diagram_store.load(src):
-            continue
-        report = [r for r in diagram_store.carry_report(src, env) if r["edits"]]
-        if report:
-            return {"snapshot": snapstore.info_from_meta(meta), "diagrams": report}
-    return None
+    # all_metas is newest first.
+    meta = next((m for m in all_metas(_store().list_snapshots(), _cache)
+                 if m.get("source") == source
+                 and (exclude is None or Path(str(m.get("path"))).resolve() != exclude)
+                 and collected_key(m.get("collected_at")) <= when), None)
+    if meta is None:
+        return None
+    src = Path(str(meta["path"]))
+    if not diagram_store.load(src):
+        return None
+    report = [r for r in diagram_store.carry_report(src, env) if r["edits"]]
+    return {"snapshot": snapstore.info_from_meta(meta), "diagrams": report} if report else None
 
 
 def _m_list_diagrams(_req_id: Any, params: dict[str, Any]) -> dict[str, Any]:
