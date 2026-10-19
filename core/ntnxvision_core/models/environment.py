@@ -487,6 +487,11 @@ class Subnet(SourcedObject):
     ip_prefix: str | None = None
     gateway_ip: str | None = None
     dhcp_enabled: bool | None = None
+    #: An external (VLAN-backed, Flow Virtual Networking uplink) subnet: v3
+    #: ``spec.resources.is_external`` / v4 ``isExternal``. None when not reported.
+    is_external: bool | None = None
+    #: NAT on an external subnet: v3 ``enable_nat`` / v4 ``isNatEnabled``.
+    nat_enabled: bool | None = None
     api_source: str = "v4"
 
 
@@ -970,6 +975,18 @@ class RemoteSite(SourcedObject):
 # ─── Flow Network Security ─────────────────────────────────────────────
 
 
+class SecurityRule(_Base):
+    """One allow rule of an application policy: its direction and its peer."""
+
+    direction: str  # IN / OUT
+    #: ALL / CATEGORY / ADDRESS_GROUP / SUBNET / SERVICE / OTHER.
+    peer_kind: str = "OTHER"
+    #: "All sources", "App:Web", an address group's name, "10.0.0.0/8".
+    peer: str | None = None
+    #: Service group names the rule allows (empty: every service, or not reported).
+    services: list[str] = Field(default_factory=list)
+
+
 class SecurityPolicy(SourcedObject):
     uuid: str
     name: str | None = None
@@ -979,6 +996,9 @@ class SecurityPolicy(SourcedObject):
     inbound_rule_count: int | None = None
     outbound_rule_count: int | None = None
     secured_group: str | None = None
+    #: Per-rule peers of an application policy (None: not collected, older snapshots
+    #: and policies whose detail could not be read).
+    rules: list[SecurityRule] | None = None
     api_source: str = "v3"
 
 
