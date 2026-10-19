@@ -118,7 +118,10 @@ def _label(d: ImageDraw.ImageDraw, lab: EdgeLabel, k: float) -> None:
     _text(d, lab.lines, lab.x, lab.y, k)
 
 
-def render_png(sc: Scene, dpi: int = 220) -> bytes:
+def render_png(sc: Scene, dpi: int = 220, palette: bool = False) -> bytes:
+    """The scene as PNG. `palette` quantises to an adaptive palette (median cut, no
+    dither): flat diagram colours survive and the file is several times smaller, which
+    is what the Word fallback picture uses."""
     k = dpi / 72 * SS
     width, height = math.ceil(sc.width * k), math.ceil(sc.height * k)
     img = Image.new("RGB", (width, height), (255, 255, 255))
@@ -132,5 +135,8 @@ def render_png(sc: Scene, dpi: int = 220) -> bytes:
             _label(d, item[1], k)
     img = img.resize((width // SS, height // SS), Image.Resampling.LANCZOS)
     buf = io.BytesIO()
-    img.save(buf, "PNG", optimize=False, dpi=(dpi, dpi))
+    if palette:
+        img = img.quantize(colors=256, method=Image.Quantize.MEDIANCUT,
+                           dither=Image.Dither.NONE)
+    img.save(buf, "PNG", optimize=palette, dpi=(dpi, dpi))
     return buf.getvalue()

@@ -234,9 +234,7 @@ def _render(roots: list[Node], col_w: list[float], col_gap: float = _COL_GAP) ->
         place(r, 0, ry)
         ry += _subtree_h(r) + _ROOT_GAP
 
-    buf = io.BytesIO()
-    img.save(buf, format="PNG")
-    return Diagram(png=buf.getvalue(), width=round(w), height=round(h))
+    return Diagram(png=_png(img), width=round(w), height=round(h))
 
 
 def _draw_node(draw: ImageDraw.ImageDraw, n: Node, x: float, y: float,
@@ -523,10 +521,18 @@ def _new_canvas(w: float, h: float, frame: bool = True
     return img, draw
 
 
-def _finish(img: Image.Image, w: float, h: float) -> Diagram:
+def _png(img: Image.Image) -> bytes:
+    """PNG with an adaptive palette (median cut, no dither): these charts are flat
+    colours on white, so they look the same at a fraction of the size, which keeps
+    large reports mailable."""
     buf = io.BytesIO()
-    img.save(buf, format="PNG")
-    return Diagram(png=buf.getvalue(), width=round(w), height=round(h))
+    img.quantize(colors=256, method=Image.Quantize.MEDIANCUT,
+                 dither=Image.Dither.NONE).save(buf, format="PNG", optimize=True)
+    return buf.getvalue()
+
+
+def _finish(img: Image.Image, w: float, h: float) -> Diagram:
+    return Diagram(png=_png(img), width=round(w), height=round(h))
 
 
 def _legend_item(draw: ImageDraw.ImageDraw, x: float, y: float, label: str,
