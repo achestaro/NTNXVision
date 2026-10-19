@@ -31,6 +31,7 @@ import type {
   DiagramStale,
   SnapshotList,
 } from '@shared/ipc';
+import { MAX_DIAGRAM_OPS } from '@shared/ipc';
 import { Badge, Button, Callout, Checkbox, ConfirmDialog, Dialog, ErrorState, Field, InlineEmpty, LoadingPage, PageHeader, Panel, useToast } from '../components';
 import { useAsync } from '../lib/useAsync';
 import { useNavigationGuard, useRouter } from '../lib/router';
@@ -90,20 +91,52 @@ export function describeOp(op: DiagramOp, label?: string | null): string {
   }
 }
 
+const show = (x: unknown): string =>
+  x === null || x === undefined || x === '' ? NA : typeof x === 'number' ? x.toLocaleString('en-US') : String(x);
+const tib = (x: unknown): string => (typeof x === 'number' ? `${(x / 1024 ** 4).toLocaleString('en-US', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} TiB` : NA);
+
+/** One changed field in words: "now has 8 nodes (was 7)". */
+function fieldPhrase(field: string, v: [unknown, unknown] | undefined): string {
+  if (!v) {
+    const known: Record<string, string> = { models: 'hardware models changed', services: 'data services changed', external: 'external storage changed', pc: 'Prism Central changed', cards: 'clusters changed' };
+    return known[field] ?? `${field.replace(/_/g, ' ')} changed`;
+  }
+  const [was, now] = v;
+  switch (field) {
+    case 'nodes':
+      return `now has ${show(now)} nodes (was ${show(was)})`;
+    case 'containers':
+      return `now has ${show(now)} containers (was ${show(was)})`;
+    case 'cluster_count':
+      return `now has ${show(now)} clusters (was ${show(was)})`;
+    case 'node_count':
+      return `now has ${show(now)} nodes in all (was ${show(was)})`;
+    case 'rf':
+      return `is now RF${show(now)} (was RF${show(was)})`;
+    case 'aos':
+      return `now runs AOS ${show(now)} (was ${show(was)})`;
+    case 'hypervisor':
+      return `now runs ${show(now)} (was ${show(was)})`;
+    case 'raw_bytes':
+      return `now has ${tib(now)} raw (was ${tib(was)})`;
+    case 'hosts_pc':
+      return now ? 'now hosts Prism Central' : 'no longer hosts Prism Central';
+    case 'name':
+      return `is now named ${show(now)} (was ${show(was)})`;
+    case 'connected':
+      return now ? 'pairing is now connected' : 'pairing is no longer connected';
+    default:
+      return `${field.replace(/_/g, ' ')} is now ${show(now)} (was ${show(was)})`;
+  }
+}
+
 function staleSentence(stale: DiagramStale): string {
   const parts = stale.changes.slice(0, 3).map((c) =>
     c.kind === 'added'
       ? `${c.label} is new`
       : c.kind === 'removed'
         ? `${c.label} is no longer collected`
-        : `${c.label}: ${c.fields
-            .map((f) => {
-              const v = c.values?.[f];
-              const name = f.replace(/_/g, ' ');
-              const show = (x: unknown) => (x === null || x === undefined || x === '' ? NA : typeof x === 'number' ? x.toLocaleString('en-US') : String(x));
-              return v ? `${name} ${show(v[1])} (was ${show(v[0])})` : `${name} changed`;
-            })
-            .join(', ')}`,
+        : `${c.label} ${c.fields.map((f) => fieldPhrase(f, c.values?.[f])).join(' and ')}`,
   );
   const more = stale.changes.length - parts.length;
   return `${parts.join('. ')}${more > 0 ? `. ${plural(more, 'other change')}` : ''}.`;
@@ -142,6 +175,8 @@ export function DiagramsView({ snapshot: snapProp, type: typeProp, part: partPro
   const [detail, setDetail] = useState<DiagramDetail | null>(null);
   const [view, setView] = useState<DiagramLayoutResult | null>(null);
   const [ops, setOps] = useState<DiagramOp[]>([]);
+  /** The edit list now (updated synchronously, so a save right after a commit has it). */
+  const opsRef = useRef<DiagramOp[]>([]);
   const [redo, setRedo] = useState<DiagramOp[]>([]);
   const [selected, setSelected] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -164,6 +199,7 @@ export function DiagramsView({ snapshot: snapProp, type: typeProp, part: partPro
         if (my !== seq.current) return;
         setDetail(d);
         setView(d);
+        opsRef.current = d.ops;
         setOps(d.ops);
         setRedo([]);
         setSelected(null);
@@ -198,44 +234,56 @@ export function DiagramsView({ snapshot: snapProp, type: typeProp, part: partPro
     [snapPath, curType, toast],
   );
 
-  const apply = useCallback(
-    (op: DiagramOp) => {
-      setOps((prev) => {
-        const next = [...prev, op];
-        relayout(next);
-        return next;
-      });
-      setRedo([]);
+  const setEdits = useCallback(
+    (next: DiagramOp[], layout = true) => {
+      opsRef.current = next;
+      setOps(next);
+      if (layout) relayout(next);
     },
     [relayout],
   );
 
+  const apply = useCallback(
+    (op: DiagramOp): boolean => {
+      if (opsRef.current.length >= MAX_DIAGRAM_OPS) {
+        toast.show({
+          tone: 'warn',
+          title: `This diagram holds ${MAX_DIAGRAM_OPS.toLocaleString('en-US')} edits, the most it can keep.`,
+          hint: 'Save, or reset to generated and edit again.',
+        });
+        return false;
+      }
+      setEdits([...opsRef.current, op]);
+      setRedo([]);
+      return true;
+    },
+    [setEdits, toast],
+  );
+
   const undo = useCallback(() => {
-    if (!ops.length) return;
-    const next = ops.slice(0, -1);
-    setRedo((r) => [...r, ops[ops.length - 1]]);
-    setOps(next);
-    relayout(next);
-  }, [ops, relayout]);
+    const cur = opsRef.current;
+    if (!cur.length) return;
+    setRedo((r) => [...r, cur[cur.length - 1]]);
+    setEdits(cur.slice(0, -1));
+  }, [setEdits]);
 
   const redoOne = useCallback(() => {
     if (!redo.length) return;
     const op = redo[redo.length - 1];
-    const next = [...ops, op];
     setRedo(redo.slice(0, -1));
-    setOps(next);
-    relayout(next);
-  }, [ops, redo, relayout]);
+    setEdits([...opsRef.current, op]);
+  }, [redo, setEdits]);
 
   const save = useCallback(
-    async (which: DiagramOp[] = ops) => {
+    async (which?: DiagramOp[]) => {
+      which = which ?? opsRef.current;
       if (!snapPath || !curType) return false;
       setBusy(true);
       try {
         const d = await window.ntnx.saveDiagram(snapPath, curType, which);
         setDetail(d);
         setView(d);
-        setOps(d.ops);
+        setEdits(d.ops, false);
         setRedo([]);
         setKept(true);
         setListTick((t) => t + 1);
@@ -248,7 +296,7 @@ export function DiagramsView({ snapshot: snapProp, type: typeProp, part: partPro
         setBusy(false);
       }
     },
-    [snapPath, curType, ops, toast],
+    [snapPath, curType, toast, setEdits],
   );
 
   const reset = useCallback(async () => {
@@ -259,7 +307,7 @@ export function DiagramsView({ snapshot: snapProp, type: typeProp, part: partPro
       const d = await window.ntnx.resetDiagram(snapPath, curType);
       setDetail(d);
       setView(d);
-      setOps([]);
+      setEdits([], false);
       setRedo([]);
       setSelected(null);
       setListTick((t) => t + 1);
@@ -281,7 +329,10 @@ export function DiagramsView({ snapshot: snapProp, type: typeProp, part: partPro
       if (document.querySelector('[role="dialog"][aria-modal="true"]')) return;
       if (isMod(e) && e.key.toLowerCase() === 's') {
         e.preventDefault();
-        if (dirty && !busy) void save();
+        // A label being typed is committed first (its blur applies the edit).
+        const active = document.activeElement as HTMLElement | null;
+        if (active && isTyping(active)) active.blur();
+        if (!busy && detail && !same(opsRef.current, detail.ops)) void save();
         return;
       }
       if (isTyping(e.target)) return;
@@ -296,7 +347,7 @@ export function DiagramsView({ snapshot: snapProp, type: typeProp, part: partPro
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [dirty, busy, save, undo, redoOne]);
+  }, [detail, busy, save, undo, redoOne]);
 
   // ─ derived ─
   const outline = useMemo(() => new Map((view?.outline ?? []).map((o) => [o.id, o])), [view]);
@@ -377,10 +428,8 @@ export function DiagramsView({ snapshot: snapProp, type: typeProp, part: partPro
   };
   const dropProblems = (problems: DiagramProblem[]) => {
     const bad = new Set(problems.map((p) => p.index));
-    const next = ops.filter((_, i) => !bad.has(i));
-    setOps(next);
+    setEdits(opsRef.current.filter((_, i) => !bad.has(i)));
     setRedo([]);
-    relayout(next);
   };
 
   // ─ carry forward (C3) ─
@@ -434,11 +483,12 @@ export function DiagramsView({ snapshot: snapProp, type: typeProp, part: partPro
               someone shared with you.
             </p>
             <div className="empty-actions">
-              <Button onClick={() => transfer.importFiles()}>Import snapshot…</Button>
               <Button variant="primary" onClick={() => navigate({ screen: 'new' })}>
                 Start collection
               </Button>
+              <Button onClick={() => transfer.importFiles()}>Import snapshot…</Button>
             </div>
+            <p className="hint">Nothing to collect yet? Demo mode draws the synthetic estate (pc01.demo.local).</p>
           </div>
         </Panel>
       </>
@@ -474,6 +524,34 @@ export function DiagramsView({ snapshot: snapProp, type: typeProp, part: partPro
         </>,
       )}
 
+      {diagrams.length > 0 && (
+        // Narrow windows: the diagram list becomes this select, so the inspector keeps
+        // its place beside the canvas.
+        <div className="dg-pick">
+          <label className="lbl" htmlFor="dg-pick">
+            Diagram
+          </label>
+          <select
+            id="dg-pick"
+            className="input"
+            value={cur ? `${cur.type}|${partIndex}` : ''}
+            onChange={(e) => {
+              const [type, part] = e.target.value.split('|');
+              const go = () => setCur({ type, part: Number(part) });
+              if (type === cur?.type) go();
+              else guarded(go);
+            }}
+          >
+            {diagrams.flatMap((d) =>
+              (d.parts.length > 1 ? d.parts : [d.parts[0] ?? { index: 0, part: [1, 1] as [number, number] }]).map((p) => (
+                <option key={`${d.type}|${p.index}`} value={`${d.type}|${p.index}`}>
+                  {d.parts.length > 1 ? `${d.title}, part ${p.part[0]} of ${p.part[1]}` : d.title} · {d.edited ? (d.stale ? 'Edited, stale' : 'Edited') : 'Generated'}
+                </option>
+              )),
+            )}
+          </select>
+        </div>
+      )}
       <div className="dg-layout">
         <Panel as="nav" className="dg-list" aria-label="Diagrams in this snapshot">
           <div className="phead">
@@ -544,7 +622,7 @@ export function DiagramsView({ snapshot: snapProp, type: typeProp, part: partPro
               <span className={`dg-glyph ${dirty ? 'dirty' : 'clean'}`} aria-hidden="true" />
               {dirty ? (unsaved ? plural(unsaved, 'unsaved change') : 'Unsaved changes') : 'No unsaved changes'}
             </span>
-            <Button size="sm" variant="ghost" disabled={!detail || busy || (!detail.edited && !dirty)} onClick={() => (detail?.edited ? setConfirmReset(true) : (setOps([]), setRedo([]), relayout([])))}>
+            <Button size="sm" variant="ghost" disabled={!detail || busy || (!detail.edited && !dirty)} onClick={() => (detail?.edited ? setConfirmReset(true) : (setEdits([]), setRedo([])))}>
               Reset to generated
             </Button>
             <Button size="sm" variant="primary" disabled={!dirty || busy} onClick={() => void save()} kbd="⌘S">
@@ -603,6 +681,11 @@ export function DiagramsView({ snapshot: snapProp, type: typeProp, part: partPro
               }
             >
               <span className="dg-callout-body">{view.problems.slice(0, 3).map((p) => `${describeOp(p.op, p.label)}: ${p.reason}.`).join(' ')}</span>
+            </Callout>
+          )}
+          {detail?.carried_from?.auto && !stale && (
+            <Callout tone="neutral" className="dg-callout" title={`Carried forward automatically from ${detail.carried_from.name ?? NA}.`}>
+              <span className="dg-callout-body">Every saved edit applied to this collection, so its reports drew the edited diagram.</span>
             </Callout>
           )}
           {detail?.carried_from && !stale && detail.carried_from.dropped && detail.carried_from.dropped.length > 0 && (
@@ -688,7 +771,7 @@ export function DiagramsView({ snapshot: snapProp, type: typeProp, part: partPro
         onConfirm={() => {
           const go = pending;
           setPending(null);
-          setOps(savedOps);
+          setEdits(savedOps, false);
           setRedo([]);
           setView(detail);
           go?.();
@@ -697,7 +780,7 @@ export function DiagramsView({ snapshot: snapProp, type: typeProp, part: partPro
       {showCarry && carry && snapPath && (
         <CarryDialog
           offer={carry}
-          target={snap ? `${snap.name} · ${fmtAbs(snap.collected_at)}` : ''}
+          target={snap ? { name: snap.name, when: fmtAbs(snap.collected_at) } : { name: '', when: '' }}
           onClose={dismissCarry}
           onCarry={async (types) => {
             try {
@@ -828,7 +911,7 @@ function CarryDialog({
   onCarry,
 }: {
   offer: NonNullable<DiagramList['carry']>;
-  target: string;
+  target: { name: string; when: string };
   onClose(): void;
   onCarry(types: string[]): Promise<void>;
 }): JSX.Element {
@@ -845,7 +928,12 @@ function CarryDialog({
       onClose={onClose}
       width={560}
       title="Carry your edits to the new snapshot?"
-      subtitle={`${target} is new. Diagrams there start as generated.`}
+      subtitleMono={false}
+      subtitle={
+        <>
+          <span className="mono">{target.name}</span> · {target.when} is new. Diagrams there start as generated.
+        </>
+      }
       onConfirm={chosen.size && !busy ? () => void go() : undefined}
       footer={
         <div className="dialog-foot">
