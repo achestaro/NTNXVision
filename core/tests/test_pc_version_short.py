@@ -31,9 +31,11 @@ from ntnxvision_core.exporters import export_environment
 from ntnxvision_core.models import Environment, PrismCentral, PrismCentralConfig
 from ntnxvision_core.store import SnapshotStore
 from ntnxvision_core.synthetic import demo as demo_mode
+from ntnxvision_core.versions import pc_version
 
-#: A full build string: "release-", anything, then a 40-hex commit id.
-LONG_BUILD = re.compile(r"release-[\w.-]*?[0-9a-f]{40}", re.I)
+#: A full build string. Loose on purpose: one with a short suffix ("-stable-pc-0")
+#: instead of a 40-hex commit is caught too.
+LONG_BUILD = re.compile(r"el\d[\w.]*-release-", re.I)
 FAKE = "el8.5-release-fraser-7.5.1.1-stable-" + "ab" * 20
 
 
@@ -125,6 +127,26 @@ def check_reports(env: Environment, out: Path, name: str, pdf_seen: list[str],
 # ─── model and compat ─────────────────────────────────────────────────────
 
 
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [
+        ("7.5.1.1", "pc.7.5.1.1"),
+        ("7.5.1.6", "pc.7.5.1.6"),
+        ("pc.2024.3", "pc.2024.3"),
+        ("PC.2024.3", "pc.2024.3"),
+        ("2024.3", "pc.2024.3"),
+        (FAKE, "pc.7.5.1.1"),
+        ("el8.5-release-fraser-pc.2024.3-stable-pc-0", "pc.2024.3"),
+        ("unknown", "unknown"),
+        (None, None),
+        ("", None),
+    ],
+)
+def test_pc_version_keeps_every_part_with_the_pc_prefix(raw: str | None,
+                                                        expected: str | None) -> None:
+    assert pc_version(raw) == expected
+
+
 def test_assignment_shortens_versions_and_build_keeps_the_full_string() -> None:
     pc = PrismCentral()
     pc.version = FAKE
@@ -164,7 +186,7 @@ def test_prism_central_reports_show_the_short_version(
     assert "Prism Central pc01.demo.local · pc.2024.3" in text
     assert "pc01.demo.local, pc.2024.3" in text
     assert ("Prism Central pc.2024.3 is within the supported range "
-            "(pc.2024.1 to 7.5.1.6).") in text
+            "(pc.2024.1 to pc.7.5.1.6).") in text
 
     path = SnapshotStore(tmp_path).save(env, "saved")
     loaded = SnapshotStore(tmp_path).load(path)
@@ -206,3 +228,81 @@ def test_prism_element_reports_show_the_short_aos_version(
     assert env.prism_central.version == "7.0"
     text = check_reports(env, tmp_path, "pe", pdf_text, build_cell=False)
     assert "AOS 7.0 is within the supported range (AOS 6.5 to 7.5)." in text
+
+
+# ─── one format everywhere ────────────────────────────────────────────────
+
+#: The numeric version pc04 reports, anywhere it is not preceded by "pc.".
+BARE = re.compile(r"(?<![\w.-])(?<!pc\.)7\.5\.1\.1(?![\w.])")
+SHOWN = "pc.7.5.1.1"
+
+
+def test_a_numeric_version_shows_as_pc_everywhere(
+        demo: Any, tmp_path: Path, pdf_text: list[str]) -> None:
+    """pc04 reports "7.5.1.1": the cover, the tables, the prose, the diagram, the
+    workbook, the snapshot index and the connection test all show "pc.7.5.1.1"."""
+    from docx import Document
+
+    from ntnxvision_core.connectivity import test_connection
+    from ntnxvision_core.diagrams import conceptual_layout, conceptual_model
+    from ntnxvision_core.diagrams.render.svg import render_svg
+    from ntnxvision_core.runinfo import compat_info
+    from ntnxvision_core.store.snapshot import read_meta
+
+    env = collect_environment(_creds("pc04.demo.local"))
+    assert env.prism_central.version == "7.5.1.1"  # the model keeps the plain value
+    assert compat_info(env)["version"] == SHOWN
+
+    text = check_reports(env, tmp_path, "pc04", pdf_text, build_cell=True)
+    assert f"Prism Central pc04.demo.local · {SHOWN}" in text
+    assert f"pc04.demo.local, {SHOWN}" in text
+    assert (f"Prism Central {SHOWN} is within the supported range "
+            "(pc.2024.1 to pc.7.5.1.6).") in text
+    assert not BARE.search(text), BARE.findall(text)
+    assert not BARE.search("\n".join(pdf_text))
+    assert any(SHOWN in t for t in pdf_text)
+
+    # Tables: the Prism Central property table and the availability zones table.
+    doc = Document(str(tmp_path / "pc04.docx"))
+    cells = {(row.cells[0].text, row.cells[1].text) for t in doc.tables for row in t.rows
+             if len(row.cells) > 1}
+    assert ("Version", SHOWN) in cells
+    az_rows = [[c.text for c in row.cells] for t in doc.tables for row in t.rows
+               if row.cells and "PC version" in [c.text for c in t.rows[0].cells]]
+    assert az_rows and any(SHOWN in r for r in az_rows[1:])
+
+    # Excel: the summary, the Prism Central sheet (Version; Build keeps the full string).
+    wb = load_workbook(tmp_path / "pc04.xlsx")
+    pc_rows = {r[0]: r[1] for r in wb["Prism Central"].iter_rows(values_only=True)}
+    assert pc_rows["Version"] == SHOWN
+    assert pc_rows["Build"] and "7.5.1.1-stable-" in pc_rows["Build"]
+    for _sheet, _coord, value in xlsx_cells(tmp_path / "pc04.xlsx"):
+        if not LONG_BUILD.search(value):
+            assert not BARE.search(value), value
+
+    # The diagram: every part, with the prefix.
+    svgs = [render_svg(sc) for sc in conceptual_layout(conceptual_model(env))]
+    svg = "".join(s if isinstance(s, str) else s.decode() for s in svgs)
+    assert SHOWN in svg and not BARE.search(svg)
+
+    # The snapshot index and the connection test.
+    path = SnapshotStore(tmp_path).save(env, "pc04")
+    assert read_meta(path)["version"] == SHOWN
+    r = test_connection({"mode": "prism_central", "host": "pc04.demo.local", "port": 9440,
+                         "username": "admin", "password": "demo", "insecure": False})
+    assert r["version"] == SHOWN and r["message"].endswith(SHOWN)
+
+
+def test_old_index_without_the_prefix_reads_with_it(tmp_path: Path) -> None:
+    import json
+
+    from ntnxvision_core.store.snapshot import meta_path, read_meta
+
+    env = Environment.model_validate({"prism_central": {"host": "pc.example.lab",
+                                                        "version": "7.5.1.1"}})
+    path = SnapshotStore(tmp_path).save(env, "old")
+    assert read_meta(path)["version"] == SHOWN
+    meta = read_meta(path)
+    meta.update(version="7.5.1.1", snapshot_mtime=path.stat().st_mtime)
+    meta_path(path).write_text(json.dumps(meta), encoding="utf-8")
+    assert read_meta(path)["version"] == SHOWN
