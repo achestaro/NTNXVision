@@ -1023,7 +1023,7 @@
     "name": "Switch A"
    },
    "h": 36.31,
-   "id": "profile:67025c1055ad:lldp:A",
+   "id": "profile:67025c1055ad:lldp:7ed12c059c",
    "kind": "box",
    "lines": [
     {
@@ -1069,7 +1069,7 @@
   {
    "data": {},
    "h": 9.0,
-   "id": "profile:67025c1055ad:lldp:A:tag",
+   "id": "profile:67025c1055ad:lldp:7ed12c059c:tag",
    "kind": "tag",
    "lines": [
     {
@@ -1082,7 +1082,7 @@
      "x": 5.02
     }
    ],
-   "parent": "profile:67025c1055ad:lldp:A",
+   "parent": "profile:67025c1055ad:lldp:7ed12c059c",
    "style": {
     "dash": null,
     "fill": "#3E4C59",
@@ -1101,7 +1101,7 @@
     "name": "Switch B"
    },
    "h": 36.31,
-   "id": "profile:67025c1055ad:lldp:B",
+   "id": "profile:67025c1055ad:lldp:364e2799a5",
    "kind": "box",
    "lines": [
     {
@@ -1147,7 +1147,7 @@
   {
    "data": {},
    "h": 9.0,
-   "id": "profile:67025c1055ad:lldp:B:tag",
+   "id": "profile:67025c1055ad:lldp:364e2799a5:tag",
    "kind": "tag",
    "lines": [
     {
@@ -1160,7 +1160,7 @@
      "x": 5.02
     }
    ],
-   "parent": "profile:67025c1055ad:lldp:B",
+   "parent": "profile:67025c1055ad:lldp:364e2799a5",
    "style": {
     "dash": null,
     "fill": "#3E4C59",

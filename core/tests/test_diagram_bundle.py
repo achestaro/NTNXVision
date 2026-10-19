@@ -7,7 +7,6 @@ checks run on the scenes the Word and PDF documents draw.
 from __future__ import annotations
 
 import io
-import random
 import shutil
 import subprocess
 import xml.etree.ElementTree as ET
@@ -34,20 +33,14 @@ from ntnxvision_core.exporters import export_environment
 from ntnxvision_core.exporters.naming import diagrams_stem
 from ntnxvision_core.models import Environment
 
+from .diagram_helpers import shuffled as _shuffled
+
 V = "{http://schemas.microsoft.com/office/visio/2012/main}"
 CT = "{http://schemas.openxmlformats.org/package/2006/content-types}"
 PR = "{http://schemas.openxmlformats.org/package/2006/relationships}"
 EM_DASH = chr(0x2014)
 
 
-def _shuffled(env: Environment, seed: int) -> Environment:
-    r = random.Random(seed)
-    out = env.model_copy(deep=True)
-    for name in type(out).model_fields:
-        value = getattr(out, name)
-        if isinstance(value, list):
-            r.shuffle(value)
-    return out
 
 
 def _container_of(sc_: Scene, node_id: str) -> str | None:

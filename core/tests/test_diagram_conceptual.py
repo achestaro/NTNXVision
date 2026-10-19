@@ -10,7 +10,6 @@ from __future__ import annotations
 import io
 import json
 import os
-import random
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -35,6 +34,8 @@ from ntnxvision_core.diagrams.render.png import render_png
 from ntnxvision_core.diagrams.render.svg import render_svg
 from ntnxvision_core.diagrams.summary import conceptual_bullets
 from ntnxvision_core.models import Environment
+
+from .diagram_helpers import shuffled as _shuffled
 
 GOLDEN = Path(__file__).parent / "golden" / "diagrams"
 UPDATE = os.environ.get("NTNXVISION_UPDATE_GOLDEN") == "1"
@@ -200,14 +201,6 @@ def test_render_twice_identical(estates: dict[str, Environment], name: str) -> N
     assert Image.open(io.BytesIO(pa)).tobytes() == Image.open(io.BytesIO(pb)).tobytes()
 
 
-def _shuffled(env: Environment, seed: int) -> Environment:
-    r = random.Random(seed)
-    out = env.model_copy(deep=True)
-    for name in type(out).model_fields:
-        value = getattr(out, name)
-        if isinstance(value, list):
-            r.shuffle(value)
-    return out
 
 
 @pytest.mark.parametrize("name", ["medium", "enterprise"])

@@ -5,7 +5,6 @@ from __future__ import annotations
 
 import json
 import os
-import random
 from pathlib import Path
 from typing import Any
 
@@ -18,6 +17,8 @@ from ntnxvision_core.diagrams.layout.conceptual import Page
 from ntnxvision_core.diagrams.layout.management import layout
 from ntnxvision_core.diagrams.render.svg import render_svg
 from ntnxvision_core.models import Environment
+
+from .diagram_helpers import shuffled as _shuffled
 
 GOLDEN = Path(__file__).parent / "golden" / "diagrams"
 UPDATE = os.environ.get("NTNXVISION_UPDATE_GOLDEN") == "1"
@@ -33,14 +34,6 @@ def _texts(sc: S.Scene) -> list[str]:
         [t.text for e in sc.edges for lb in e.labels for t in lb.lines]
 
 
-def _shuffled(env: Environment, seed: int) -> Environment:
-    r = random.Random(seed)
-    out = env.model_copy(deep=True)
-    for name in type(out).model_fields:
-        value = getattr(out, name)
-        if isinstance(value, list):
-            r.shuffle(value)
-    return out
 
 
 # ─── facts ─────────────────────────────────────────────────────────────
