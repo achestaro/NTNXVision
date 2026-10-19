@@ -249,9 +249,14 @@ def test_store_round_trip(snap: Path, env: Environment) -> None:
     assert result["edited"] and result["stale"] is None and result["problems"] == []
     listing = ST.list_result(snap, env)
     assert listing[0]["edited"] and listing[0]["edits"] == 5 and not listing[0]["stale"]
-    # Saving no edits removes the entry (and the file when nothing else is in it).
+    # Undo everything, then Save: the edits go, and like a reset it is final.
     ST.save_result(snap, env, "conceptual", [])
-    assert not path.exists() and ST.load(snap) == {}
+    assert ST.load(snap) == {} and ST.markers(snap) == {"reset": ["conceptual"]}
+    # Saving no edits where there were none writes nothing.
+    other = snap.with_name("other.ntnxsnap.json")
+    other.write_bytes(snap.read_bytes())
+    ST.save_result(other, env, "conceptual", [])
+    assert not ST.path_for(other).exists()
     # Resetting removes the edits and leaves a reset marker (a reset is final).
     ST.save_result(snap, env, "conceptual", _ops(env))
     ST.reset_result(snap, env, "conceptual")
@@ -653,16 +658,35 @@ def test_word_columns_hold_every_value_word(scenario: str, demo: Any, data_dir: 
         sz = rows[0]._tr.find(".//" + qn("w:sz"))
         size = int(sz.get(qn("w:val"))) / 2 if sz is not None else 8.5
         assert size >= W.MIN_FONT_PT
+        whole = [0.0] * len(grid)  # short values and identifier lists, kept whole
+        hard = [0.0] * len(grid)
         for ri, r in enumerate(rows[1:], 1):
             for ci, cell in enumerate(r.cells):
-                for word in cell.text.replace(W.ZWSP, " ").split():
+                value = cell.text.replace(W.ZWSP, "").replace("\n", " ").removeprefix("\u25a0 ")
+                if W._whole(value):
+                    whole[ci] = max(whole[ci], W.text_pt(W._keep_part(value), size)
+                                    + CELL_PAD_PT)
+                # Words split at ordinary spaces and at the break hints the table
+                # carries, never at a no-break space: "2026-09-01 04:00" is one word.
+                for word in W.words(cell.text.removeprefix("\u25a0 ")):
                     need = W.word_pt(word, size) + CELL_PAD_PT
-                    if word == "\u25a0":  # the status glyph has its own allowance
-                        continue
+                    hard[ci] = max(hard[ci], need)
                     if scenario == "xlarge" and need > W.SHORT_WORD_PT + CELL_PAD_PT:
                         continue  # 40-character stress names wrap in narrow tables
                     assert need <= grid[ci] + 0.5, (scenario, rows[0].cells[0].text,
                                                      ri, word, need, grid[ci])
+        heads = [max([W.text_pt(t, size, True) for t in W.header_tokens(
+            c.text.replace(W.ZWSP, "")) if W.text_pt(t, size, True) <= W.HEADER_TOKEN_MAX_PT],
+            default=0.0) + CELL_PAD_PT for c in rows[0].cells]
+        glyphs = [10.0 if any(r.cells[ci].text.startswith("\u25a0") for r in rows[1:]) else 0.0
+                  for ci in range(len(grid))]
+        afford = sum(max(w + g, h + g, hd) for w, h, hd, g
+                     in zip(whole, hard, heads, glyphs, strict=True))
+        # When the table can afford it, every short value stays on one line.
+        if afford <= sum(grid) - 1:
+            for ci, need in enumerate(whole):
+                assert need <= grid[ci] + 0.5, (scenario, rows[0].cells[0].text,
+                                                 rows[0].cells[ci].text, need, grid[ci])
         checked += 1
     assert checked > 5
 
@@ -896,6 +920,44 @@ def test_a_failed_carry_is_retried_by_the_next_collection(demo: Any, data_dir: P
     assert third["diagram_carry"]["from"] == "week1"
 
 
+def test_undo_everything_then_save_is_final(demo: Any, data_dir: Path) -> None:
+    first = _collect(data_dir, "week1")
+    _add_backup(first["snapshot_path"])
+    sc._advance_demo("pc01.demo.local")
+    second = _collect(data_dir, "week2")
+    s2 = second["snapshot_path"]
+    assert ST.load(Path(s2))
+    sc._m_save_diagram(None, {"snapshot": s2, "type": "conceptual", "ops": []})
+    sc._advance_demo("pc01.demo.local")
+    third = _collect(data_dir, "week3")
+    assert ST.load(Path(third["snapshot_path"])) == {}
+    assert "diagram_carry" not in third
+
+
+def test_reset_markers_are_per_diagram_type(demo: Any, data_dir: Path,
+                                             monkeypatch: pytest.MonkeyPatch) -> None:
+    """Resetting one diagram does not stop another diagram's edits from carrying."""
+    import dataclasses
+
+    monkeypatch.setitem(TYPES, "conceptual2",
+                        dataclasses.replace(TYPES["conceptual"], id="conceptual2"))
+    first = _collect(data_dir, "week1")
+    _add_backup(first["snapshot_path"])
+    got = sc._m_get_diagram(None, {"snapshot": first["snapshot_path"], "type": "conceptual2"})
+    site = next(o for o in got["outline"] if o["collection"] == "sites")
+    sc._m_save_diagram(None, {"snapshot": first["snapshot_path"], "type": "conceptual2",
+                              "ops": [{"op": "set", "id": site["id"], "field": "sublabel",
+                                       "value": "Main DC"}]})
+    sc._advance_demo("pc01.demo.local")
+    second = _collect(data_dir, "week2")
+    s2 = second["snapshot_path"]
+    assert set(ST.load(Path(s2))) == {"conceptual", "conceptual2"}
+    sc._m_reset_diagram(None, {"snapshot": s2, "type": "conceptual"})
+    sc._advance_demo("pc01.demo.local")
+    third = _collect(data_dir, "week3")
+    assert set(ST.load(Path(third["snapshot_path"]))) == {"conceptual2"}
+
+
 def test_combined_snapshots_match_on_their_prism_centrals() -> None:
     a = {"kind": "combined", "source": "2 Prism Centrals", "sources": ["pc02", "pc01"]}
     b = {"kind": "combined", "source": "2 Prism Centrals", "sources": ["pc01", "pc02"]}
@@ -948,3 +1010,20 @@ def test_auto_carried_figure_says_where_its_edits_came_from(demo: Any, data_dir:
     bullets = [s for b in _blocks(report) if isinstance(b, SceneFigure) for s in b.summary]
     assert any(s.startswith("Figure edited on the Diagrams page (edits carried from "
                             "week1): ") for s in bullets)
+
+
+def test_word_cell_helpers_keep_identifiers_whole() -> None:
+    from ntnxvision_core.exporters import wordcols as W
+    from ntnxvision_core.exporters.content import rpo_label
+    from ntnxvision_core.exporters.tables import speed_label
+
+    # Numbers stay with their units, and a no-break space never splits a word.
+    assert rpo_label(60) == "1 min" and rpo_label(14400) == "4 h"
+    assert speed_label(10000) == "10 GbE"
+    assert W.words("2026-09-01 04:00 Open") == ["2026-09-01 04:00", "Open"]
+    # A long identifier list breaks after whole items, never inside a name.
+    text = "NYC-PROD-01, NYC-PROD-02, NYC-DB-01"
+    lines = W.list_lines(text, W.text_pt("NYC-PROD-01, NYC-PROD-02,", 8.5) + 1, 8.5)
+    assert lines == ["NYC-PROD-01, NYC-PROD-02,", "NYC-DB-01"]
+    assert W.list_lines(text, 1000, 8.5) == [text]
+    assert W.list_lines("Local (en-pc01.demo.local)", 10, 8.5) == ["Local (en-pc01.demo.local)"]
