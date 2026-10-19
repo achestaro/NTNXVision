@@ -326,8 +326,11 @@ def bullets(s: SSite) -> list[str]:
            for g in w.segments]
     ahv = {c.id for c, _, _ in subs} | {c.id for c in cl if any(w.kind == "ahv"
                                                                for w in c.switches)}
-    head = [f"{fmt.plural(len(subs), 'VLAN subnet')} on "
-            f"{fmt.plural(len(ahv), 'AHV cluster')}"] if ahv else []
+    # External subnets (the uplinks of Flow virtual networking) are counted apart.
+    ext = sum(1 for _, _, g in subs if g.external)
+    counted = fmt.plural(len(subs) - ext, "VLAN subnet") + \
+        (f" and {ext:,} external" if ext else "")
+    head = [f"{counted} on {fmt.plural(len(ahv), 'AHV cluster')}"] if ahv else []
     if pgs:
         esx = list(dict.fromkeys(c.name for c, _, _ in pgs))
         where = fmt.join_names(esx) if len(esx) <= 2 else fmt.plural(len(esx), "ESXi cluster")

@@ -11,7 +11,9 @@ import pytest
 
 from ntnxvision_core.diagrams import TYPES
 from ntnxvision_core.diagrams import segments as N1
-from ntnxvision_core.diagrams.layout.segments import layout_site
+from ntnxvision_core.diagrams import text as tx
+from ntnxvision_core.diagrams import tokens as K
+from ntnxvision_core.diagrams.layout.segments import compact_text, layout_site
 from ntnxvision_core.diagrams.netcommon import short_gw, vlan_text
 from ntnxvision_core.models import Cluster, Environment, PortGroup, Subnet, VirtualSwitch
 
@@ -40,8 +42,9 @@ def test_medium_facts(design_envs: dict[str, Any]) -> None:
 def test_medium_bullets(design_envs: dict[str, Any]) -> None:
     s = N1.segments_model(design_envs["medium"]).sites[0]
     b = N1.bullets(s)
-    assert b[0] == ("3 clusters: 11 VLAN subnets on 2 AHV clusters, 3 vSphere port groups "
-                    "on VDI-E01.")
+    # The external subnet is Flow virtual networking (N2) data: counted apart.
+    assert b[0] == ("3 clusters: 10 VLAN subnets and 1 external on 2 AHV clusters, "
+                    "3 vSphere port groups on VDI-E01.")
     assert any(x.startswith("All VLAN subnets sit on vs0 (MTU 1,500)") for x in b)
     assert any("No VLAN id carries two different prefixes" in x for x in b)
     assert b[-1].startswith("VDI-E01 (ESXi): switch and teaming are not reported")
@@ -189,6 +192,30 @@ def test_prism_element_run_is_titled_with_the_element() -> None:
     H.assert_clean([sc])
     assert "PRISM ELEMENT" in H.texts(sc) and "pe01.example.lab" in H.texts(sc)
     assert "No VLAN id carries two different prefixes in this cluster." in N1.bullets(site)
+
+
+def test_compact_rows_never_clip_the_prefix(design_envs: dict[str, Any]) -> None:
+    """A compact row reads ``prefix · name`` after the VLAN chip: no gateway, and only
+    the name is shortened (enterprise en-pc01 clipped "nyc-db-01-mgmt · 10.22.3.0/24 ·
+    gw…" mid-prefix before)."""
+    env = design_envs["enterprise"]
+    m = N1.segments_model(env)
+    segs = [g for st in m.sites for c in st.clusters for w in c.switches for g in w.segments
+            if g.kind == "subnet" and g.prefix]
+    seg = next(g for g in segs if g.name == "nyc-db-01-mgmt")
+    full = compact_text(seg, 1000.0)
+    assert full == f"{seg.prefix} · nyc-db-01-mgmt" and "gw" not in full
+    narrow = tx.width(f"{seg.prefix} · nyc-db", K.SIZE_SMALL, False)
+    short = compact_text(seg, narrow)
+    assert short.startswith(f"{seg.prefix} · ") and short.endswith(tx.ELLIPSIS)
+    assert tx.width(short, K.SIZE_SMALL, False) <= narrow
+    # In the laid-out figure every compact subnet row starts with its full prefix.
+    by_id = {g.id: g for g in segs}
+    rows = [(by_id[n.id], ln.text) for sc in H.scenes("segments", env)
+            if sc.meta["level"] == 1 for n in sc.nodes if n.id in by_id for ln in n.lines]
+    assert rows
+    for g, text in rows:
+        assert text.startswith(f"{g.prefix} · ") and "gw" not in text, text
 
 
 def _report(env: Any, **opts: Any) -> Any:
