@@ -14,6 +14,7 @@ between grid rows (a POD can continue in the next part); text never shrinks belo
 
 from __future__ import annotations
 
+from collections import Counter
 from dataclasses import dataclass
 
 from .. import fmt
@@ -54,6 +55,8 @@ ARRAY_W = 250.0
 ARRAY_MIN_W = 200.0
 ARRAY_GAP = 10.0
 CHIPS_MAX = 6
+#: Container chips a compact card keeps (the rest: "+N more in the table").
+CHIPS_COMPACT = 3
 #: Title, body and box text sizes (pt): one step above the overview, which packs whole
 #: estates; this figure draws one availability zone.
 SIZE_TITLE = 8.0
@@ -76,12 +79,24 @@ def _pills(labels: list[str]) -> list[tuple[str, float]]:
     return [(lab, q(tx.width(lab, K.SIZE_SMALL, True) + 7)) for lab in labels]
 
 
-def _card(c: LCluster, x: float, y: float, w: float, parent: str, compact: bool = False
-          ) -> tuple[Node, list[Node], dict[str, Node]]:
+def _card(c: LCluster, x: float, y: float, w: float, parent: str, compact: bool = False,
+          arrays: dict[str, str] | None = None) -> tuple[Node, list[Node], dict[str, Node]]:
     """(card, children, container chip per container id); the card's height follows
     its content. A compact card (the density step for a site that would otherwise need
     more parts) folds the NODES box into plain lines and drops the containers label."""
     inner = w - 10
+    arrays = arrays or {}
+    if c.summary:
+        node = box(c.id, "box", x, y, w,
+                   [Row(f"+{fmt.plural(c.summary, 'more cluster')}", SIZE_TITLE, True,
+                        K.INK_2),
+                    Row(f"{fmt.plural(c.nodes or 0, 'node')} in {c.hypervisor} clusters, "
+                        "listed in the registered clusters and containers tables", SIZE_NOTE,
+                        False,
+                        K.INK_3, 3, gap_before=1.0)],
+                   K.MORE, pad_x=5, pad_y=5, align="left", parent=parent,
+                   data={"clusters": str(c.summary)})
+        return node, [], {}
     pills = _pills(c.services)
     pills_w = sum(pw for _, pw in pills) + 2.5 * max(0, len(pills) - 1)
     inline = bool(pills) and pills_w <= inner * 0.45
@@ -165,15 +180,21 @@ def _card(c: LCluster, x: float, y: float, w: float, parent: str, compact: bool 
                        pad_x=0, pad_y=0, align="left")
             kids.append(head)
             cy = head.y + head.h + 1.5
-        shown = c.containers[:CHIPS_MAX]
-        items: list[tuple[str, str, bool]] = [(ct.id, container_flags(ct, c.name),
+        # Containers on an external array are always drawn (their connector shows
+        # where they live); the others fill the remaining chips.
+        cap = CHIPS_COMPACT if compact else CHIPS_MAX
+        on_array = [ct for ct in c.containers if ct.array]
+        dsf = [ct for ct in c.containers if not ct.array][:max(0, cap - len(on_array))]
+        shown = dsf + on_array
+        items: list[tuple[str, str, bool]] = [(ct.id,
+                                               container_flags(ct, arrays.get(ct.array or "")),
                                                ct.array is not None)
                                               for ct in shown]
         if len(c.containers) > len(shown):
             items.append((f"{c.id}:ctr-more",
                           f"+{len(c.containers) - len(shown):,} more in the table", False))
-        # One line per chip, flowed into rows; a name too long for the card is
-        # ellipsised (the full name stays in the shape's data and the table).
+        # Chips flowed into rows; a name too long for the card wraps (at its hyphens
+        # first) rather than being shortened, so the drawn name is the collected one.
         names = {ct.id: ct.name for ct in shown}
         cx, row_bottom = x + 5, cy
         for cid, text, ext in items:
@@ -185,7 +206,8 @@ def _card(c: LCluster, x: float, y: float, w: float, parent: str, compact: bool 
             more = cid.endswith(":ctr-more")
             style = K.EXTERNAL if ext else (K.MORE_CHIP if more else K.STORAGE)
             color = K.WHITE if ext else (K.INK_3 if more else K.LIVE)
-            node = box(cid, "strip", cx, cy, cw, [Row(text, K.SIZE_SMALL, bold, color, 1)],
+            lines = 2 if compact else 3
+            node = box(cid, "strip", cx, cy, cw, [Row(text, K.SIZE_SMALL, bold, color, lines)],
                        style, pad_x=3, pad_y=1.4, align="left", valign="middle",
                        parent=c.id, data={"name": names[cid]} if cid in names else None)
             kids.append(node)
@@ -276,13 +298,16 @@ def _caption(site: LSite, part: tuple[int, int], pods: list[str], drawn: list[LC
 
 
 def _layout_part(site: LSite, lines: list[list[_Seg]], width: float, cols: int, sid: str,
-                 compact: bool = False) -> Scene:
+                 compact: bool = False, whole: LSite | None = None) -> Scene:
+    """One part of `site`; `whole` is the AZ as collected when `site` is its summarised
+    form (the header counts every cluster)."""
     sc = Scene(id=sid, type="logical", title="Logical cluster design", caption="",
                width=width, height=0)
     site_w = q(width - 2 * MX)
     inner = site_w - 2 * P
     head_rows = [Row(site.name, K.SIZE_SITE, True, K.INK, 2, 7.5),
-                 Row(site_line(site), K.SIZE_SMALL, False, K.INK_3, 2, gap_before=0.5)]
+                 Row(site_line(whole or site), K.SIZE_SMALL, False, K.INK_3, 2,
+                     gap_before=0.5)]
     head_top = TOP + CHIP_H / 2 + 4.0
     _, hh = measure(head_rows, inner)
     cont = box(site.id, "container", MX, TOP, site_w, head_rows, K.SITE, pad_x=P,
@@ -291,24 +316,28 @@ def _layout_part(site: LSite, lines: list[list[_Seg]], width: float, cols: int, 
     sc.nodes.append(chip(f"{site.id}:tag", "AZ" if site.kind == "pc" else "PRISM ELEMENT",
                          MX + 5.5, TOP, K.TAG, parent=site.id))
     pods_on = site.has_pods
+    names = {a.id: array_title(a) for a in site.arrays}
     pod_head = q(3 + tx.line_height(K.SIZE_SMALL) + 7) if pods_on else 0.0
     # ctr id -> (chip, card, (left gutter x, right gutter x))
     chips: dict[str, tuple[Node, Node, tuple[float, float]]] = {}
     drawn: list[LCluster] = []
     pods_drawn: list[str] = []
     used = {"dsf": False, "ext": False}
+    summarised_n = 0
     y = q(head_top + hh + 9)
     for line in lines:
         card_w = _card_w(inner, cols, pods_on, line)
         # Card height per line, so cards (and PODs) on a line align.
-        row_h = max(_card(c, 0, 0, card_w, "", compact)[0].h
+        row_h = max(_card(c, 0, 0, card_w, "", compact, names)[0].h
                     for seg in line for c in seg.clusters)
         x = MX + P
         for seg in line:
             k = len(seg.clusters)
             parent = site.id
             gx = x
-            if pods_on:
+            if pods_on and seg.pod.id.endswith(MORE_POD):
+                gx = x + PP  # the summary card stands outside any POD
+            elif pods_on:
                 seg_w = q(k * card_w + (k - 1) * CG + 2 * PP)
                 pid = seg.pod.id if seg.first else f"{seg.pod.id}:{seg.clusters[0].id}"
                 pod_node = Node(id=pid, kind="container", x=q(x), y=y, w=seg_w,
@@ -334,11 +363,14 @@ def _layout_part(site: LSite, lines: list[list[_Seg]], width: float, cols: int, 
             cy = q(y + pod_head)
             for col, c in enumerate(seg.clusters):
                 cx = q(gx + col * (card_w + CG))
-                card, kids, cmap = _card(c, cx, cy, card_w, parent, compact)
+                card, kids, cmap = _card(c, cx, cy, card_w, parent, compact, names)
                 card.h = q(row_h)
                 sc.nodes.append(card)
                 sc.nodes.extend(kids)
-                drawn.append(c)
+                if c.summary:
+                    summarised_n += c.summary
+                else:
+                    drawn.append(c)
                 edge_pad = PP / 2 if pods_on else P / 2
                 right = q(cx + card_w + (CG / 2 if col < k - 1 else edge_pad))
                 left = q(cx - (CG / 2 if col > 0 else edge_pad))
@@ -391,6 +423,8 @@ def _layout_part(site: LSite, lines: list[list[_Seg]], width: float, cols: int, 
         items.append(("box", K.EXTERNAL, "External storage"))
     if sc.edges:
         items.append(("line", K.ARRAY_LINK, "Container on array"))
+    if summarised_n:
+        items.append(("box", K.MORE, "Summary card"))
     bottom = cont.y + cont.h
     lh = legend(sc, items, MX, bottom + 9, site_w)
     sc.height = q(bottom + 9 + lh + 1)
@@ -446,28 +480,64 @@ def _clean(pts: list[tuple[float, float]]) -> list[tuple[float, float]]:
 # ─── entry point ───────────────────────────────────────────────────────
 
 
-def layout_site(site: LSite, page: Page | None = None, first_budget: Budget | None = None
-                ) -> list[Scene]:
-    """One site's parts: grid lines are added while the part fits its height budget
-    (the first part also fits `first_budget`); a line that does not starts a part.
-    Compact cards are used when they save a part."""
-    page = page or Page()
-    width, cols = _cols(site, page)
-    lines = _lines(site, cols)
-    sid = f"logical-{site.name}"
+MORE_POD = ":pod:more"
 
-    def limit(first: bool) -> float:
-        if first and first_budget is not None:
-            return min(page.max_h, first_budget(width))
-        return page.max_h
 
-    def split(compact: bool) -> list[list[list[_Seg]]]:
+def _summarised(site: LSite, cols: int) -> LSite:
+    """`site` with the cluster hosting Prism Central and the largest clusters by node
+    count (decision 7), and one "+N more clusters" card for the rest."""
+    keep_n = 2 * cols - 1
+    every = site.clusters
+    if len(every) <= keep_n + 1:
+        return site
+    chosen = [c for c in every if c.hosts_pc][:keep_n]
+    rest = sorted((c for c in every if c not in chosen),
+                  key=lambda c: (-(c.nodes or 0), every.index(c)))
+    chosen += rest[:keep_n - len(chosen)]
+    ids = {c.id for c in chosen}
+    hidden = [c for c in every if c.id not in ids]
+    mix = Counter(c.hypervisor or "N/A" for c in hidden)
+    more = LCluster(id=f"{site.id}:more", name="", summary=len(hidden),
+                    nodes=sum(c.nodes or 0 for c in hidden),
+                    hypervisor=fmt.join_names([f"{n:,} {h}" for h, n in
+                                               sorted(mix.items(),
+                                                      key=lambda kv: (-kv[1], kv[0]))]))
+    pods = [Pod(id=p.id, name=p.name, clusters=[c for c in p.clusters if c.id in ids])
+            for p in site.pods]
+    pods = [p for p in pods if p.clusters]
+    pods.append(Pod(id=f"{site.id}{MORE_POD}", name=None, clusters=[more]))
+    return LSite(id=site.id, name=site.name, kind=site.kind, pods=pods,
+                 arrays=[a for a in site.arrays if a.cluster in ids], pc_vms=site.pc_vms,
+                 data=site.data)
+
+
+#: Detail levels (one per estate): every card in full, compact cards, compact cards
+#: with the PC host and the largest clusters plus a "+N more clusters" card per AZ.
+FULL, COMPACT, SUMMARY = 0, 1, 2
+#: Parts per AZ beyond which the summary level is used.
+MAX_PARTS = 2
+
+
+class _Site:
+    """One site's layout at a given detail level, split into parts."""
+
+    def __init__(self, site: LSite, page: Page, first_budget: Budget | None) -> None:
+        self.site, self.page, self.first_budget = site, page, first_budget
+        self.width, self.cols = _cols(site, page)
+        self.sid = f"logical-{site.name}"
+
+    def limit(self, first: bool) -> float:
+        if first and self.first_budget is not None:
+            return min(self.page.max_h, self.first_budget(self.width))
+        return self.page.max_h
+
+    def split(self, site: LSite, compact: bool) -> list[list[list[_Seg]]]:
         parts: list[list[list[_Seg]]] = []
         cur: list[list[_Seg]] = []
-        for line in lines:
+        for line in _lines(site, self.cols):
             trial = [*cur, line]
-            if cur and _layout_part(site, trial, width, cols, sid, compact).height > \
-                    limit(not parts):
+            if cur and _layout_part(site, trial, self.width, self.cols, self.sid,
+                                    compact).height > self.limit(not parts):
                 parts.append(cur)
                 cur = [line]
             else:
@@ -475,40 +545,72 @@ def layout_site(site: LSite, page: Page | None = None, first_budget: Budget | No
         parts.append(cur)
         return parts
 
-    # Density ladder: full cards; compact cards when that saves a part, or when a
-    # single grid line of full cards is taller than a page allows.
-    def over(parts: list[list[list[_Seg]]], compact: bool) -> bool:
-        return any(_layout_part(site, p, width, cols, sid, compact).height > limit(i == 0)
-                   for i, p in enumerate(parts))
+    def over(self, site: LSite, parts: list[list[list[_Seg]]], compact: bool) -> bool:
+        return any(_layout_part(site, p, self.width, self.cols, self.sid, compact).height
+                   > self.limit(i == 0) for i, p in enumerate(parts))
 
-    compact = False
-    parts = split(False)
-    if len(parts) > 1:
-        tight = split(True)
-        if len(tight) < len(parts) or (over(parts, False) and not over(tight, True)):
-            compact, parts = True, tight
-    scenes = []
-    for i, part in enumerate(parts):
-        sc = _layout_part(site, part, width, cols,
-                          sid if len(parts) == 1 else f"{sid}-{i + 1}", compact)
-        sc.part = (i + 1, len(parts))
-        drawn_ids = set(sc.meta["drawn"])
-        drawn = [c for c in site.clusters if c.id in drawn_ids]
-        pods = list(dict.fromkeys(s.pod.name for line in part for s in line if s.pod.name))
-        sc.caption = _caption(site, sc.part, pods, drawn,
-                              any(a.cluster in drawn_ids for a in site.arrays))
-        scenes.append(sc)
-    return scenes
+    def level(self) -> int:
+        """The least detail this site needs: compact when that saves a part or a single
+        line of full cards is too tall; the summary when compact still needs more than
+        `MAX_PARTS` parts."""
+        full = self.split(self.site, False)
+        if len(full) == 1 and not self.over(self.site, full, False):
+            return FULL
+        tight = self.split(self.site, True)
+        if len(tight) > MAX_PARTS:
+            return SUMMARY
+        if len(tight) < len(full) or (self.over(self.site, full, False)
+                                      and not self.over(self.site, tight, True)):
+            return COMPACT
+        return FULL
+
+    def scenes(self, level: int) -> list[Scene]:
+        site = _summarised(self.site, self.cols) if level == SUMMARY else self.site
+        compact = level >= COMPACT
+        parts = self.split(site, compact)
+        out = []
+        for i, part in enumerate(parts):
+            sc = _layout_part(site, part, self.width, self.cols,
+                              self.sid if len(parts) == 1 else f"{self.sid}-{i + 1}",
+                              compact, self.site)
+            sc.part = (i + 1, len(parts))
+            drawn_ids = set(sc.meta["drawn"])
+            drawn = [c for c in site.clusters if c.id in drawn_ids]
+            pods = list(dict.fromkeys(s.pod.name for line in part for s in line
+                                      if s.pod.name))
+            sc.caption = _caption(self.site, sc.part, pods, drawn,
+                                  any(a.cluster in drawn_ids for a in site.arrays))
+            shown = {c.id for c in site.clusters}
+            sc.meta["summarised"] = [c.id for c in self.site.clusters if c.id not in shown] \
+                if i == len(parts) - 1 else []
+            out.append(sc)
+        return out
+
+
+def layout_site(site: LSite, page: Page | None = None, first_budget: Budget | None = None,
+                level: int | None = None) -> list[Scene]:
+    """One site's parts at `level` (default: the least detail it needs): grid lines are
+    added while the part fits its height budget (the first part also fits
+    `first_budget`); a line that does not starts a part."""
+    s = _Site(site, page or Page(), first_budget)
+    return s.scenes(s.level() if level is None else level)
 
 
 def layout(model: LogicalModel, page: Page | None = None, refs: Refs | None = None,
            first_budget: Budget | None = None) -> list[Scene]:
-    """Scenes for every site, in model order. Each site opens its own report section,
-    so each site's first part fits `first_budget`."""
-    out: list[Scene] = []
-    for s in model.sites:
-        out.extend(layout_site(s, page, first_budget))
-    return out
+    """Scenes for every site, in model order, at ONE detail level for the estate (the
+    least detail any of its sites needs), so like AZs are drawn alike. Each site opens
+    its own report section, so each site's first part fits `first_budget`."""
+    page = page or Page()
+    sites = [_Site(s, page, first_budget) for s in model.sites]
+    level = max((s.level() for s in sites), default=FULL)
+    return [sc for s in sites for sc in s.scenes(level)]
 
 
-__all__ = ["layout", "layout_site"]
+def site_level(site: LSite, page: Page | None = None,
+               first_budget: Budget | None = None) -> int:
+    """The least detail `site` needs (`FULL`, `COMPACT` or `SUMMARY`)."""
+    return _Site(site, page or Page(), first_budget).level()
+
+
+__all__ = ["COMPACT", "FULL", "SUMMARY", "site_level", "layout", "layout_site"]

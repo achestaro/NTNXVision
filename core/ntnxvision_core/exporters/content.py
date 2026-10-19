@@ -196,6 +196,19 @@ def first_part_budget(bullets: list[str], parts: bool = False) -> Callable[[floa
     return budget
 
 
+def continued_notes(figs: list[SceneFigure],
+                    scope: Callable[[Scene], str] | None = None) -> None:
+    """Chain a diagram's parts: each part but the last notes where it continues
+    ("Continued in Figure 5-3 (part 2 of 3: pc04, pc05)."), ahead of any note it has.
+    Run once figures are numbered (a finaliser)."""
+    for f, nxt in zip(figs, figs[1:], strict=False):
+        sc = nxt.scene
+        what = f"part {sc.part[0]} of {sc.part[1]}"
+        if scope is not None and (names := scope(sc)):
+            what += f": {names}"
+        f.note = f"Continued in {nxt.label.rstrip('.')} ({what}). {f.note}".strip()
+
+
 @dataclass
 class FigureRow:
     """Two or more small figures side by side (stacked where the page is narrow)."""
@@ -1029,17 +1042,15 @@ class _Builder:
                     for row, sid in zip(az.rows, [s.id for s in model.sites]
                                         + [r.id for r in model.remotes], strict=True):
                         row[col] = drawn_in.get(sid, "N/A")
-            for i, f in enumerate(figs[:-1]):
-                nxt = figs[i + 1].scene
-                names = ", ".join(short_name(drawn.name_of(sid))
-                                  for sid in nxt.meta.get("sites", []))
-                f.note = (f"Continued in {labels[i + 1]} (part {nxt.part[0]} of "
-                          f"{nxt.part[1]}: {names}).")
+            for f in figs:
+                f.note = ""
             if ref is not None:
                 for f in figs:
                     if f.scene.meta.get("summarised"):
                         extra = f"Clusters in a \"+N more\" card are listed in {ref}."
                         f.note = f"{f.note} {extra}".strip()
+            continued_notes(figs, lambda sc: ", ".join(
+                short_name(drawn.name_of(sid)) for sid in sc.meta.get("sites", [])))
 
         self.finalizers.append(finalize)
         return True

@@ -88,7 +88,8 @@ def test_pods_pc_host_and_flasharray(design_envs: dict[str, Any]) -> None:
     assert arr.cluster_name == "SEA-PROD-02"
     ext = [ct for c in site.clusters for ct in c.containers if ct.array]
     assert [ct.array for ct in ext] == [arr.id]
-    assert "external" in L.container_flags(ext[0], "SEA-PROD-02")
+    chip = L.container_flags(ext[0], L.array_title(arr))
+    assert chip.endswith("on Pure FlashArray fa-sea-prod-02")
     robo = next(c for c in site.clusters if c.name == "SEA-ROBO-01")
     assert L.headline(robo).endswith("RF2 (disk)")
     rows = L.container_rows(site)
@@ -108,11 +109,10 @@ def test_blocks_racks_and_node_groups(design_envs: dict[str, Any]) -> None:
     assert len(prod_c.groups) == 2 and L.cvm_text(prod_c) == "CVM: 12 to 16 vCPU, 48 GiB"
 
 
-def test_cpu_label_and_prefix_free_chips() -> None:
+def test_cpu_label_and_container_chips_keep_collected_names() -> None:
     assert L.cpu_label("Intel(R) Xeon(R) Gold 6438Y+ CPU @ 2.00GHz") == "Xeon Gold 6438Y+"
     assert L.cpu_label("AMD EPYC 9354 32-Core Processor") == "EPYC 9354 32-Core"
     ct = L.Container(id="c", name="prod-a-ctr-images", rf=3, dedup=True)
-    assert L.container_flags(ct, "PROD-A") == "ctr-images · RF3 · dedup"
     assert L.container_flags(ct) == "prod-a-ctr-images · RF3 · dedup"
 
 
@@ -160,12 +160,28 @@ def test_no_overflow_and_house_rules(design_envs: dict[str, Any], name: str) -> 
         assert all(EM_DASH not in t for t in _texts(sc))
 
 
-def test_every_cluster_drawn_once_across_parts(design_envs: dict[str, Any]) -> None:
+def test_every_cluster_drawn_or_summarised_once(design_envs: dict[str, Any]) -> None:
+    """Each cluster is drawn once or counted in a "+N more" card; the very-large estate
+    uses the summary level for every AZ (one detail level per estate): the PC host and
+    the largest clusters, at most 2 parts per AZ."""
+    from ntnxvision_core.diagrams.layout.logical import SUMMARY, site_level
+
     m = L.logical_model(design_envs["xlarge"])
+    assert max(site_level(s, Page()) for s in m.sites) == SUMMARY
+    by_site: dict[str, list[S.Scene]] = {}
+    for sc in layout(m, Page()):
+        by_site.setdefault(sc.meta["group"], []).append(sc)
     for site in m.sites:
-        scenes = layout_site(site, Page())
+        scenes = by_site[site.id]
+        assert len(scenes) <= 2
         drawn = [cid for sc in scenes for cid in sc.meta["drawn"]]
-        assert sorted(drawn) == sorted(c.id for c in site.clusters)
+        summarised = [cid for sc in scenes for cid in sc.meta["summarised"]]
+        assert sorted(drawn + summarised) == sorted(c.id for c in site.clusters)
+        host = next(c for c in site.clusters if c.hosts_pc)
+        assert host.id in drawn
+        biggest = max((c for c in site.clusters if not c.hosts_pc),
+                      key=lambda c: c.nodes or 0)
+        assert biggest.id in drawn
         assert [sc.part for sc in scenes] == [(i + 1, len(scenes)) for i in range(len(scenes))]
 
 

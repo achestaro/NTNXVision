@@ -6,7 +6,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from ntnxvision_core.diagrams.layout.logical import layout_site
+from ntnxvision_core.diagrams.layout.logical import layout_site, site_level
 from ntnxvision_core.diagrams.logical import (
     CONTAINER_HEADERS,
     LogicalModel,
@@ -16,6 +16,7 @@ from ntnxvision_core.diagrams.logical import (
 from ntnxvision_core.exporters.content import (
     Chapter,
     SceneFigure,
+    continued_notes,
     first_part_budget,
     make_table,
 )
@@ -24,12 +25,15 @@ from ntnxvision_core.exporters.content import (
 def build(b: Any, ch: Chapter, dtype: Any) -> bool:
     model: LogicalModel = dtype.build_model(b.env)
     many = len(model.sites) > 1
+    sites = [s for s in model.sites if s.clusters]
+    budgets = {s.id: first_part_budget(logical_bullets(s)) for s in sites}
+    # One detail level for the estate (the least detail any AZ needs), so like AZs
+    # are drawn alike.
+    level = max((site_level(s, dtype.page, budgets[s.id]) for s in sites), default=0)
     added = False
-    for site in model.sites:
-        if not site.clusters:
-            continue
+    for site in sites:
         bullets = logical_bullets(site)
-        scenes = layout_site(site, dtype.page, first_part_budget(bullets))
+        scenes = layout_site(site, dtype.page, budgets[site.id], level)
         figs = [SceneFigure(sc, sc.caption) for sc in scenes]
         figs[0].summary = bullets
         rows = container_rows(site)
@@ -41,12 +45,6 @@ def build(b: Any, ch: Chapter, dtype: Any) -> bool:
         b.design_figures.setdefault(dtype.id, []).extend(figs)
         added = True
 
-        def finalize(figs: list[SceneFigure] = figs) -> None:
-            for i, f in enumerate(figs[:-1]):
-                nxt = figs[i + 1]
-                f.note = (f"Continued in {nxt.label.rstrip('.')} (part {nxt.scene.part[0]} "
-                          f"of {nxt.scene.part[1]}).")
-
         if len(figs) > 1:
-            b.finalizers.append(finalize)
+            b.finalizers.append(lambda figs=figs: continued_notes(figs))
     return added

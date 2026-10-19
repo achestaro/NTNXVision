@@ -16,6 +16,7 @@ from ntnxvision_core.exporters.content import (
     Chapter,
     SceneFigure,
     Table,
+    continued_notes,
     first_part_budget,
     make_table,
 )
@@ -68,18 +69,13 @@ def build(b: Any, ch: Chapter, dtype: DiagramType) -> bool:
             col = clusters.headers.index("In figure")
             for row, new in zip(clusters.rows, rows, strict=True):
                 row[col] = new[-1]
-        for i, f in enumerate(figs[:-1]):
-            nxt = figs[i + 1].scene
-            names = ", ".join(short_name(model.name_of(sid))
-                              for sid in nxt.meta.get("sites", []))
-            f.note = (f"Continued in {labels[i + 1]} (part {nxt.part[0]} of {nxt.part[1]}: "
-                      f"{names}).")
         if clusters is not None:
             ref = clusters.label.rstrip(".")
             for f in figs:
                 if f.scene.meta.get("summarised"):
-                    extra = f"Clusters in a \"+N more\" card are listed in {ref}."
-                    f.note = f"{f.note} {extra}".strip()
+                    f.note = f"Clusters in a \"+N more\" card are listed in {ref}."
+        continued_notes(figs, lambda sc: ", ".join(
+            short_name(model.name_of(sid)) for sid in sc.meta.get("sites", [])))
 
     b.finalizers.append(finalize)
     return True
