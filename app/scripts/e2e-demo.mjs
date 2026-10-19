@@ -26,12 +26,15 @@
 // Screenshots of each step go to <outDir> (default ./screenshots/e2e), plus the UX review
 // set in ./screenshots/UX, the scope set in ./screenshots/Scope and the Targets set in
 // ./screenshots/Targets. Targets CRUD: create, edit (rename + a new username keeps the
-// keychain password), per-row test, delete with confirm (snapshots kept). Exits non-zero
-// on the first failed step.
+// keychain password), per-row test, delete with confirm (snapshots kept). Diagrams page:
+// rename in place, drag and keyboard reorder, add from the palette, delete, undo/redo,
+// the unsaved-changes guard, save, and a Word export whose figure carries the edit (and
+// whose text and tables never mention the user-added element). Exits non-zero on the
+// first failed step.
 
 import { _electron as electron } from 'playwright-core';
 import electronPath from 'electron';
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { mkdtemp, mkdir, readFile, readdir, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:net';
@@ -901,6 +904,134 @@ try {
     await page.getByText(/Exported 1 file/).first().waitFor({ timeout: 120_000 });
     const files = await readdir(exportDir);
     if (!files.includes(`ACME Q4-pc01-week1-${today}-2.xlsx`)) throw new Error(`no -2 copy: ${files.join(', ')}`);
+  });
+
+  // ─── Diagrams page: edit, save, and the Word export draws the edit ───
+  const docxFiles = async () => (await readdir(exportDir)).filter((f) => f.endsWith('.docx'));
+  /** Export Word from the Diagrams page; returns the new file's path. */
+  const exportWordFromDiagrams = async () => {
+    const before = new Set(await docxFiles());
+    await page.getByRole('button', { name: 'Export…', exact: true }).click();
+    const dialog = page.getByRole('dialog');
+    await dialog.getByText(/Prism Central/).first().waitFor();
+    await dialog.getByText('PDF report', { exact: true }).first().click(); // Word only
+    await dialog.getByRole('button', { name: /^Export 1 file/ }).click();
+    // Wait for the file itself: an earlier "Exported 1 file" toast may still be showing.
+    let added = [];
+    for (let i = 0; i < 240 && !added.length; i++) {
+      await page.waitForTimeout(500);
+      added = (await docxFiles()).filter((f) => !before.has(f));
+    }
+    await page.waitForTimeout(500);
+    if (added.length !== 1) throw new Error(`expected one new .docx, got ${added.join(', ')}`);
+    return join(exportDir, added[0]);
+  };
+  /** sha256 of each image in a .docx, and whether its text mentions `needle`. */
+  const docxFacts = (path, needle) => {
+    const code = [
+      'import hashlib, sys, zipfile',
+      'z = zipfile.ZipFile(sys.argv[1])',
+      'print("\\n".join(sorted(hashlib.sha256(z.read(n)).hexdigest() for n in z.namelist() if n.startswith("word/media/"))))',
+      'print("TEXT:" + str(sys.argv[2] in z.read("word/document.xml").decode("utf-8")))',
+    ].join('\n');
+    const r = spawnSync(existsSync(venvPython) ? venvPython : 'python3', ['-c', code, path, needle], { encoding: 'utf-8' });
+    if (r.status !== 0) throw new Error(`docx check failed: ${r.stderr}`);
+    const lines = r.stdout.trim().split('\n');
+    return { media: new Set(lines.filter((l) => !l.startsWith('TEXT:'))), mentions: lines.at(-1) === 'TEXT:True' };
+  };
+  const el = (prefix) => page.locator(`[data-el^="${prefix}"]`);
+  const order = () => page.locator('.dg-order .mono').innerText();
+  let generatedDocx = '';
+
+  await run('diagrams-open', async () => {
+    await rail('Diagrams');
+    await heading('Diagrams');
+    await page.locator('#dg-snap').selectOption({ label: (await page.locator('#dg-snap option', { hasText: 'pc01-week1' }).first().innerText()).trim() });
+    await page.locator('.dg-sheet svg').waitFor({ timeout: 60_000 });
+    await page.getByRole('button', { name: /Solution conceptual overview/ }).first().waitFor();
+    await page.getByText('No unsaved changes').waitFor();
+    generatedDocx = await exportWordFromDiagrams();
+  });
+
+  await run('diagrams-rename', async () => {
+    const card = el('cluster:').first();
+    await card.dblclick();
+    const input = page.locator('.dg-inline');
+    await input.fill('E2E SQL tier');
+    await input.press('Enter');
+    await page.locator('[data-el^="cluster:"]', { hasText: 'E2E SQL tier' }).waitFor({ timeout: 15_000 });
+    await page.getByText('1 unsaved change').waitFor();
+  });
+
+  await run('diagrams-reorder', async () => {
+    const cards = el('cluster:');
+    if ((await cards.count()) < 2) throw new Error('need two cluster cards to reorder');
+    const second = cards.nth(1);
+    const label = await second.getAttribute('aria-label');
+    // Drag the second card onto the left half of the first: it becomes first.
+    const a = await second.boundingBox();
+    const b = await cards.nth(0).boundingBox();
+    await page.mouse.move(a.x + a.width / 2, a.y + a.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(b.x + 10, b.y + b.height / 2, { steps: 8 });
+    await page.getByText(/^Drop to move .* to position 1 of/).waitFor();
+    await page.mouse.up();
+    await page.waitForFunction((l) => document.querySelector('[data-el^="cluster:"]')?.getAttribute('aria-label') === l, label, { timeout: 15_000 });
+    // And with the keyboard: Alt+Right moves the selection one place later.
+    await page.locator(`[data-el^="cluster:"][aria-label="${label}"]`).focus();
+    await page.keyboard.press('Alt+ArrowRight');
+    await page.waitForFunction(() => document.querySelector('.dg-order .mono')?.textContent?.startsWith('2 of'), null, { timeout: 15_000 });
+    if (!(await order()).startsWith('2 of')) throw new Error(`order after Alt+Right: ${await order()}`);
+  });
+
+  await run('diagrams-add', async () => {
+    await el('site:').first().click({ position: { x: 30, y: 12 } });
+    await page.getByRole('toolbar', { name: 'Add to diagram' }).getByRole('button', { name: 'Storage array' }).click();
+    await page.locator('[data-el^="user:"]').first().waitFor({ timeout: 15_000 });
+    const label = page.getByLabel('Label', { exact: true });
+    await label.fill('Backup appliance');
+    await label.press('Enter');
+    await page.locator('[data-el^="user:"]', { hasText: 'Backup appliance' }).waitFor({ timeout: 15_000 });
+    await page.locator('[data-el^="user:"]', { hasText: 'USER-ADDED' }).waitFor();
+  });
+
+  await run('diagrams-delete-undo-redo', async () => {
+    const before = await el('cluster:').count();
+    await el('cluster:').last().click();
+    await page.getByRole('toolbar', { name: 'Add to diagram' }).getByRole('button', { name: 'Delete' }).click();
+    await page.waitForFunction((n) => document.querySelectorAll('[data-el^="cluster:"]').length === n - 1, before, { timeout: 15_000 });
+    await page.locator('.dg-canvas .phead').click({ position: { x: 5, y: 5 } }); // focus off the inputs
+    await page.keyboard.press('ControlOrMeta+z');
+    await page.waitForFunction((n) => document.querySelectorAll('[data-el^="cluster:"]').length === n, before, { timeout: 15_000 });
+    await page.keyboard.press('ControlOrMeta+Shift+z');
+    await page.waitForFunction((n) => document.querySelectorAll('[data-el^="cluster:"]').length === n - 1, before, { timeout: 15_000 });
+  });
+
+  await run('diagrams-dirty-guard', async () => {
+    await rail('Overview');
+    const dialog = page.getByRole('dialog', { name: 'Discard unsaved changes?' });
+    await dialog.waitFor();
+    await dialog.getByRole('button', { name: 'Keep editing' }).click();
+    await page.locator('.dg-sheet svg').waitFor();
+  });
+
+  await run('diagrams-save', async () => {
+    await page.getByRole('button', { name: /^Save/ }).click();
+    await page.getByText('Diagram saved.').first().waitFor({ timeout: 30_000 });
+    await page.getByText('No unsaved changes').waitFor();
+    const snaps = await readdir(join(dataDir, 'snapshots'));
+    if (!snaps.includes('pc01-week1.ntnxdiagrams.json')) throw new Error(`no saved diagram edits: ${snaps.join(', ')}`);
+    await page.getByRole('button', { name: /Solution conceptual overview/ }).first().getByText(/Edited · saved/).waitFor();
+  });
+
+  await run('diagrams-export-word', async () => {
+    const edited = await exportWordFromDiagrams();
+    const gen = docxFacts(generatedDocx, 'Backup appliance');
+    const ed = docxFacts(edited, 'Backup appliance');
+    if (![...ed.media].some((h) => !gen.media.has(h))) throw new Error('the edited Word export has the same figures as the generated one');
+    // The user-added element is in the figure only, never in the document's text or tables.
+    if (ed.mentions) throw new Error('"Backup appliance" leaked into the Word text or tables');
+    await page.screenshot({ path: join(uxDir, 'diagrams-saved.png'), fullPage: true });
   });
 
   await run('snapshot-file-export', async () => {

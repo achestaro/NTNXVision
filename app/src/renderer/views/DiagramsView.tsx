@@ -151,6 +151,8 @@ export function DiagramsView({ snapshot: snapProp, type: typeProp, part: partPro
   const [pending, setPending] = useState<(() => void) | null>(null);
   const [editRequest, setEditRequest] = useState(0);
   const seq = useRef(0);
+  // A re-layout is in flight: a just-added element is selected before it is in the outline.
+  const laying = useRef(false);
 
   const curType = cur?.type;
   useEffect(() => {
@@ -179,9 +181,18 @@ export function DiagramsView({ snapshot: snapProp, type: typeProp, part: partPro
     (next: DiagramOp[]) => {
       if (!snapPath || !curType) return;
       const my = ++seq.current;
+      laying.current = true;
       window.ntnx.layoutDiagram(snapPath, curType, next).then(
-        (r) => my === seq.current && setView(r),
-        (e) => my === seq.current && toast.show({ tone: 'error', title: 'Couldn’t lay out the diagram.', detail: errorMessage(e) }),
+        (r) => {
+          if (my !== seq.current) return;
+          laying.current = false;
+          setView(r);
+        },
+        (e) => {
+          if (my !== seq.current) return;
+          laying.current = false;
+          toast.show({ tone: 'error', title: 'Couldn’t lay out the diagram.', detail: errorMessage(e) });
+        },
       );
     },
     [snapPath, curType, toast],
@@ -299,7 +310,7 @@ export function DiagramsView({ snapshot: snapProp, type: typeProp, part: partPro
   const snap = all.find((s) => s.path === snapPath);
 
   useEffect(() => {
-    if (selected && view && !outline.has(selected)) setSelected(null);
+    if (selected && view && !laying.current && !outline.has(selected)) setSelected(null);
   }, [selected, view, outline]);
 
   // ─ zoom ─
