@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 
 const require = createRequire(import.meta.url);
-const { asDiagramOps, asDiagramType, asDiagramCarryRequest } = require('../dist/main/requests.js');
+const { asDiagramOps, asDiagramType, asDiagramCarryRequest, asUnsavedChangesRequest, closeAction } = require('../dist/main/requests.js');
 const { IPC, MAX_DIAGRAM_OPS } = require('../dist/shared/ipc.js');
 
 const ABS = process.platform === 'win32' ? 'C:\\snaps\\' : '/tmp/snaps/';
@@ -65,4 +65,19 @@ test('carry requests need two different absolute snapshot paths', () => {
   assert.throws(() => asDiagramCarryRequest({ from: 'week1', to }));
   assert.throws(() => asDiagramCarryRequest({ from: '\\\\server\\share\\x.ntnxsnap.json', to }));
   assert.throws(() => asDiagramCarryRequest({ from, to, types: ['../evil'] }));
+});
+
+test('the unsaved-work flag is checked before it reaches the close guard', () => {
+  assert.deepEqual(asUnsavedChangesRequest({ dirty: true, what: '  Solution   overview ' }), { dirty: true, what: 'Solution overview' });
+  assert.deepEqual(asUnsavedChangesRequest({ dirty: false }), { dirty: false });
+  for (const v of [null, {}, { dirty: 'yes' }, { dirty: true, what: 'x'.repeat(201) }, { dirty: true, what: 3 }]) {
+    assert.throws(() => asUnsavedChangesRequest(v));
+  }
+});
+
+test('closing the window: hide to the tray, ask about unsaved work, or close', () => {
+  assert.equal(closeAction({ quitting: false, hides: true, unsaved: true }), 'hide');
+  assert.equal(closeAction({ quitting: false, hides: false, unsaved: true }), 'ask');
+  assert.equal(closeAction({ quitting: false, hides: false, unsaved: false }), 'close');
+  assert.equal(closeAction({ quitting: true, hides: true, unsaved: false }), 'close');
 });

@@ -32,6 +32,7 @@ import {
   TargetSaveRequest,
   TestConnectionRequest,
   TrustCertificateRequest,
+  UnsavedChangesRequest,
 } from '../shared/ipc';
 
 function subscribe<T>(channel: string, cb: (e: T) => void): () => void {
@@ -102,6 +103,7 @@ const api: NtnxApi = {
   chooseSnapshotFiles: () => ipcRenderer.invoke(IPC.chooseSnapshotFiles),
   pathForFile: (file: File) => webUtils.getPathForFile(file),
   takePendingSnapshotFiles: () => ipcRenderer.invoke(IPC.takePendingSnapshotFiles),
+  setUnsavedChanges: (req: UnsavedChangesRequest) => ipcRenderer.invoke(IPC.setUnsavedChanges, req),
   onOpenSnapshotFiles: (cb: (paths: string[]) => void) => subscribe(IPC.openSnapshotFiles, cb),
 
   listConnections: () => ipcRenderer.invoke(IPC.listConnections),

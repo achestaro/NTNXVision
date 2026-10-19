@@ -1055,6 +1055,13 @@ export interface DiagramDetail extends DiagramLayoutResult {
   palette: DiagramPaletteItem[];
 }
 
+/** Unsaved work in the renderer (window close guard). */
+export interface UnsavedChangesRequest {
+  dirty: boolean;
+  /** What is unsaved, for the prompt ("Solution conceptual overview"). */
+  what?: string;
+}
+
 export interface DiagramCarryRequest {
   /** Snapshot paths: the older snapshot with edits, and the one to carry them to. */
   from: string;
@@ -1552,6 +1559,8 @@ export const IPC = {
   chooseSnapshotSavePath: 'shell:chooseSnapshotSavePath',
   chooseSnapshotFiles: 'shell:chooseSnapshotFiles',
   takePendingSnapshotFiles: 'app:takePendingSnapshotFiles',
+  /** The renderer has unsaved work (Diagrams page): closing the window asks first. */
+  setUnsavedChanges: 'app:setUnsavedChanges',
   listConnections: 'store:listConnections',
   saveTarget: 'store:saveTarget',
   trustCertificate: 'store:trustCertificate',
@@ -1645,6 +1654,11 @@ export interface NtnxApi {
   pathForFile(file: File): string;
   /** .ntnxsnap files the OS asked the app to open; also marks the renderer ready for pushes. */
   takePendingSnapshotFiles(): Promise<string[]>;
+  /**
+   * Tell the main process whether the renderer holds unsaved work, and what (e.g. the
+   * diagram's title). While it does, closing the window or quitting asks first.
+   */
+  setUnsavedChanges(req: UnsavedChangesRequest): Promise<void>;
   onOpenSnapshotFiles(cb: (paths: string[]) => void): () => void;
 
   /** The saved targets (Targets page), in saved order. */

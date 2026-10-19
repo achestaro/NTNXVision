@@ -307,6 +307,13 @@ export function DiagramsView({ snapshot: snapProp, type: typeProp, part: partPro
   const stale = detail?.stale && !kept ? detail.stale : null;
   const marked = useMemo(() => new Set(stale ? stale.changes.filter((c) => c.kind !== 'removed').map((c) => c.id) : []), [stale]);
   const summary = diagrams.find((d) => d.type === curType);
+
+  // Closing the window or quitting with unsaved edits asks first (main process guard).
+  const dirtyWhat = summary?.title;
+  useEffect(() => {
+    void window.ntnx.setUnsavedChanges({ dirty, what: dirtyWhat }).catch(() => undefined);
+  }, [dirty, dirtyWhat]);
+  useEffect(() => () => void window.ntnx.setUnsavedChanges({ dirty: false }).catch(() => undefined), []);
   const snap = all.find((s) => s.path === snapPath);
 
   useEffect(() => {

@@ -75,6 +75,8 @@ import {
   asDiagramOps,
   asDiagramType,
   asExportRequest,
+  asUnsavedChangesRequest,
+  closeAction,
   asListClustersRequest,
   asMultiCollectionRequest,
   asSnapshotFileExportRequest,
@@ -123,6 +125,24 @@ const sidecar = new SidecarClient();
 let mainWindow: BrowserWindow | null = null;
 /** Set by a real quit (menu, tray, Cmd+Q): closing the window then closes it. */
 let quitting = false;
+/** Unsaved work the renderer reported (setUnsavedChanges); closing asks while set. */
+let unsavedWork: { what: string } | null = null;
+
+async function confirmDiscard(win: BrowserWindow): Promise<boolean> {
+  const what = unsavedWork?.what || 'A diagram';
+  if (!win.isVisible()) win.show(); // e.g. hidden in the tray when Quit was chosen
+  const r = await dialog.showMessageBox(win, {
+    type: 'warning',
+    buttons: ['Keep editing', 'Discard and close'],
+    defaultId: 0,
+    cancelId: 0,
+    noLink: true,
+    message: 'Discard unsaved changes?',
+    detail: `${what} has changes that are not saved. Exports keep using the saved version.`,
+  });
+  return r.response === 1;
+}
+
 /** Collections the user started that are still running (scheduled runs wait for them). */
 let manualRuns = 0;
 
@@ -239,8 +259,9 @@ function windowPreferences(): Electron.WebPreferences {
 }
 
 function createWindow(show = true): void {
-  // A new renderer asks for queued snapshot files once it has mounted.
+  // A new renderer asks for queued snapshot files once it has mounted, and starts clean.
   rendererWantsFiles = false;
+  unsavedWork = null;
   mainWindow = new BrowserWindow({
     show,
     width: 1440,
@@ -251,10 +272,23 @@ function createWindow(show = true): void {
     title: demo ? 'NTNXVision · demo data' : 'NTNXVision',
     webPreferences: windowPreferences(),
   });
-  // While a schedule is enabled, closing the window keeps the app in the tray / menu bar.
+  // While a schedule is enabled, closing the window keeps the app in the tray / menu bar
+  // (nothing is lost). Otherwise unsaved work (Diagrams page) asks before it is dropped.
   mainWindow.on('close', (e) => {
-    if (quitting || !mainWindow) return;
-    if (scheduler.hideOnClose(mainWindow)) e.preventDefault();
+    const win = mainWindow;
+    if (!win) return;
+    const hides = !quitting && scheduler.hideOnClose(win);
+    const action = closeAction({ quitting, hides, unsaved: unsavedWork !== null });
+    if (action === 'hide') {
+      e.preventDefault();
+    } else if (action === 'ask') {
+      e.preventDefault();
+      void confirmDiscard(win).then((discard) => {
+        if (!discard || win.isDestroyed()) return;
+        unsavedWork = null;
+        win.close();
+      });
+    }
   });
 
   // Dev server (http://localhost, HMR) or the built renderer served as app://ntnxvision.
@@ -792,6 +826,11 @@ function openSnapshotFiles(paths: string[]): void {
   }
 }
 
+ipc.handle(IPC.setUnsavedChanges, (_e, raw: unknown) => {
+  const req = asUnsavedChangesRequest(raw);
+  unsavedWork = req.dirty ? { what: req.what ?? '' } : null;
+});
+
 ipc.handle(IPC.takePendingSnapshotFiles, () => {
   rendererWantsFiles = true;
   return pendingSnapshotFiles.splice(0);
@@ -1031,7 +1070,18 @@ app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit();
 });
 
-app.on('before-quit', () => {
+app.on('before-quit', (e) => {
+  // Unsaved work asks before anything stops; "Keep editing" leaves the app running.
+  if (unsavedWork && mainWindow && !mainWindow.isDestroyed()) {
+    e.preventDefault();
+    const win = mainWindow;
+    void confirmDiscard(win).then((discard) => {
+      if (!discard) return;
+      unsavedWork = null;
+      app.quit();
+    });
+    return;
+  }
   quitting = true;
   scheduler.stop();
   sidecar.stop();
