@@ -122,8 +122,9 @@ function ExportDialog({
     return { excel: init.includes('excel'), pdf: init.includes('pdf'), word: init.includes('word') };
   });
   // Editable diagrams (.vsdx, .drawio, .svg of the report's figures): on by default, and
-  // only offered with a PDF or Word report, whose figures it carries.
-  const [diagrams, setDiagrams] = useState(true);
+  // only offered with a PDF or Word report, whose figures it carries. The last choice
+  // is remembered (settings.exportDiagrams).
+  const [diagrams, setDiagrams] = useState(settings.exportDiagrams ?? true);
   // Sections and order: collapsed by default, applies to this export only. The order
   // starts from Settings > Reports when its custom order is on.
   const [sectionsOpen, setSectionsOpen] = useState(false);
@@ -229,6 +230,7 @@ function ExportDialog({
       const res = merged;
       if (author && author !== settings.author) void update({ author });
       if (prefix !== (settings.filePrefix ?? '')) void update({ filePrefix: prefix });
+      if (docs && diagrams !== (settings.exportDiagrams ?? true)) void update({ exportDiagrams: diagrams });
       const errs = Object.entries(res.errors ?? {});
       const written = Object.values(res.paths ?? {});
       if (errs.length && !written.length) {
