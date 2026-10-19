@@ -301,7 +301,9 @@ def _layout_part(model: ManagementModel, plan: _Plan, page: Page, refs: Refs,
         y = list_y
         host_node: Node | None = None
         if shown or hidden:
-            sc.nodes.append(box(f"{s.id}:clusters-label", "label", x + P, label_y, inner,
+            # As wide as its text, so the "runs on" connector never passes through it.
+            lab_w = q(min(inner, tx.width("REGISTERED CLUSTERS", K.SIZE_SMALL, True) + 1))
+            sc.nodes.append(box(f"{s.id}:clusters-label", "label", x + P, label_y, lab_w,
                                 [Row("REGISTERED CLUSTERS", K.SIZE_SMALL, True, K.INK_3)],
                                 K.LABEL, pad_x=0, pad_y=0, align="left", parent=s.id))
         for c in shown:

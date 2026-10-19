@@ -18,7 +18,9 @@ from .. import text as tx
 from ..scene import LAYER, Edge, EdgeLabel, Node, Scene, TextLine, num
 from .vsdx import page_names
 
-FONT = "Figtree,Calibri,Segoe UI,Arial"
+#: Calibri first, as in the .vsdx: its widths are checked against the layout's reserve
+#: (`text.SAFETY`); Figtree, the measuring font, where Calibri is missing.
+FONT = "Calibri,Figtree,Carlito,Segoe UI,Arial"
 _ATTR = re.compile(r"[^A-Za-z0-9_]")
 
 
