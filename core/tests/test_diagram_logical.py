@@ -370,3 +370,28 @@ def test_word_and_pdf_carry_the_new_figures(design_envs: dict[str, Any], tmp_pat
     assert out.stat().st_size > 20_000
     assert drawn.count("logical") == len(_scenes(env)) or drawn.count("logical") >= 1
     assert drawn.index("conceptual") < drawn.index("logical")
+
+
+def test_a_failing_figure_leaves_a_note_and_the_report_goes_on(
+        design_envs: dict[str, Any], monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    from ntnxvision_core.exporters import export_environment
+    from ntnxvision_core.exporters.content import Paragraph, SceneFigure, build_report
+    from ntnxvision_core.exporters.design import logical as design_logical
+
+    def boom(*_a: Any, **_k: Any) -> bool:
+        raise RuntimeError("synthetic failure")
+
+    monkeypatch.setattr(design_logical, "build", boom)
+    env = design_envs["medium"]
+    rep = build_report(env, _opts(), eyebrow="Test")
+    ch = next(c for c in rep.chapters if c.key == "logical_design")
+    sec = next(s for s in ch.sections if s.title == "Logical Cluster Design")
+    (note,) = sec.blocks
+    assert isinstance(note, Paragraph)
+    assert note.text.startswith("Figure not drawn: the logical cluster design")
+    assert any("logical cluster design" in w.lower() for w in rep.warnings)
+    # The other figures are still there, and both documents are written.
+    assert any(isinstance(b, SceneFigure) for c in rep.chapters for s in c.sections
+               for b in s.blocks)
+    assert export_environment(env, "word", tmp_path, "r").stat().st_size > 0
+    assert export_environment(env, "pdf", tmp_path, "r").stat().st_size > 0
