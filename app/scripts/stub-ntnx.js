@@ -524,7 +524,7 @@
   window.ntnx = {
     platform: opt.platform,
     ping: () => delay({ pong: true, version: '0.4.0' }),
-    getAppInfo: () => delay({ version: '0.4.0', platform: opt.platform, defaultExportDir: EXPORT_DIR }),
+    getAppInfo: () => delay({ version: '0.4.0', platform: opt.platform, defaultExportDir: EXPORT_DIR, demo: !!opt.demo }),
     getLegalDocuments: () =>
       delay({
         version: '0.4.0',

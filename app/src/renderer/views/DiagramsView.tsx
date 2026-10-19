@@ -36,6 +36,7 @@ import { Badge, Button, Callout, Checkbox, ConfirmDialog, Dialog, ErrorState, Fi
 import { useAsync } from '../lib/useAsync';
 import { useNavigationGuard, useRouter } from '../lib/router';
 import { useRun } from '../lib/run';
+import { useSettings } from '../lib/settings';
 import { isMod, isTyping } from '../lib/keyboard';
 import { NA, errorMessage, fmtAbs, fmtDay, plural } from '../lib/format';
 import { useExportDialog } from './ExportDialog';
@@ -151,6 +152,7 @@ export function DiagramsView({ snapshot: snapProp, type: typeProp, part: partPro
   const { navigate } = useRouter();
   const { dataVersion } = useRun();
   const toast = useToast();
+  const { appInfo } = useSettings();
   const exportDialog = useExportDialog();
   const transfer = useSnapshotTransfer();
 
@@ -488,7 +490,7 @@ export function DiagramsView({ snapshot: snapProp, type: typeProp, part: partPro
               </Button>
               <Button onClick={() => transfer.importFiles()}>Import snapshot…</Button>
             </div>
-            <p className="hint">Nothing to collect yet? Demo mode draws the synthetic estate (pc01.demo.local).</p>
+            {appInfo?.demo && <p className="hint">Nothing to collect yet? Demo mode draws the synthetic estate (pc01.demo.local).</p>}
           </div>
         </Panel>
       </>
