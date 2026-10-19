@@ -98,7 +98,14 @@
     exportDir: '',
     author: 'Alberto Chestaro',
     multiTargetIds: ['t-pc01', 't-pc02', 't-pc03'],
+    ...(opt.customOrder
+      ? { customSectionOrder: true, sectionOrder: ['data_protection', 'networking', 'workloads', 'physical_design', 'logical_design'] }
+      : {}),
   };
+
+  // Report sections the stub snapshots have no data for (Export dialog > Sections and order).
+  const NO_DATA = new Set(['nus', 'ndb', 'automation']);
+  const REPORT_SECTIONS = ['executive_summary', 'licensing', 'assumptions', 'prism_central', 'logical_design', 'physical_design', 'workloads', 'catalog', 'nus', 'networking', 'data_protection', 'security', 'ndb', 'identity', 'automation', 'health', 'lcm', 'appendix'];
 
 
   // ── email (SMTP) and schedules ──
@@ -728,6 +735,10 @@
     resetDiagram: () => delay(window.__STUB_DIAGRAMS__.generated, 120),
     carryDiagrams: () => delay({ diagrams: window.__STUB_DIAGRAMS__.carry }, 200),
     setUnsavedChanges: () => delay(undefined, 0),
+    getReportSections: (p) =>
+      find(p)
+        ? delay({ sections: REPORT_SECTIONS.map((id) => ({ id, available: !NO_DATA.has(id), hint: NO_DATA.has(id) ? 'No data in this snapshot' : null })) })
+        : fail('Snapshot not found'),
     exportSnapshot: (req) => {
       const s = find(req.snapshotPath);
       const name = s ? s.name : 'snapshot';

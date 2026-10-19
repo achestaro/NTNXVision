@@ -7,6 +7,11 @@ sections the PDF and Word documents include, the Word template (built-in or a cu
 ``.dotx``/``.docx``), and the "prepared for" / author fields for the cover and document
 properties, and the target vCPU:pCPU ratio behind the cluster capacity figures (recorded
 in every report so the numbers can be reproduced). Excel always contains every sheet.
+
+Report sections (`exporters/sections.py`): `chapters` picks individual chapters (the
+"Sections and order" panel of the export dialog) and applies to the PDF, Word and the
+Excel object sheets; `section_order` reorders them (unknown ids ignored, missing ids
+appended in default order). Both None (the default) leave every report exactly as before.
 """
 
 from __future__ import annotations
@@ -53,9 +58,18 @@ class ExportOptions:
     #: the figure's disclosure bullet.
     diagram_origins: Mapping[str, str] | None = field(default=None, compare=False,
                                                       hash=False)
+    #: Report chapters to include (`sections.CATALOG` ids); None = every chapter. Unlike
+    #: the coarse `sections`, this also filters the Excel object sheets.
+    chapters: frozenset[str] | None = None
+    #: Custom chapter order (`sections.order`); None = the default document order.
+    section_order: tuple[str, ...] | None = None
 
     def includes(self, section: str) -> bool:
         return self.sections is None or section in self.sections
+
+    def includes_chapter(self, key: str, group: str) -> bool:
+        """Whether a report chapter is in: its group is selected and so is the chapter."""
+        return self.includes(group) and (self.chapters is None or key in self.chapters)
 
     @classmethod
     def coerce(cls, value: ExportOptions | dict[str, Any] | None) -> ExportOptions:
@@ -72,7 +86,14 @@ class ExportOptions:
             vcpu_ratio=coerce_ratio(value.get("vcpu_ratio")),
             diagram_models=value.get("diagram_models") or None,
             diagram_origins=value.get("diagram_origins") or None,
+            chapters=_str_set(value.get("chapters")),
+            section_order=tuple(str(s) for s in order) if isinstance(
+                order := value.get("section_order"), list) else None,
         )
+
+
+def _str_set(value: Any) -> frozenset[str] | None:
+    return frozenset(str(s) for s in value) if isinstance(value, list) else None
 
 
 @overload

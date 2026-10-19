@@ -6,6 +6,21 @@ format older builds can't read. Windows shows the version as X.Y.Z.0 in Installe
 Every pull request that changes shipped code raises it with `node scripts/bump-version.mjs`
 and adds a section here (CI checks both).
 
+## 0.8.0 (2026-10-19)
+
+### Added
+- Report sections: choose which chapters the Word and PDF reports include and arrange their
+  order, per export in the Export dialog ("Sections and order") or as a saved default in
+  Settings > Reports. The cover, contents and Executive Summary always lead; the appendix
+  always closes. Table, figure and chapter numbers follow the chosen order.
+- Excel follows the same selection and order for its sheets.
+
+### Changed
+- Cross-references name only chapters the report includes: the Executive Summary mentions
+  Licensing & Feature Usage and Assumptions & Constraints only when present, the v3 sunset
+  finding cites the appendix by its real letter, and the Excel Overview points at the
+  Capacity sheet only when the workbook has one.
+
 ## 0.7.1 (2026-10-19)
 
 ### Fixed

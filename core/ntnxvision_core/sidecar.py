@@ -370,6 +370,8 @@ def _export_options(params: dict[str, Any]) -> dict[str, Any]:
     word = params.get("word") or {}
     return {
         "sections": params.get("sections"),
+        "chapters": params.get("chapters"),
+        "section_order": params.get("section_order"),
         "template": word.get("template") or "standard",
         "prepared_for": word.get("prepared_for") or "",
         "author": word.get("author") or "",
@@ -768,6 +770,8 @@ def _multi(handle: RunHandle, targets: list[dict[str, Any]], params: dict[str, A
            ) -> dict[str, Any]:
     finalize_params = {"formats": params.get("formats"), "export_dir": params.get("export_dir"),
                        "sections": params.get("sections"), "word": params.get("word"),
+                       "chapters": params.get("chapters"),
+                       "section_order": params.get("section_order"),
                        "vcpu_ratio": params.get("vcpu_ratio"),
                        "file_prefix": params.get("file_prefix")}
     formats = params.get("formats") or []
@@ -910,6 +914,15 @@ def _estimates(summary: dict[str, Any], kind: Any) -> dict[str, Any]:
         "pdf": {"bytes": 650_000 + doc_rows * 1_100, "detail": f"≈ {10 + doc_rows // 30:,} pages"},
         "word": {"bytes": 800_000 + doc_rows * 900, "detail": f"≈ {16 + doc_rows // 25:,} pages"},
     }
+
+
+def _m_report_sections(_req_id: Any, params: dict[str, Any]) -> dict[str, Any]:
+    """Which report sections have content in a snapshot (the export dialog greys out the
+    others), in the default document order."""
+    from ntnxvision_core.exporters.sections import availability
+
+    env = _cache.get(_resolve_snapshot_path(params["snapshot"]))
+    return {"sections": availability(env)}
 
 
 def _m_export(_req_id: Any, params: dict[str, Any]) -> dict[str, Any]:
@@ -1563,6 +1576,7 @@ _METHODS = {
     "compare_snapshots": _m_compare_snapshots,
     "export_comparison": _m_export_comparison,
     "export": _m_export,
+    "report_sections": _m_report_sections,
     "rename_snapshot": _m_rename_snapshot,
     "delete_snapshot": _m_delete_snapshot,
     "clear_snapshots": _m_clear_snapshots,
