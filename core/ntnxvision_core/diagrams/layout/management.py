@@ -27,6 +27,7 @@ from .. import text as tx
 from .. import tokens as K
 from ..build import (
     CHIP_H,
+    LabelText,
     Row,
     box,
     chip,
@@ -214,9 +215,15 @@ def _more_rows(hidden: list[MgmtCluster], refs: Refs) -> list[Row]:
 
 
 def _visible(s: MgmtSite, keep: int | None) -> tuple[list[MgmtCluster], list[MgmtCluster]]:
+    """Decision 7: the cluster hosting Prism Central, then the largest by node count;
+    the rest go into one "+N more" card. Kept clusters stay in their usual order."""
     if keep is None or len(s.clusters) <= keep + 1:
         return list(s.clusters), []
-    return s.clusters[:keep], s.clusters[keep:]
+    chosen = [c for c in s.clusters if c.hosts_pc][:keep]
+    rest = sorted((c for c in s.clusters if c not in chosen),
+                  key=lambda c: (-(c.nodes or 0), s.clusters.index(c)))
+    ids = {c.id for c in chosen + rest[:keep - len(chosen)]}
+    return [c for c in s.clusters if c.id in ids], [c for c in s.clusters if c.id not in ids]
 
 
 # ─── one part ──────────────────────────────────────────────────────────
@@ -227,7 +234,9 @@ def _layout_part(model: ManagementModel, plan: _Plan, page: Page, refs: Refs,
     sites = plan.sites
     n = max(1, len(sites))
     gaps = _gaps(plan)
-    site_w = q(min((page.width - 2 * MX - sum(gaps)) / n, SITE_MAX))
+    side = _side_mode(plan, page, gaps)
+    room = page.width - 2 * MX - sum(gaps) - (SIDE_GUT + SIDE_W if side else 0.0)
+    site_w = q(min(room / n, SITE_MAX))
     inner = q(site_w - 2 * P)
     sc = Scene(id=sid, type="management", title=model.title, caption="", width=page.width,
                height=0)
@@ -344,7 +353,9 @@ def _layout_part(model: ManagementModel, plan: _Plan, page: Page, refs: Refs,
         if not lk.connected:
             states.add(lk.state_text)
     bottom = site_bottom
-    if plan.below:
+    if plan.below and side:
+        bottom = max(bottom, _side(sc, model, plan, site_nodes, pc_nodes, kinds, states))
+    elif plan.below:
         bottom = _below(sc, model, plan, site_nodes, page, kinds, states)
 
     items: list[tuple[str, Style, str]] = []
@@ -465,6 +476,62 @@ def _remote_rows(r: MgmtRemote, sources: list[str], links: list[MgmtLink]) -> li
     return rows
 
 
+SIDE_GUT = 66.0
+SIDE_W = 132.0
+
+
+def _side_mode(plan: _Plan, page: Page, gaps: list[float]) -> bool:
+    """Remote AZs go in a column on the right when every pairing with them starts in the
+    right-most column and the columns keep their full width (mock A3)."""
+    if not plan.below or any(s != plan.sites[-1].id for s, _, _ in plan.below):
+        return False
+    need = len(plan.sites) * SITE_MAX + sum(gaps) + SIDE_GUT + SIDE_W
+    return need <= page.width - 2 * MX
+
+
+def _side(sc: Scene, model: ManagementModel, plan: _Plan, site_nodes: dict[str, Node],
+          pc_nodes: dict[str, Node], kinds: dict[str, bool], states: set[str]) -> float:
+    """Remote AZ boxes in a column right of the last column, each joined by a straight
+    pairing line labelled above it; returns the column's bottom."""
+    src = plan.sites[-1].id
+    sn = site_nodes[src]
+    x0 = sn.x + sn.w
+    bx = q(x0 + SIDE_GUT)
+    pcn = pc_nodes.get(src)
+    y = q(pcn.y if pcn is not None else sn.y + 18)
+    bottom = y
+    labelled = False
+    for _s, t, lk in plan.below:
+        r = model.remote(t)
+        assert r is not None
+        node = box(t, "box", bx, y, SIDE_W, _remote_rows(r, [], [lk]), K.REMOTE, pad_x=5,
+                   pad_y=CHIP_H / 2 + 3, data={"availability_zone": r.name, "name": r.name})
+        sc.nodes.append(node)
+        sc.nodes.append(chip(f"{t}:tag", "REMOTE AZ", bx + 5.5, y, K.TAG_MUTED, parent=t))
+        ly = q(y + min(node.h / 2, 20.0))
+        style = K.PAIRING if lk.connected else K.PAIRING_DOWN
+        kinds["pairing" if lk.connected else "pairing_down"] = True
+        if not lk.connected:
+            states.add(lk.state_text)
+        e = edge(lk.id, src, t, [(x0 + 0.5, ly), (bx - 0.5, ly)], style, arrow_start=True,
+                 arrow_end=True, data={"kind": "pairing"})
+        # A connected pairing is labelled once (the legend names the line); a pairing
+        # that is not connected always states why.
+        text: list[LabelText] = ["AZ pairing"] if lk.connected else \
+            ["AZ pairing", lk.state_text]
+        if not (lk.connected and labelled):
+            _, _, lh = label_block(text, SIDE_GUT - 4)
+            e.labels.append(edge_label(text, x0 + SIDE_GUT / 2, ly - 1.5 - lh / 2,
+                                       SIDE_GUT - 4,
+                                       color=K.IRIS if lk.connected else K.INK_3,
+                                       background=False))
+            labelled = labelled or lk.connected
+        sc.edges.append(e)
+        bottom = node.y + node.h
+        y = q(bottom + 12)
+    return q(bottom)
+
+
 def _below(sc: Scene, model: ManagementModel, plan: _Plan, site_nodes: dict[str, Node],
            page: Page, kinds: dict[str, bool], states: set[str]) -> float:
     """Remote AZ boxes under the columns; one bus channel per remote."""
@@ -526,6 +593,7 @@ def _below(sc: Scene, model: ManagementModel, plan: _Plan, site_nodes: dict[str,
     hmax = max(b.h for b in boxes.values())
     for b in boxes.values():
         b.h = hmax
+    labelled = False
     for ti, t in enumerate(targets):
         b = boxes[t]
         srcs = sources[t]
@@ -546,8 +614,9 @@ def _below(sc: Scene, model: ManagementModel, plan: _Plan, site_nodes: dict[str,
                 states.add(lk.state_text)
             e = edge(f"{lk.id}|{s}" if len(srcs) > 1 else lk.id, s, t, pts, style,
                      arrow_end=True, arrow_start=len(srcs) == 1, data={"kind": "pairing"})
-            if len(srcs) == 1:
-                text = f"AZ pairing, {lk.state_text}"
+            if len(srcs) == 1 and not (lk.connected and labelled):
+                labelled = labelled or lk.connected
+                text = "AZ pairing" if lk.connected else f"AZ pairing, {lk.state_text}"
                 _, lw, lh = label_block([text], label_w)
                 lx = min(tx_ + 2.5 + lw / 2, page.width - MX - lw / 2)
                 ly = b.y - 2 - lh / 2
@@ -579,16 +648,23 @@ def _ladder(sites: list[MgmtSite]) -> list[int | None]:
 
 
 def _best(model: ManagementModel, sites: list[MgmtSite], parts: list[list[str]], page: Page,
-          refs: Refs, limit: Budget, sid: str) -> tuple[Scene, bool]:
+          refs: Refs, limit: Budget, sid: str, keep_at_most: int | None | str = "any"
+          ) -> tuple[Scene, bool, int | None]:
+    """The first ladder rung that fits (scene, fits, keep); `keep_at_most` (an estate's
+    common rung) skips the rungs that show more."""
     part_of = {i: pi for pi, p in enumerate(parts) for i in p}
     plan = _plan(model, sites, part_of, len(parts))
     sc: Scene | None = None
-    for keep in _ladder(sites):
+    keep: int | None = None
+    rungs = _ladder(sites)
+    if isinstance(keep_at_most, int):
+        rungs = [k for k in rungs if k is not None and k <= keep_at_most] or [keep_at_most]
+    for keep in rungs:
         sc = _layout_part(model, plan, page, refs, keep, sid)
         if sc.height <= limit(sc.width):
-            return sc, True
+            return sc, True, keep
     assert sc is not None
-    return sc, False
+    return sc, False, keep
 
 
 def layout(model: ManagementModel, page: Page | None = None, refs: Refs | None = None,
@@ -612,11 +688,17 @@ def layout(model: ManagementModel, page: Page | None = None, refs: Refs | None =
                      "probe")[1]
 
     parts = parts_mod.fit([s.id for s in model.sites], pairs, PER_PART, fits)
+    # One detail level for the estate: every column keeps as many clusters as the
+    # tightest part allows, so like Prism Centrals are drawn alike.
+    keeps = [_best(model, [by_id[i] for i in ids], parts, page, refs, limit(pi), "probe")[2]
+             for pi, ids in enumerate(parts)]
+    common = None if all(k is None for k in keeps) else \
+        min(k for k in keeps if k is not None)
     scenes = []
     for pi, ids in enumerate(parts):
         sid = "management" if len(parts) == 1 else f"management-{pi + 1}"
         sites = [by_id[i] for i in ids]
-        sc, _ = _best(model, sites, parts, page, refs, limit(pi), sid)
+        sc, _, _ = _best(model, sites, parts, page, refs, limit(pi), sid, common)
         sc.part = (pi + 1, len(parts))
         sc.caption = _caption(model, sites, sc.part)
         scenes.append(sc)

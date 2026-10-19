@@ -60,6 +60,8 @@ class MgmtCluster:
     #: Hosts the PC and runs no user VM: a dedicated management cluster.
     dedicated: bool = False
     user_vms: int | None = None
+    #: Nodes, for choosing the clusters a summarised column keeps (decision 7).
+    nodes: int | None = None
     #: CONNECTED / DISCONNECTED / PENDING as registered, None when not reported.
     connectivity: str | None = None
     data: dict[str, str] = field(default_factory=dict)
@@ -238,7 +240,7 @@ def management_model(env: Environment) -> ManagementModel:
                 id=f"cluster:{c.uuid}", name=name, hypervisor=", ".join(hyps) or None,
                 pe_ip=c.external_ip, dsip=c.data_services_ip, aos=short_version(c.aos_version),
                 vcenter=c.vcenter_address, hosts_pc=hosts_pc,
-                dedicated=hosts_pc and n_user == 0, user_vms=n_user,
+                dedicated=hosts_pc and n_user == 0, user_vms=n_user, nodes=c.num_nodes,
                 connectivity=(reg.connectivity_status.upper()
                               if reg and reg.connectivity_status else None),
                 data={"cluster_uuid": c.uuid, "name": name, "prism_central": host}))
