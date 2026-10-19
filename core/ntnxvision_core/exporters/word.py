@@ -559,30 +559,56 @@ def _text_width(doc: DocumentObject) -> int:
     return int(s.page_width or Inches(8.5)) - int(s.left_margin or 0) - int(s.right_margin or 0)
 
 
+#: Table text size (pt) and cell padding (left + right margins, pt) in `_table`.
+TABLE_PT = 8.5
+CELL_PAD_PT = 170 / 20
+#: Room on top of the measured width: Word's Calibri is measured with the bundled
+#: Figtree (which is wider), plus a margin for Word's own rounding and kerning.
+WORD_SLACK = 1.08
+#: The longest single word a column must hold whole (pt); longer ones may wrap.
+MAX_WORD_PT = 200.0
+#: A column's natural width is capped (pt): long free text wraps.
+MAX_NATURAL_PT = 300.0
+
+
+def _text_pt(text: str, bold: bool = False) -> float:
+    from ntnxvision_core.diagrams import text as tx
+
+    return tx.natural(text, TABLE_PT, bold) * WORD_SLACK
+
+
 def _column_widths(t: Table, width: int) -> list[float]:
-    """Column widths (EMU) from the shared weights: content-sized when the table is
-    narrow, spread across the text width otherwise."""
-    per_char = Inches(0.07)
-    pad = Inches(0.2)
+    """Column widths (EMU), measured with real font metrics: content-sized when the
+    table is narrow, spread across the text width otherwise.
+
+    No column is narrower than its longest word (a cluster name, a hostname, a status),
+    so Word wraps between words and never breaks "NYC-PROD-01" at its hyphen. When even
+    those minimums do not fit, the Cluster column keeps its minimum and the others
+    share what is left."""
+    pt = 12700  # EMU per point
+    pad = CELL_PAD_PT * pt
     glyph = Inches(0.13)
     natural, minimum = [], []
     for i, header in enumerate(t.headers):
         texts = [cell_text(r[i], header) for r in t.rows[:250]]
         extra = glyph if any(isinstance(r[i], Status) for r in t.rows[:250]) else 0
-        widest = max((len(x) for x in texts), default=0)
-        natural.append(min(max(widest, len(header) * 0.9), 60) * per_char + pad + extra)
-        # Never narrower than the longest word (a name, a hostname, a date, a status), so
-        # the table wraps between words instead of breaking "CRITICAL" or
-        # "md-pc01.demo.local" across two lines. Plain ASCII hyphens everywhere: copy,
-        # paste and Find work on the text, and Word renders it without gaps.
-        longest = max((len(w) for x in [*texts, header] for w in x.split(" ")), default=4)
-        minimum.append(min(longest, 24) * per_char + pad + extra)
+        widest = max([_text_pt(x) for x in texts] + [_text_pt(header, True)], default=0.0)
+        natural.append(min(widest, MAX_NATURAL_PT) * pt + pad + extra)
+        words = [(w, False) for x in texts for w in x.split()] + \
+            [(w, True) for w in header.split()]
+        longest = max((_text_pt(w, b) for w, b in words), default=0.0)
+        minimum.append(min(longest, MAX_WORD_PT) * pt + pad + extra)
+    natural = [max(n, m) for n, m in zip(natural, minimum, strict=True)]
     total = sum(natural)
     if total <= width:
         return natural if total < width * 0.62 else [w * width / total for w in natural]
     floor = sum(minimum)
     if floor >= width:
-        return [m * width / floor for m in minimum]
+        first = 1 if t.headers and t.headers[0] == "Cluster" else 0
+        keep = sum(minimum[:first])
+        rest = sum(minimum[first:])
+        scale = max(0.0, width - keep) / rest if rest else 1.0
+        return minimum[:first] + [m * scale for m in minimum[first:]]
     spare, flex = width - floor, total - floor
     return [m + (n - m) * spare / flex for n, m in zip(natural, minimum, strict=True)]
 
