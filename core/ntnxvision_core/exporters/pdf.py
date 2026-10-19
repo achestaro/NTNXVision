@@ -618,6 +618,8 @@ class PdfExporter:
     def _scene_need(self, pdf: _Pdf, f: SceneFigure) -> float:
         _, fh, _ = self._scene_size(pdf, f)
         summary = self._summary_h(pdf, f)
+        if f.new_page and not f.summary_beside:
+            return summary  # the figure itself starts the next page
         body = max(fh, summary) if f.summary_beside else summary + 1.5 + fh
         return body + self._caption_h(pdf, f)
 
@@ -648,14 +650,19 @@ class PdfExporter:
     def _scene_figure(self, pdf: _Pdf, f: SceneFigure) -> None:
         fw, fh, k = self._scene_size(pdf, f)
         need = self._scene_need(pdf, f)
-        # The summary, the figure and its caption always share a page.
-        if pdf.get_y() + need > pdf.page_break_trigger and need <= pdf.h - TOP - BOTTOM:
+        # The summary, the figure and its caption share a page, unless the figure is
+        # marked to start a page of its own (then the summary stays with its heading).
+        no_room = pdf.get_y() + need > pdf.page_break_trigger and need <= pdf.h - TOP - BOTTOM
+        if (f.new_page and f.summary_beside) or no_room:
             pdf.add_page()
         y = pdf.get_y()
         if f.summary and not f.summary_beside:
             cols = self._summary_cols(f)
             col_w = (pdf.epw - self.SUMMARY_COL_GAP * (len(cols) - 1)) / len(cols)
             y = self._summary_block(pdf, cols, pdf.l_margin, y, col_w) + 1.5
+        if f.new_page and not f.summary_beside:
+            pdf.add_page()
+            y = pdf.get_y()
         # Drawn without fpdf2's automatic page break: the space was reserved above.
         pdf.set_auto_page_break(False)
         draw_scene(pdf, f.scene, pdf.l_margin, y, scale=k, family=SANS)

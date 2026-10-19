@@ -1,3 +1,3 @@
 """NTNXVision core — Nutanix Prism Central inventory & documentation engine."""
 
-__version__ = "0.6.0"
+__version__ = "0.7.0"

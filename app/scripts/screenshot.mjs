@@ -46,7 +46,7 @@ const server = createServer(async (req, res) => {
 });
 await new Promise((r) => server.listen(0, '127.0.0.1', r));
 const url = `http://127.0.0.1:${server.address().port}/`;
-const stub = await readFile(join(here, 'stub-ntnx.js'), 'utf-8');
+const stub = `window.__STUB_DIAGRAMS__ = ${await readFile(join(here, 'stub-diagrams.json'), 'utf-8')};\n${await readFile(join(here, 'stub-ntnx.js'), 'utf-8')}`;
 
 const rail = async (page, name) => {
   await page.getByRole('navigation', { name: 'Primary' }).getByRole('button', { name, exact: true }).click();
@@ -410,6 +410,41 @@ const SHOTS = [
     await p.locator('.compare-scope-notice').waitFor();
   }],
   ['compare-empty', { empty: true }, async (p) => rail(p, 'Compare')],
+  // Diagrams page (mocks C1-C4): editing with a selection, stale edit, carry forward, empty.
+  ['diagrams', { diagrams: 'edited' }, async (p) => {
+    await rail(p, 'Diagrams');
+    await p.locator('.dg-sheet svg').waitFor();
+    // A renamed collected cluster: the inspector offers "Collected name: X · Revert".
+    await p.locator('[data-el^="cluster:"]', { hasText: '(SQL tier)' }).click();
+    await p.getByText('Collected name:').waitFor();
+    await cardsFit(p);
+  }],
+  ['diagrams-generated', {}, async (p) => {
+    await rail(p, 'Diagrams');
+    await p.locator('.dg-sheet svg').waitFor();
+  }],
+  ['diagrams-stale', { diagrams: 'stale' }, async (p) => {
+    await rail(p, 'Diagrams');
+    await p.getByText('The collected data changed').waitFor();
+  }],
+  ['diagrams-carry', { diagrams: 'carry' }, async (p) => {
+    await rail(p, 'Diagrams');
+    await p.getByRole('dialog', { name: 'Carry your edits to the new snapshot?' }).waitFor();
+  }],
+  ['diagrams-empty', { empty: true, demo: true }, async (p) => {
+    await rail(p, 'Diagrams');
+    await p.getByText('No snapshot to draw yet').waitFor();
+  }],
+  ['diagrams-narrow', { diagrams: 'edited' }, async (p) => {
+    await rail(p, 'Diagrams');
+    await p.locator('.dg-sheet svg').waitFor();
+    await p.locator('[data-el="user:backup-appliance"]').click();
+    // The inspector stays beside the canvas; the list is a select.
+    const ins = await p.getByRole('complementary', { name: 'Inspector' }).boundingBox();
+    const canvas = await p.getByRole('region', { name: 'Canvas' }).boundingBox();
+    if (!ins || !canvas || ins.y > canvas.y + 10) throw new Error('the inspector wrapped below the canvas');
+    await p.locator('#dg-pick').waitFor();
+  }, 900, 1100],
   ['snapshots-empty', { empty: true }, async (p) => rail(p, 'Snapshots')],
   ['settings', {}, async (p) => rail(p, 'Settings')],
   ['theme-menu', {}, async (p) => {

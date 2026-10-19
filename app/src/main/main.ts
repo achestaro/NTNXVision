@@ -71,7 +71,12 @@ import { e2eRun, testEnv } from './testhooks';
 import {
   asCollectionRequest,
   asCompareExportRequest,
+  asDiagramCarryRequest,
+  asDiagramOps,
+  asDiagramType,
   asExportRequest,
+  asUnsavedChangesRequest,
+  closeAction,
   asListClustersRequest,
   asMultiCollectionRequest,
   asSnapshotFileExportRequest,
@@ -120,6 +125,29 @@ const sidecar = new SidecarClient();
 let mainWindow: BrowserWindow | null = null;
 /** Set by a real quit (menu, tray, Cmd+Q): closing the window then closes it. */
 let quitting = false;
+/** Unsaved work the renderer reported (setUnsavedChanges); closing asks while set. */
+let unsavedWork: { what: string } | null = null;
+
+/** A discard prompt is showing: a second close or quit waits for it (no stacked dialogs). */
+let asking = false;
+/** Windows is logging off or shutting down: never hold it up with a prompt. */
+let sessionEnding = false;
+
+async function confirmDiscard(win: BrowserWindow): Promise<boolean> {
+  const what = unsavedWork?.what || 'A diagram';
+  if (!win.isVisible()) win.show(); // e.g. hidden in the tray when Quit was chosen
+  const r = await dialog.showMessageBox(win, {
+    type: 'warning',
+    buttons: ['Keep editing', 'Discard and close'],
+    defaultId: 0,
+    cancelId: 0,
+    noLink: true,
+    message: 'Discard unsaved changes?',
+    detail: `${what} has changes that are not saved. Exports keep using the saved version.`,
+  });
+  return r.response === 1;
+}
+
 /** Collections the user started that are still running (scheduled runs wait for them). */
 let manualRuns = 0;
 
@@ -236,8 +264,9 @@ function windowPreferences(): Electron.WebPreferences {
 }
 
 function createWindow(show = true): void {
-  // A new renderer asks for queued snapshot files once it has mounted.
+  // A new renderer asks for queued snapshot files once it has mounted, and starts clean.
   rendererWantsFiles = false;
+  unsavedWork = null;
   mainWindow = new BrowserWindow({
     show,
     width: 1440,
@@ -248,10 +277,39 @@ function createWindow(show = true): void {
     title: demo ? 'NTNXVision · demo data' : 'NTNXVision',
     webPreferences: windowPreferences(),
   });
-  // While a schedule is enabled, closing the window keeps the app in the tray / menu bar.
+  // While a schedule is enabled, closing the window keeps the app in the tray / menu bar
+  // (nothing is lost). Otherwise unsaved work (Diagrams page) asks before it is dropped.
   mainWindow.on('close', (e) => {
-    if (quitting || !mainWindow) return;
-    if (scheduler.hideOnClose(mainWindow)) e.preventDefault();
+    const win = mainWindow;
+    if (!win) return;
+    const hides = !quitting && scheduler.hideOnClose(win);
+    const action = closeAction({ quitting, hides, unsaved: unsavedWork !== null && !sessionEnding });
+    if (action === 'hide') {
+      e.preventDefault();
+    } else if (action === 'ask') {
+      e.preventDefault();
+      if (asking) return;
+      asking = true;
+      void confirmDiscard(win)
+        .then((discard) => {
+          if (!discard || win.isDestroyed()) return;
+          unsavedWork = null;
+          win.close();
+        })
+        .finally(() => (asking = false));
+    }
+  });
+  // Windows log-off / shutdown: close without asking.
+  mainWindow.on('session-end', () => {
+    sessionEnding = true;
+  });
+  // A crashed or reloaded renderer has lost its unsaved state: nothing left to ask about
+  // (the new page reports its own state when it has some).
+  mainWindow.webContents.on('render-process-gone', () => {
+    unsavedWork = null;
+  });
+  mainWindow.webContents.on('did-start-navigation', (details) => {
+    if (details.isMainFrame && !details.isSameDocument) unsavedWork = null;
   });
 
   // Dev server (http://localhost, HMR) or the built renderer served as app://ntnxvision.
@@ -674,6 +732,33 @@ ipc.handle(IPC.importSnapshotFile, (_e, path: string, onConflict: ImportConflict
   }),
 );
 
+// ─── IPC handlers: diagrams (Diagrams page) ────────────────────────────
+
+ipc.handle(IPC.listDiagrams, (_e, snapshotPath: string) =>
+  sidecar.call('list_diagrams', { snapshot: snapshotPathArg(snapshotPath) }),
+);
+
+ipc.handle(IPC.getDiagram, (_e, snapshotPath: string, type: string) =>
+  sidecar.call('get_diagram', { snapshot: snapshotPathArg(snapshotPath), type: asDiagramType(type) }),
+);
+
+ipc.handle(IPC.layoutDiagram, (_e, snapshotPath: string, type: string, ops: unknown) =>
+  sidecar.call('layout_diagram', { snapshot: snapshotPathArg(snapshotPath), type: asDiagramType(type), ops: asDiagramOps(ops) }),
+);
+
+ipc.handle(IPC.saveDiagram, (_e, snapshotPath: string, type: string, ops: unknown) =>
+  sidecar.call('save_diagram', { snapshot: snapshotPathArg(snapshotPath), type: asDiagramType(type), ops: asDiagramOps(ops) }),
+);
+
+ipc.handle(IPC.resetDiagram, (_e, snapshotPath: string, type: string) =>
+  sidecar.call('reset_diagram', { snapshot: snapshotPathArg(snapshotPath), type: asDiagramType(type) }),
+);
+
+ipc.handle(IPC.carryDiagrams, (_e, raw: unknown) => {
+  const req = asDiagramCarryRequest(raw);
+  return sidecar.call('carry_diagrams', { from: req.from, to: req.to, types: req.types });
+});
+
 /** Dialog file filters: names and bare extensions only. */
 function fileFilters(v: unknown): FileFilter[] {
   if (!Array.isArray(v) || v.length > 20) throw new ValidationError('filters must be a list');
@@ -761,6 +846,11 @@ function openSnapshotFiles(paths: string[]): void {
     createWindow();
   }
 }
+
+ipc.handle(IPC.setUnsavedChanges, (_e, raw: unknown) => {
+  const req = asUnsavedChangesRequest(raw);
+  unsavedWork = req.dirty ? { what: req.what ?? '' } : null;
+});
 
 ipc.handle(IPC.takePendingSnapshotFiles, () => {
   rendererWantsFiles = true;
@@ -1001,7 +1091,22 @@ app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit();
 });
 
-app.on('before-quit', () => {
+app.on('before-quit', (e) => {
+  // Unsaved work asks before anything stops; "Keep editing" leaves the app running.
+  if (unsavedWork && !sessionEnding && mainWindow && !mainWindow.isDestroyed()) {
+    e.preventDefault();
+    if (asking) return;
+    asking = true;
+    const win = mainWindow;
+    void confirmDiscard(win)
+      .then((discard) => {
+        if (!discard) return;
+        unsavedWork = null;
+        app.quit();
+      })
+      .finally(() => (asking = false));
+    return;
+  }
   quitting = true;
   scheduler.stop();
   sidecar.stop();

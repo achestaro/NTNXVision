@@ -11,7 +11,8 @@ in every report so the numbers can be reproduced). Excel always contains every s
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from collections.abc import Mapping
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, overload
 
@@ -44,6 +45,14 @@ class ExportOptions:
     author: str = ""
     #: Target vCPU:pCPU ratio for the "vCPU Total" capacity figures (capacity.py).
     vcpu_ratio: float = DEFAULT_VCPU_RATIO
+    #: Diagram type id -> the edited model its figures draw (saved on the Diagrams page,
+    #: `diagrams.store.edited_models`). Figures only: tables use the generated model.
+    diagram_models: Mapping[str, Any] | None = field(default=None, compare=False,
+                                                     hash=False)
+    #: Diagram type id -> the snapshot its edits were carried from automatically, for
+    #: the figure's disclosure bullet.
+    diagram_origins: Mapping[str, str] | None = field(default=None, compare=False,
+                                                      hash=False)
 
     def includes(self, section: str) -> bool:
         return self.sections is None or section in self.sections
@@ -61,6 +70,8 @@ class ExportOptions:
             prepared_for=str(value.get("prepared_for") or ""),
             author=str(value.get("author") or ""),
             vcpu_ratio=coerce_ratio(value.get("vcpu_ratio")),
+            diagram_models=value.get("diagram_models") or None,
+            diagram_origins=value.get("diagram_origins") or None,
         )
 
 
