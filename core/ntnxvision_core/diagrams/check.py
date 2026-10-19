@@ -7,6 +7,21 @@ from . import text as tx
 from .scene import Scene, TextLine
 
 EPS = 0.05
+#: How far (pt) a label may sit from its own edge (labels above a line, not on it).
+ANCHOR = 4.0
+
+
+def _gap_to_path(x: float, y: float, w: float, h: float,
+                 points: list[tuple[float, float]]) -> float:
+    """Distance from a rectangle to the nearest segment of an orthogonal polyline."""
+    best = float("inf")
+    for (x0, y0), (x1, y1) in zip(points, points[1:], strict=False):
+        sx0, sx1 = sorted((x0, x1))
+        sy0, sy1 = sorted((y0, y1))
+        dx = max(sx0 - (x + w), x - sx1, 0.0)
+        dy = max(sy0 - (y + h), y - sy1, 0.0)
+        best = min(best, (dx * dx + dy * dy) ** 0.5)
+    return best
 
 
 def _lines_fit(lines: list[TextLine], w: float, h: float, where: str) -> list[str]:
@@ -53,6 +68,8 @@ def check_scene(sc: Scene) -> list[str]:
             problems += _lines_fit(lab.lines, lab.w, lab.h, f"{e.id} label")
             if lab.x < -EPS or lab.x + lab.w > sc.width + EPS:
                 problems.append(f"{e.id} label: outside the canvas")
+            if _gap_to_path(lab.x, lab.y, lab.w, lab.h, e.points) > ANCHOR:
+                problems.append(f"{e.id} label: not on its own edge")
         for x, y in e.points:
             if x < -EPS or y < -EPS or x > sc.width + EPS or y > sc.height + EPS:
                 problems.append(f"{e.id}: point outside the canvas")

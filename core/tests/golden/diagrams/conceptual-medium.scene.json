@@ -1,1 +1,1375 @@
-{"caption":"Solution conceptual overview: 2 availability zones, 6 clusters, 33 nodes.","edges":[{"arrow_end":true,"arrow_start":false,"data":{"kind":"manages"},"dst":"cluster:86088e1b-cdfc-5113-a735-aeb9ef1962c3","id":"site:md-pc01.demo.local:pc->cluster:86088e1b-cdfc-5113-a735-aeb9ef1962c3","labels":[],"points":[[74.0,82.74],[74.0,93.74]],"src":"site:md-pc01.demo.local:pc","style":{"dash":null,"fill":null,"radius":0.0,"stroke":"#8E99A4","stroke_w":0.7}},{"arrow_end":true,"arrow_start":false,"data":{"kind":"manages"},"dst":"cluster:8db1379a-d206-57cc-87c6-3ff054625b9a","id":"site:md-pc02.demo.local:pc->cluster:8db1379a-d206-57cc-87c6-3ff054625b9a","labels":[],"points":[[303.0,82.74],[303.0,93.74]],"src":"site:md-pc02.demo.local:pc","style":{"dash":null,"fill":null,"radius":0.0,"stroke":"#8E99A4","stroke_w":0.7}},{"arrow_end":true,"arrow_start":true,"data":{"kind":"pairing"},"dst":"site:md-pc02.demo.local","id":"link:pairing:site:md-pc01.demo.local->site:md-pc02.demo.local","labels":[{"background":false,"h":9.68,"lines":[{"baseline":6.94,"bold":false,"color":"#5B3FD9","size":6.0,"text":"AZ pairing","width":27.68,"x":2.83}],"w":33.34,"x":171.83,"y":50.38}],"points":[[148.0,60.72],[229.0,60.72]],"src":"site:md-pc01.demo.local","style":{"dash":[3.0,2.25],"fill":null,"radius":0.0,"stroke":"#5B3FD9","stroke_w":0.75}},{"arrow_end":true,"arrow_start":true,"data":{"kind":"replication"},"dst":"site:md-pc02.demo.local","id":"link:replication:site:md-pc01.demo.local->site:md-pc02.demo.local","labels":[{"background":true,"h":17.36,"lines":[{"baseline":6.94,"bold":false,"color":"#5B3FD9","size":6.0,"text":"NearSync 1 min","width":41.73,"x":3.25},{"baseline":14.62,"bold":false,"color":"#5B3FD9","size":6.0,"text":"Async 1 h","width":25.4,"x":11.42}],"w":48.23,"x":164.38,"y":103.69},{"background":false,"h":9.68,"lines":[{"baseline":6.94,"bold":false,"color":"#5B6976","size":6.0,"text":"both directions","width":40.84,"x":3.22}],"w":47.29,"x":164.86,"y":122.71}],"points":[[148.0,112.37],[229.0,112.37]],"src":"site:md-pc01.demo.local","style":{"dash":null,"fill":null,"radius":0.0,"stroke":"#5B3FD9","stroke_w":1.1}},{"arrow_end":false,"arrow_start":false,"data":{},"dst":"","id":"legend:3","labels":[],"points":[[248.82,236.27],[265.82,236.27]],"src":"","style":{"dash":null,"fill":null,"radius":0.0,"stroke":"#5B3FD9","stroke_w":1.1}},{"arrow_end":false,"arrow_start":false,"data":{},"dst":"","id":"legend:4","labels":[],"points":[[316.71,236.27],[333.71,236.27]],"src":"","style":{"dash":[3.0,2.25],"fill":null,"radius":0.0,"stroke":"#5B3FD9","stroke_w":0.75}},{"arrow_end":false,"arrow_start":false,"data":{},"dst":"","id":"legend:5","labels":[],"points":[[0.5,247.27],[17.5,247.27]],"src":"","style":{"dash":null,"fill":null,"radius":0.0,"stroke":"#8E99A4","stroke_w":0.7}}],"height":254.02,"id":"conceptual","meta":{"drawn":["cluster:86088e1b-cdfc-5113-a735-aeb9ef1962c3","cluster:b05a4233-4013-58ed-a8b7-794ab3a4f5f8","cluster:9b4738ef-4d63-5e4f-92be-6214d8858c4e","cluster:8db1379a-d206-57cc-87c6-3ff054625b9a","cluster:6ce6d622-1b20-52a3-98e8-31ed2e9a383a","cluster:92c840d4-7d8a-5dce-b2c2-1e5e3e93e652"],"sites":["site:md-pc01.demo.local","site:md-pc02.demo.local"],"summarised":[]},"nodes":[{"data":{"prism_central":"md-pc01.demo.local"},"h":217.02,"id":"site:md-pc01.demo.local","kind":"container","lines":[{"baseline":17.91,"bold":true,"color":"#0F1A24","size":9.0,"text":"md-pc01.demo.local","width":83.19,"x":31.9},{"baseline":26.96,"bold":false,"color":"#5B6976","size":6.0,"text":"Availability zone, 3 clusters, 18 nodes","width":99.16,"x":23.92}],"parent":null,"style":{"dash":null,"fill":"#FAFBFB","radius":5.25,"stroke":"#C9D0D6","stroke_w":0.75},"w":147.0,"x":0.5,"y":5.0},{"data":{},"h":9.0,"id":"site:md-pc01.demo.local:tag","kind":"tag","lines":[{"baseline":6.6,"bold":true,"color":"#FFFFFF","size":6.0,"text":"AZ","width":8.0,"x":3.74}],"parent":"site:md-pc01.demo.local","style":{"dash":null,"fill":"#5B3FD9","radius":1.9,"stroke":null,"stroke_w":0.75},"w":15.48,"x":6.0,"y":0.5},{"data":{"prism_central":"md-pc01.demo.local"},"h":44.04,"id":"site:md-pc01.demo.local:pc","kind":"box","lines":[{"baseline":12.92,"bold":true,"color":"#FFFFFF","size":8.0,"text":"Prism Central","width":49.06,"x":42.97},{"baseline":21.88,"bold":false,"color":"#FFFFFF","size":6.2,"text":"pc.7.5.1, single VM","width":50.52,"x":42.24},{"baseline":29.62,"bold":false,"color":"#FFFFFF","size":6.0,"text":"6 vCPU, 28 GiB","width":41.02,"x":46.99},{"baseline":37.3,"bold":false,"color":"#EAE8F8","size":6.0,"text":"DR (2) · Flow (6) · VPCs (3) · X-Play (6)","width":102.29,"x":16.35}],"parent":"site:md-pc01.demo.local","style":{"dash":null,"fill":"#5B3FD9","radius":3.75,"stroke":null,"stroke_w":0.75},"w":135.0,"x":6.5,"y":38.7},{"data":{"cluster_uuid":"86088e1b-cdfc-5113-a735-aeb9ef1962c3","prism_central":"md-pc01.demo.local"},"h":37.26,"id":"cluster:86088e1b-cdfc-5113-a735-aeb9ef1962c3","kind":"box","lines":[{"baseline":12.13,"bold":true,"color":"#0F1A24","size":7.2,"text":"PROD-E01","width":34.37,"x":5.0},{"baseline":20.36,"bold":false,"color":"#3E4C59","size":6.2,"text":"AHV, 8 nodes, RF3, NX-8155-G9","width":90.36,"x":5.0}],"parent":"site:md-pc01.demo.local","style":{"dash":null,"fill":"#FFFFFF","radius":3.4,"stroke":"#5B3FD9","stroke_w":0.7},"w":135.0,"x":6.5,"y":93.74},{"data":{},"h":9.0,"id":"cluster:86088e1b-cdfc-5113-a735-aeb9ef1962c3:tag","kind":"tag","lines":[{"baseline":6.6,"bold":true,"color":"#FFFFFF","size":6.0,"text":"HOSTS PC","width":29.3,"x":4.38}],"parent":"cluster:86088e1b-cdfc-5113-a735-aeb9ef1962c3","style":{"dash":null,"fill":"#0F1A24","radius":1.9,"stroke":null,"stroke_w":0.75},"w":38.06,"x":11.5,"y":89.24},{"data":{},"h":8.5,"id":"cluster:86088e1b-cdfc-5113-a735-aeb9ef1962c3:svc:Files","kind":"pill","lines":[{"baseline":6.35,"bold":true,"color":"#5B3FD9","size":6.0,"text":"Files","width":12.32,"x":3.87}],"parent":"cluster:86088e1b-cdfc-5113-a735-aeb9ef1962c3","style":{"dash":null,"fill":"#EAE8F8","radius":4.1,"stroke":null,"stroke_w":0.75},"w":20.06,"x":116.44,"y":99.1},{"data":{},"h":8.6,"id":"cluster:86088e1b-cdfc-5113-a735-aeb9ef1962c3:storage","kind":"strip","lines":[{"baseline":6.4,"bold":false,"color":"#0A7283","size":6.0,"text":"279.4 TiB raw, 4 containers","width":72.36,"x":26.32}],"parent":"cluster:86088e1b-cdfc-5113-a735-aeb9ef1962c3","style":{"dash":null,"fill":"#E7F3F5","radius":1.5,"stroke":"#0A7283","stroke_w":0.45},"w":125.0,"x":11.5,"y":118.4},{"data":{"cluster_uuid":"b05a4233-4013-58ed-a8b7-794ab3a4f5f8","prism_central":"md-pc01.demo.local"},"h":37.26,"id":"cluster:b05a4233-4013-58ed-a8b7-794ab3a4f5f8","kind":"box","lines":[{"baseline":12.13,"bold":true,"color":"#0F1A24","size":7.2,"text":"PROD-E02","width":35.47,"x":5.0},{"baseline":20.36,"bold":false,"color":"#3E4C59","size":6.2,"text":"AHV, 6 nodes, RF2, XC760xd-24","width":90.23,"x":5.0}],"parent":"site:md-pc01.demo.local","style":{"dash":null,"fill":"#FFFFFF","radius":3.4,"stroke":"#5B3FD9","stroke_w":0.7},"w":135.0,"x":6.5,"y":135.5},{"data":{},"h":8.5,"id":"cluster:b05a4233-4013-58ed-a8b7-794ab3a4f5f8:svc:Files","kind":"pill","lines":[{"baseline":6.35,"bold":true,"color":"#5B3FD9","size":6.0,"text":"Files","width":12.32,"x":3.87}],"parent":"cluster:b05a4233-4013-58ed-a8b7-794ab3a4f5f8","style":{"dash":null,"fill":"#EAE8F8","radius":4.1,"stroke":null,"stroke_w":0.75},"w":20.06,"x":116.44,"y":140.86},{"data":{},"h":8.6,"id":"cluster:b05a4233-4013-58ed-a8b7-794ab3a4f5f8:storage","kind":"strip","lines":[{"baseline":6.4,"bold":false,"color":"#0A7283","size":6.0,"text":"251.5 TiB raw, 4 containers","width":71.39,"x":26.8}],"parent":"cluster:b05a4233-4013-58ed-a8b7-794ab3a4f5f8","style":{"dash":null,"fill":"#E7F3F5","radius":1.5,"stroke":"#0A7283","stroke_w":0.45},"w":125.0,"x":11.5,"y":160.16},{"data":{"cluster_uuid":"9b4738ef-4d63-5e4f-92be-6214d8858c4e","prism_central":"md-pc01.demo.local"},"h":37.26,"id":"cluster:9b4738ef-4d63-5e4f-92be-6214d8858c4e","kind":"box","lines":[{"baseline":12.13,"bold":true,"color":"#0F1A24","size":7.2,"text":"VDI-E01","width":27.02,"x":5.0},{"baseline":20.36,"bold":false,"color":"#3E4C59","size":6.2,"text":"ESXi, 4 nodes, RF2, HPE DX380 Gen11","width":105.46,"x":5.0}],"parent":"site:md-pc01.demo.local","style":{"dash":null,"fill":"#FFFFFF","radius":3.4,"stroke":"#5B3FD9","stroke_w":0.7},"w":135.0,"x":6.5,"y":177.26},{"data":{},"h":8.5,"id":"cluster:9b4738ef-4d63-5e4f-92be-6214d8858c4e:svc:vCenter","kind":"pill","lines":[{"baseline":6.35,"bold":true,"color":"#5B3FD9","size":6.0,"text":"vCenter","width":22.12,"x":4.16}],"parent":"cluster:9b4738ef-4d63-5e4f-92be-6214d8858c4e","style":{"dash":null,"fill":"#EAE8F8","radius":4.1,"stroke":null,"stroke_w":0.75},"w":30.45,"x":106.05,"y":182.62},{"data":{},"h":8.6,"id":"cluster:9b4738ef-4d63-5e4f-92be-6214d8858c4e:storage","kind":"strip","lines":[{"baseline":6.4,"bold":false,"color":"#0A7283","size":6.0,"text":"111.8 TiB raw, 4 containers","width":69.78,"x":27.61}],"parent":"cluster:9b4738ef-4d63-5e4f-92be-6214d8858c4e","style":{"dash":null,"fill":"#E7F3F5","radius":1.5,"stroke":"#0A7283","stroke_w":0.45},"w":125.0,"x":11.5,"y":201.92},{"data":{"prism_central":"md-pc02.demo.local"},"h":217.02,"id":"site:md-pc02.demo.local","kind":"container","lines":[{"baseline":17.91,"bold":true,"color":"#0F1A24","size":9.0,"text":"md-pc02.demo.local","width":84.56,"x":31.22},{"baseline":26.96,"bold":false,"color":"#5B6976","size":6.0,"text":"Availability zone, 3 clusters, 15 nodes","width":98.92,"x":24.04}],"parent":null,"style":{"dash":null,"fill":"#FAFBFB","radius":5.25,"stroke":"#C9D0D6","stroke_w":0.75},"w":147.0,"x":229.5,"y":5.0},{"data":{},"h":9.0,"id":"site:md-pc02.demo.local:tag","kind":"tag","lines":[{"baseline":6.6,"bold":true,"color":"#FFFFFF","size":6.0,"text":"AZ","width":8.0,"x":3.74}],"parent":"site:md-pc02.demo.local","style":{"dash":null,"fill":"#5B3FD9","radius":1.9,"stroke":null,"stroke_w":0.75},"w":15.48,"x":235.0,"y":0.5},{"data":{"prism_central":"md-pc02.demo.local"},"h":44.04,"id":"site:md-pc02.demo.local:pc","kind":"box","lines":[{"baseline":12.92,"bold":true,"color":"#FFFFFF","size":8.0,"text":"Prism Central","width":49.06,"x":42.97},{"baseline":21.88,"bold":false,"color":"#FFFFFF","size":6.2,"text":"pc.7.5.1, single VM","width":50.52,"x":42.24},{"baseline":29.62,"bold":false,"color":"#FFFFFF","size":6.0,"text":"6 vCPU, 28 GiB","width":41.02,"x":46.99},{"baseline":37.3,"bold":false,"color":"#EAE8F8","size":6.0,"text":"DR (1) · Flow (6) · VPCs (3) · X-Play (6)","width":101.42,"x":16.79}],"parent":"site:md-pc02.demo.local","style":{"dash":null,"fill":"#5B3FD9","radius":3.75,"stroke":null,"stroke_w":0.75},"w":135.0,"x":235.5,"y":38.7},{"data":{"cluster_uuid":"8db1379a-d206-57cc-87c6-3ff054625b9a","prism_central":"md-pc02.demo.local"},"h":37.26,"id":"cluster:8db1379a-d206-57cc-87c6-3ff054625b9a","kind":"box","lines":[{"baseline":12.13,"bold":true,"color":"#0F1A24","size":7.2,"text":"PROD-W01","width":37.14,"x":5.0},{"baseline":20.36,"bold":false,"color":"#3E4C59","size":6.2,"text":"AHV, 8 nodes, RF3, NX-8170-G9","width":90.54,"x":5.0}],"parent":"site:md-pc02.demo.local","style":{"dash":null,"fill":"#FFFFFF","radius":3.4,"stroke":"#5B3FD9","stroke_w":0.7},"w":135.0,"x":235.5,"y":93.74},{"data":{},"h":9.0,"id":"cluster:8db1379a-d206-57cc-87c6-3ff054625b9a:tag","kind":"tag","lines":[{"baseline":6.6,"bold":true,"color":"#FFFFFF","size":6.0,"text":"HOSTS PC","width":29.3,"x":4.38}],"parent":"cluster:8db1379a-d206-57cc-87c6-3ff054625b9a","style":{"dash":null,"fill":"#0F1A24","radius":1.9,"stroke":null,"stroke_w":0.75},"w":38.06,"x":240.5,"y":89.24},{"data":{},"h":8.5,"id":"cluster:8db1379a-d206-57cc-87c6-3ff054625b9a:svc:Objects","kind":"pill","lines":[{"baseline":6.35,"bold":true,"color":"#5B3FD9","size":6.0,"text":"Objects","width":21.67,"x":4.15}],"parent":"cluster:8db1379a-d206-57cc-87c6-3ff054625b9a","style":{"dash":null,"fill":"#EAE8F8","radius":4.1,"stroke":null,"stroke_w":0.75},"w":29.97,"x":335.53,"y":99.1},{"data":{},"h":8.6,"id":"cluster:8db1379a-d206-57cc-87c6-3ff054625b9a:storage","kind":"strip","lines":[{"baseline":6.4,"bold":false,"color":"#0A7283","size":6.0,"text":"670.6 TiB raw, 4 containers","width":72.52,"x":26.24}],"parent":"cluster:8db1379a-d206-57cc-87c6-3ff054625b9a","style":{"dash":null,"fill":"#E7F3F5","radius":1.5,"stroke":"#0A7283","stroke_w":0.45},"w":125.0,"x":240.5,"y":118.4},{"data":{"cluster_uuid":"6ce6d622-1b20-52a3-98e8-31ed2e9a383a","prism_central":"md-pc02.demo.local"},"h":37.26,"id":"cluster:6ce6d622-1b20-52a3-98e8-31ed2e9a383a","kind":"box","lines":[{"baseline":12.13,"bold":true,"color":"#0F1A24","size":7.2,"text":"DR-W01","width":27.23,"x":5.0},{"baseline":20.36,"bold":false,"color":"#3E4C59","size":6.2,"text":"AHV, 4 nodes, RF2, HX665 V3","width":83.25,"x":5.0}],"parent":"site:md-pc02.demo.local","style":{"dash":null,"fill":"#FFFFFF","radius":3.4,"stroke":"#5B3FD9","stroke_w":0.7},"w":135.0,"x":235.5,"y":135.5},{"data":{},"h":8.6,"id":"cluster:6ce6d622-1b20-52a3-98e8-31ed2e9a383a:storage","kind":"strip","lines":[{"baseline":6.4,"bold":false,"color":"#0A7283","size":6.0,"text":"139.7 TiB raw, 4 containers","width":71.02,"x":26.99}],"parent":"cluster:6ce6d622-1b20-52a3-98e8-31ed2e9a383a","style":{"dash":null,"fill":"#E7F3F5","radius":1.5,"stroke":"#0A7283","stroke_w":0.45},"w":125.0,"x":240.5,"y":160.16},{"data":{"cluster_uuid":"92c840d4-7d8a-5dce-b2c2-1e5e3e93e652","prism_central":"md-pc02.demo.local"},"h":37.26,"id":"cluster:92c840d4-7d8a-5dce-b2c2-1e5e3e93e652","kind":"box","lines":[{"baseline":12.13,"bold":true,"color":"#0F1A24","size":7.2,"text":"ESX-W01","width":30.99,"x":5.0},{"baseline":20.36,"bold":false,"color":"#3E4C59","size":6.2,"text":"ESXi, 3 nodes, RF2, UCSC-C220-M6S","width":104.35,"x":5.0}],"parent":"site:md-pc02.demo.local","style":{"dash":null,"fill":"#FFFFFF","radius":3.4,"stroke":"#5B3FD9","stroke_w":0.7},"w":135.0,"x":235.5,"y":177.26},{"data":{},"h":8.5,"id":"cluster:92c840d4-7d8a-5dce-b2c2-1e5e3e93e652:svc:vCenter","kind":"pill","lines":[{"baseline":6.35,"bold":true,"color":"#5B3FD9","size":6.0,"text":"vCenter","width":22.12,"x":4.16}],"parent":"cluster:92c840d4-7d8a-5dce-b2c2-1e5e3e93e652","style":{"dash":null,"fill":"#EAE8F8","radius":4.1,"stroke":null,"stroke_w":0.75},"w":30.45,"x":335.05,"y":182.62},{"data":{},"h":8.6,"id":"cluster:92c840d4-7d8a-5dce-b2c2-1e5e3e93e652:storage","kind":"strip","lines":[{"baseline":6.4,"bold":false,"color":"#0A7283","size":6.0,"text":"83.8 TiB raw, 4 containers","width":69.29,"x":27.85}],"parent":"cluster:92c840d4-7d8a-5dce-b2c2-1e5e3e93e652","style":{"dash":null,"fill":"#E7F3F5","radius":1.5,"stroke":"#0A7283","stroke_w":0.45},"w":125.0,"x":240.5,"y":201.92},{"data":{},"h":7.5,"id":"legend:0","kind":"swatch","lines":[],"parent":null,"style":{"dash":null,"fill":"#5B3FD9","radius":3.75,"stroke":null,"stroke_w":0.75},"w":17,"x":0.5,"y":232.52},{"data":{},"h":10.5,"id":"legend:0:label","kind":"label","lines":[{"baseline":7.35,"bold":false,"color":"#3E4C59","size":6.0,"text":"Prism Central","width":35.9,"x":0.0}],"parent":null,"style":{"dash":null,"fill":null,"radius":0.0,"stroke":null,"stroke_w":0.75},"w":39.06,"x":21.5,"y":231.02},{"data":{},"h":7.5,"id":"legend:1","kind":"swatch","lines":[],"parent":null,"style":{"dash":null,"fill":"#FFFFFF","radius":3.4,"stroke":"#5B3FD9","stroke_w":0.7},"w":17,"x":74.56,"y":232.52},{"data":{},"h":10.5,"id":"legend:1:label","kind":"label","lines":[{"baseline":7.35,"bold":false,"color":"#3E4C59","size":6.0,"text":"Cluster (Prism Element)","width":63.49,"x":0.0}],"parent":null,"style":{"dash":null,"fill":null,"radius":0.0,"stroke":null,"stroke_w":0.75},"w":68.3,"x":95.56,"y":231.02},{"data":{},"h":7.5,"id":"legend:2","kind":"swatch","lines":[],"parent":null,"style":{"dash":null,"fill":"#E7F3F5","radius":1.5,"stroke":"#0A7283","stroke_w":0.45},"w":17,"x":177.86,"y":232.52},{"data":{},"h":10.5,"id":"legend:2:label","kind":"label","lines":[{"baseline":7.35,"bold":false,"color":"#3E4C59","size":6.0,"text":"DSF storage","width":32.98,"x":0.0}],"parent":null,"style":{"dash":null,"fill":null,"radius":0.0,"stroke":null,"stroke_w":0.75},"w":35.96,"x":198.86,"y":231.02},{"data":{},"h":10.5,"id":"legend:3:label","kind":"label","lines":[{"baseline":7.35,"bold":false,"color":"#3E4C59","size":6.0,"text":"Replication","width":30.08,"x":0.0}],"parent":null,"style":{"dash":null,"fill":null,"radius":0.0,"stroke":null,"stroke_w":0.75},"w":32.89,"x":269.82,"y":231.02},{"data":{},"h":10.5,"id":"legend:4:label","kind":"label","lines":[{"baseline":7.35,"bold":false,"color":"#3E4C59","size":6.0,"text":"AZ pairing","width":27.68,"x":0.0}],"parent":null,"style":{"dash":null,"fill":null,"radius":0.0,"stroke":null,"stroke_w":0.75},"w":30.34,"x":337.71,"y":231.02},{"data":{},"h":10.5,"id":"legend:5:label","kind":"label","lines":[{"baseline":7.35,"bold":false,"color":"#3E4C59","size":6.0,"text":"Manages","width":24.14,"x":0.0}],"parent":null,"style":{"dash":null,"fill":null,"radius":0.0,"stroke":null,"stroke_w":0.75},"w":26.59,"x":21.5,"y":242.02}],"part":[1,1],"schema":"ntnxvision.diagram.scene/1","title":"Solution conceptual overview","type":"conceptual","width":377.0}
+{
+ "caption": "Solution conceptual overview: 2 availability zones, 6 clusters, 33 nodes.",
+ "edges": [
+  {
+   "arrow_end": true,
+   "arrow_start": false,
+   "data": {
+    "kind": "manages"
+   },
+   "dst": "cluster:86088e1b-cdfc-5113-a735-aeb9ef1962c3",
+   "id": "site:md-pc01.demo.local:pc->cluster:86088e1b-cdfc-5113-a735-aeb9ef1962c3",
+   "labels": [],
+   "points": [
+    [
+     74.0,
+     82.74
+    ],
+    [
+     74.0,
+     93.74
+    ]
+   ],
+   "src": "site:md-pc01.demo.local:pc",
+   "style": {
+    "dash": null,
+    "fill": null,
+    "radius": 0.0,
+    "stroke": "#8E99A4",
+    "stroke_w": 0.7
+   }
+  },
+  {
+   "arrow_end": true,
+   "arrow_start": false,
+   "data": {
+    "kind": "manages"
+   },
+   "dst": "cluster:8db1379a-d206-57cc-87c6-3ff054625b9a",
+   "id": "site:md-pc02.demo.local:pc->cluster:8db1379a-d206-57cc-87c6-3ff054625b9a",
+   "labels": [],
+   "points": [
+    [
+     303.0,
+     82.74
+    ],
+    [
+     303.0,
+     93.74
+    ]
+   ],
+   "src": "site:md-pc02.demo.local:pc",
+   "style": {
+    "dash": null,
+    "fill": null,
+    "radius": 0.0,
+    "stroke": "#8E99A4",
+    "stroke_w": 0.7
+   }
+  },
+  {
+   "arrow_end": true,
+   "arrow_start": true,
+   "data": {
+    "kind": "pairing"
+   },
+   "dst": "site:md-pc02.demo.local",
+   "id": "link:pairing:site:md-pc01.demo.local->site:md-pc02.demo.local",
+   "labels": [
+    {
+     "background": false,
+     "h": 9.68,
+     "lines": [
+      {
+       "baseline": 6.94,
+       "bold": false,
+       "color": "#5B3FD9",
+       "size": 6.0,
+       "text": "AZ pairing",
+       "width": 27.68,
+       "x": 2.83
+      }
+     ],
+     "w": 33.34,
+     "x": 171.83,
+     "y": 49.54
+    }
+   ],
+   "points": [
+    [
+     148.0,
+     60.72
+    ],
+    [
+     229.0,
+     60.72
+    ]
+   ],
+   "src": "site:md-pc01.demo.local",
+   "style": {
+    "dash": [
+     3.0,
+     2.25
+    ],
+    "fill": null,
+    "radius": 0.0,
+    "stroke": "#5B3FD9",
+    "stroke_w": 0.75
+   }
+  },
+  {
+   "arrow_end": true,
+   "arrow_start": true,
+   "data": {
+    "kind": "replication"
+   },
+   "dst": "site:md-pc02.demo.local",
+   "id": "link:replication:site:md-pc01.demo.local->site:md-pc02.demo.local",
+   "labels": [
+    {
+     "background": true,
+     "h": 32.72,
+     "lines": [
+      {
+       "baseline": 6.94,
+       "bold": false,
+       "color": "#5B3FD9",
+       "size": 6.0,
+       "text": "Async 1 h",
+       "width": 25.4,
+       "x": 20.88
+      },
+      {
+       "baseline": 14.62,
+       "bold": false,
+       "color": "#5B6976",
+       "size": 6.0,
+       "text": "both directions",
+       "width": 40.84,
+       "x": 13.16
+      },
+      {
+       "baseline": 22.3,
+       "bold": false,
+       "color": "#3E4C59",
+       "size": 6.0,
+       "text": "md-pc01 to md-pc02:",
+       "width": 59.59,
+       "x": 3.79
+      },
+      {
+       "baseline": 29.98,
+       "bold": false,
+       "color": "#5B3FD9",
+       "size": 6.0,
+       "text": "NearSync 1 min",
+       "width": 41.73,
+       "x": 12.72
+      }
+     ],
+     "w": 67.17,
+     "x": 154.92,
+     "y": 96.35
+    }
+   ],
+   "points": [
+    [
+     148.0,
+     112.71
+    ],
+    [
+     229.0,
+     112.71
+    ]
+   ],
+   "src": "site:md-pc01.demo.local",
+   "style": {
+    "dash": null,
+    "fill": null,
+    "radius": 0.0,
+    "stroke": "#5B3FD9",
+    "stroke_w": 1.1
+   }
+  },
+  {
+   "arrow_end": false,
+   "arrow_start": false,
+   "data": {},
+   "dst": "",
+   "id": "legend:3",
+   "labels": [],
+   "points": [
+    [
+     0.5,
+     249.31
+    ],
+    [
+     17.5,
+     249.31
+    ]
+   ],
+   "src": "",
+   "style": {
+    "dash": null,
+    "fill": null,
+    "radius": 0.0,
+    "stroke": "#5B3FD9",
+    "stroke_w": 1.1
+   }
+  },
+  {
+   "arrow_end": false,
+   "arrow_start": false,
+   "data": {},
+   "dst": "",
+   "id": "legend:4",
+   "labels": [],
+   "points": [
+    [
+     68.39,
+     249.31
+    ],
+    [
+     85.39,
+     249.31
+    ]
+   ],
+   "src": "",
+   "style": {
+    "dash": [
+     3.0,
+     2.25
+    ],
+    "fill": null,
+    "radius": 0.0,
+    "stroke": "#5B3FD9",
+    "stroke_w": 0.75
+   }
+  },
+  {
+   "arrow_end": false,
+   "arrow_start": false,
+   "data": {},
+   "dst": "",
+   "id": "legend:5",
+   "labels": [],
+   "points": [
+    [
+     133.73,
+     249.31
+    ],
+    [
+     150.73,
+     249.31
+    ]
+   ],
+   "src": "",
+   "style": {
+    "dash": null,
+    "fill": null,
+    "radius": 0.0,
+    "stroke": "#8E99A4",
+    "stroke_w": 0.7
+   }
+  }
+ ],
+ "height": 256.06,
+ "id": "conceptual",
+ "meta": {
+  "drawn": [
+   "cluster:86088e1b-cdfc-5113-a735-aeb9ef1962c3",
+   "cluster:b05a4233-4013-58ed-a8b7-794ab3a4f5f8",
+   "cluster:9b4738ef-4d63-5e4f-92be-6214d8858c4e",
+   "cluster:8db1379a-d206-57cc-87c6-3ff054625b9a",
+   "cluster:6ce6d622-1b20-52a3-98e8-31ed2e9a383a",
+   "cluster:92c840d4-7d8a-5dce-b2c2-1e5e3e93e652"
+  ],
+  "sites": [
+   "site:md-pc01.demo.local",
+   "site:md-pc02.demo.local"
+  ],
+  "summarised": []
+ },
+ "nodes": [
+  {
+   "data": {
+    "name": "md-pc01.demo.local",
+    "prism_central": "md-pc01.demo.local"
+   },
+   "h": 219.06,
+   "id": "site:md-pc01.demo.local",
+   "kind": "container",
+   "lines": [
+    {
+     "baseline": 17.91,
+     "bold": true,
+     "color": "#0F1A24",
+     "size": 9.0,
+     "text": "md-pc01.demo.local",
+     "width": 83.19,
+     "x": 31.9
+    },
+    {
+     "baseline": 26.96,
+     "bold": false,
+     "color": "#5B6976",
+     "size": 6.0,
+     "text": "Availability zone, 3 clusters, 18 nodes",
+     "width": 99.16,
+     "x": 23.92
+    }
+   ],
+   "parent": null,
+   "style": {
+    "dash": null,
+    "fill": "#FAFBFB",
+    "radius": 5.25,
+    "stroke": "#C9D0D6",
+    "stroke_w": 0.75
+   },
+   "w": 147.0,
+   "x": 0.5,
+   "y": 5.0
+  },
+  {
+   "data": {},
+   "h": 9.0,
+   "id": "site:md-pc01.demo.local:tag",
+   "kind": "tag",
+   "lines": [
+    {
+     "baseline": 6.6,
+     "bold": true,
+     "color": "#FFFFFF",
+     "size": 6.0,
+     "text": "AZ",
+     "width": 8.0,
+     "x": 3.74
+    }
+   ],
+   "parent": "site:md-pc01.demo.local",
+   "style": {
+    "dash": null,
+    "fill": "#5B3FD9",
+    "radius": 1.9,
+    "stroke": null,
+    "stroke_w": 0.75
+   },
+   "w": 15.48,
+   "x": 6.0,
+   "y": 0.5
+  },
+  {
+   "data": {
+    "prism_central": "md-pc01.demo.local"
+   },
+   "h": 44.04,
+   "id": "site:md-pc01.demo.local:pc",
+   "kind": "box",
+   "lines": [
+    {
+     "baseline": 12.92,
+     "bold": true,
+     "color": "#FFFFFF",
+     "size": 8.0,
+     "text": "Prism Central",
+     "width": 49.06,
+     "x": 42.97
+    },
+    {
+     "baseline": 21.88,
+     "bold": false,
+     "color": "#FFFFFF",
+     "size": 6.2,
+     "text": "pc.7.5.1, single VM",
+     "width": 50.52,
+     "x": 42.24
+    },
+    {
+     "baseline": 29.62,
+     "bold": false,
+     "color": "#FFFFFF",
+     "size": 6.0,
+     "text": "Small, 6 vCPU, 28 GiB",
+     "width": 58.35,
+     "x": 38.33
+    },
+    {
+     "baseline": 37.3,
+     "bold": false,
+     "color": "#EAE8F8",
+     "size": 6.0,
+     "text": "DR (2) · Flow (6) · VPCs (3) · X-Play (6)",
+     "width": 102.29,
+     "x": 16.35
+    }
+   ],
+   "parent": "site:md-pc01.demo.local",
+   "style": {
+    "dash": null,
+    "fill": "#5B3FD9",
+    "radius": 3.75,
+    "stroke": null,
+    "stroke_w": 0.75
+   },
+   "w": 135.0,
+   "x": 6.5,
+   "y": 38.7
+  },
+  {
+   "data": {
+    "cluster_uuid": "86088e1b-cdfc-5113-a735-aeb9ef1962c3",
+    "name": "PROD-E01",
+    "prism_central": "md-pc01.demo.local"
+   },
+   "h": 37.94,
+   "id": "cluster:86088e1b-cdfc-5113-a735-aeb9ef1962c3",
+   "kind": "box",
+   "lines": [
+    {
+     "baseline": 12.13,
+     "bold": true,
+     "color": "#0F1A24",
+     "size": 7.2,
+     "text": "PROD-E01",
+     "width": 34.37,
+     "x": 5.0
+    },
+    {
+     "baseline": 20.36,
+     "bold": false,
+     "color": "#3E4C59",
+     "size": 6.2,
+     "text": "AHV, 8 nodes, RF3, NX-8155-G9",
+     "width": 90.36,
+     "x": 5.0
+    }
+   ],
+   "parent": "site:md-pc01.demo.local",
+   "style": {
+    "dash": null,
+    "fill": "#FFFFFF",
+    "radius": 3.4,
+    "stroke": "#5B3FD9",
+    "stroke_w": 0.7
+   },
+   "w": 135.0,
+   "x": 6.5,
+   "y": 93.74
+  },
+  {
+   "data": {},
+   "h": 9.0,
+   "id": "cluster:86088e1b-cdfc-5113-a735-aeb9ef1962c3:tag",
+   "kind": "tag",
+   "lines": [
+    {
+     "baseline": 6.6,
+     "bold": true,
+     "color": "#FFFFFF",
+     "size": 6.0,
+     "text": "HOSTS PC",
+     "width": 29.3,
+     "x": 4.38
+    }
+   ],
+   "parent": "cluster:86088e1b-cdfc-5113-a735-aeb9ef1962c3",
+   "style": {
+    "dash": null,
+    "fill": "#0F1A24",
+    "radius": 1.9,
+    "stroke": null,
+    "stroke_w": 0.75
+   },
+   "w": 38.06,
+   "x": 11.5,
+   "y": 89.24
+  },
+  {
+   "data": {},
+   "h": 8.5,
+   "id": "cluster:86088e1b-cdfc-5113-a735-aeb9ef1962c3:svc:Files",
+   "kind": "pill",
+   "lines": [
+    {
+     "baseline": 6.35,
+     "bold": true,
+     "color": "#5B3FD9",
+     "size": 6.0,
+     "text": "Files",
+     "width": 12.32,
+     "x": 3.87
+    }
+   ],
+   "parent": "cluster:86088e1b-cdfc-5113-a735-aeb9ef1962c3",
+   "style": {
+    "dash": null,
+    "fill": "#EAE8F8",
+    "radius": 4.1,
+    "stroke": null,
+    "stroke_w": 0.75
+   },
+   "w": 20.06,
+   "x": 116.44,
+   "y": 99.1
+  },
+  {
+   "data": {},
+   "h": 9.28,
+   "id": "cluster:86088e1b-cdfc-5113-a735-aeb9ef1962c3:storage",
+   "kind": "strip",
+   "lines": [
+    {
+     "baseline": 6.74,
+     "bold": false,
+     "color": "#0A7283",
+     "size": 6.0,
+     "text": "279.4 TiB raw, 3 containers",
+     "width": 71.9,
+     "x": 26.55
+    }
+   ],
+   "parent": "cluster:86088e1b-cdfc-5113-a735-aeb9ef1962c3",
+   "style": {
+    "dash": null,
+    "fill": "#E7F3F5",
+    "radius": 1.5,
+    "stroke": "#0A7283",
+    "stroke_w": 0.45
+   },
+   "w": 125.0,
+   "x": 11.5,
+   "y": 118.4
+  },
+  {
+   "data": {
+    "cluster_uuid": "b05a4233-4013-58ed-a8b7-794ab3a4f5f8",
+    "name": "PROD-E02",
+    "prism_central": "md-pc01.demo.local"
+   },
+   "h": 37.94,
+   "id": "cluster:b05a4233-4013-58ed-a8b7-794ab3a4f5f8",
+   "kind": "box",
+   "lines": [
+    {
+     "baseline": 12.13,
+     "bold": true,
+     "color": "#0F1A24",
+     "size": 7.2,
+     "text": "PROD-E02",
+     "width": 35.47,
+     "x": 5.0
+    },
+    {
+     "baseline": 20.36,
+     "bold": false,
+     "color": "#3E4C59",
+     "size": 6.2,
+     "text": "AHV, 6 nodes, RF2, XC760xd-24",
+     "width": 90.23,
+     "x": 5.0
+    }
+   ],
+   "parent": "site:md-pc01.demo.local",
+   "style": {
+    "dash": null,
+    "fill": "#FFFFFF",
+    "radius": 3.4,
+    "stroke": "#5B3FD9",
+    "stroke_w": 0.7
+   },
+   "w": 135.0,
+   "x": 6.5,
+   "y": 136.18
+  },
+  {
+   "data": {},
+   "h": 8.5,
+   "id": "cluster:b05a4233-4013-58ed-a8b7-794ab3a4f5f8:svc:Files",
+   "kind": "pill",
+   "lines": [
+    {
+     "baseline": 6.35,
+     "bold": true,
+     "color": "#5B3FD9",
+     "size": 6.0,
+     "text": "Files",
+     "width": 12.32,
+     "x": 3.87
+    }
+   ],
+   "parent": "cluster:b05a4233-4013-58ed-a8b7-794ab3a4f5f8",
+   "style": {
+    "dash": null,
+    "fill": "#EAE8F8",
+    "radius": 4.1,
+    "stroke": null,
+    "stroke_w": 0.75
+   },
+   "w": 20.06,
+   "x": 116.44,
+   "y": 141.54
+  },
+  {
+   "data": {},
+   "h": 9.28,
+   "id": "cluster:b05a4233-4013-58ed-a8b7-794ab3a4f5f8:storage",
+   "kind": "strip",
+   "lines": [
+    {
+     "baseline": 6.74,
+     "bold": false,
+     "color": "#0A7283",
+     "size": 6.0,
+     "text": "251.5 TiB raw, 3 containers",
+     "width": 70.93,
+     "x": 27.03
+    }
+   ],
+   "parent": "cluster:b05a4233-4013-58ed-a8b7-794ab3a4f5f8",
+   "style": {
+    "dash": null,
+    "fill": "#E7F3F5",
+    "radius": 1.5,
+    "stroke": "#0A7283",
+    "stroke_w": 0.45
+   },
+   "w": 125.0,
+   "x": 11.5,
+   "y": 160.84
+  },
+  {
+   "data": {
+    "cluster_uuid": "9b4738ef-4d63-5e4f-92be-6214d8858c4e",
+    "name": "VDI-E01",
+    "prism_central": "md-pc01.demo.local"
+   },
+   "h": 37.94,
+   "id": "cluster:9b4738ef-4d63-5e4f-92be-6214d8858c4e",
+   "kind": "box",
+   "lines": [
+    {
+     "baseline": 12.13,
+     "bold": true,
+     "color": "#0F1A24",
+     "size": 7.2,
+     "text": "VDI-E01",
+     "width": 27.02,
+     "x": 5.0
+    },
+    {
+     "baseline": 20.36,
+     "bold": false,
+     "color": "#3E4C59",
+     "size": 6.2,
+     "text": "ESXi, 4 nodes, RF2, HPE DX380 Gen11",
+     "width": 105.46,
+     "x": 5.0
+    }
+   ],
+   "parent": "site:md-pc01.demo.local",
+   "style": {
+    "dash": null,
+    "fill": "#FFFFFF",
+    "radius": 3.4,
+    "stroke": "#5B3FD9",
+    "stroke_w": 0.7
+   },
+   "w": 135.0,
+   "x": 6.5,
+   "y": 178.62
+  },
+  {
+   "data": {},
+   "h": 8.5,
+   "id": "cluster:9b4738ef-4d63-5e4f-92be-6214d8858c4e:svc:vCenter",
+   "kind": "pill",
+   "lines": [
+    {
+     "baseline": 6.35,
+     "bold": true,
+     "color": "#5B3FD9",
+     "size": 6.0,
+     "text": "vCenter",
+     "width": 22.12,
+     "x": 4.16
+    }
+   ],
+   "parent": "cluster:9b4738ef-4d63-5e4f-92be-6214d8858c4e",
+   "style": {
+    "dash": null,
+    "fill": "#EAE8F8",
+    "radius": 4.1,
+    "stroke": null,
+    "stroke_w": 0.75
+   },
+   "w": 30.45,
+   "x": 106.05,
+   "y": 183.98
+  },
+  {
+   "data": {},
+   "h": 9.28,
+   "id": "cluster:9b4738ef-4d63-5e4f-92be-6214d8858c4e:storage",
+   "kind": "strip",
+   "lines": [
+    {
+     "baseline": 6.74,
+     "bold": false,
+     "color": "#0A7283",
+     "size": 6.0,
+     "text": "111.8 TiB raw, 3 containers",
+     "width": 69.32,
+     "x": 27.84
+    }
+   ],
+   "parent": "cluster:9b4738ef-4d63-5e4f-92be-6214d8858c4e",
+   "style": {
+    "dash": null,
+    "fill": "#E7F3F5",
+    "radius": 1.5,
+    "stroke": "#0A7283",
+    "stroke_w": 0.45
+   },
+   "w": 125.0,
+   "x": 11.5,
+   "y": 203.28
+  },
+  {
+   "data": {
+    "name": "md-pc02.demo.local",
+    "prism_central": "md-pc02.demo.local"
+   },
+   "h": 219.06,
+   "id": "site:md-pc02.demo.local",
+   "kind": "container",
+   "lines": [
+    {
+     "baseline": 17.91,
+     "bold": true,
+     "color": "#0F1A24",
+     "size": 9.0,
+     "text": "md-pc02.demo.local",
+     "width": 84.56,
+     "x": 31.22
+    },
+    {
+     "baseline": 26.96,
+     "bold": false,
+     "color": "#5B6976",
+     "size": 6.0,
+     "text": "Availability zone, 3 clusters, 15 nodes",
+     "width": 98.92,
+     "x": 24.04
+    }
+   ],
+   "parent": null,
+   "style": {
+    "dash": null,
+    "fill": "#FAFBFB",
+    "radius": 5.25,
+    "stroke": "#C9D0D6",
+    "stroke_w": 0.75
+   },
+   "w": 147.0,
+   "x": 229.5,
+   "y": 5.0
+  },
+  {
+   "data": {},
+   "h": 9.0,
+   "id": "site:md-pc02.demo.local:tag",
+   "kind": "tag",
+   "lines": [
+    {
+     "baseline": 6.6,
+     "bold": true,
+     "color": "#FFFFFF",
+     "size": 6.0,
+     "text": "AZ",
+     "width": 8.0,
+     "x": 3.74
+    }
+   ],
+   "parent": "site:md-pc02.demo.local",
+   "style": {
+    "dash": null,
+    "fill": "#5B3FD9",
+    "radius": 1.9,
+    "stroke": null,
+    "stroke_w": 0.75
+   },
+   "w": 15.48,
+   "x": 235.0,
+   "y": 0.5
+  },
+  {
+   "data": {
+    "prism_central": "md-pc02.demo.local"
+   },
+   "h": 44.04,
+   "id": "site:md-pc02.demo.local:pc",
+   "kind": "box",
+   "lines": [
+    {
+     "baseline": 12.92,
+     "bold": true,
+     "color": "#FFFFFF",
+     "size": 8.0,
+     "text": "Prism Central",
+     "width": 49.06,
+     "x": 42.97
+    },
+    {
+     "baseline": 21.88,
+     "bold": false,
+     "color": "#FFFFFF",
+     "size": 6.2,
+     "text": "pc.7.5.1, single VM",
+     "width": 50.52,
+     "x": 42.24
+    },
+    {
+     "baseline": 29.62,
+     "bold": false,
+     "color": "#FFFFFF",
+     "size": 6.0,
+     "text": "Small, 6 vCPU, 28 GiB",
+     "width": 58.35,
+     "x": 38.33
+    },
+    {
+     "baseline": 37.3,
+     "bold": false,
+     "color": "#EAE8F8",
+     "size": 6.0,
+     "text": "DR (1) · Flow (6) · VPCs (3) · X-Play (6)",
+     "width": 101.42,
+     "x": 16.79
+    }
+   ],
+   "parent": "site:md-pc02.demo.local",
+   "style": {
+    "dash": null,
+    "fill": "#5B3FD9",
+    "radius": 3.75,
+    "stroke": null,
+    "stroke_w": 0.75
+   },
+   "w": 135.0,
+   "x": 235.5,
+   "y": 38.7
+  },
+  {
+   "data": {
+    "cluster_uuid": "8db1379a-d206-57cc-87c6-3ff054625b9a",
+    "name": "PROD-W01",
+    "prism_central": "md-pc02.demo.local"
+   },
+   "h": 37.94,
+   "id": "cluster:8db1379a-d206-57cc-87c6-3ff054625b9a",
+   "kind": "box",
+   "lines": [
+    {
+     "baseline": 12.13,
+     "bold": true,
+     "color": "#0F1A24",
+     "size": 7.2,
+     "text": "PROD-W01",
+     "width": 37.14,
+     "x": 5.0
+    },
+    {
+     "baseline": 20.36,
+     "bold": false,
+     "color": "#3E4C59",
+     "size": 6.2,
+     "text": "AHV, 8 nodes, RF3, NX-8170-G9",
+     "width": 90.54,
+     "x": 5.0
+    }
+   ],
+   "parent": "site:md-pc02.demo.local",
+   "style": {
+    "dash": null,
+    "fill": "#FFFFFF",
+    "radius": 3.4,
+    "stroke": "#5B3FD9",
+    "stroke_w": 0.7
+   },
+   "w": 135.0,
+   "x": 235.5,
+   "y": 93.74
+  },
+  {
+   "data": {},
+   "h": 9.0,
+   "id": "cluster:8db1379a-d206-57cc-87c6-3ff054625b9a:tag",
+   "kind": "tag",
+   "lines": [
+    {
+     "baseline": 6.6,
+     "bold": true,
+     "color": "#FFFFFF",
+     "size": 6.0,
+     "text": "HOSTS PC",
+     "width": 29.3,
+     "x": 4.38
+    }
+   ],
+   "parent": "cluster:8db1379a-d206-57cc-87c6-3ff054625b9a",
+   "style": {
+    "dash": null,
+    "fill": "#0F1A24",
+    "radius": 1.9,
+    "stroke": null,
+    "stroke_w": 0.75
+   },
+   "w": 38.06,
+   "x": 240.5,
+   "y": 89.24
+  },
+  {
+   "data": {},
+   "h": 8.5,
+   "id": "cluster:8db1379a-d206-57cc-87c6-3ff054625b9a:svc:Objects",
+   "kind": "pill",
+   "lines": [
+    {
+     "baseline": 6.35,
+     "bold": true,
+     "color": "#5B3FD9",
+     "size": 6.0,
+     "text": "Objects",
+     "width": 21.67,
+     "x": 4.15
+    }
+   ],
+   "parent": "cluster:8db1379a-d206-57cc-87c6-3ff054625b9a",
+   "style": {
+    "dash": null,
+    "fill": "#EAE8F8",
+    "radius": 4.1,
+    "stroke": null,
+    "stroke_w": 0.75
+   },
+   "w": 29.97,
+   "x": 335.53,
+   "y": 99.1
+  },
+  {
+   "data": {},
+   "h": 9.28,
+   "id": "cluster:8db1379a-d206-57cc-87c6-3ff054625b9a:storage",
+   "kind": "strip",
+   "lines": [
+    {
+     "baseline": 6.74,
+     "bold": false,
+     "color": "#0A7283",
+     "size": 6.0,
+     "text": "670.6 TiB raw, 3 containers",
+     "width": 72.06,
+     "x": 26.47
+    }
+   ],
+   "parent": "cluster:8db1379a-d206-57cc-87c6-3ff054625b9a",
+   "style": {
+    "dash": null,
+    "fill": "#E7F3F5",
+    "radius": 1.5,
+    "stroke": "#0A7283",
+    "stroke_w": 0.45
+   },
+   "w": 125.0,
+   "x": 240.5,
+   "y": 118.4
+  },
+  {
+   "data": {
+    "cluster_uuid": "6ce6d622-1b20-52a3-98e8-31ed2e9a383a",
+    "name": "DR-W01",
+    "prism_central": "md-pc02.demo.local"
+   },
+   "h": 37.94,
+   "id": "cluster:6ce6d622-1b20-52a3-98e8-31ed2e9a383a",
+   "kind": "box",
+   "lines": [
+    {
+     "baseline": 12.13,
+     "bold": true,
+     "color": "#0F1A24",
+     "size": 7.2,
+     "text": "DR-W01",
+     "width": 27.23,
+     "x": 5.0
+    },
+    {
+     "baseline": 20.36,
+     "bold": false,
+     "color": "#3E4C59",
+     "size": 6.2,
+     "text": "AHV, 4 nodes, RF2, HX665 V3",
+     "width": 83.25,
+     "x": 5.0
+    }
+   ],
+   "parent": "site:md-pc02.demo.local",
+   "style": {
+    "dash": null,
+    "fill": "#FFFFFF",
+    "radius": 3.4,
+    "stroke": "#5B3FD9",
+    "stroke_w": 0.7
+   },
+   "w": 135.0,
+   "x": 235.5,
+   "y": 136.18
+  },
+  {
+   "data": {},
+   "h": 9.28,
+   "id": "cluster:6ce6d622-1b20-52a3-98e8-31ed2e9a383a:storage",
+   "kind": "strip",
+   "lines": [
+    {
+     "baseline": 6.74,
+     "bold": false,
+     "color": "#0A7283",
+     "size": 6.0,
+     "text": "139.7 TiB raw, 3 containers",
+     "width": 70.56,
+     "x": 27.22
+    }
+   ],
+   "parent": "cluster:6ce6d622-1b20-52a3-98e8-31ed2e9a383a",
+   "style": {
+    "dash": null,
+    "fill": "#E7F3F5",
+    "radius": 1.5,
+    "stroke": "#0A7283",
+    "stroke_w": 0.45
+   },
+   "w": 125.0,
+   "x": 240.5,
+   "y": 160.84
+  },
+  {
+   "data": {
+    "cluster_uuid": "92c840d4-7d8a-5dce-b2c2-1e5e3e93e652",
+    "name": "ESX-W01",
+    "prism_central": "md-pc02.demo.local"
+   },
+   "h": 37.94,
+   "id": "cluster:92c840d4-7d8a-5dce-b2c2-1e5e3e93e652",
+   "kind": "box",
+   "lines": [
+    {
+     "baseline": 12.13,
+     "bold": true,
+     "color": "#0F1A24",
+     "size": 7.2,
+     "text": "ESX-W01",
+     "width": 30.99,
+     "x": 5.0
+    },
+    {
+     "baseline": 20.36,
+     "bold": false,
+     "color": "#3E4C59",
+     "size": 6.2,
+     "text": "ESXi, 3 nodes, RF2, UCSC-C220-M6S",
+     "width": 104.35,
+     "x": 5.0
+    }
+   ],
+   "parent": "site:md-pc02.demo.local",
+   "style": {
+    "dash": null,
+    "fill": "#FFFFFF",
+    "radius": 3.4,
+    "stroke": "#5B3FD9",
+    "stroke_w": 0.7
+   },
+   "w": 135.0,
+   "x": 235.5,
+   "y": 178.62
+  },
+  {
+   "data": {},
+   "h": 8.5,
+   "id": "cluster:92c840d4-7d8a-5dce-b2c2-1e5e3e93e652:svc:vCenter",
+   "kind": "pill",
+   "lines": [
+    {
+     "baseline": 6.35,
+     "bold": true,
+     "color": "#5B3FD9",
+     "size": 6.0,
+     "text": "vCenter",
+     "width": 22.12,
+     "x": 4.16
+    }
+   ],
+   "parent": "cluster:92c840d4-7d8a-5dce-b2c2-1e5e3e93e652",
+   "style": {
+    "dash": null,
+    "fill": "#EAE8F8",
+    "radius": 4.1,
+    "stroke": null,
+    "stroke_w": 0.75
+   },
+   "w": 30.45,
+   "x": 335.05,
+   "y": 183.98
+  },
+  {
+   "data": {},
+   "h": 9.28,
+   "id": "cluster:92c840d4-7d8a-5dce-b2c2-1e5e3e93e652:storage",
+   "kind": "strip",
+   "lines": [
+    {
+     "baseline": 6.74,
+     "bold": false,
+     "color": "#0A7283",
+     "size": 6.0,
+     "text": "83.8 TiB raw, 3 containers",
+     "width": 68.83,
+     "x": 28.08
+    }
+   ],
+   "parent": "cluster:92c840d4-7d8a-5dce-b2c2-1e5e3e93e652",
+   "style": {
+    "dash": null,
+    "fill": "#E7F3F5",
+    "radius": 1.5,
+    "stroke": "#0A7283",
+    "stroke_w": 0.45
+   },
+   "w": 125.0,
+   "x": 240.5,
+   "y": 203.28
+  },
+  {
+   "data": {},
+   "h": 7.5,
+   "id": "legend:0",
+   "kind": "swatch",
+   "lines": [],
+   "parent": null,
+   "style": {
+    "dash": null,
+    "fill": "#5B3FD9",
+    "radius": 3.75,
+    "stroke": null,
+    "stroke_w": 0.75
+   },
+   "w": 17,
+   "x": 0.5,
+   "y": 234.56
+  },
+  {
+   "data": {},
+   "h": 10.5,
+   "id": "legend:0:label",
+   "kind": "label",
+   "lines": [
+    {
+     "baseline": 7.35,
+     "bold": false,
+     "color": "#3E4C59",
+     "size": 6.0,
+     "text": "Prism Central",
+     "width": 35.9,
+     "x": 0.0
+    }
+   ],
+   "parent": null,
+   "style": {
+    "dash": null,
+    "fill": null,
+    "radius": 0.0,
+    "stroke": null,
+    "stroke_w": 0.75
+   },
+   "w": 39.06,
+   "x": 21.5,
+   "y": 233.06
+  },
+  {
+   "data": {},
+   "h": 7.5,
+   "id": "legend:1",
+   "kind": "swatch",
+   "lines": [],
+   "parent": null,
+   "style": {
+    "dash": null,
+    "fill": "#FFFFFF",
+    "radius": 3.4,
+    "stroke": "#5B3FD9",
+    "stroke_w": 0.7
+   },
+   "w": 17,
+   "x": 74.56,
+   "y": 234.56
+  },
+  {
+   "data": {},
+   "h": 10.5,
+   "id": "legend:1:label",
+   "kind": "label",
+   "lines": [
+    {
+     "baseline": 7.35,
+     "bold": false,
+     "color": "#3E4C59",
+     "size": 6.0,
+     "text": "Cluster (Prism Element)",
+     "width": 63.49,
+     "x": 0.0
+    }
+   ],
+   "parent": null,
+   "style": {
+    "dash": null,
+    "fill": null,
+    "radius": 0.0,
+    "stroke": null,
+    "stroke_w": 0.75
+   },
+   "w": 68.3,
+   "x": 95.56,
+   "y": 233.06
+  },
+  {
+   "data": {},
+   "h": 7.5,
+   "id": "legend:2",
+   "kind": "swatch",
+   "lines": [],
+   "parent": null,
+   "style": {
+    "dash": null,
+    "fill": "#E7F3F5",
+    "radius": 1.5,
+    "stroke": "#0A7283",
+    "stroke_w": 0.45
+   },
+   "w": 17,
+   "x": 177.86,
+   "y": 234.56
+  },
+  {
+   "data": {},
+   "h": 10.5,
+   "id": "legend:2:label",
+   "kind": "label",
+   "lines": [
+    {
+     "baseline": 7.35,
+     "bold": false,
+     "color": "#3E4C59",
+     "size": 6.0,
+     "text": "DSF storage",
+     "width": 32.98,
+     "x": 0.0
+    }
+   ],
+   "parent": null,
+   "style": {
+    "dash": null,
+    "fill": null,
+    "radius": 0.0,
+    "stroke": null,
+    "stroke_w": 0.75
+   },
+   "w": 35.96,
+   "x": 198.86,
+   "y": 233.06
+  },
+  {
+   "data": {},
+   "h": 10.5,
+   "id": "legend:3:label",
+   "kind": "label",
+   "lines": [
+    {
+     "baseline": 7.35,
+     "bold": false,
+     "color": "#3E4C59",
+     "size": 6.0,
+     "text": "Replication",
+     "width": 30.08,
+     "x": 0.0
+    }
+   ],
+   "parent": null,
+   "style": {
+    "dash": null,
+    "fill": null,
+    "radius": 0.0,
+    "stroke": null,
+    "stroke_w": 0.75
+   },
+   "w": 32.89,
+   "x": 21.5,
+   "y": 244.06
+  },
+  {
+   "data": {},
+   "h": 10.5,
+   "id": "legend:4:label",
+   "kind": "label",
+   "lines": [
+    {
+     "baseline": 7.35,
+     "bold": false,
+     "color": "#3E4C59",
+     "size": 6.0,
+     "text": "AZ pairing",
+     "width": 27.68,
+     "x": 0.0
+    }
+   ],
+   "parent": null,
+   "style": {
+    "dash": null,
+    "fill": null,
+    "radius": 0.0,
+    "stroke": null,
+    "stroke_w": 0.75
+   },
+   "w": 30.34,
+   "x": 89.39,
+   "y": 244.06
+  },
+  {
+   "data": {},
+   "h": 10.5,
+   "id": "legend:5:label",
+   "kind": "label",
+   "lines": [
+    {
+     "baseline": 7.35,
+     "bold": false,
+     "color": "#3E4C59",
+     "size": 6.0,
+     "text": "Manages",
+     "width": 24.14,
+     "x": 0.0
+    }
+   ],
+   "parent": null,
+   "style": {
+    "dash": null,
+    "fill": null,
+    "radius": 0.0,
+    "stroke": null,
+    "stroke_w": 0.75
+   },
+   "w": 26.59,
+   "x": 154.73,
+   "y": 244.06
+  }
+ ],
+ "part": [
+  1,
+  1
+ ],
+ "schema": "ntnxvision.diagram.scene/1",
+ "title": "Solution conceptual overview",
+ "type": "conceptual",
+ "width": 377.0
+}

@@ -10,7 +10,7 @@ from collections import Counter
 
 from . import fmt
 from .facts import short_name
-from .model import Card, ConceptualModel, Link
+from .model import Card, ConceptualModel, Link, Repl
 from .scene import Scene
 
 MAX_BULLETS = 5
@@ -110,65 +110,86 @@ def conceptual_bullets(model: ConceptualModel, scenes: list[Scene],
     return out[:MAX_BULLETS]
 
 
-def _repl_phrase(lk: Link) -> str:
-    return ", ".join(fmt.repl_lines(lk))
+def _flows_phrase(lk: Link, a: str, b: str) -> str:
+    """"Async 1 h both ways; md-pc01 to md-pc02 also NearSync 1 min"."""
+    fwd = {(r.type, r.rpo_seconds): r for r in lk.forward}
+    bwd = {(r.type, r.rpo_seconds): r for r in lk.backward}
+    common = [fwd[k] for k in fwd if k in bwd]
+    parts = []
+    if common:
+        parts.append(f"{', '.join(fmt.repl_group(common))} both ways")
+    also = " also" if common else ""
+    for reps, x, y in (([fwd[k] for k in fwd if k not in bwd], a, b),
+                       ([bwd[k] for k in bwd if k not in fwd], b, a)):
+        if reps:
+            parts.append(f"{x} to {y}{also} {', '.join(fmt.repl_group(reps))}")
+    return "; ".join(parts)
 
 
 def _link_bullets(model: ConceptualModel) -> list[str]:
     out: list[str] = []
-    site_ids = {s.id for s in model.sites}
-    inner = [lk for lk in model.links if lk.a in site_ids and lk.b in site_ids]
+    order = [s.id for s in model.sites]
+    site_ids = set(order)
     pairs: dict[frozenset[str], dict[str, Link]] = {}
-    for lk in inner:
-        pairs.setdefault(frozenset((lk.a, lk.b)), {})[lk.kind] = lk
+    for lk in model.links:
+        if lk.a in site_ids and lk.b in site_ids:
+            pairs.setdefault(frozenset((lk.a, lk.b)), {})[lk.kind] = lk
     pair_lines = []
-    for key in sorted(pairs, key=lambda k: sorted(k)):
+    for key in sorted(pairs, key=lambda k: sorted(order.index(i) for i in k)):
         kinds = pairs[key]
-        a, b = sorted(key, key=lambda i: [s.id for s in model.sites].index(i))
+        a, b = sorted(key, key=order.index)
         names = f"{_site_short(model, a)} and {_site_short(model, b)}"
         rep = kinds.get("replication")
+        pairing = kinds.get("pairing")
+        down = (f" (pairing {pairing.state or 'not connected'})"
+                if pairing and not pairing.connected else "")
         if rep:
-            direction = ", both directions" if rep.both else (
-                f", {_site_short(model, rep.a)} to {_site_short(model, rep.b)}")
-            verb = "are paired" if "pairing" in kinds else "replicate"
-            pair_lines.append(f"{names} {verb}: {_repl_phrase(rep)}{direction}.")
+            phrase = _flows_phrase(rep, _site_short(model, rep.a), _site_short(model, rep.b))
+            verb = "are paired" if pairing else "replicate"
+            pair_lines.append(f"{names} {verb}{down}: {phrase}.")
         else:
-            pair_lines.append(f"{names} are paired (no protection policy between them).")
+            pair_lines.append(f"{names} are paired{down}, with no protection policy "
+                              "between them.")
     if len(pair_lines) <= 2:
         out.extend(pair_lines)
     else:
         out.append(f"{len(pair_lines):,} pairs of availability zones in this inventory are "
                    "paired with each other.")
 
-    # (remote id, direction) -> links; direction "to" = sites replicate to the remote.
-    remotes: dict[tuple[str, str], list[Link]] = {}
+    # remote id -> {"to": [(site, reps)], "from": [(site, reps)]}
+    remotes: dict[str, dict[str, list[tuple[str, list[Repl]]]]] = {}
     for lk in model.links:
-        if lk.kind != "replication":
+        if lk.kind != "replication" or not (lk.a.startswith("az:") or lk.b.startswith("az:")):
             continue
-        if lk.b.startswith("az:"):
-            remotes.setdefault((lk.b, "both" if lk.both else "to"), []).append(lk)
-        elif lk.a.startswith("az:"):
-            remotes.setdefault((lk.a, "both" if lk.both else "from"), []).append(lk)
+        site, rid = (lk.a, lk.b) if lk.b.startswith("az:") else (lk.b, lk.a)
+        out_reps = lk.forward if lk.a == site else lk.backward
+        in_reps = lk.backward if lk.a == site else lk.forward
+        entry = remotes.setdefault(rid, {"to": [], "from": []})
+        if out_reps:
+            entry["to"].append((_site_short(model, site), out_reps))
+        if in_reps:
+            entry["from"].append((_site_short(model, site), in_reps))
     lines = []
-    for rid, way in sorted(remotes, key=lambda k: (model.name_of(k[0]).lower(), k[1])):
-        lks = remotes[(rid, way)]
-        srcs = sorted({_site_short(model, lk.a if lk.b == rid else lk.b) for lk in lks})
-        who = fmt.join_names(srcs) if len(srcs) <= 3 else \
-            f"{', '.join(srcs[:2])} and {len(srcs) - 2:,} more"
-        types = ", ".join(list(dict.fromkeys(t for lk in lks for t in fmt.repl_lines(lk)))[:3])
+    for rid in sorted(remotes, key=lambda r: model.name_of(r).lower()):
         remote = model.name_of(rid)
-        if way == "from":
-            lines.append(f"{remote}, outside this inventory, replicates to {who} ({types}).")
-        else:
-            verb = "replicates" if len(srcs) == 1 else "replicate"
-            both = " in both directions" if way == "both" else ""
-            lines.append(f"{who} {verb} with {remote}{both}, outside this inventory "
-                         f"({types})." if both else
-                         f"{who} {verb} to {remote}, outside this inventory ({types}).")
+        for way in ("to", "from"):
+            flows = remotes[rid][way]
+            if not flows:
+                continue
+            who_list = sorted({w for w, _ in flows})
+            who = fmt.join_names(who_list) if len(who_list) <= 3 else \
+                f"{', '.join(who_list[:2])} and {len(who_list) - 2:,} more"
+            types = ", ".join(fmt.repl_group([r for _, reps in flows for r in reps]))
+            if way == "to":
+                verb = "replicates" if len(who_list) == 1 else "replicate"
+                lines.append(f"{who} {verb} to {remote}, outside this inventory ({types}).")
+            else:
+                lines.append(f"{remote}, outside this inventory, replicates to {who} "
+                             f"({types}).")
     if len(lines) <= 2:
         out.extend(lines)
     else:
-        out.append(f"Replication to {len(lines):,} availability zones outside this "
+        out.append(f"Replication with {len(remotes):,} availability zones outside this "
                    "inventory.")
     return out
 
