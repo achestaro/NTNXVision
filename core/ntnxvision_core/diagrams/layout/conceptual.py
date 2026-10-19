@@ -257,10 +257,14 @@ def _site_rows(s: Site) -> list[Row]:
                     K.INK_3, 2, gap_before=0.5)]
     n_clusters, nodes, missing = _site_counts(s)
     what = "Availability zone" if s.kind == "pc" else "Prism Element"
-    gone = f" ({missing:,} not drawn)" if missing else ""
+    # A count stays with its noun ("47 nodes", "1 not drawn"): a wrap falls between them.
+    def keep(text: str) -> str:
+        return text.replace(" ", fmt.NBSP)
+
+    gone = f" ({keep(f'{missing:,} not drawn')})" if missing else ""
     rows = [Row(s.name, K.SIZE_SITE, True, K.INK, 2, 7.5),
-            Row(f"{what}, {fmt.plural(n_clusters, 'cluster')}{gone}, "
-                f"{fmt.plural(nodes, 'node')}",
+            Row(f"{what}, {keep(fmt.plural(n_clusters, 'cluster'))}{gone}, "
+                f"{keep(fmt.plural(nodes, 'node'))}",
                 K.SIZE_SMALL, False, K.INK_3, 2, gap_before=0.5)]
     if s.note:  # a line the author added in the editor
         rows.append(Row(s.note, K.SIZE_SMALL, False, K.INK_3, 2))

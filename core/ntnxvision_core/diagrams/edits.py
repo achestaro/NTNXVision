@@ -467,13 +467,14 @@ def disclosure(generated: dict[str, Any], edited: dict[str, Any], spec: EditSpec
             continue
         before = gen[ident][0]
         if col.label and elem.get(col.label) != before.get(col.label):
-            renamed.append(f"{before.get(col.label)} shown as {elem.get(col.label)}")
+            renamed.append(f"{before.get(col.label)} renamed to \"{elem.get(col.label)}\"")
         if col.roles and elem.get("role") != before.get("role"):
             roles += 1
         if col.sublabel and elem.get(col.sublabel) != before.get(col.sublabel):
             notes += 1
     if renamed:
-        parts.append(f"{_count(len(renamed), 'renamed', 'renamed')} ({_named(renamed)})")
+        parts.append(", ".join(renamed) if len(renamed) <= 3 else
+                     f"{len(renamed):,} renamed, including {', '.join(renamed[:2])}")
     if roles:
         parts.append(f"{_count(roles, 'role')} set by the author")
     if notes:
