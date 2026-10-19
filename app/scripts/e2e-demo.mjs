@@ -975,7 +975,8 @@ try {
     const dialog = page.getByRole('dialog');
     await dialog.getByText(/Prism Central/).first().waitFor();
     await dialog.getByText('PDF report', { exact: true }).first().click(); // Word only
-    await dialog.getByRole('button', { name: /^Export 1 file/ }).click();
+    // Word, plus the editable diagrams bundle when that option is on (its default).
+    await dialog.getByRole('button', { name: /^Export [12] files?/ }).click();
     // Wait for the file itself: an earlier "Exported 1 file" toast may still be showing.
     let added = [];
     for (let i = 0; i < 240 && !added.length; i++) {
