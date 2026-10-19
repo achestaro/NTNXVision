@@ -106,6 +106,12 @@ TAG_NEIGHBOUR = Style(fill=INK_2, radius=1.9)
 NOT_REPORTED = Style(fill=WHITE, stroke=RULE_STRONG, stroke_w=0.75, dash=(2.6, 1.9),
                      radius=3.75)
 
+# ─── disaster recovery design (A5) ─────────────────────────────────────
+#: A cluster no protection policy names (greyed).
+CLUSTER_MUTED = Style(fill=SURFACE, stroke=RULE, stroke_w=0.7, radius=3.4)
+#: "2 RECOVERY PLANS" chip on the gutter between two zones.
+TAG_PLANS = Style(fill=WHITE, stroke=RULE_STRONG, stroke_w=0.6, radius=1.9)
+
 # ─── management plane (A3) ─────────────────────────────────────────────
 #: Status green ("connected").
 GOOD = _h(T.OK)

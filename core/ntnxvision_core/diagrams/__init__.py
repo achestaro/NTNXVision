@@ -20,6 +20,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
+from . import dr as _dr
 from . import estate as _estate
 from . import management as _management
 from . import network as _network
@@ -29,6 +30,7 @@ from .edits import GENERIC, EditSpec
 from .facts import conceptual_model
 from .layout.conceptual import Page, Refs
 from .layout.conceptual import layout as conceptual_layout
+from .layout.dr import layout as dr_layout
 from .layout.estate import layout as estate_layout
 from .layout.logical import layout as logical_layout
 from .layout.management import layout as management_layout
@@ -98,6 +100,10 @@ TYPES: dict[str, DiagramType] = {
         section="Host Network Configuration", applies=_network.applies,
         build_model=_network.network_model, layout=network_layout,
         to_doc=_network.to_doc, from_doc=_network.from_doc, slug="host-network-profile"),
+    "dr": DiagramType(
+        id="dr", title="Disaster recovery design", chapter="data_protection",
+        section="Disaster Recovery Design", applies=_dr.applies, build_model=_dr.dr_model,
+        layout=dr_layout, to_doc=_dr.to_doc, from_doc=_dr.from_doc, slug="data-protection"),
 }
 
 
