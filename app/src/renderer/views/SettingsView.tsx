@@ -4,7 +4,9 @@
 import React, { useState } from 'react';
 import type { Accent, Density, SnapshotList, ThemeMode } from '@shared/ipc';
 import { DEFAULT_VCPU_RATIO, MAX_CLUSTER_RATIO, MIN_CLUSTER_RATIO } from '@shared/ipc';
-import { Button, Callout, ConfirmDialog, Field, PageHeader, Panel, PanelHeader, Segmented, useToast } from '../components';
+import { Button, Callout, ConfirmDialog, Field, PageHeader, Panel, PanelHeader, Segmented, Switch, useToast } from '../components';
+import { isDefaultSectionOrder, normalizeSectionOrder } from '@shared/reportSections';
+import { ReportSectionList } from './ReportSectionList';
 import { useSettings } from '../lib/settings';
 import { useRun } from '../lib/run';
 import { useAsync } from '../lib/useAsync';
@@ -192,6 +194,7 @@ export function SettingsView(): JSX.Element {
                 onBlur={() => void saveRatio()}
               />
             </Field>
+            <SectionOrderSetting />
           </div>
         </Panel>
 
@@ -261,6 +264,51 @@ export function SettingsView(): JSX.Element {
         </Field>
       </ConfirmDialog>
     </>
+  );
+}
+
+/**
+ * "Custom section order": off by default. When on, the order below is the order of the
+ * report sections in every export (the Export dialog starts from it; Email, New collection,
+ * Multiple PCs and schedules use it). The order is kept while the switch is off.
+ */
+function SectionOrderSetting(): JSX.Element {
+  const { settings, update } = useSettings();
+  const on = !!settings.customSectionOrder;
+  const order = normalizeSectionOrder(settings.sectionOrder);
+  return (
+    <div data-testid="section-order-setting">
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 16, alignItems: 'center' }}>
+        <div style={{ flex: '1 1 260px', minWidth: 0 }}>
+          <div style={{ fontWeight: 500 }} id="set-section-order">
+            Custom section order
+          </div>
+          <div className="hint" id="set-section-order-hint">
+            {on
+              ? 'Every report (PDF, Word and the Excel sheets, including scheduled and emailed reports) uses this order. The Export dialog can change it for one export.'
+              : 'Reports use the default section order. Turn on to arrange the sections of every report.'}
+          </div>
+        </div>
+        <Switch checked={on} onChange={(v) => void update({ customSectionOrder: v })} labelledBy="set-section-order" />
+      </div>
+      {on && (
+        <div style={{ marginTop: 12 }}>
+          <ReportSectionList
+            label="Report section order"
+            order={order}
+            reorderable
+            onOrderChange={(next) => void update({ sectionOrder: next })}
+            testId="settings-section-list"
+          />
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 8 }}>
+            <Button size="sm" onClick={() => void update({ sectionOrder: undefined })} disabled={isDefaultSectionOrder(order)}>
+              Reset to default order
+            </Button>
+            <span className="hint">Drag a section, or use its arrow buttons. Saved as you go.</span>
+          </div>
+        </div>
+      )}
+    </div>
   );
 }
 

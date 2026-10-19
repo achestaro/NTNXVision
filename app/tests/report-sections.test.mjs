@@ -19,7 +19,7 @@ test('catalogue: fixed first and last, the rest movable', () => {
   assert.equal(ids[ids.length - 1], 'appendix');
   assert.equal(new Set(ids).size, ids.length);
   assert.deepEqual(rs.MOVABLE_SECTION_IDS, ids.slice(1, -1));
-  for (const s of rs.REPORT_SECTION_CATALOG) assert.ok(!s.label.includes('—'), 'no em dash');
+  for (const s of rs.REPORT_SECTION_CATALOG) assert.ok(!s.label.includes('\u2014'), 'no em dash');
 });
 
 test('normalizeSectionOrder ignores unknown, fixed and duplicate ids and appends missing ones', () => {

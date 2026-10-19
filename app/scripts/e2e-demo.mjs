@@ -96,6 +96,20 @@ const mailDir = join(profile, 'mail');
 await mkdir(mailDir, { recursive: true });
 const coreDir = resolve(appDir, '..', 'core');
 const venvPython = process.platform === 'win32' ? join(coreDir, '.venv', 'Scripts', 'python.exe') : join(coreDir, '.venv', 'bin', 'python');
+/** The Heading 1 texts of a .docx (read with the core venv's python-docx). */
+function wordHeadings(path) {
+  const code = 'import sys, json\nfrom docx import Document\n' +
+    'print(json.dumps([p.text for p in Document(sys.argv[1]).paragraphs if p.style is not None and p.style.name == "Heading 1"]))';
+  return new Promise((ok, fail) => {
+    const py = spawn(existsSync(venvPython) ? venvPython : 'python3', ['-c', code, path], { stdio: ['ignore', 'pipe', 'pipe'] });
+    let out = '';
+    let err = '';
+    py.stdout.on('data', (d) => (out += d));
+    py.stderr.on('data', (d) => (err += d));
+    py.on('close', (rc) => (rc === 0 ? ok(JSON.parse(out)) : fail(new Error(`python-docx failed: ${err}`))));
+  });
+}
+
 const sink = spawn(existsSync(venvPython) ? venvPython : 'python3', ['-m', 'ntnxvision_core', 'smtp-sink', '--port', '0', '--out', mailDir], {
   cwd: coreDir,
   stdio: ['ignore', 'pipe', 'pipe'],
@@ -873,13 +887,47 @@ try {
     await page.getByText('pc01-week1').first().waitFor();
   });
 
+  await run('settings-section-order', async () => {
+    // Off by default; on shows the list, saved to settings.json as you go.
+    await rail('Settings');
+    const sw = page.getByRole('switch', { name: 'Custom section order' });
+    if ((await sw.getAttribute('aria-checked')) !== 'false') throw new Error('Custom section order should start off');
+    await sw.click();
+    const up = page.getByRole('button', { name: 'Move Health & Alerts up' });
+    while (await up.isEnabled()) await up.click();
+    await page.getByTestId('settings-section-list').scrollIntoViewIfNeeded();
+    await uxShot('settings-section-order');
+    const file = join(profile, 'userData', 'settings.json');
+    let saved = {};
+    for (let i = 0; i < 50 && saved.sectionOrder?.[0] !== 'health'; i++) {
+      await page.waitForTimeout(100);
+      saved = JSON.parse(await readFile(file, 'utf-8'));
+    }
+    if (saved.customSectionOrder !== true || saved.sectionOrder?.[0] !== 'health') throw new Error(`settings: ${JSON.stringify(saved)}`);
+    // Off again (the order is kept for later), so the export below starts from the default.
+    await sw.click();
+    await page.getByRole('button', { name: 'Reset to default order' }).waitFor({ state: 'detached' });
+    await rail('Snapshots');
+    await page.getByText('pc01-week1').first().waitFor();
+  });
+
   await run('export-dialog', async () => {
     await page.getByRole('button', { name: 'Export pc01-week1' }).click();
     const dialog = page.getByRole('dialog');
     await dialog.getByText(/Prism Central/).first().waitFor();
-    // Excel and Word start selected; add the PDF and trim the sections.
+    // Excel and Word start selected; add the PDF. Sections and order starts collapsed.
     await dialog.getByText('PDF report', { exact: true }).first().click();
-    await dialog.getByText('Data protection', { exact: true }).click();
+    const toggle = dialog.getByTestId('export-sections-toggle');
+    if ((await toggle.getAttribute('aria-expanded')) !== 'false') throw new Error('Sections and order should start collapsed');
+    await dialog.getByTestId('export-sections-summary').getByText('All sections · default order').waitFor();
+    await toggle.click();
+    // Leave out Data Protection, and put Networking right after the Executive Summary.
+    await dialog.getByRole('checkbox', { name: 'Data Protection & Disaster Recovery' }).uncheck();
+    await dialog.getByRole('switch', { name: 'Customize order for this export' }).click();
+    const up = dialog.getByRole('button', { name: 'Move Networking up' });
+    while (await up.isEnabled()) await up.click();
+    await dialog.getByTestId('export-sections-summary').getByText(/sections · custom order/).waitFor();
+    await uxShot('export-dialog-sections');
     // File name prefix with a live preview of every file.
     await dialog.locator('#exp-prefix').fill('ACME Q4');
     for (const ext of ['xlsx', 'pdf', 'docx']) {
@@ -892,6 +940,10 @@ try {
     for (const ext of ['.xlsx', '.pdf', '.docx']) {
       if (!files.includes(`ACME Q4-pc01-week1-${today}${ext}`)) throw new Error(`no ACME Q4 ${ext} written: ${files.join(', ')}`);
     }
+    // The Word chapters follow the order and the selection.
+    const heads = await wordHeadings(join(exportDir, `ACME Q4-pc01-week1-${today}.docx`));
+    if (heads[0] !== '1. Executive Summary' || heads[1] !== '2. Networking') throw new Error(`chapter order: ${heads.join(' | ')}`);
+    if (heads.some((h) => h.includes('Data Protection'))) throw new Error(`Data Protection was left out: ${heads.join(' | ')}`);
   });
 
   await run('export-dialog-remembers-prefix', async () => {
