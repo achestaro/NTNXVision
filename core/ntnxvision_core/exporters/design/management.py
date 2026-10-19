@@ -49,7 +49,7 @@ def build(b: Any, ch: Chapter, dtype: DiagramType) -> bool:
     if any(sc.meta.get("summarised") for sc in scenes):
         rows, srcs = M.cluster_rows(model, _drawn(scenes, [f"Figure {i}" for i in
                                                            range(len(scenes))]))
-        clusters = make_table(M.CLUSTER_HEADERS, rows, "Registered clusters",
+        clusters = make_table(M.CLUSTER_HEADERS, rows, "Clusters registered per Prism Central",
                               srcs if env.is_combined else None,
                               prune=("DSIP", "vCenter", "Connectivity"))
     ch.add(dtype.section, *figs, pcs, clusters)
