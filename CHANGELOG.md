@@ -6,6 +6,27 @@ format older builds can't read. Windows shows the version as X.Y.Z.0 in Installe
 Every pull request that changes shipped code raises it with `node scripts/bump-version.mjs`
 and adds a section here (CI checks both).
 
+## 0.11.0 (2026-10-19)
+
+### Added
+- Network Segment Design (Networking): per AZ, each cluster's virtual switches with their VLAN
+  subnets, prefixes, gateways and IPAM; external subnets counted apart.
+- Flow Virtual Networking Design (Networking): per AZ, external subnets with NAT, each VPC's
+  router, routes, policies, overlay subnets and floating IPs.
+- Microsegmentation Design (Security Posture): per AZ, Flow policies by state with the groups
+  they secure and their inbound and outbound rule peers (now collected, read-only).
+- The Logical Cluster Design shows GPUs and nodes in maintenance; the Hosts table has a
+  Maintenance column.
+- All three new figures are editable on the Diagrams page and in the editable diagrams files.
+
+### Changed
+- Charts restyled: storage capacity per cluster and container, fullest first, with 80% and 90%
+  marks; VMs per cluster as single-colour bars.
+- The per-cluster compute figures are replaced by the Logical Cluster Design.
+
+### Fixed
+- VPCs with the same name on different Prism Centrals were drawn as one.
+
 ## 0.10.0 (2026-10-19)
 
 ### Added
