@@ -727,6 +727,7 @@
     },
     resetDiagram: () => delay(window.__STUB_DIAGRAMS__.generated, 120),
     carryDiagrams: () => delay({ diagrams: window.__STUB_DIAGRAMS__.carry }, 200),
+    setUnsavedChanges: () => delay(undefined, 0),
     exportSnapshot: (req) => {
       const s = find(req.snapshotPath);
       const name = s ? s.name : 'snapshot';

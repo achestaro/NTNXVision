@@ -17,6 +17,7 @@ import type {
   TargetSaveRequest,
   TestConnectionRequest,
   TrustCertificateRequest,
+  UnsavedChangesRequest,
   VcenterRequest,
 } from '../shared/ipc';
 import { MAX_DIAGRAM_OPS, MAX_DIAGRAM_TEXT } from '../shared/ipc';
@@ -285,6 +286,23 @@ export function asDiagramOps(v: unknown): DiagramOp[] {
     if (op === 'move') return { op, id, index: int(o.index, `ops[${i}].index`, 0, 100000) };
     return { op, id };
   });
+}
+
+/** The renderer's unsaved-work flag for the window close guard. */
+export function asUnsavedChangesRequest(v: unknown): UnsavedChangesRequest {
+  const r = obj(v, 'request');
+  const dirty = bool(r.dirty, 'dirty');
+  const what = optStr(r.what, 'what', 200)?.replace(/\s+/g, ' ').trim();
+  return what ? { dirty, what } : { dirty };
+}
+
+/**
+ * What closing the window does: `hide` (a schedule keeps the app in the tray, nothing is
+ * lost), `ask` (unsaved work: confirm first) or `close`.
+ */
+export function closeAction(s: { quitting: boolean; hides: boolean; unsaved: boolean }): 'hide' | 'ask' | 'close' {
+  if (!s.quitting && s.hides) return 'hide';
+  return s.unsaved ? 'ask' : 'close';
 }
 
 export function asDiagramCarryRequest(v: unknown): DiagramCarryRequest {
