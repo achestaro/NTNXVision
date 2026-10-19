@@ -143,6 +143,9 @@ def test_user_zone_and_note(env: Environment) -> None:
     assert scene.node("user:az").style.dash is not None
     assert scene.node("user:az:tag").text == "USER-ADDED"
     assert scene.node("user:note:tag").text == "USER-ADDED"
+    # The caption counts only collected zones and names the author's.
+    assert "plus 1 user-added zone" in scene.caption
+    assert check_scene(scene) == []
     # A component cannot go to the top level, an AZ cannot go into a zone.
     bad = E.apply_ops(ST.generated(env, "conceptual"), E.clean_ops([
         {"op": "add", "parent": None, "field": "cards", "index": 0,
