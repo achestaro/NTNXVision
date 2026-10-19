@@ -282,7 +282,9 @@ def test_combined_word_names_the_sources_and_attributes_clusters(tmp_path) -> No
     # The misleading single-PC sizing table must be gone, not merely supplemented.
     assert "Prism Central management-plane configuration" not in text
 
-    tables = [[[c.text for c in row.cells] for row in t.rows] for t in doc.tables]
+    # Word text carries non-breaking hyphens (U+2011) in short hyphenated tokens.
+    tables = [[[c.text.replace("\u2011", "-") for c in row.cells] for row in t.rows]
+              for t in doc.tables]
     source_table = next(t for t in tables if t[0][:3] == ["Prism Central", "Version", "Deployment"])
     assert [r[0] for r in source_table[1:]] == ["pc-emea.local", "pc-amer.local"]
     assert [r[3] for r in source_table[1:]] == ["1", "3"]        # per-PC node counts
