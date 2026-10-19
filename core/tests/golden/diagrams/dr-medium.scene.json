@@ -1,0 +1,700 @@
+{
+ "caption": "Disaster recovery design: protection policies by source and target cluster, type and RPO.",
+ "edges": [
+  {
+   "arrow_end": true,
+   "arrow_start": true,
+   "data": {
+    "kind": "replication"
+   },
+   "dst": "cluster:8db1379a-d206-57cc-87c6-3ff054625b9a",
+   "id": "flow:cluster:86088e1b-cdfc-5113-a735-aeb9ef1962c3->cluster:8db1379a-d206-57cc-87c6-3ff054625b9a",
+   "labels": [
+    {
+     "background": true,
+     "h": 9.68,
+     "lines": [
+      {
+       "baseline": 6.94,
+       "bold": false,
+       "color": "#5B3FD9",
+       "size": 6.0,
+       "text": "NearSync 1 min, back Async 1 h",
+       "width": 84.18,
+       "x": 4.52
+      }
+     ],
+     "w": 93.23,
+     "x": 235.5,
+     "y": 48.69
+    }
+   ],
+   "points": [
+    [
+     224.5,
+     53.53
+    ],
+    [
+     339.73,
+     53.53
+    ]
+   ],
+   "src": "cluster:86088e1b-cdfc-5113-a735-aeb9ef1962c3",
+   "style": {
+    "dash": null,
+    "fill": null,
+    "radius": 0.0,
+    "stroke": "#5B3FD9",
+    "stroke_w": 1.1
+   }
+  },
+  {
+   "arrow_end": true,
+   "arrow_start": false,
+   "data": {
+    "kind": "replication"
+   },
+   "dst": "cluster:6ce6d622-1b20-52a3-98e8-31ed2e9a383a",
+   "id": "flow:cluster:b05a4233-4013-58ed-a8b7-794ab3a4f5f8->cluster:6ce6d622-1b20-52a3-98e8-31ed2e9a383a",
+   "labels": [
+    {
+     "background": true,
+     "h": 9.68,
+     "lines": [
+      {
+       "baseline": 6.94,
+       "bold": false,
+       "color": "#5B3FD9",
+       "size": 6.0,
+       "text": "Async 1 h",
+       "width": 25.4,
+       "x": 2.76
+      }
+     ],
+     "w": 30.92,
+     "x": 266.66,
+     "y": 82.35
+    }
+   ],
+   "points": [
+    [
+     224.5,
+     87.19
+    ],
+    [
+     339.73,
+     87.19
+    ]
+   ],
+   "src": "cluster:b05a4233-4013-58ed-a8b7-794ab3a4f5f8",
+   "style": {
+    "dash": null,
+    "fill": null,
+    "radius": 0.0,
+    "stroke": "#5B3FD9",
+    "stroke_w": 0.7
+   }
+  },
+  {
+   "arrow_end": false,
+   "arrow_start": false,
+   "data": {},
+   "dst": "",
+   "id": "legend:0",
+   "labels": [],
+   "points": [
+    [
+     0.5,
+     155.43
+    ],
+    [
+     17.5,
+     155.43
+    ]
+   ],
+   "src": "",
+   "style": {
+    "dash": null,
+    "fill": null,
+    "radius": 0.0,
+    "stroke": "#5B3FD9",
+    "stroke_w": 1.1
+   }
+  },
+  {
+   "arrow_end": false,
+   "arrow_start": false,
+   "data": {},
+   "dst": "",
+   "id": "legend:1",
+   "labels": [],
+   "points": [
+    [
+     100.73,
+     155.43
+    ],
+    [
+     117.73,
+     155.43
+    ]
+   ],
+   "src": "",
+   "style": {
+    "dash": null,
+    "fill": null,
+    "radius": 0.0,
+    "stroke": "#5B3FD9",
+    "stroke_w": 0.7
+   }
+  }
+ ],
+ "height": 162.18,
+ "id": "dr",
+ "meta": {
+  "rung": 0,
+  "sites": [
+   "site:md-pc01.demo.local",
+   "site:md-pc02.demo.local"
+  ]
+ },
+ "nodes": [
+  {
+   "data": {
+    "name": "md-pc01.demo.local",
+    "prism_central": "md-pc01.demo.local"
+   },
+   "h": 136.18,
+   "id": "site:md-pc01.demo.local",
+   "kind": "container",
+   "lines": [
+    {
+     "baseline": 17.41,
+     "bold": true,
+     "color": "#0F1A24",
+     "size": 9.0,
+     "text": "md-pc01.demo.local",
+     "width": 83.19,
+     "x": 73.4
+    },
+    {
+     "baseline": 26.46,
+     "bold": false,
+     "color": "#5B6976",
+     "size": 6.0,
+     "text": "2 of 3 clusters protected",
+     "width": 66.22,
+     "x": 81.89
+    }
+   ],
+   "parent": null,
+   "style": {
+    "dash": null,
+    "fill": "#FAFBFB",
+    "radius": 5.25,
+    "stroke": "#C9D0D6",
+    "stroke_w": 0.75
+   },
+   "w": 230.0,
+   "x": 0.5,
+   "y": 5.0
+  },
+  {
+   "data": {},
+   "h": 9.0,
+   "id": "site:md-pc01.demo.local:tag",
+   "kind": "tag",
+   "lines": [
+    {
+     "baseline": 6.6,
+     "bold": true,
+     "color": "#FFFFFF",
+     "size": 6.0,
+     "text": "AZ",
+     "width": 8.0,
+     "x": 3.74
+    }
+   ],
+   "parent": "site:md-pc01.demo.local",
+   "style": {
+    "dash": null,
+    "fill": "#5B3FD9",
+    "radius": 1.9,
+    "stroke": null,
+    "stroke_w": 0.75
+   },
+   "w": 15.48,
+   "x": 6.0,
+   "y": 0.5
+  },
+  {
+   "data": {
+    "cluster_uuid": "86088e1b-cdfc-5113-a735-aeb9ef1962c3",
+    "name": "PROD-E01",
+    "prism_central": "md-pc01.demo.local"
+   },
+   "h": 26.66,
+   "id": "cluster:86088e1b-cdfc-5113-a735-aeb9ef1962c3",
+   "kind": "box",
+   "lines": [
+    {
+     "baseline": 11.63,
+     "bold": true,
+     "color": "#0F1A24",
+     "size": 7.2,
+     "text": "PROD-E01",
+     "width": 34.37,
+     "x": 5.0
+    },
+    {
+     "baseline": 20.36,
+     "bold": false,
+     "color": "#3E4C59",
+     "size": 6.2,
+     "text": "AHV, 8 nodes, RF3 · NearSync capable",
+     "width": 107.15,
+     "x": 5.0
+    }
+   ],
+   "parent": "site:md-pc01.demo.local",
+   "style": {
+    "dash": null,
+    "fill": "#FFFFFF",
+    "radius": 3.4,
+    "stroke": "#5B3FD9",
+    "stroke_w": 0.7
+   },
+   "w": 218.0,
+   "x": 6.5,
+   "y": 40.2
+  },
+  {
+   "data": {
+    "cluster_uuid": "b05a4233-4013-58ed-a8b7-794ab3a4f5f8",
+    "name": "PROD-E02",
+    "prism_central": "md-pc01.demo.local"
+   },
+   "h": 26.66,
+   "id": "cluster:b05a4233-4013-58ed-a8b7-794ab3a4f5f8",
+   "kind": "box",
+   "lines": [
+    {
+     "baseline": 11.63,
+     "bold": true,
+     "color": "#0F1A24",
+     "size": 7.2,
+     "text": "PROD-E02",
+     "width": 35.47,
+     "x": 5.0
+    },
+    {
+     "baseline": 20.36,
+     "bold": false,
+     "color": "#3E4C59",
+     "size": 6.2,
+     "text": "AHV, 6 nodes, RF2 · NearSync capable",
+     "width": 106.95,
+     "x": 5.0
+    }
+   ],
+   "parent": "site:md-pc01.demo.local",
+   "style": {
+    "dash": null,
+    "fill": "#FFFFFF",
+    "radius": 3.4,
+    "stroke": "#5B3FD9",
+    "stroke_w": 0.7
+   },
+   "w": 218.0,
+   "x": 6.5,
+   "y": 73.86
+  },
+  {
+   "data": {
+    "cluster_uuid": "9b4738ef-4d63-5e4f-92be-6214d8858c4e",
+    "name": "VDI-E01",
+    "prism_central": "md-pc01.demo.local"
+   },
+   "h": 26.66,
+   "id": "cluster:9b4738ef-4d63-5e4f-92be-6214d8858c4e",
+   "kind": "box",
+   "lines": [
+    {
+     "baseline": 11.63,
+     "bold": true,
+     "color": "#5B6976",
+     "size": 7.2,
+     "text": "VDI-E01",
+     "width": 27.02,
+     "x": 5.0
+    },
+    {
+     "baseline": 20.36,
+     "bold": false,
+     "color": "#5B6976",
+     "size": 6.2,
+     "text": "No protection policy",
+     "width": 57.41,
+     "x": 5.0
+    }
+   ],
+   "parent": "site:md-pc01.demo.local",
+   "style": {
+    "dash": null,
+    "fill": "#FAFBFB",
+    "radius": 3.4,
+    "stroke": "#C9D0D6",
+    "stroke_w": 0.7
+   },
+   "w": 218.0,
+   "x": 6.5,
+   "y": 107.52
+  },
+  {
+   "data": {
+    "name": "md-pc02.demo.local",
+    "prism_central": "md-pc02.demo.local"
+   },
+   "h": 136.18,
+   "id": "site:md-pc02.demo.local",
+   "kind": "container",
+   "lines": [
+    {
+     "baseline": 17.41,
+     "bold": true,
+     "color": "#0F1A24",
+     "size": 9.0,
+     "text": "md-pc02.demo.local",
+     "width": 84.56,
+     "x": 72.72
+    },
+    {
+     "baseline": 26.46,
+     "bold": false,
+     "color": "#5B6976",
+     "size": 6.0,
+     "text": "2 of 3 clusters protected",
+     "width": 66.22,
+     "x": 81.89
+    }
+   ],
+   "parent": null,
+   "style": {
+    "dash": null,
+    "fill": "#FAFBFB",
+    "radius": 5.25,
+    "stroke": "#C9D0D6",
+    "stroke_w": 0.75
+   },
+   "w": 230.0,
+   "x": 333.73,
+   "y": 5.0
+  },
+  {
+   "data": {},
+   "h": 9.0,
+   "id": "site:md-pc02.demo.local:tag",
+   "kind": "tag",
+   "lines": [
+    {
+     "baseline": 6.6,
+     "bold": true,
+     "color": "#FFFFFF",
+     "size": 6.0,
+     "text": "AZ",
+     "width": 8.0,
+     "x": 3.74
+    }
+   ],
+   "parent": "site:md-pc02.demo.local",
+   "style": {
+    "dash": null,
+    "fill": "#5B3FD9",
+    "radius": 1.9,
+    "stroke": null,
+    "stroke_w": 0.75
+   },
+   "w": 15.48,
+   "x": 339.23,
+   "y": 0.5
+  },
+  {
+   "data": {
+    "cluster_uuid": "8db1379a-d206-57cc-87c6-3ff054625b9a",
+    "name": "PROD-W01",
+    "prism_central": "md-pc02.demo.local"
+   },
+   "h": 26.66,
+   "id": "cluster:8db1379a-d206-57cc-87c6-3ff054625b9a",
+   "kind": "box",
+   "lines": [
+    {
+     "baseline": 11.63,
+     "bold": true,
+     "color": "#0F1A24",
+     "size": 7.2,
+     "text": "PROD-W01",
+     "width": 37.14,
+     "x": 5.0
+    },
+    {
+     "baseline": 20.36,
+     "bold": false,
+     "color": "#3E4C59",
+     "size": 6.2,
+     "text": "AHV, 8 nodes, RF3 · NearSync capable",
+     "width": 107.15,
+     "x": 5.0
+    }
+   ],
+   "parent": "site:md-pc02.demo.local",
+   "style": {
+    "dash": null,
+    "fill": "#FFFFFF",
+    "radius": 3.4,
+    "stroke": "#5B3FD9",
+    "stroke_w": 0.7
+   },
+   "w": 218.0,
+   "x": 339.73,
+   "y": 40.2
+  },
+  {
+   "data": {
+    "cluster_uuid": "6ce6d622-1b20-52a3-98e8-31ed2e9a383a",
+    "name": "DR-W01",
+    "prism_central": "md-pc02.demo.local"
+   },
+   "h": 26.66,
+   "id": "cluster:6ce6d622-1b20-52a3-98e8-31ed2e9a383a",
+   "kind": "box",
+   "lines": [
+    {
+     "baseline": 11.63,
+     "bold": true,
+     "color": "#0F1A24",
+     "size": 7.2,
+     "text": "DR-W01",
+     "width": 27.23,
+     "x": 5.0
+    },
+    {
+     "baseline": 20.36,
+     "bold": false,
+     "color": "#3E4C59",
+     "size": 6.2,
+     "text": "AHV, 4 nodes, RF2 · NearSync capable",
+     "width": 107.29,
+     "x": 5.0
+    }
+   ],
+   "parent": "site:md-pc02.demo.local",
+   "style": {
+    "dash": null,
+    "fill": "#FFFFFF",
+    "radius": 3.4,
+    "stroke": "#5B3FD9",
+    "stroke_w": 0.7
+   },
+   "w": 218.0,
+   "x": 339.73,
+   "y": 73.86
+  },
+  {
+   "data": {
+    "cluster_uuid": "92c840d4-7d8a-5dce-b2c2-1e5e3e93e652",
+    "name": "ESX-W01",
+    "prism_central": "md-pc02.demo.local"
+   },
+   "h": 26.66,
+   "id": "cluster:92c840d4-7d8a-5dce-b2c2-1e5e3e93e652",
+   "kind": "box",
+   "lines": [
+    {
+     "baseline": 11.63,
+     "bold": true,
+     "color": "#5B6976",
+     "size": 7.2,
+     "text": "ESX-W01",
+     "width": 30.99,
+     "x": 5.0
+    },
+    {
+     "baseline": 20.36,
+     "bold": false,
+     "color": "#5B6976",
+     "size": 6.2,
+     "text": "No protection policy",
+     "width": 57.41,
+     "x": 5.0
+    }
+   ],
+   "parent": "site:md-pc02.demo.local",
+   "style": {
+    "dash": null,
+    "fill": "#FAFBFB",
+    "radius": 3.4,
+    "stroke": "#C9D0D6",
+    "stroke_w": 0.7
+   },
+   "w": 218.0,
+   "x": 339.73,
+   "y": 107.52
+  },
+  {
+   "data": {},
+   "h": 10.5,
+   "id": "legend:0:label",
+   "kind": "label",
+   "lines": [
+    {
+     "baseline": 7.35,
+     "bold": false,
+     "color": "#3E4C59",
+     "size": 6.0,
+     "text": "NearSync (1 to 15 min)",
+     "width": 60.59,
+     "x": 0.0
+    }
+   ],
+   "parent": null,
+   "style": {
+    "dash": null,
+    "fill": null,
+    "radius": 0.0,
+    "stroke": null,
+    "stroke_w": 0.75
+   },
+   "w": 65.23,
+   "x": 21.5,
+   "y": 150.18
+  },
+  {
+   "data": {},
+   "h": 10.5,
+   "id": "legend:1:label",
+   "kind": "label",
+   "lines": [
+    {
+     "baseline": 7.35,
+     "bold": false,
+     "color": "#3E4C59",
+     "size": 6.0,
+     "text": "Async (1 h or more)",
+     "width": 51.98,
+     "x": 0.0
+    }
+   ],
+   "parent": null,
+   "style": {
+    "dash": null,
+    "fill": null,
+    "radius": 0.0,
+    "stroke": null,
+    "stroke_w": 0.75
+   },
+   "w": 56.1,
+   "x": 121.73,
+   "y": 150.18
+  },
+  {
+   "data": {},
+   "h": 7.5,
+   "id": "legend:2",
+   "kind": "swatch",
+   "lines": [],
+   "parent": null,
+   "style": {
+    "dash": null,
+    "fill": "#FFFFFF",
+    "radius": 3.4,
+    "stroke": "#5B3FD9",
+    "stroke_w": 0.7
+   },
+   "w": 17,
+   "x": 191.83,
+   "y": 151.68
+  },
+  {
+   "data": {},
+   "h": 10.5,
+   "id": "legend:2:label",
+   "kind": "label",
+   "lines": [
+    {
+     "baseline": 7.35,
+     "bold": false,
+     "color": "#3E4C59",
+     "size": 6.0,
+     "text": "Protected cluster",
+     "width": 46.6,
+     "x": 0.0
+    }
+   ],
+   "parent": null,
+   "style": {
+    "dash": null,
+    "fill": null,
+    "radius": 0.0,
+    "stroke": null,
+    "stroke_w": 0.75
+   },
+   "w": 50.39,
+   "x": 212.83,
+   "y": 150.18
+  },
+  {
+   "data": {},
+   "h": 7.5,
+   "id": "legend:3",
+   "kind": "swatch",
+   "lines": [],
+   "parent": null,
+   "style": {
+    "dash": null,
+    "fill": "#FAFBFB",
+    "radius": 3.4,
+    "stroke": "#C9D0D6",
+    "stroke_w": 0.7
+   },
+   "w": 17,
+   "x": 277.22,
+   "y": 151.68
+  },
+  {
+   "data": {},
+   "h": 10.5,
+   "id": "legend:3:label",
+   "kind": "label",
+   "lines": [
+    {
+     "baseline": 7.35,
+     "bold": false,
+     "color": "#3E4C59",
+     "size": 6.0,
+     "text": "No protection policy",
+     "width": 55.56,
+     "x": 0.0
+    }
+   ],
+   "parent": null,
+   "style": {
+    "dash": null,
+    "fill": null,
+    "radius": 0.0,
+    "stroke": null,
+    "stroke_w": 0.75
+   },
+   "w": 59.89,
+   "x": 298.22,
+   "y": 150.18
+  }
+ ],
+ "part": [
+  1,
+  1
+ ],
+ "schema": "ntnxvision.diagram.scene/1",
+ "title": "Disaster recovery design",
+ "type": "dr",
+ "width": 564.23
+}
