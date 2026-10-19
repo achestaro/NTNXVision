@@ -58,3 +58,11 @@ class ApiVersionUnavailable(NutanixApiError):
 
 class CollectionError(NutanixApiError):
     """A collector failed while gathering a specific object type."""
+
+
+class ReadOnlyViolation(RuntimeError):
+    """A request that could change a system was about to leave the process and was
+    refused before it was sent (`api.transport.check_request`).
+
+    Not a `NutanixApiError`: it is a bug in NTNXVision, never a server answer.
+    """
