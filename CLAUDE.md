@@ -121,7 +121,8 @@ the typed channels in `app/src/shared/ipc.ts`, which the main process relays to 
   math lives (see `docs/ARCHITECTURE.md` §6).
 - `lcm_inventory.py` — the optional "Run LCM inventory first" (off by default, per run):
   the tool's only non-read request. Reads each target's LCM status, starts (or joins) an
-  inventory on Prism Central and each selected cluster over the v4 lifecycle API, skips
+  inventory on Prism Central and each selected cluster over the v4 lifecycle API (on
+  pc.2024.1 / pc.2024.2, `LegacyLcmInventory` uses LCM's Genesis RPC instead), skips
   targets busy with an upgrade (reporting what it changes), polls the tasks with backoff,
   timeout and cancel while the other areas run; LCM is collected last. Result on
   `Environment.lcm_inventory` and the run metadata. The mock side is `synthetic/lcm.py`.
@@ -217,9 +218,13 @@ rule rather than assuming v4 is always available.
 
 - Collectors are **read-only** — GET/list calls only, never create/update/delete.
   `api/transport.py`'s guard (`check_request`) enforces it on every session: GET/HEAD, the
-  v3 `list`/`groups` POSTs and the vCenter session login/logout pass, anything else is
-  refused before it is sent. The **one exception** is the opt-in LCM inventory
-  (`POST /api/lifecycle/v4.x/operations/$actions/inventory`): allowed only inside
+  v3 `list`/`groups` POSTs, the vCenter session login/logout (path match on any host) and
+  the two read-only LCM Genesis RPCs (`get_config`, `is_lcm_operation_in_progress`, body
+  checked) pass, anything else is refused before it is sent. The **one exception** is the
+  opt-in LCM inventory, in one of two forms: `POST /api/lifecycle/v4.x/operations/$actions/inventory`
+  (v4), or on pc.2024.1 / pc.2024.2 `POST /PrismGateway/services/rest/v1/genesis` whose
+  body is checked to be exactly the LCM framework `perform_inventory` RPC (Genesis is a
+  generic RPC endpoint, so its path alone admits nothing). Either is allowed only inside
   `transport.lcm_inventory_permit()`, entered only by `lcm_inventory.py`, only when the
   user switched "Run LCM inventory first" on for that run (never by default, never from
   schedules). It refreshes LCM's view and upgrades nothing; it is never started on a
