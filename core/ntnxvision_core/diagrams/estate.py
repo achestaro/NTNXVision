@@ -107,11 +107,16 @@ def estate_model(env: Any) -> EstateModel:
     return estate_from(cm, [list(sc.meta.get("sites", [])) for sc in scenes])
 
 
+#: The estate map opens the overview when it is drawn in at least this many parts
+#: (with two, the parts themselves are the overview).
+MIN_PARTS = 3
+
+
 def applies(env: Any) -> bool:
-    """Only when the conceptual overview needs more than one part."""
+    """Only when the conceptual overview needs `MIN_PARTS` parts or more."""
     if not env.clusters or env.source_type == "prism_element":
         return False
-    return len(estate_model(env).parts) > 1
+    return len(estate_model(env).parts) >= MIN_PARTS
 
 
 def estate_bullets(m: EstateModel) -> list[str]:

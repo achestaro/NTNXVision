@@ -24,11 +24,12 @@ from .conceptual import Budget, Page
 
 MX = 0.5
 TOP = 5.0
-TW = 92.0  # tile width
+TW = 90.0  # tile width (two frames of three tiles fit one row, linked)
 TG = 12.0  # gap between unlinked tiles
 LG = 18.0  # gap between linked tiles (room for the arrows)
 FP = 7.0  # frame padding
 FG = 10.0  # gap between frames
+FG_LINK = 26.0  # gap between frames whose facing tiles are linked
 RW = 150.0  # remote box width
 CH = 11.0  # bus channel pitch
 HYP_COLORS = {"AHV": K.IRIS, "ESXi": K.ESXI}
@@ -52,18 +53,20 @@ def _pc_rows(t: Tile) -> list[Row]:
     return rows
 
 
-def _tail_rows(t: Tile, ref: str) -> list[Row]:
+def _tail_rows(t: Tile, ref: str, note: str = "") -> list[Row]:
     hyp = " · ".join(f"{h} {n:,}" for h, n in t.hyp_clusters)
     rows = [Row(hyp, K.SIZE_SMALL, False, K.INK_2, 2)] if hyp else []
+    if note:
+        rows.append(Row(note, K.SIZE_SMALL, False, K.IRIS, 3))
     rows.append(Row(f"Detail: {ref}", K.SIZE_SMALL, False, K.INK_3, 2))
     return rows
 
 
-def _tile(sc: Scene, t: Tile, x: float, y: float, h: float, parent: str, ref: str
-          ) -> dict[str, float]:
+def _tile(sc: Scene, t: Tile, x: float, y: float, h: float, parent: str, ref: str,
+          note: str = "") -> dict[str, float]:
     """Draw tile `t`; returns the y of its PC block centre and of its counts line."""
     inner = TW - 10
-    head = [Row(t.name, K.SIZE_CARD_TITLE, True, K.INK, 2, tx.MIN_SIZE)]
+    head = [Row(t.name, K.SIZE_CARD_TITLE, True, K.INK, 3, tx.MIN_SIZE)]
     node = box(t.id, "box", x, y, TW, head, K.SITE, pad_x=5, pad_y=CHIP_H / 2 + 3.5, h=h,
                parent=parent, data=dict(sorted(t.data.items())))
     sc.nodes.append(node)
@@ -84,28 +87,15 @@ def _tile(sc: Scene, t: Tile, x: float, y: float, h: float, parent: str, ref: st
     sc.nodes.append(cn)
     out["counts"] = q(cn.y + cn.h / 2)
     cy = cn.y + cn.h + 2.5
-    total = sum(n for _, n in t.hyp_nodes) or 0
-    if total:
-        bx = x + 5
-        for h_, n in t.hyp_nodes:
-            if not n:
-                continue
-            bw = q(inner * n / total)
-            sc.nodes.append(Node(id=f"{t.id}:bar:{h_}", kind="swatch", x=q(bx), y=q(cy),
-                                 w=bw, h=4.5, parent=t.id,
-                                 style=Style(fill=HYP_COLORS.get(h_, K.INK_3)),
-                                 data={"hypervisor": h_, "nodes": str(n)}))
-            bx += bw
-        cy += 4.5 + 3
-    tail = box(f"{t.id}:detail", "label", x + 5, cy, inner, _tail_rows(t, ref), K.LABEL,
-               pad_x=0, pad_y=0)
+    tail = box(f"{t.id}:detail", "label", x + 5, cy, inner, _tail_rows(t, ref, note),
+               K.LABEL, pad_x=0, pad_y=0)
     sc.nodes.append(tail)
     return out
 
 
-def _tile_h(t: Tile) -> float:
+def _tile_h(t: Tile, note: str = "") -> float:
     probe = Scene(id="probe", type="estate", title="", caption="", width=0, height=0)
-    _tile(probe, t, 0, 0, 10, "", "Figure 00-00")
+    _tile(probe, t, 0, 0, 10, "", "Figure 00-00", note)
     bottom = max(n.y + n.h for n in probe.nodes if n.kind != "tag")
     return q(bottom + 5)
 
@@ -115,14 +105,16 @@ def _repl_style(reps: list[Repl]) -> Style:
                                                                   K.REPL_ASYNC)
 
 
-def _rows(widths: list[float], max_w: float) -> list[list[int]]:
+def _rows(widths: list[float], gaps: list[float], max_w: float) -> list[list[int]]:
+    """Frames flowed into rows; `gaps[i]` is the gap before frame i + 1."""
     rows: list[list[int]] = [[]]
     used = 0.0
     for i, w in enumerate(widths):
-        if rows[-1] and used + FG + w > max_w:
+        gap = gaps[i - 1] if i else 0.0
+        if rows[-1] and used + gap + w > max_w:
             rows.append([])
             used = 0.0
-        used += (FG if rows[-1] else 0.0) + w
+        used += (gap if rows[-1] else 0.0) + w
         rows[-1].append(i)
     return rows
 
@@ -135,15 +127,34 @@ def layout(model: EstateModel, page: Page | None = None, refs: Any = None,
     tiles = {t.id: t for t in model.tiles}
     sc = Scene(id="estate", type="estate", title=model.title, caption="", width=page.width,
                height=0)
-    th = max((_tile_h(t) for t in model.tiles), default=40.0)
     widths = [_frame_w(model, p) for p in model.parts]
-    rows = _rows(widths, page.width - 2 * MX)
+    # Frames whose facing tiles are linked leave room for the arrows between them.
+    gaps = [FG_LINK if a and b and _linked(model, a[-1], b[0]) else FG
+            for a, b in zip(model.parts, model.parts[1:], strict=False)]
+    rows = _rows(widths, gaps, page.width - 2 * MX)
+    # Links between tiles that are not side by side are named on the tile.
+    beside = {frozenset(p) for part in model.parts for p in zip(part, part[1:], strict=False)}
+    beside |= {frozenset((model.parts[r[k]][-1], model.parts[r[k + 1]][0]))
+               for r in rows for k in range(len(r) - 1)
+               if model.parts[r[k]] and model.parts[r[k + 1]]}
+    part_of = {tid: pi for pi, p in enumerate(model.parts) for tid in p}
+    others: dict[str, set[str]] = {}
+    for lk in model.links:
+        if lk.a in tiles and lk.b in tiles and frozenset((lk.a, lk.b)) not in beside:
+            others.setdefault(lk.a, set()).add(lk.b)
+            others.setdefault(lk.b, set()).add(lk.a)
+    notes = {tid: "Also linked with " + fmt.join_names(
+        [f"{short_name(tiles[o].name)} (part {part_of[o] + 1})" for o in
+         sorted(os_, key=lambda o: (part_of[o], tiles[o].name))])
+        for tid, os_ in others.items()}
+    th = max((_tile_h(t, notes.get(t.id, "")) for t in model.tiles), default=40.0)
     frame_h = q(CHIP_H / 2 + 9 + th + FP)
     y = TOP
     centres: dict[str, tuple[float, dict[str, float], Node]] = {}
     kinds = {"pairing": False, "pairing_down": False, "replication": False}
     for row in rows:
         x = MX
+        prev: str | None = None
         for pi in row:
             ids = model.parts[pi]
             ref = labels[pi] if pi < len(labels) else f"part {pi + 1} of {n_parts}"
@@ -158,7 +169,11 @@ def layout(model: EstateModel, page: Page | None = None, refs: Any = None,
             ty = q(y + CHIP_H / 2 + 9)
             for k, tid in enumerate(ids):
                 t = tiles[tid]
-                ys = _tile(sc, t, tx_, ty, th, fid, ref)
+                ys = _tile(sc, t, tx_, ty, th, fid, ref, notes.get(tid, ""))
+                if k == 0 and prev is not None and _linked(model, prev, tid):
+                    p_node = sc.node(prev)
+                    _adjacent(sc, model, prev, tid, p_node.x + p_node.w, tx_,
+                              centres[prev][1], kinds)
                 node = sc.node(tid)
                 centres[tid] = (q(tx_ + TW / 2), ys, node)
                 if k + 1 < len(ids):
@@ -166,17 +181,18 @@ def layout(model: EstateModel, page: Page | None = None, refs: Any = None,
                     gap = LG if _linked(model, tid, nxt) else TG
                     _adjacent(sc, model, tid, nxt, tx_ + TW, tx_ + TW + gap, ys, kinds)
                     tx_ += TW + gap
-            x = q(x + widths[pi] + FG)
+            prev = ids[-1] if ids else prev
+            x = q(x + widths[pi] + (gaps[pi] if pi < len(gaps) else FG))
+        last_row_top, last_row_right = y, x
         y = q(y + frame_h + FG + 4)
     bottom = q(y - FG - 4)
-    bottom = _remotes(sc, model, centres, bottom, len(rows) == 1, page, kinds)
+    # With several rows of frames, AZs outside the inventory take the free room right
+    # of the last row when they fit there (a shorter figure), else go under it.
+    side = (last_row_right + 4, last_row_top + CHIP_H / 2) if len(rows) > 1 else None
+    bottom = _remotes(sc, model, centres, bottom, len(rows) == 1, page, kinds, side)
 
     items: list[tuple[str, Style, str]] = [("box", K.PC, "Prism Central"),
                                            ("box", K.FRAME, "Part (figure)")]
-    hyps = sorted({h for t in model.tiles for h, n in t.hyp_nodes if n},
-                  key=lambda h: (h not in HYP_COLORS, h))
-    for h in hyps:
-        items.append(("box", Style(fill=HYP_COLORS.get(h, K.INK_3)), f"{h} nodes"))
     if model.remotes and any(n.id.startswith("az:") for n in sc.nodes):
         items.append(("box", K.REMOTE, "Outside this inventory"))
     if kinds["replication"]:
@@ -220,8 +236,10 @@ def _adjacent(sc: Scene, m: EstateModel, a: str, b: str, x0: float, x1: float,
 
 def _remotes(sc: Scene, m: EstateModel, centres: dict[str, tuple[float, dict[str, float],
                                                                 Node]],
-             bottom: float, bus: bool, page: Page, kinds: dict[str, bool]) -> float:
-    """Remote AZs under the frames; returns the new content bottom."""
+             bottom: float, bus: bool, page: Page, kinds: dict[str, bool],
+             side: tuple[float, float] | None = None) -> float:
+    """Remote AZs under the frames (or, without a bus, from `side` rightwards when they
+    fit there); returns the new content bottom."""
     feeds: dict[str, list[tuple[str, Link]]] = {}
     for lk in m.links:
         if lk.kind != "replication":
@@ -237,8 +255,12 @@ def _remotes(sc: Scene, m: EstateModel, centres: dict[str, tuple[float, dict[str
     box_y = q(ych0 + CH * (len(remotes) - 1) + 16) if bus else q(bottom + 14)
     want = [sum(centres[s][0] for s, _ in feeds[r.id]) / len(feeds[r.id]) - RW / 2
             for r in remotes]
+    x0 = MX
+    if not bus and side is not None and \
+            side[0] + 8 + len(remotes) * (RW + 12) - 12 <= page.width - MX:
+        x0, box_y = q(side[0] + 8), q(side[1])
     xs = _deoverlap(want, RW, 12, MX, page.width - MX) if bus else \
-        [q(MX + i * (RW + 12)) for i in range(len(remotes))]
+        [q(x0 + i * (RW + 12)) for i in range(len(remotes))]
     for k, (r, bx) in enumerate(zip(remotes, xs, strict=True)):
         srcs = sorted(feeds[r.id], key=lambda sl: centres[sl[0]][0])
         reps = [rep for s, lk in srcs

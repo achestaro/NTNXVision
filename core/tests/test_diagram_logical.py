@@ -132,7 +132,8 @@ def test_registry_and_applies(design_envs: dict[str, Any]) -> None:
     assert t.applies(design_envs["small"]) and not t.applies(Environment())
     e = TYPES["estate"]
     assert e.embedded and e.slug == "estate-map"
-    assert e.applies(design_envs["xlarge"]) and e.applies(design_envs["enterprise"])
+    assert e.applies(design_envs["xlarge"])  # 3 parts
+    assert not e.applies(design_envs["enterprise"])  # 2 parts: the parts suffice
     assert not e.applies(design_envs["small"]) and not e.applies(design_envs["medium"])
     assert not e.applies(Environment())
 
@@ -288,18 +289,23 @@ def test_estate_tiles_follow_the_conceptual_parts(design_envs: dict[str, Any]) -
                for n in sc.nodes if n.id in p)
 
 
-def test_estate_hypervisor_bar_and_remote_bus(design_envs: dict[str, Any]) -> None:
-    m, sc = _estate(design_envs["enterprise"])
-    nyc = m.tiles[0]
-    assert nyc.hyp_clusters[0] == ["AHV", 4]
-    bars = [n for n in sc.nodes if n.id.startswith(f"{nyc.id}:bar:")]
-    assert {n.data["hypervisor"] for n in bars} == {"AHV", "ESXi"}
-    remotes = [n for n in sc.nodes if n.id.startswith("az:") and n.kind == "box"]
-    assert {n.data["name"] for n in remotes} == {"Xi-EU-West", "dr-apac"}
-    assert any(e.dst.startswith("az:") for e in sc.edges)
+def test_estate_tiles_name_links_drawn_nowhere_else(design_envs: dict[str, Any]) -> None:
+    """xl-pc03 and xl-pc04 are paired but land in different rows: each tile names the
+    other; a remote AZ fed by tiles in several rows lists its sources."""
+    m, sc = _estate(design_envs["xlarge"])
+    # Tiles side by side across two frames are joined by arrows; links between tiles
+    # that are not are named on the tiles.
+    pc03 = next(t for t in m.tiles if t.name.startswith("xl-pc03"))
+    pc04 = next(t for t in m.tiles if t.name.startswith("xl-pc04"))
+    joined = [e for e in sc.edges if {e.src, e.dst} == {pc03.id, pc04.id}]
+    named = "xl-pc04" in " ".join(sc.node(f"{pc03.id}:detail").text.split())
+    assert joined or named
+    assert not any(n.id.endswith(":bar:AHV") for n in sc.nodes)  # no hypervisor bar
+    vault = next(n for n in sc.nodes if n.id.startswith("az:") and n.kind == "box")
+    assert "From xl-pc01" in vault.text
 
 
-@pytest.mark.parametrize("name", ["enterprise", "xlarge"])
+@pytest.mark.parametrize("name", ["xlarge"])
 def test_estate_no_overflow_determinism_and_shuffle(design_envs: dict[str, Any],
                                                     name: str) -> None:
     env = design_envs[name]
@@ -311,7 +317,7 @@ def test_estate_no_overflow_determinism_and_shuffle(design_envs: dict[str, Any],
 
 
 def test_estate_golden(design_envs: dict[str, Any]) -> None:
-    _golden("estate-enterprise", [_estate(design_envs["enterprise"])[1]])
+    _golden("estate-xlarge", [_estate(design_envs["xlarge"])[1]])
 
 
 # ─── reports ───────────────────────────────────────────────────────────
@@ -350,7 +356,7 @@ def test_report_places_logical_sections_after_the_overview(design_envs: dict[str
 def test_report_opens_the_overview_on_the_estate_map(design_envs: dict[str, Any]) -> None:
     from ntnxvision_core.exporters.content import SceneFigure, Table
 
-    rep = _report(design_envs["enterprise"])
+    rep = _report(design_envs["xlarge"])
     ch = next(c for c in rep.chapters if c.key == "logical_design")
     sec = ch.sections[0]
     assert sec.title == "Solution Conceptual Overview"
