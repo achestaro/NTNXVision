@@ -57,18 +57,19 @@ export function isReportSectionId(id: unknown): id is ReportSectionId {
 /**
  * The movable sections in `requested` order, forward compatible both ways: unknown ids and
  * duplicates are dropped, fixed sections are ignored (they keep their place), and the
- * movable ids the request leaves out are appended in default order.
+ * movable ids the request leaves out are appended in default order. Anything that is not
+ * an array (a hand-edited or corrupt settings.json) counts as no order at all.
  */
-export function normalizeSectionOrder(requested: readonly unknown[] | null | undefined): ReportSectionId[] {
+export function normalizeSectionOrder(requested: unknown): ReportSectionId[] {
   const seen: ReportSectionId[] = [];
-  for (const id of requested ?? []) {
+  for (const id of Array.isArray(requested) ? requested : []) {
     if (isReportSectionId(id) && !BY_ID.get(id)!.fixed && !seen.includes(id)) seen.push(id);
   }
   return [...seen, ...MOVABLE_SECTION_IDS.filter((id) => !seen.includes(id))];
 }
 
 /** Whether `order` (normalized) is the default document order. */
-export function isDefaultSectionOrder(order: readonly unknown[] | null | undefined): boolean {
+export function isDefaultSectionOrder(order: unknown): boolean {
   const n = normalizeSectionOrder(order);
   return n.every((id, i) => id === MOVABLE_SECTION_IDS[i]);
 }
@@ -78,7 +79,8 @@ export function isDefaultSectionOrder(order: readonly unknown[] | null | undefin
  * "Custom section order" is on, otherwise undefined (the default document order).
  */
 export function defaultSectionOrder(settings: Pick<AppSettings, 'customSectionOrder' | 'sectionOrder'>): ReportSectionId[] | undefined {
-  return settings.customSectionOrder ? normalizeSectionOrder(settings.sectionOrder) : undefined;
+  // Strictly true: a stored non-boolean (corrupt settings.json) means the default order.
+  return settings.customSectionOrder === true ? normalizeSectionOrder(settings.sectionOrder) : undefined;
 }
 
 /** Move `id` one step up (-1) or down (+1) in `order`; unchanged at either end. */

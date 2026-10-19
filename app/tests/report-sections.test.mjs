@@ -32,6 +32,15 @@ test('normalizeSectionOrder ignores unknown, fixed and duplicate ids and appends
   assert.ok(!rs.isDefaultSectionOrder(['lcm']));
 });
 
+test('a garbage stored order never throws and reads as the default order', () => {
+  for (const bad of [42, 'lcm,health', { 0: 'lcm' }, null, true, { length: 3 }]) {
+    assert.deepEqual(rs.normalizeSectionOrder(bad), [...rs.MOVABLE_SECTION_IDS]);
+    assert.ok(rs.isDefaultSectionOrder(bad));
+    assert.deepEqual(rs.defaultSectionOrder({ customSectionOrder: true, sectionOrder: bad }), [...rs.MOVABLE_SECTION_IDS]);
+  }
+  assert.equal(rs.defaultSectionOrder({ customSectionOrder: 'yes', sectionOrder: ['lcm'] }), undefined);
+});
+
 test('defaultSectionOrder follows the switch', () => {
   assert.equal(rs.defaultSectionOrder({}), undefined);
   assert.equal(rs.defaultSectionOrder({ customSectionOrder: false, sectionOrder: ['lcm'] }), undefined);
