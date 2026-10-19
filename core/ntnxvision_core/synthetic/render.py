@@ -30,6 +30,7 @@ from ntnxvision_core.synthetic.estate import (
     PC_SIZING,
     PcEstate,
     PeEstate,
+    build_string,
     pc_host_cluster,
     pc_vm_ips,
     uid,
@@ -121,8 +122,8 @@ def _v3(kind: str, uuid: str, name: str | None, resources: dict[str, Any],
 # ─── clusters ──────────────────────────────────────────────────────────
 
 
-def _nos_build(aos: str) -> str:
-    return f"el8.5-release-fraser-{aos}-stable-0"
+def _nos_build(aos: str, uuid: str) -> str:
+    return build_string(aos, uuid, "nos")
 
 
 def cluster_v4(est: PcEstate, c: dict[str, Any]) -> dict[str, Any]:
@@ -164,10 +165,10 @@ def cluster_v4(est: PcEstate, c: dict[str, Any]) -> dict[str, Any]:
             "operationMode": "NORMAL",
             "isLts": c["is_lts"],
             "encryptionInTransitStatus": "DISABLED",
-            "buildInfo": {"version": c["aos"], "fullVersion": _nos_build(c["aos"])},
+            "buildInfo": {"version": c["aos"], "fullVersion": _nos_build(c["aos"], c["uuid"])},
             "clusterSoftwareMap": [
                 {"softwareType": "NCC", "version": c["ncc"]},
-                {"softwareType": "NOS", "version": _nos_build(c["aos"])},
+                {"softwareType": "NOS", "version": _nos_build(c["aos"], c["uuid"])},
             ],
         },
     })
@@ -191,7 +192,8 @@ def pc_cluster_v4(est: PcEstate) -> dict[str, Any]:
             "clusterFunction": ["PRISM_CENTRAL"],
             "buildInfo": {"version": est.version, "fullVersion": est.pc_build},
             "clusterSoftwareMap": [
-                {"softwareType": "PRISM_CENTRAL", "version": est.version},
+                # A real PC answers here with the full build string.
+                {"softwareType": "PRISM_CENTRAL", "version": est.pc_build},
                 {"softwareType": "NCC", "version": est.ncc},
             ],
         },
@@ -237,7 +239,7 @@ def pc_cluster_v3(est: PcEstate) -> dict[str, Any]:
         "config": {
             "service_list": ["PRISM_CENTRAL"],
             "software_map": {
-                "NOS": {"software_type": "NOS", "version": est.version},
+                "NOS": {"software_type": "NOS", "version": est.pc_build},
                 "NCC": {"software_type": "NCC", "version": est.ncc},
             },
         },
@@ -1348,7 +1350,8 @@ def pe_cluster_v2(est: PeEstate) -> dict[str, Any]:
     c = est.cluster
     return {
         "id": f"{c['uuid']}::1", "uuid": c["uuid"], "cluster_uuid": c["uuid"],
-        "name": c["name"], "version": est.version, "full_version": _nos_build(est.version),
+        "name": c["name"], "version": est.version,
+        "full_version": _nos_build(est.version, c["uuid"]),
         "ncc_version": c["ncc"], "hypervisor_types": ["kKvm"],
         "cluster_redundancy_state": {"current_redundancy_factor": c["rf"],
                                      "desired_redundancy_factor": c["rf"]},
