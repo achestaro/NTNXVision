@@ -24,6 +24,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from ntnxvision_core.compat import parse_version
+from ntnxvision_core.versions import pc_version
 
 _NS = uuid.UUID("6f1c2d4e-9a3b-4c5d-8e7f-0a1b2c3d4e5f")
 GIB = 1024**3
@@ -1185,7 +1186,8 @@ def _automation(est: PcEstate) -> None:
 def _lcm(est: PcEstate) -> None:
     seed, epoch = est.seed, est.epoch
     rows: list[tuple[str, str, str, str | None, list[tuple[str, int]]]] = [
-        ("Prism Central", "PC Core Cluster", est.version, est.pc_uuid,
+        # LCM names the PC entity version with its prefix ("pc.7.5.1.1"), as a real PC does.
+        ("Prism Central", "PC Core Cluster", pc_version(est.version) or est.version, est.pc_uuid,
          [("pc.2024.3.0.2", 3), ("pc.7.3", 4)] if est.version.startswith("pc.2024") else []),
         ("LCM framework", "PC Service", "LM.2025.9.2", est.pc_uuid, []),
         ("Calm", "PC Service", "4.0.0", est.pc_uuid, [("4.1.0", 2)]),
