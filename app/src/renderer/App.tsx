@@ -23,6 +23,7 @@ import { SnapshotsView } from './views/SnapshotsView';
 import { MultiPCView } from './views/MultiPCView';
 import { TargetsView } from './views/TargetsView';
 import { CompareView } from './views/CompareView';
+import { DiagramsView } from './views/DiagramsView';
 import { SettingsView } from './views/SettingsView';
 import { LegalView } from './views/LegalView';
 
@@ -154,6 +155,8 @@ function Shell(): JSX.Element {
         return <SnapshotsView />;
       case 'compare':
         return <CompareView baseline={route.baseline} current={route.current} />;
+      case 'diagrams':
+        return <DiagramsView key={route.snapshot ?? ''} snapshot={route.snapshot} type={route.type} part={route.part} />;
       case 'settings':
         return <SettingsView />;
       case 'legal':

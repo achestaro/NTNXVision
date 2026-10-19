@@ -240,13 +240,35 @@ def _gaps(plan: _Plan) -> list[float]:
 # ─── text of the boxes ─────────────────────────────────────────────────
 
 
+def _site_counts(s: Site) -> tuple[int, int, int]:
+    """(clusters, nodes, clusters not drawn) of a site, as collected: an edited model
+    keeps the collected counts, so a cluster removed from the figure is "not drawn"."""
+    drawn = [c for c in s.cards if c.kind == "cluster"]
+    if s.cluster_count is None:
+        return len(drawn), sum(c.nodes or 0 for c in drawn), 0
+    nodes = s.node_count if s.node_count is not None else sum(c.nodes or 0 for c in drawn)
+    return s.cluster_count, nodes, max(0, s.cluster_count - len(drawn))
+
+
 def _site_rows(s: Site) -> list[Row]:
-    cards = [c for c in s.cards if c.kind == "cluster"]
-    nodes = sum(c.nodes or 0 for c in cards)
+    if s.kind == "user":
+        return [Row(s.name, K.SIZE_SITE, True, K.INK, 2, 7.5),
+                Row(s.note or "Added by the author, not collected", K.SIZE_SMALL, False,
+                    K.INK_3, 2, gap_before=0.5)]
+    n_clusters, nodes, missing = _site_counts(s)
     what = "Availability zone" if s.kind == "pc" else "Prism Element"
-    return [Row(s.name, K.SIZE_SITE, True, K.INK, 2, 7.5),
-            Row(f"{what}, {fmt.plural(len(cards), 'cluster')}, {fmt.plural(nodes, 'node')}",
+    # A count stays with its noun ("47 nodes", "1 not drawn"): a wrap falls between them.
+    def keep(text: str) -> str:
+        return text.replace(" ", fmt.NBSP)
+
+    gone = f" ({keep(f'{missing:,} not drawn')})" if missing else ""
+    rows = [Row(s.name, K.SIZE_SITE, True, K.INK, 2, 7.5),
+            Row(f"{what}, {keep(fmt.plural(n_clusters, 'cluster'))}{gone}, "
+                f"{keep(fmt.plural(nodes, 'node'))}",
                 K.SIZE_SMALL, False, K.INK_3, 2, gap_before=0.5)]
+    if s.note:  # a line the author added in the editor
+        rows.append(Row(s.note, K.SIZE_SMALL, False, K.INK_3, 2))
+    return rows
 
 
 def _pc_rows(s: Site, inner_w: float) -> list[Row]:
@@ -316,10 +338,24 @@ def _pill_rows(pills: list[tuple[str, float]], inner: float) -> list[list[tuple[
 
 def _title_row(c: Card, width: float) -> Row:
     """Two lines when the name fits in two down to the 6 pt floor, else three; never
-    ellipsised before that."""
+    ellipsised before that. A note reads as body text, up to four lines."""
+    if c.kind == "note":
+        return Row(c.name, K.SIZE_BODY, False, K.INK_2, 4, tx.MIN_SIZE)
     _, two = tx.fit(c.name, K.SIZE_CARD_TITLE, True, width, 2, tx.MIN_SIZE)
     lines = 2 if not two[-1].endswith(tx.ELLIPSIS) else 3
     return Row(c.name, K.SIZE_CARD_TITLE, True, K.INK, lines, tx.MIN_SIZE)
+
+
+#: Chip per editor role ("workload" draws none).
+_ROLE_CHIP = {"hosts_pc": "HOSTS PC", "mgmt": "MGMT", "dr_target": "DR TARGET"}
+
+
+def _role_chip(c: Card) -> str | None:
+    if c.kind != "cluster":
+        return None
+    if c.role is not None:
+        return _ROLE_CHIP.get(c.role)
+    return "HOSTS PC" if c.hosts_pc else None
 
 
 def _card_parts(c: Card, w: float) -> tuple[list[Row], list[Row], bool, float]:
@@ -336,8 +372,10 @@ def _card_parts(c: Card, w: float) -> tuple[list[Row], list[Row], bool, float]:
         return ([_title_row(c, title_w)],
                 [Row(c.note, K.SIZE_SMALL, False, K.INK_3, 2)] if c.note else [], inline,
                 title_w)
-    return ([_title_row(c, title_w)], [Row(fmt.card_body(c), K.SIZE_BODY, False, K.INK_2, 3)],
-            inline, title_w)
+    body = [Row(fmt.card_body(c), K.SIZE_BODY, False, K.INK_2, 3)]
+    if c.note:  # a note the author added to a collected cluster
+        body.append(Row(c.note, K.SIZE_SMALL, False, K.INK_3, 2))
+    return ([_title_row(c, title_w)], body, inline, title_w)
 
 
 def _strips(c: Card, w: float) -> list[list[tuple[str, str, float]]]:
@@ -415,13 +453,16 @@ class _Try:
 
 
 def _visible(s: Site, keep: int | None) -> tuple[list[Card], list[Card]]:
-    if keep is None or len(s.cards) <= keep + 1:
+    """(drawn, summarised) cards. Only collected clusters are summarised: what the
+    author added in the editor is always drawn."""
+    clusters = [c for c in s.cards if c.kind == "cluster"]
+    if keep is None or len(clusters) <= keep + 1:
         return list(s.cards), []
-    chosen = [c for c in s.cards if c.hosts_pc][:keep]
-    rest = sorted((c for c in s.cards if c not in chosen),
+    chosen = [c for c in clusters if c.hosts_pc][:keep]
+    rest = sorted((c for c in clusters if c not in chosen),
                   key=lambda c: (-(c.nodes or 0), s.cards.index(c)))
     chosen += rest[: keep - len(chosen)]
-    ids = {c.id for c in chosen}
+    ids = {c.id for c in chosen} | {c.id for c in s.cards if c.kind != "cluster"}
     return [c for c in s.cards if c.id in ids], [c for c in s.cards if c.id not in ids]
 
 
@@ -483,6 +524,7 @@ def _layout_part(model: ConceptualModel, plan: _Plan, page: Page, refs: Refs,
         row_y.append(q(row_y[-1] + h + RG))
 
     site_nodes: dict[str, Node] = {}
+    own_h: dict[str, float] = {}  # bottom of empty user-added zones
     pc_nodes: dict[str, Node] = {}
     first_cards: dict[str, Node] = {}
     drawn: list[str] = []
@@ -492,11 +534,18 @@ def _layout_part(model: ConceptualModel, plan: _Plan, page: Page, refs: Refs,
     used = {"more": False, "strip": False, "external": False, "user": False,
             "compute": False}
     for i, s in enumerate(sites):
-        cont = box(s.id, "container", x, top, site_w, _site_rows(s), K.SITE, pad_x=P,
+        user_site = s.kind == "user"
+        cont = box(s.id, "container", x, top, site_w, _site_rows(s),
+                   K.USER_SITE if user_site else K.SITE, pad_x=P,
                    pad_y=head_top - top, h=10, data=dict(s.data))
         sc.nodes.append(cont)
-        sc.nodes.append(chip(f"{s.id}:tag", "AZ" if s.kind == "pc" else "PRISM ELEMENT",
-                             x + 5.5, top, K.TAG, parent=s.id))
+        if user_site:
+            used["user"] = True
+            sc.nodes.append(chip(f"{s.id}:tag", "USER-ADDED", x + 5.5, top, K.TAG_USER,
+                                 parent=s.id))
+        else:
+            sc.nodes.append(chip(f"{s.id}:tag", "AZ" if s.kind == "pc" else "PRISM ELEMENT",
+                                 x + 5.5, top, K.TAG, parent=s.id))
         site_nodes[s.id] = cont
         if s.pc:
             pcn = box(s.pc.id, "box", x + P, pc_y, inner_w, _pc_rows(s, inner_w - 10), K.PC,
@@ -528,7 +577,11 @@ def _layout_part(model: ConceptualModel, plan: _Plan, page: Page, refs: Refs,
                     row_tops.append(node)
         if row_tops:
             first_cards[s.id] = row_tops[0]
-        bottoms.append(bottom + P + 1.5)
+        if s.kind == "user" and not s.cards:
+            # An empty zone the author added is just its header, not a full-height box.
+            own_h[s.id] = q(head_top + text_h(_site_rows(s), inner_w) + P)
+        else:
+            bottoms.append(bottom + P + 1.5)
         if s.id in pc_nodes:
             pcn = pc_nodes[s.id]
             px, py = pcn.x + pcn.w / 2, pcn.y + pcn.h
@@ -541,9 +594,9 @@ def _layout_part(model: ConceptualModel, plan: _Plan, page: Page, refs: Refs,
                                      node.id, pts, K.MANAGES, arrow_end=True,
                                      data={"kind": "manages"}))
         x = x + site_w + (gaps[i] if i < len(gaps) else 0)
-    site_bottom = q(max(bottoms, default=top + 40))
-    for nd in site_nodes.values():
-        nd.h = q(site_bottom - nd.y)
+    site_bottom = q(max(bottoms, default=max(own_h.values(), default=top + 40)))
+    for sid_, nd in site_nodes.items():
+        nd.h = q(own_h.get(sid_, site_bottom) - nd.y)
 
     kinds: dict[str, bool] = {"pairing": False, "pairing_down": False, "replication": False}
     content_bottom = site_bottom
@@ -665,13 +718,15 @@ def _card(sc: Scene, s: Site, cd: Card, x: float, y: float, w: float, h: float,
     is_cluster = cd.kind == "cluster"
     mt, th = measure(title, title_w)
     mb, bh = measure(body, w - 10)
-    node = box(cd.id, "box", x, y, w, [], K.CLUSTER if is_cluster else K.USER, pad_x=5,
-               h=h, parent=s.id, data=dict(cd.data))
+    style = K.CLUSTER if is_cluster else K.NOTE if cd.kind == "note" else K.USER
+    node = box(cd.id, "box", x, y, w, [], style, pad_x=5, h=h, parent=s.id,
+               data=dict(cd.data))
     node.lines = (place_lines(mt, w, 5.0, "left", 5.0)
                   + place_lines(mb, w, 5.0 + th, "left", 5.0))
     sc.nodes.append(node)
-    if cd.hosts_pc:
-        sc.nodes.append(chip(f"{cd.id}:tag", "HOSTS PC", x + 5, y, K.TAG_ROLE, parent=cd.id))
+    role = _role_chip(cd)
+    if role:
+        sc.nodes.append(chip(f"{cd.id}:tag", role, x + 5, y, K.TAG_ROLE, parent=cd.id))
     if not is_cluster:
         used["user"] = True
         sc.nodes.append(chip(f"{cd.id}:tag", "USER-ADDED", x + 5, y, K.TAG_USER,
@@ -969,18 +1024,26 @@ def _deoverlap(xs: list[float], w: float, gap: float, lo: float, hi: float) -> l
 # ─── entry point ───────────────────────────────────────────────────────
 
 
-def _caption(sites: list[Site], part: tuple[int, int]) -> str:
-    cards = [c for s in sites for c in s.cards if c.kind == "cluster"]
-    nodes = sum(c.nodes or 0 for c in cards)
+def _caption(sites: list[Site], part: tuple[int, int], edited: bool = False) -> str:
+    """Counts as collected (an edited figure says "(edited)"); zones added in the
+    Diagrams editor are named as such, never counted as collected."""
+    collected = [s for s in sites if s.kind != "user"]
+    counts = [_site_counts(s) for s in collected]
+    n_clusters = sum(c for c, _, _ in counts)
+    nodes = sum(n for _, n, _ in counts)
+    added = len(sites) - len(collected)
+    extra = f", plus {fmt.plural(added, 'user-added zone')}" if added and collected else ""
+    head = "Solution conceptual overview" + (" (edited)" if edited else "")
     if part[1] > 1:
         names = fmt.join_names([short_name(s.name) for s in sites])
-        return (f"Solution conceptual overview, part {part[0]} of {part[1]}: {names} "
-                f"({fmt.plural(len(cards), 'cluster')}, {fmt.plural(nodes, 'node')}).")
+        what = (f"{fmt.plural(n_clusters, 'cluster')}, {fmt.plural(nodes, 'node')}{extra}"
+                if collected else "added by the author, not collected")
+        return f"{head}, part {part[0]} of {part[1]}: {names} ({what})."
     if sites and sites[0].kind == "pe":
-        return (f"Solution conceptual overview: Prism Element {sites[0].name}, "
-                f"{fmt.plural(len(cards), 'cluster')}, {fmt.plural(nodes, 'node')}.")
-    return (f"Solution conceptual overview: {fmt.plural(len(sites), 'availability zone')}, "
-            f"{fmt.plural(len(cards), 'cluster')}, {fmt.plural(nodes, 'node')}.")
+        return (f"{head}: Prism Element {sites[0].name}, "
+                f"{fmt.plural(n_clusters, 'cluster')}, {fmt.plural(nodes, 'node')}{extra}.")
+    return (f"{head}: {fmt.plural(len(collected), 'availability zone')}, "
+            f"{fmt.plural(n_clusters, 'cluster')}, {fmt.plural(nodes, 'node')}{extra}.")
 
 
 def _best(model: ConceptualModel, sites: list[Site], parts: list[list[Site]], page: Page,
@@ -1032,32 +1095,60 @@ def layout(model: ConceptualModel, page: Page | None = None, refs: Refs | None =
     does not fit gives up its last linked group (or last AZ) to the parts after it."""
     page = page or Page()
     refs = refs or Refs()
+    own_page = False  # part 1 starts on a page of its own (the report breaks before it)
 
-    def limit(pi: int) -> Budget:
-        if pi == 0 and first_budget is not None:
+    def limit(pi: int, own: bool | None = None) -> Budget:
+        own = own_page if own is None else own
+        if pi == 0 and first_budget is not None and not own:
             return lambda w: min(page.max_h, first_budget(w))
         return lambda _w: page.max_h
 
-    parts = plan_parts(model)
-    summarise = not all(
-        _best(model, part, parts, page, refs, limit(pi), "probe", False)[1]
-        for pi, part in enumerate(parts))
-    if summarise:
+    def fits(parts: list[list[Site]], summarise: bool, own: bool) -> bool:
+        return all(_best(model, part, parts, page, refs, limit(pi, own), "probe",
+                         summarise)[1] for pi, part in enumerate(parts))
+
+    # Paired AZs stay in one part (decision 7). In order: (a) every part in full, part 1
+    # under the headings and summary; (b) the same with part 1 on a page of its own;
+    # (c) "+N more" cards for collected clusters (never for what the author added),
+    # under the summary, else on a page of its own; only then is a part split.
+    def split_to_fit(parts: list[list[Site]], own: bool) -> list[list[Site]]:
         pi = 0
         while pi < len(parts):
-            _, ok = _best(model, parts[pi], parts, page, refs, limit(pi), "probe", True)
+            _, ok = _best(model, parts[pi], parts, page, refs, limit(pi, own), "probe", True)
             if not ok and len(parts[pi]) > 1:
                 keep, move = _split(model, parts[pi])
                 rest = [s for p in [move, *parts[pi + 1:]] for s in p]
                 parts = parts[:pi] + [keep] + plan_parts(model, sites=rest)
                 continue
             pi += 1
+        return parts
+
+    def breaks_pairs(parts: list[list[Site]]) -> bool:
+        part_of = {s.id: i for i, p in enumerate(parts) for s in p}
+        return any(lk.a in part_of and lk.b in part_of and part_of[lk.a] != part_of[lk.b]
+                   for lk in model.links)
+
+    parts = plan_parts(model)
+    summarise = False
+    if not fits(parts, False, False):
+        if first_budget is not None and fits(parts, False, True):
+            own_page = True
+        else:
+            summarise = True
+            under = split_to_fit(parts, False)
+            if first_budget is not None and breaks_pairs(under) and \
+                    not breaks_pairs(alone := split_to_fit(parts, True)):
+                own_page, parts = True, alone
+            else:
+                parts = under
     scenes: list[Scene] = []
     for pi, sites in enumerate(parts):
         sid = "conceptual" if len(parts) == 1 else f"conceptual-{pi + 1}"
         sc, _ = _best(model, sites, parts, page, refs, limit(pi), sid, summarise)
         sc.part = (pi + 1, len(parts))
-        sc.caption = _caption(sites, sc.part)
+        sc.caption = _caption(sites, sc.part, model.edited)
         sc.meta["summarise"] = summarise
+        if pi == 0 and own_page:
+            sc.meta["own_page"] = True
         scenes.append(sc)
     return scenes

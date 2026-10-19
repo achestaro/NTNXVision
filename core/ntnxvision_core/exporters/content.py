@@ -112,6 +112,9 @@ class SceneFigure:
     label: str = ""
     summary: list[str] = field(default_factory=list)
     note: str = ""
+    #: The figure starts on a page of its own (it does not fit under the headings and
+    #: summary): the summary stays with the heading, the figure and caption move on.
+    new_page: bool = False
 
     @property
     def title(self) -> str:
@@ -130,14 +133,27 @@ SUMMARY_BESIDE_MAX = 480.0
 # (172 mm) and Letter landscape in Word (6.8 in); the smaller one wins. The block heights
 # match what pdf.py and word.py draw, rounded up.
 BODY_H = 487.0
-HEADINGS_H = 80.0  # chapter heading + section heading
-CAPTION_H = 44.0  # caption and its note (two lines)
+# Calibrated on the PDF (the tighter of the two): headings 70.6 pt, a one-line caption
+# 29.5 pt, plus 11.9 pt for the "Continued in ..." note of a figure drawn in parts.
+HEADINGS_H = 72.0  # chapter heading + section heading
+CAPTION_H = 31.0  # the caption (one line)
+NOTE_H = 12.0  # the continuation note under part 1 of a figure in parts
 SUMMARY_EYEBROW_H = 18.0
 SUMMARY_LINE_H = 13.2
 SUMMARY_GAP_H = 4.0
-#: Characters per summary line: one column across a landscape page, or each of the
-#: two columns above a wide figure.
-SUMMARY_CHARS_WIDE, SUMMARY_CHARS_COLUMN = 150, 70
+#: Text width (pt) of a summary line: one column across the narrower landscape page
+#: (Letter in Word, 9.4 in less the bullet indent), or each of the two columns above a
+#: wide figure (half of it, less cell margins and indent). Bullets are measured with
+#: the bundled Figtree at Word's 9.5 pt, which is no narrower than Word's Calibri or
+#: the PDF's 9.2 pt Figtree, so the estimate never comes up short.
+SUMMARY_W_WIDE, SUMMARY_W_COLUMN = 664.0, 315.0
+SUMMARY_PT = 9.5
+
+
+def _summary_lines(text: str, width: float) -> int:
+    from ntnxvision_core.diagrams import text as tx
+
+    return len(tx.wrap(text, SUMMARY_PT, False, width, 1000))
 
 
 def summary_height(bullets: list[str], beside: bool) -> float:
@@ -145,20 +161,23 @@ def summary_height(bullets: list[str], beside: bool) -> float:
     if beside or not bullets:
         return 0.0
     two_cols = len(bullets) > 3
-    chars = SUMMARY_CHARS_COLUMN if two_cols else SUMMARY_CHARS_WIDE
-    heights = [(-(-len(b) // chars)) * SUMMARY_LINE_H + SUMMARY_GAP_H for b in bullets]
+    w = SUMMARY_W_COLUMN if two_cols else SUMMARY_W_WIDE
+    heights = [_summary_lines(b, w) * SUMMARY_LINE_H + SUMMARY_GAP_H for b in bullets]
     if two_cols:
         half = (len(bullets) + 1) // 2
         heights = [max(sum(heights[:half]), sum(heights[half:]))]
     return SUMMARY_EYEBROW_H + sum(heights)
 
 
-def first_part_budget(bullets: list[str]) -> Callable[[float], float]:
+def first_part_budget(bullets: list[str], parts: bool = False) -> Callable[[float], float]:
     """Height budget for part 1 of a diagram by its width: the page body less the
-    headings, the summary (above a figure wider than 480 pt) and the caption."""
+    headings, the summary (above a figure wider than 480 pt, measured with real font
+    metrics), the caption and, when the figure is drawn in `parts`, its continuation
+    note. A figure moves to a page of its own only when this measured fit fails."""
     def budget(width: float) -> float:
         beside = width <= SUMMARY_BESIDE_MAX
-        return BODY_H - HEADINGS_H - CAPTION_H - summary_height(bullets, beside) - 6.0
+        return (BODY_H - HEADINGS_H - CAPTION_H - (NOTE_H if parts else 0.0)
+                - summary_height(bullets, beside) - 4.0)
     return budget
 
 
@@ -404,13 +423,14 @@ def versions(values: list[str], limit: int = 3) -> str | None:
 def rpo_label(seconds: int | None) -> str | None:
     if seconds is None:
         return None
+    # A no-break space binds the number to its unit, so a table never wraps "1 / min".
     if seconds < 60:
-        return f"{seconds} s"
+        return f"{seconds}\u00a0s"
     if seconds < 3600:
-        return f"{seconds // 60} min"
+        return f"{seconds // 60}\u00a0min"
     if seconds < 86400:
-        return f"{seconds // 3600} h"
-    return f"{seconds // 86400} d"
+        return f"{seconds // 3600}\u00a0h"
+    return f"{seconds // 86400}\u00a0d"
 
 
 def deployment(cfg: Any) -> str | None:
@@ -805,6 +825,26 @@ class _Builder:
             "Registered clusters", self.src(env.clusters), prune=("vCenter",)))
         return ch
 
+    def figure_model(self, dtype: DiagramType, generated: Any) -> Any:
+        """The model a diagram figure draws: the author's saved edit (Diagrams page,
+        `ExportOptions.diagram_models`) when there is one, else `generated`. Tables and
+        design summaries always come from `generated`, so a user-added element never
+        reaches a table and a removed one is still listed there."""
+        edited = getattr(self.opts, "diagram_models", None) or {}
+        return edited.get(dtype.id, generated)
+
+    def edit_disclosure(self, dtype: DiagramType, generated: Any, drawn: Any) -> str | None:
+        """The design-summary bullet that says how an edited figure differs from the
+        data (None for a generated figure). Summaries, headers and captions stay as
+        collected; this bullet is where the edit is disclosed."""
+        if drawn is generated:
+            return None
+        from ntnxvision_core.diagrams.edits import disclosure
+
+        origins = getattr(self.opts, "diagram_origins", None) or {}
+        return disclosure(dtype.to_doc(generated), dtype.to_doc(drawn), dtype.edit_spec,
+                          origins.get(dtype.id))
+
     def design_sections(self, ch: Chapter) -> bool:
         """The architecture diagrams registered for this chapter (`diagrams.TYPES`), each
         as its own section. Returns whether any was added."""
@@ -822,13 +862,22 @@ class _Builder:
         clusters, the clusters-per-AZ table that lists every one of them."""
         env = self.env
         model = dtype.build_model(env)
+        drawn = self.figure_model(dtype, model)
+        edit_note = self.edit_disclosure(dtype, model, drawn)
+
+        def summary(scenes: list[Scene], ref: str | None = None) -> list[str]:
+            out = design.conceptual_bullets(model, scenes, ref)
+            return [*out, edit_note] if edit_note else out
+
         page = dtype.page
         # The summary depends on the parts; lay out, summarise, then fit part 1 under it.
-        scenes = dtype.layout(model, page)
-        bullets = design.conceptual_bullets(model, scenes)
-        scenes = dtype.layout(model, page, None, first_part_budget(bullets))
-        figs = [SceneFigure(sc, sc.caption) for sc in scenes]
-        figs[0].summary = design.conceptual_bullets(model, scenes)
+        scenes = dtype.layout(drawn, page)
+        bullets = summary(scenes)
+        scenes = dtype.layout(drawn, page, None,
+                              first_part_budget(bullets, len(scenes) > 1))
+        figs = [SceneFigure(sc, sc.caption, new_page=bool(sc.meta.get("own_page")))
+                for sc in scenes]
+        figs[0].summary = summary(scenes)
         self.design_figures[dtype.id] = figs
         az = None if self.is_pe else make_table(
             design.AZ_HEADERS, design.az_rows(model), "Availability zones and Prism Central")
@@ -845,21 +894,22 @@ class _Builder:
             labels = [f.label.rstrip(".") for f in figs]
             if clusters is not None:
                 ref = clusters.label.rstrip(".")
-                bullets = design.conceptual_bullets(model, scenes, ref)
-                again = dtype.layout(model, page, Refs(clusters_table=ref),
-                                     first_part_budget(bullets))
+                bullets = summary(scenes, ref)
+                again = dtype.layout(drawn, page, Refs(clusters_table=ref),
+                                     first_part_budget(bullets, len(scenes) > 1))
                 if [sc.part for sc in again] == [sc.part for sc in scenes]:
                     for f, sc in zip(figs, again, strict=True):
                         f.scene = sc
+                        f.new_page = bool(sc.meta.get("own_page"))
                     scenes[:] = again
                 rows, _ = design.cluster_rows(model, scenes, labels)
                 col = clusters.headers.index("In figure")
                 for row, new in zip(clusters.rows, rows, strict=True):
                     row[col] = new[-1]
-                figs[0].summary = design.conceptual_bullets(model, scenes, ref)
+                figs[0].summary = summary(scenes, ref)
             for i, f in enumerate(figs[:-1]):
                 nxt = figs[i + 1].scene
-                names = ", ".join(short_name(model.name_of(sid))
+                names = ", ".join(short_name(drawn.name_of(sid))
                                   for sid in nxt.meta.get("sites", []))
                 f.note = (f"Continued in {labels[i + 1]} (part {nxt.part[0]} of "
                           f"{nxt.part[1]}: {names}).")

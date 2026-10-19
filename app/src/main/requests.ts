@@ -6,6 +6,8 @@ import type {
   AppSettings,
   CollectionRequest,
   CompareExportRequest,
+  DiagramCarryRequest,
+  DiagramOp,
   ExportRequest,
   ListClustersRequest,
   MultiCollectionRequest,
@@ -15,8 +17,10 @@ import type {
   TargetSaveRequest,
   TestConnectionRequest,
   TrustCertificateRequest,
+  UnsavedChangesRequest,
   VcenterRequest,
 } from '../shared/ipc';
+import { MAX_DIAGRAM_OPS, MAX_DIAGRAM_TEXT } from '../shared/ipc';
 import {
   ValidationError,
   bool,
@@ -233,4 +237,79 @@ export function cleanSettings(v: unknown): AppSettings {
   if ('vcpuRatio' in r) out.vcpuRatio = cleared('vcpuRatio') ? undefined : num(r.vcpuRatio, 'vcpuRatio', RATIO_MIN, RATIO_MAX);
   if ('startAtLogin' in r) out.startAtLogin = bool(r.startAtLogin, 'startAtLogin');
   return out;
+}
+
+// ─── diagrams ───────────────────────────────────────────────────────────
+
+const DIAGRAM_OPS = ['set', 'move', 'add', 'delete'] as const;
+const DIAGRAM_FIELDS = ['label', 'sublabel', 'role'] as const;
+const ID_MAX = 512;
+
+/** A diagram type id ("conceptual"): short, lower case. */
+export function asDiagramType(v: unknown): string {
+  const t = str(v, 'type', 64);
+  if (!/^[a-z0-9_-]+$/.test(t)) throw new ValidationError('type is not a diagram type');
+  return t;
+}
+
+/**
+ * Diagram edits from the renderer. Shapes and bounds only (the sidecar replays them and
+ * reports the ones that do not apply); the returned list holds only the known keys.
+ */
+export function asDiagramOps(v: unknown): DiagramOp[] {
+  if (!Array.isArray(v) || v.length > MAX_DIAGRAM_OPS) throw new ValidationError('ops must be a list');
+  return v.map((raw, i): DiagramOp => {
+    const o = obj(raw, `ops[${i}]`);
+    const op = oneOf(o.op, `ops[${i}].op`, DIAGRAM_OPS);
+    if (op === 'add') {
+      const el = obj(o.element, `ops[${i}].element`);
+      const id = str(el.id, `ops[${i}].element.id`, 80);
+      if (!id.startsWith('user:')) throw new ValidationError(`ops[${i}].element.id must start with user:`);
+      const parent = o.parent === null || o.parent === undefined ? null : str(o.parent, `ops[${i}].parent`, ID_MAX);
+      const element: { id: string; palette: string; name?: string; note?: string } = {
+        id,
+        palette: str(el.palette, `ops[${i}].element.palette`, 64),
+      };
+      const name = optStr(el.name, `ops[${i}].element.name`, MAX_DIAGRAM_TEXT);
+      const note = optStr(el.note, `ops[${i}].element.note`, MAX_DIAGRAM_TEXT);
+      if (name !== undefined) element.name = name;
+      if (note !== undefined) element.note = note;
+      return { op, parent, field: str(o.field, `ops[${i}].field`, 64), index: int(o.index, `ops[${i}].index`, 0, 100000), element };
+    }
+    const id = str(o.id, `ops[${i}].id`, ID_MAX);
+    if (op === 'set') {
+      const field = oneOf(o.field, `ops[${i}].field`, DIAGRAM_FIELDS);
+      const value = o.value === null || o.value === undefined ? null : str(o.value, `ops[${i}].value`, MAX_DIAGRAM_TEXT);
+      if (field === 'label' && !value?.trim()) throw new ValidationError(`ops[${i}].value must not be empty`);
+      return { op, id, field, value };
+    }
+    if (op === 'move') return { op, id, index: int(o.index, `ops[${i}].index`, 0, 100000) };
+    return { op, id };
+  });
+}
+
+/** The renderer's unsaved-work flag for the window close guard. */
+export function asUnsavedChangesRequest(v: unknown): UnsavedChangesRequest {
+  const r = obj(v, 'request');
+  const dirty = bool(r.dirty, 'dirty');
+  const what = optStr(r.what, 'what', 200)?.replace(/\s+/g, ' ').trim();
+  return what ? { dirty, what } : { dirty };
+}
+
+/**
+ * What closing the window does: `hide` (a schedule keeps the app in the tray, nothing is
+ * lost), `ask` (unsaved work: confirm first) or `close`.
+ */
+export function closeAction(s: { quitting: boolean; hides: boolean; unsaved: boolean }): 'hide' | 'ask' | 'close' {
+  if (!s.quitting && s.hides) return 'hide';
+  return s.unsaved ? 'ask' : 'close';
+}
+
+export function asDiagramCarryRequest(v: unknown): DiagramCarryRequest {
+  const r = obj(v, 'request');
+  const from = snapshotPath(r.from, 'from');
+  const to = snapshotPath(r.to, 'to');
+  if (from === to) throw new ValidationError('from and to must be different snapshots');
+  const types = optStrArray(r.types, 'types', 50, 64)?.map(asDiagramType);
+  return types ? { from, to, types } : { from, to };
 }

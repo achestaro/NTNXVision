@@ -21,6 +21,8 @@ from dataclasses import dataclass
 from typing import Any
 
 from .check import check_scene
+from .edit_conceptual import SPEC as CONCEPTUAL_EDIT
+from .edits import GENERIC, EditSpec
 from .facts import conceptual_model
 from .layout.conceptual import Page, Refs
 from .layout.conceptual import layout as conceptual_layout
@@ -46,6 +48,12 @@ class DiagramType:
     from_doc: Callable[[dict[str, Any]], Any]
     #: The page the type is laid out for.
     page: Page = Page()
+    #: What the Diagrams editor may change (None: rename, reorder and delete by id).
+    edit: EditSpec | None = None
+
+    @property
+    def edit_spec(self) -> EditSpec:
+        return self.edit or GENERIC
 
 
 TYPES: dict[str, DiagramType] = {
@@ -53,7 +61,7 @@ TYPES: dict[str, DiagramType] = {
         id="conceptual", title="Solution conceptual overview", chapter="logical_design",
         section="Solution Conceptual Overview", applies=lambda env: bool(env.clusters),
         build_model=conceptual_model, layout=conceptual_layout, to_doc=conceptual_to_doc,
-        from_doc=conceptual_from_doc),
+        from_doc=conceptual_from_doc, edit=CONCEPTUAL_EDIT),
 }
 
 
@@ -77,7 +85,7 @@ def conceptual_scenes(env: Any, page: Page | None = None, refs: Refs | None = No
 
 
 __all__ = [
-    "TYPES", "ConceptualModel", "DiagramType", "Page", "Refs", "Scene", "check_scene",
+    "TYPES", "ConceptualModel", "DiagramType", "EditSpec", "Page", "Refs", "Scene", "check_scene",
     "conceptual_layout", "conceptual_model", "conceptual_scenes", "from_doc",
     "model_envelope", "model_from_envelope", "scene_json", "to_doc",
 ]

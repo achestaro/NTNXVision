@@ -24,6 +24,22 @@ def _demo_cert_dir(tmp_path_factory: pytest.TempPathFactory) -> Iterator[None]:
         os.environ["NTNXVISION_DEMO_CERT_DIR"] = previous
 
 
+@pytest.fixture(scope="session", autouse=True)
+def _never_the_real_data_dir(tmp_path_factory: pytest.TempPathFactory) -> Iterator[None]:
+    """Every test runs with a session data directory, so nothing (a snapshot, a report
+    written to the default exports folder) ever lands in the user's real NTNXVision
+    folder. Tests that need their own use the `data_dir` fixture, which overrides it."""
+    import os
+
+    previous = os.environ.get("NTNXVISION_DATA_DIR")
+    os.environ["NTNXVISION_DATA_DIR"] = str(tmp_path_factory.mktemp("session-data"))
+    yield
+    if previous is None:
+        os.environ.pop("NTNXVISION_DATA_DIR", None)
+    else:
+        os.environ["NTNXVISION_DATA_DIR"] = previous
+
+
 @pytest.fixture(scope="session")
 def _demo_state() -> Iterator[Any]:
     from ntnxvision_core.synthetic import demo

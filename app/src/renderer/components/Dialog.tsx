@@ -56,6 +56,8 @@ export interface DialogProps {
   /** ⌘↵ handler (usually the confirm action). */
   onConfirm?: () => void;
   initialFocus?: React.RefObject<HTMLElement>;
+  /** The subtitle is a mono facts line (default); false for prose with mono parts. */
+  subtitleMono?: boolean;
 }
 
 export function Dialog({
@@ -68,6 +70,7 @@ export function Dialog({
   footer,
   onConfirm,
   initialFocus,
+  subtitleMono = true,
 }: DialogProps): JSX.Element | null {
   const ref = useRef<HTMLElement>(null);
   const titleId = useRef(`dlg-${Math.random().toString(36).slice(2, 8)}`).current;
@@ -107,7 +110,7 @@ export function Dialog({
       >
         <Button variant="ghost" iconOnly icon={XIcon} aria-label="Close" className="dialog-close" onClick={onClose} />
         <h2 id={titleId}>{title}</h2>
-        {subtitle && <p className="mono dialog-sub">{subtitle}</p>}
+        {subtitle && <p className={subtitleMono ? 'mono dialog-sub' : 'dialog-sub'}>{subtitle}</p>}
         {children}
         {footer}
       </section>

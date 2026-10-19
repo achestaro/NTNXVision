@@ -524,7 +524,7 @@
   window.ntnx = {
     platform: opt.platform,
     ping: () => delay({ pong: true, version: '0.4.0' }),
-    getAppInfo: () => delay({ version: '0.4.0', platform: opt.platform, defaultExportDir: EXPORT_DIR }),
+    getAppInfo: () => delay({ version: '0.4.0', platform: opt.platform, defaultExportDir: EXPORT_DIR, demo: !!opt.demo }),
     getLegalDocuments: () =>
       delay({
         version: '0.4.0',
@@ -696,6 +696,38 @@
       });
     },
     exportComparison: () => delay({ path: `${EXPORT_DIR}${sep}changes.xlsx` }, 300),
+    // Diagrams: fixtures from scripts/stub-diagrams.json (window.__STUB_DIAGRAMS__, the
+    // synthetic "medium" estate laid out by the real engine). opt.diagrams picks the state:
+    // 'generated' (default) | 'edited' | 'stale' | 'carry'. Any edit lays out as 'edited'.
+    listDiagrams: (p) => {
+      const D = window.__STUB_DIAGRAMS__;
+      if (!find(p) || !D) return fail('Snapshot not found');
+      const mode = opt.diagrams || 'generated';
+      const edited = mode === 'edited' || mode === 'stale';
+      const prev = snapshots.find((s) => s.path !== p && s.source === find(p).source) || snapshots[1];
+      return delay({
+        snapshot: p,
+        diagrams: [{ ...D.summary, edited, edits: edited ? D.edited.ops.length : 0, saved_at: edited ? D.edited.saved_at : null, stale: mode === 'stale' }],
+        carry: mode === 'carry' && prev ? { snapshot: prev, diagrams: D.carry } : null,
+      });
+    },
+    getDiagram: () => {
+      const D = window.__STUB_DIAGRAMS__;
+      const mode = opt.diagrams || 'generated';
+      return delay(mode === 'stale' ? D.stale : mode === 'edited' ? D.edited : D.generated);
+    },
+    layoutDiagram: (_p, _t, ops) => {
+      const D = window.__STUB_DIAGRAMS__;
+      const src = ops.length ? D.edited : D.generated;
+      return delay({ type: src.type, model: src.model, scenes: src.scenes, outline: src.outline, problems: [] }, 20);
+    },
+    saveDiagram: (_p, _t, ops) => {
+      const D = window.__STUB_DIAGRAMS__;
+      return delay(ops.length ? { ...D.edited, ops, saved_at: new Date().toISOString() } : D.generated, 120);
+    },
+    resetDiagram: () => delay(window.__STUB_DIAGRAMS__.generated, 120),
+    carryDiagrams: () => delay({ diagrams: window.__STUB_DIAGRAMS__.carry }, 200),
+    setUnsavedChanges: () => delay(undefined, 0),
     exportSnapshot: (req) => {
       const s = find(req.snapshotPath);
       const name = s ? s.name : 'snapshot';

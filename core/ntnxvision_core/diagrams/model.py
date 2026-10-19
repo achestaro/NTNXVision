@@ -39,7 +39,8 @@ class ExternalArray:
 class Card:
     id: str
     name: str
-    #: "cluster" (collected) or "user" (added in the Diagrams editor).
+    #: "cluster" (collected), "user" (a component added in the Diagrams editor) or
+    #: "note" (a free-text note added in the editor).
     kind: str = "cluster"
     hypervisor: str | None = None  # "AHV" / "ESXi" / "AHV, ESXi"
     nodes: int | None = None
@@ -56,6 +57,9 @@ class Card:
     compute_only: bool = False
     external: list[ExternalArray] = field(default_factory=list)
     note: str | None = None
+    #: Role set in the Diagrams editor: "workload" (no chip), "hosts_pc", "mgmt" or
+    #: "dr_target". None: from the data (HOSTS PC when the cluster runs Prism Central).
+    role: str | None = None
     data: dict[str, str] = field(default_factory=dict)
 
 
@@ -87,10 +91,16 @@ class Site:
 
     id: str
     name: str
-    kind: str = "pc"  # pc | pe
+    kind: str = "pc"  # pc | pe | user (an availability zone added in the editor)
     pc: PcBlock | None = None
     cards: list[Card] = field(default_factory=list)
     data: dict[str, str] = field(default_factory=dict)
+    #: Second header line of a user-added zone.
+    note: str | None = None
+    #: Clusters and nodes as collected. The header and caption always say these, so a
+    #: cluster removed in the Diagrams editor reads "(1 not drawn)", never as missing.
+    cluster_count: int | None = None
+    node_count: int | None = None
 
 
 @dataclass
@@ -147,6 +157,8 @@ class ConceptualModel:
     remotes: list[Remote] = field(default_factory=list)
     links: list[Link] = field(default_factory=list)
     title: str = "Solution conceptual overview"
+    #: Set when saved Diagrams-page edits were replayed on the model (captions say so).
+    edited: bool = False
 
     # ─ helpers ─
     def site(self, site_id: str) -> Site | None:
@@ -182,7 +194,9 @@ def from_doc(d: dict[str, Any]) -> ConceptualModel:
         return Site(id=s["id"], name=s["name"], kind=s.get("kind", "pc"),
                     pc=PcBlock(**{**pc, "services": [Service(**v) for v in pc["services"]]})
                     if pc else None,
-                    cards=[card(c) for c in s.get("cards", [])], data=dict(s.get("data", {})))
+                    cards=[card(c) for c in s.get("cards", [])], data=dict(s.get("data", {})),
+                    note=s.get("note"), cluster_count=s.get("cluster_count"),
+                    node_count=s.get("node_count"))
 
     return ConceptualModel(
         sites=[site(s) for s in d.get("sites", [])],
@@ -191,6 +205,7 @@ def from_doc(d: dict[str, Any]) -> ConceptualModel:
                        "backward": [Repl(**r) for r in lk.get("backward", [])]})
                for lk in d.get("links", [])],
         title=d.get("title", "Solution conceptual overview"),
+        edited=bool(d.get("edited", False)),
     )
 
 

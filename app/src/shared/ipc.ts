@@ -544,6 +544,11 @@ export interface InventoryResult {
   exports: Record<string, string>;
   export_errors: Record<string, string>;
   excel_path?: string;
+  /**
+   * The previous snapshot's saved diagram edits all applied and were carried to this
+   * one automatically (its reports draw them).
+   */
+  diagram_carry?: { from: string | null; diagrams: string[] } | null;
   // ─── added for the Runway UI ───
   started_at?: string | null;
   finished_at?: string | null;
@@ -837,6 +842,245 @@ export interface ObjectDetail {
   notes?: { tone: Tone; text: string }[];
   /** Deep link into Prism Central, when one exists. */
   prism_url?: string | null;
+}
+
+// ─── diagrams (Diagrams page) ───────────────────────────────────────────
+//
+// Edits are operations replayed by stable element id on the diagram model generated from
+// the snapshot (core: diagrams/edits.py). The sidecar lays the result out; the renderer
+// draws the returned scene and never positions anything itself.
+
+/** One edit. `add` puts a palette element (id starting with "user:") into a container. */
+export type DiagramOp =
+  | { op: 'set'; id: string; field: 'label' | 'sublabel' | 'role'; value: string | null }
+  | { op: 'move'; id: string; index: number }
+  | {
+      op: 'add';
+      /** The container element's id, or null for the diagram's top level. */
+      parent: string | null;
+      /** The container's collection ("cards", "sites"). */
+      field: string;
+      index: number;
+      element: { id: string; palette: string; name?: string; note?: string };
+    }
+  | { op: 'delete'; id: string };
+
+/** Most edits one diagram can hold (mirrors MAX_OPS in diagrams/edits.py). */
+export const MAX_DIAGRAM_OPS = 2000;
+/** Longest label or sublabel (mirrors MAX_TEXT). */
+export const MAX_DIAGRAM_TEXT = 200;
+
+export interface SceneStyle {
+  fill: string | null;
+  stroke: string | null;
+  stroke_w: number;
+  dash: [number, number] | null;
+  radius: number;
+}
+
+export interface SceneTextLine {
+  text: string;
+  size: number;
+  bold: boolean;
+  color: string;
+  /** Left edge and baseline, relative to the node's (or label's) top-left. */
+  x: number;
+  baseline: number;
+  width: number;
+}
+
+export interface SceneNode {
+  /** The model element id for boxes and containers (cluster:<uuid>, site:<host>, user:…). */
+  id: string;
+  /** container | box | strip | pill | tag | label | swatch */
+  kind: string;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  style: SceneStyle;
+  lines: SceneTextLine[];
+  parent: string | null;
+  data: Record<string, string>;
+}
+
+export interface SceneEdgeLabel {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  lines: SceneTextLine[];
+  background: boolean;
+}
+
+export interface SceneEdge {
+  id: string;
+  src: string;
+  dst: string;
+  points: [number, number][];
+  style: SceneStyle;
+  arrow_start: boolean;
+  arrow_end: boolean;
+  labels: SceneEdgeLabel[];
+  data: Record<string, string>;
+}
+
+/** A laid-out diagram part, in points (1/72 in), origin top-left. */
+export interface DiagramScene {
+  schema: string;
+  id: string;
+  type: string;
+  title: string;
+  caption: string;
+  width: number;
+  height: number;
+  nodes: SceneNode[];
+  edges: SceneEdge[];
+  /** [part, of]. */
+  part: [number, number];
+  meta: Record<string, unknown>;
+}
+
+/** What the inspector knows about one element of the (edited) model. */
+export interface DiagramElement {
+  id: string;
+  /** "Cluster", "Availability zone", "Component", "Note", … */
+  kind: string;
+  collection: string;
+  parent: string | null;
+  parent_label: string;
+  index: number;
+  count: number;
+  label: string | null;
+  sublabel: string | null;
+  role: string | null;
+  roles: { value: string; label: string }[];
+  origin: 'collected' | 'user';
+  /** The name in the data, for "Revert" after a rename. */
+  collected_label: string | null;
+  source: string;
+  can_rename: boolean;
+  can_sublabel: boolean;
+  can_reorder: boolean;
+  can_delete: boolean;
+}
+
+/** An edit that did not apply (its element is not in this snapshot, …). */
+export interface DiagramProblem {
+  index: number;
+  op: DiagramOp;
+  reason: string;
+  /** Carry report: the element's name in the source snapshot. */
+  label?: string | null;
+}
+
+export interface DiagramPaletteItem {
+  id: string;
+  label: string;
+  /** The collection the element goes into; `parents`: the container collections it fits ([] = top level). */
+  collection: string;
+  parents: string[];
+  hint: string;
+  template: Record<string, unknown>;
+}
+
+export interface DiagramPart {
+  index: number;
+  id: string;
+  caption: string;
+  part: [number, number];
+}
+
+export interface DiagramSummary {
+  /** Diagram type id ("conceptual"). One model per type; a large estate draws it in parts. */
+  type: string;
+  title: string;
+  parts: DiagramPart[];
+  edited: boolean;
+  edits: number;
+  saved_at: string | null;
+  stale: boolean;
+}
+
+export interface DiagramCarryItem {
+  type: string;
+  title: string;
+  edits: number;
+  applies: number;
+  problems: DiagramProblem[];
+}
+
+/** An older snapshot of the same source whose edits can be replayed on this one. */
+export interface DiagramCarryOffer {
+  snapshot: SnapshotInfo;
+  diagrams: DiagramCarryItem[];
+}
+
+export interface DiagramList {
+  snapshot: string;
+  diagrams: DiagramSummary[];
+  carry: DiagramCarryOffer | null;
+}
+
+export interface DiagramChange {
+  id: string;
+  kind: 'added' | 'removed' | 'changed';
+  label: string;
+  fields: string[];
+  /** [before, after] per changed field with a plain value. */
+  values?: Record<string, [unknown, unknown]>;
+}
+
+/** The collected data changed under the saved edits. */
+export interface DiagramStale {
+  changes: DiagramChange[];
+  /** Indexes of the saved edits that touch a changed element. */
+  affected_ops: number[];
+}
+
+export interface DiagramLayoutResult {
+  type: string;
+  /** The edited model document ({schema, type, payload}). */
+  model: Record<string, unknown>;
+  scenes: DiagramScene[];
+  outline: DiagramElement[];
+  problems: DiagramProblem[];
+}
+
+export interface DiagramDetail extends DiagramLayoutResult {
+  title: string;
+  generated_hash: string;
+  base_hash: string | null;
+  edited: boolean;
+  /** The saved edits. */
+  ops: DiagramOp[];
+  saved_at: string | null;
+  /** The snapshot the edits were carried from (Compare's baseline) and the edits left out. */
+  carried_from: {
+    name?: string | null;
+    collected_at?: string | null;
+    snapshot_id?: string | null;
+    /** Replayed automatically when the snapshot was collected (every edit applied). */
+    auto?: boolean;
+    dropped?: DiagramProblem[];
+  } | null;
+  stale: DiagramStale | null;
+  palette: DiagramPaletteItem[];
+}
+
+/** Unsaved work in the renderer (window close guard). */
+export interface UnsavedChangesRequest {
+  dirty: boolean;
+  /** What is unsaved, for the prompt ("Solution conceptual overview"). */
+  what?: string;
+}
+
+export interface DiagramCarryRequest {
+  /** Snapshot paths: the older snapshot with edits, and the one to carry them to. */
+  from: string;
+  to: string;
+  /** Diagram types to carry (default: every edited one). */
+  types?: string[];
 }
 
 // ─── compare ────────────────────────────────────────────────────────────
@@ -1311,6 +1555,12 @@ export const IPC = {
   exportSnapshotFiles: 'core:exportSnapshotFiles',
   inspectSnapshotFile: 'core:inspectSnapshotFile',
   importSnapshotFile: 'core:importSnapshotFile',
+  listDiagrams: 'core:listDiagrams',
+  getDiagram: 'core:getDiagram',
+  layoutDiagram: 'core:layoutDiagram',
+  saveDiagram: 'core:saveDiagram',
+  resetDiagram: 'core:resetDiagram',
+  carryDiagrams: 'core:carryDiagrams',
   // main-process only
   getAppInfo: 'app:getAppInfo',
   getLegalDocuments: 'app:getLegalDocuments',
@@ -1322,6 +1572,8 @@ export const IPC = {
   chooseSnapshotSavePath: 'shell:chooseSnapshotSavePath',
   chooseSnapshotFiles: 'shell:chooseSnapshotFiles',
   takePendingSnapshotFiles: 'app:takePendingSnapshotFiles',
+  /** The renderer has unsaved work (Diagrams page): closing the window asks first. */
+  setUnsavedChanges: 'app:setUnsavedChanges',
   listConnections: 'store:listConnections',
   saveTarget: 'store:saveTarget',
   trustCertificate: 'store:trustCertificate',
@@ -1389,6 +1641,18 @@ export interface NtnxApi {
   inspectSnapshotFile(path: string, password?: string): Promise<SnapshotFilePreview>;
   importSnapshotFile(path: string, onConflict: ImportConflictChoice, password?: string): Promise<SnapshotFileImportResult>;
 
+  /** The diagrams a snapshot can draw, their edit state, and an older snapshot's edits to carry forward. */
+  listDiagrams(snapshotPath: string): Promise<DiagramList>;
+  /** One diagram with its saved edits applied: scenes, outline, stale report, palette. */
+  getDiagram(snapshotPath: string, type: string): Promise<DiagramDetail>;
+  /** Re-layout with unsaved edits (nothing is written). */
+  layoutDiagram(snapshotPath: string, type: string, ops: DiagramOp[]): Promise<DiagramLayoutResult>;
+  /** Save the edits (an empty list resets); exports then draw the edited diagram. */
+  saveDiagram(snapshotPath: string, type: string, ops: DiagramOp[]): Promise<DiagramDetail>;
+  resetDiagram(snapshotPath: string, type: string): Promise<DiagramDetail>;
+  /** Replay an older snapshot's edits on a newer one; edits that cannot apply are reported. */
+  carryDiagrams(req: DiagramCarryRequest): Promise<{ diagrams: DiagramCarryItem[] }>;
+
   revealPath(path: string): Promise<void>;
   openPath(path: string): Promise<{ error: string | null }>;
   openExternal(url: string): Promise<void>;
@@ -1403,6 +1667,11 @@ export interface NtnxApi {
   pathForFile(file: File): string;
   /** .ntnxsnap files the OS asked the app to open; also marks the renderer ready for pushes. */
   takePendingSnapshotFiles(): Promise<string[]>;
+  /**
+   * Tell the main process whether the renderer holds unsaved work, and what (e.g. the
+   * diagram's title). While it does, closing the window or quitting asks first.
+   */
+  setUnsavedChanges(req: UnsavedChangesRequest): Promise<void>;
   onOpenSnapshotFiles(cb: (paths: string[]) => void): () => void;
 
   /** The saved targets (Targets page), in saved order. */

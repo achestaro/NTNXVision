@@ -752,8 +752,11 @@ def test_container_without_array_link_stays_on_dsf() -> None:
 def test_speed_labels() -> None:
     from ntnxvision_core.exporters.tables import speed_label
 
-    assert [speed_label(v) for v in (None, 0, 100, 1000, 2500, 25000, 100000)] == [
+    # A no-break space binds the number to its unit (a table never wraps "10 / GbE").
+    labels = [speed_label(v) for v in (None, 0, 100, 1000, 2500, 25000, 100000)]
+    assert [x.replace(" ", " ") if x else x for x in labels] == [
         None, None, "100 Mb/s", "1 GbE", "2.5 GbE", "25 GbE", "100 GbE"]
+    assert all(" " in x for x in labels if x)
 
 
 def test_host_networking_brings_the_hosts_area_with_it() -> None:

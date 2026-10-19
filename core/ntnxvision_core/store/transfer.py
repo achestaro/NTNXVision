@@ -13,7 +13,8 @@ A ``.ntnxsnap`` file is a ZIP container that works the same on macOS and Windows
     The `Environment` (the snapshot itself), compact UTF-8 JSON.
 ``snapshots/<snapshot_id>/meta.json``
     The portable part of the ``.ntnxmeta.json`` index: name, kind, source, summary,
-    headline stats, the run's report *names* and any earlier import provenance.
+    headline stats, the run's report *names*, any earlier import provenance and the
+    saved Diagrams-page edits (``diagrams``, re-validated on import like a local file).
 
 Portability rules: UTF-8 everywhere, forward-slash relative member names, compact JSON
 (so line endings never matter), UTC timestamps, and no local file paths or OS-specific
@@ -318,7 +319,16 @@ def portable_meta(item: ExportItem, env: Environment) -> dict[str, Any]:
         "stats": meta.get("stats") or {},
         "reports": reports[-50:],
         "provenance": provenance if isinstance(provenance, dict) else None,
+        "diagrams": _diagram_edits(meta),
     })
+
+
+def _diagram_edits(meta: dict[str, Any]) -> dict[str, Any] | None:
+    """The snapshot's saved Diagrams-page edits (`diagrams.store.portable`), if any."""
+    from ntnxvision_core.diagrams import store as diagram_store
+
+    path = meta.get("path")
+    return diagram_store.portable(Path(str(path))) if path else None
 
 
 def _zip_info(name: str, when: datetime) -> zipfile.ZipInfo:
@@ -852,6 +862,10 @@ def import_file(path: str | Path, store: SnapshotStore, *, password: str | None 
         target = store.path_for(name)
         saved = store.save(env, name, path=target)
         snapstore.write_meta(saved, env, exports=[], provenance=provenance)
+        if snap.meta.get("diagrams"):
+            from ntnxvision_core.diagrams import store as diagram_store
+
+            diagram_store.restore(saved, snap.meta["diagrams"])
         if on_saved is not None:
             on_saved(saved)
         taken.add(name)
