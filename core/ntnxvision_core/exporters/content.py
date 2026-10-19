@@ -29,6 +29,7 @@ from ntnxvision_core.diagrams import summary as design
 from ntnxvision_core.diagrams.estate import MIN_PARTS as ESTATE_MIN_PARTS
 from ntnxvision_core.diagrams.estate import EstateRefs, estate_bullets, estate_from
 from ntnxvision_core.diagrams.facts import short_name
+from ntnxvision_core.diagrams.layout.fit import fits_first
 from ntnxvision_core.diagrams.scene import Scene
 from ntnxvision_core.exporters import diagrams
 from ntnxvision_core.exporters import sections as report_sections
@@ -195,6 +196,24 @@ def first_part_budget(bullets: list[str], parts: bool = False) -> Callable[[floa
         return (BODY_H - HEADINGS_H - CAPTION_H - (NOTE_H if parts else 0.0)
                 - summary_height(bullets, beside) - 4.0)
     return budget
+
+
+def scene_figures(scenes: list[Scene]) -> list[SceneFigure]:
+    """One report figure per part; a part laid out for a page of its own
+    (``meta["own_page"]``, `diagrams.layout.fit`) starts one."""
+    return [SceneFigure(sc, sc.caption, new_page=bool(sc.meta.get("own_page")))
+            for sc in scenes]
+
+
+def fit_layout(run: Callable[[Callable[[float], float]], list[Scene]],
+               bullets: list[str]) -> list[Scene]:
+    """`run(budget)` with part 1 fitted under the headings and `bullets` (measured,
+    `first_part_budget`); a figure drawn in parts also leaves room for part 1's
+    continuation note."""
+    scenes = run(first_part_budget(bullets))
+    if len(scenes) > 1:
+        scenes = run(first_part_budget(bullets, True))
+    return scenes
 
 
 def continued_notes(figs: list[SceneFigure],
@@ -986,11 +1005,13 @@ class _Builder:
         estate_fig: SceneFigure | None = None
         if with_map:
             assert estate_t is not None
-            em = estate_from(drawn, [list(sc.meta.get("sites", [])) for sc in scenes])
+            em = self.figure_model(estate_t, estate_from(
+                drawn, [list(sc.meta.get("sites", [])) for sc in scenes]))
             lead = [*estate_bullets(em), *bullets[1:]][:design.MAX_BULLETS]
             estate_fig = SceneFigure(estate_t.layout(em, page)[0], "")
             estate_fig.caption = estate_fig.scene.caption
             estate_fig.summary = lead
+            estate_fig.new_page = not fits_first([estate_fig.scene], first_part_budget(lead))
         else:
             figs[0].summary = summary(scenes)
         self.design_figures[dtype.id] = [estate_fig, *figs] if estate_fig else figs
@@ -1031,11 +1052,14 @@ class _Builder:
                 if not with_map:
                     figs[0].summary = summary(scenes, ref)
             if estate_fig is not None and estate_t is not None:
-                em = estate_from(drawn, [list(sc.meta.get("sites", [])) for sc in scenes])
+                em = self.figure_model(estate_t, estate_from(
+                    drawn, [list(sc.meta.get("sites", [])) for sc in scenes]))
                 estate_fig.scene = estate_t.layout(em, page, EstateRefs(tuple(labels)))[0]
                 estate_fig.caption = estate_fig.scene.caption
                 lead = [*estate_bullets(em), *summary(scenes, ref)[1:]]
                 estate_fig.summary = lead[:design.MAX_BULLETS]
+                estate_fig.new_page = not fits_first([estate_fig.scene],
+                                                     first_part_budget(estate_fig.summary))
                 if az is not None:
                     drawn_in = {sid: f"{labels[i]} (part {i + 1})"
                                 for i, sc in enumerate(scenes)

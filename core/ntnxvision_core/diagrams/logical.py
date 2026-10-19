@@ -23,6 +23,7 @@ from ntnxvision_core.versions import short_version
 
 from . import fmt
 from .facts import _sites, conceptual_model, hypervisor_label, pc_size_label, short_name
+from .model import known as _known
 
 GIB = 1024**3
 #: The category key that groups clusters into PODs.
@@ -88,6 +89,11 @@ class LCluster:
     #: A "+N more clusters" card standing for this many clusters (layout only; its
     #: `nodes` and `hypervisor` are their totals and mix).
     summary: int = 0
+    #: "cluster" (collected), "user" (added in the Diagrams editor) or "note" (free
+    #: text added in the editor).
+    kind: str = "cluster"
+    #: A line the author added in the Diagrams editor.
+    note: str | None = None
 
 
 @dataclass
@@ -137,6 +143,8 @@ class LSite:
 class LogicalModel:
     sites: list[LSite] = field(default_factory=list)
     title: str = "Logical cluster design"
+    #: Set when saved Diagrams-page edits were replayed on the model (captions say so).
+    edited: bool = False
 
 
 # ─── documents ─────────────────────────────────────────────────────────
@@ -148,7 +156,8 @@ def to_doc(m: LogicalModel) -> dict[str, Any]:
 
 def from_doc(d: dict[str, Any]) -> LogicalModel:
     def cluster(c: dict[str, Any]) -> LCluster:
-        return LCluster(**{**c, "groups": [NodeGroup(**g) for g in c.get("groups", [])],
+        return LCluster(**{**_known(LCluster, c),
+                           "groups": [NodeGroup(**g) for g in c.get("groups", [])],
                            "containers": [Container(**x) for x in c.get("containers", [])]})
 
     return LogicalModel(
@@ -159,7 +168,7 @@ def from_doc(d: dict[str, Any]) -> LogicalModel:
                      arrays=[Array(**a) for a in s.get("arrays", [])],
                      pc_vms=s.get("pc_vms", 0), data=dict(s.get("data", {})))
                for s in d.get("sites", [])],
-        title=d.get("title", "Logical cluster design"))
+        title=d.get("title", "Logical cluster design"), edited=bool(d.get("edited")))
 
 
 # ─── facts ─────────────────────────────────────────────────────────────
@@ -481,7 +490,7 @@ def array_lines(a: Array) -> list[str]:
 
 
 def site_line(s: LSite) -> str:
-    cl = s.clusters
+    cl = [c for c in s.clusters if c.kind == "cluster"]  # as collected
     nodes = sum(c.nodes or 0 for c in cl)
     what = "Availability zone" if s.kind == "pc" else "Prism Element"
     pods = [p for p in s.pods if p.name]

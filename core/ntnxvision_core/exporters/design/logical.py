@@ -1,12 +1,17 @@
 """Logical Cluster Design (A2) in the Logical Design chapter: one section per
 availability zone with its figure (in parts when large), its design summary and the
-user storage containers table."""
+user storage containers table.
+
+The figures draw the author's saved edit (Diagrams page) when there is one; summaries
+and tables always describe the collected data. A zone removed in the editor keeps its
+section and table, with a note instead of the figure.
+"""
 
 from __future__ import annotations
 
 from typing import Any
 
-from ntnxvision_core.diagrams.layout.logical import layout_site, site_level
+from ntnxvision_core.diagrams.layout.logical import site_level
 from ntnxvision_core.diagrams.logical import (
     CONTAINER_HEADERS,
     LogicalModel,
@@ -15,36 +20,55 @@ from ntnxvision_core.diagrams.logical import (
 )
 from ntnxvision_core.exporters.content import (
     Chapter,
-    SceneFigure,
+    Paragraph,
     continued_notes,
     first_part_budget,
+    fit_layout,
     make_table,
+    scene_figures,
 )
 
 
 def build(b: Any, ch: Chapter, dtype: Any) -> bool:
     model: LogicalModel = dtype.build_model(b.env)
+    drawn: LogicalModel = b.figure_model(dtype, model)
+    note = b.edit_disclosure(dtype, model, drawn)
+    shown = {s.id: s for s in drawn.sites}
     many = len(model.sites) > 1
     sites = [s for s in model.sites if s.clusters]
-    budgets = {s.id: first_part_budget(logical_bullets(s)) for s in sites}
-    # One detail level for the estate (the least detail any AZ needs), so like AZs
-    # are drawn alike.
-    level = max((site_level(s, dtype.page, budgets[s.id]) for s in sites), default=0)
+
+    def bullets_of(site: Any) -> list[str]:
+        return [*logical_bullets(site), *([note] if note else [])]
+
+    # One detail level for the estate (the least detail any drawn AZ needs), so like
+    # AZs are drawn alike.
+    level = max((site_level(shown[s.id], dtype.page, first_part_budget(bullets_of(s)))
+                 for s in sites if s.id in shown and shown[s.id].clusters), default=0)
     added = False
     for site in sites:
-        bullets = logical_bullets(site)
-        scenes = layout_site(site, dtype.page, budgets[site.id], level)
-        figs = [SceneFigure(sc, sc.caption) for sc in scenes]
-        figs[0].summary = bullets
+        bullets = bullets_of(site)
+        title = f"{dtype.section}: {site.name}" if many else dtype.section
         rows = container_rows(site)
         # Combined runs attribute every row to its Prism Central (the house rule).
         table = make_table(CONTAINER_HEADERS, rows, f"User storage containers, {site.name}",
                            [site.name] * len(rows) if b.env.is_combined else None)
-        title = f"{dtype.section}: {site.name}" if many else dtype.section
+
+        def run(budget: Any, sid: str = site.id) -> list[Any]:
+            return list(dtype.layout(drawn, dtype.page, None, budget, site=sid, level=level))
+
+        scenes = fit_layout(run, bullets) if site.id in shown else []
+        if not scenes:
+            ch.add(title, Paragraph(
+                f"The logical cluster design of {site.name} was removed from the figure in "
+                "the Diagrams editor. The table lists its collected containers.", "note"),
+                table)
+            added = True
+            continue
+        figs = scene_figures(scenes)
+        figs[0].summary = bullets
         ch.add(title, *figs, table)
         b.design_figures.setdefault(dtype.id, []).extend(figs)
         added = True
-
         if len(figs) > 1:
             b.finalizers.append(lambda figs=figs: continued_notes(figs))
     return added

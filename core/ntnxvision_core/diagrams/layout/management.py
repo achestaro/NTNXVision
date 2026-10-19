@@ -54,6 +54,7 @@ from ..management import (
 from ..scene import Node, Scene, Style, q
 from . import parts as parts_mod
 from .conceptual import Budget, Page, Refs
+from .fit import place_first
 
 MX = 0.5
 TOP = 5.0
@@ -151,7 +152,13 @@ def _pc_rows(s: MgmtSite, drawn_hosts: bool) -> list[Row]:
     return rows
 
 
+#: Second line of a component the author added in the Diagrams editor.
+NOT_COLLECTED = "Added by the author, not collected"
+
+
 def _chips(c: MgmtCluster) -> list[tuple[str, Style]]:
+    if c.kind != "cluster":
+        return [("USER-ADDED", K.TAG_USER)]
     out: list[tuple[str, Style]] = []
     if c.dedicated:
         out.append(("MGMT", K.TAG_ROLE))
@@ -174,11 +181,25 @@ def _chips_w(c: MgmtCluster) -> float:
 
 
 def _cluster_rows(c: MgmtCluster) -> list[Row]:
+    if c.kind == "note":  # a note reads as body text
+        return [Row(c.name, K.SIZE_BODY, False, K.INK_2, 4, tx.MIN_SIZE)]
     return [Row(c.name, K.SIZE_CARD_TITLE, True, K.INK, 2, tx.MIN_SIZE)]
 
 
 def _detail_rows(c: MgmtCluster) -> list[Row]:
-    return [Row(cluster_detail(c), K.SIZE_SMALL, False, K.INK_2, 2, gap_before=0.5)]
+    if c.kind == "user":
+        return [Row(c.note or NOT_COLLECTED, K.SIZE_SMALL, False, K.INK_3, 2,
+                    gap_before=0.5)]
+    if c.kind == "note":
+        return []
+    rows = [Row(cluster_detail(c), K.SIZE_SMALL, False, K.INK_2, 2, gap_before=0.5)]
+    if c.note:  # a line the author added to a collected cluster
+        rows.append(Row(c.note, K.SIZE_SMALL, False, K.INK_3, 2))
+    return rows
+
+
+def _style(c: MgmtCluster) -> Style:
+    return K.CLUSTER if c.kind == "cluster" else K.NOTE if c.kind == "note" else K.USER
 
 
 def _cluster_h(c: MgmtCluster, w: float) -> float:
@@ -216,13 +237,16 @@ def _more_rows(hidden: list[MgmtCluster], refs: Refs) -> list[Row]:
 
 def _visible(s: MgmtSite, keep: int | None) -> tuple[list[MgmtCluster], list[MgmtCluster]]:
     """Decision 7: the cluster hosting Prism Central, then the largest by node count;
-    the rest go into one "+N more" card. Kept clusters stay in their usual order."""
-    if keep is None or len(s.clusters) <= keep + 1:
+    the rest go into one "+N more" card. Kept clusters stay in their usual order. Only
+    collected clusters are summarised: what the author added is always drawn."""
+    collected = [c for c in s.clusters if c.kind == "cluster"]
+    if keep is None or len(collected) <= keep + 1:
         return list(s.clusters), []
-    chosen = [c for c in s.clusters if c.hosts_pc][:keep]
-    rest = sorted((c for c in s.clusters if c not in chosen),
+    chosen = [c for c in collected if c.hosts_pc][:keep]
+    rest = sorted((c for c in collected if c not in chosen),
                   key=lambda c: (-(c.nodes or 0), s.clusters.index(c)))
-    ids = {c.id for c in chosen + rest[:keep - len(chosen)]}
+    ids = {c.id for c in chosen + rest[:keep - len(chosen)]} | \
+        {c.id for c in s.clusters if c.kind != "cluster"}
     return [c for c in s.clusters if c.id in ids], [c for c in s.clusters if c.id not in ids]
 
 
@@ -362,6 +386,8 @@ def _layout_part(model: ManagementModel, plan: _Plan, page: Page, refs: Refs,
     if pc_nodes:
         items.append(("box", K.PC, "Prism Central (PCVMs)"))
     items.append(("box", K.CLUSTER, "Prism Element cluster"))
+    if any(n.style is K.USER or n.style is K.NOTE for n in sc.nodes):
+        items.append(("box", K.USER, "Added by the author"))
     if used["vcenter"]:
         items.append(("box", K.VCENTER, "vCenter"))
     if plan.below:
@@ -391,7 +417,7 @@ def _cluster(sc: Scene, s: MgmtSite, c: MgmtCluster, x: float, y: float, w: floa
     cw = _chips_w(c)
     title_w = w - 10 - (cw + 4 if cw else 0)
     h = _cluster_h(c, w)
-    node = box(c.id, "box", x, y, w, [], K.CLUSTER, pad_x=5, h=h, parent=s.id,
+    node = box(c.id, "box", x, y, w, [], _style(c), pad_x=5, h=h, parent=s.id,
                data=dict(c.data))
     mt, th = measure(_cluster_rows(c), title_w)
     md, _ = measure(_detail_rows(c), w - 10)
@@ -645,13 +671,14 @@ def _below(sc: Scene, model: ManagementModel, plan: _Plan, site_nodes: dict[str,
 
 def _caption(model: ManagementModel, sites: list[MgmtSite], part: tuple[int, int]) -> str:
     regs = sum(s.registered for s in sites)
+    head = "Management plane" + (" (edited)" if model.edited else "")
     if part[1] > 1:
         names = fmt.join_names([short_name(s.name) for s in sites])
-        return (f"Management plane, part {part[0]} of {part[1]}: {names} "
+        return (f"{head}, part {part[0]} of {part[1]}: {names} "
                 f"({fmt.plural(regs, 'registered cluster')}).")
     pcs = fmt.plural(len(sites), "Prism Central")
     whose = "its" if len(sites) == 1 else "their"
-    return (f"Management plane: {pcs}, {whose} deployment and hosting clusters, "
+    return (f"{head}: {pcs}, {whose} deployment and hosting clusters, "
             f"{fmt.plural(regs, 'registered cluster')}"
             + (" and AZ pairing." if model.links else "."))
 
@@ -683,6 +710,13 @@ def _best(model: ManagementModel, sites: list[MgmtSite], parts: list[list[str]],
 
 def layout(model: ManagementModel, page: Page | None = None, refs: Refs | None = None,
            first_budget: Budget | None = None) -> list[Scene]:
+    """The figure's parts; part 1 under the section's summary when it fits there, else
+    on a page of its own (`fit.place_first`)."""
+    return place_first(lambda budget: _layout(model, page, refs, budget), first_budget)
+
+
+def _layout(model: ManagementModel, page: Page | None = None, refs: Refs | None = None,
+            first_budget: Budget | None = None) -> list[Scene]:
     """Scenes (parts) for the model; every part fits `page.max_h`, part 1 also
     `first_budget(width)`."""
     page = page or Page()

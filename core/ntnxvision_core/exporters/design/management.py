@@ -14,11 +14,11 @@ from ntnxvision_core.diagrams import management as M
 from ntnxvision_core.diagrams.facts import short_name
 from ntnxvision_core.exporters.content import (
     Chapter,
-    SceneFigure,
     Table,
     continued_notes,
-    first_part_budget,
+    fit_layout,
     make_table,
+    scene_figures,
 )
 
 
@@ -38,11 +38,14 @@ def build(b: Any, ch: Chapter, dtype: DiagramType) -> bool:
     if not any(s.pc for s in model.sites):
         return False
     page = dtype.page
-    bullets = M.bullets(model)
-    scenes = dtype.layout(model, page, None, first_part_budget(bullets))
+    # The figure draws the saved edit (Diagrams page); summary and tables the data.
+    drawn = b.figure_model(dtype, model)
+    note = b.edit_disclosure(dtype, model, drawn)
+    bullets = [*M.bullets(model), *([note] if note else [])]
+    scenes = fit_layout(lambda budget: dtype.layout(drawn, page, None, budget), bullets)
     if not scenes:
         return False
-    figs = [SceneFigure(sc, sc.caption) for sc in scenes]
+    figs = scene_figures(scenes)
     figs[0].summary = bullets
     pcs = make_table(M.PC_HEADERS, M.pc_rows(model), "Prism Central deployment",
                      prune=("Paired with", "PCVM IP addresses", "Per PCVM"))
@@ -59,11 +62,12 @@ def build(b: Any, ch: Chapter, dtype: DiagramType) -> bool:
         labels = [f.label.rstrip(".") for f in figs]
         if clusters is not None:
             ref = clusters.label.rstrip(".")
-            again = dtype.layout(model, page, Refs(clusters_table=ref),
-                                 first_part_budget(bullets))
+            again = fit_layout(lambda budget: dtype.layout(
+                drawn, page, Refs(clusters_table=ref), budget), bullets)
             if [sc.part for sc in again] == [sc.part for sc in scenes]:
                 for f, sc in zip(figs, again, strict=True):
                     f.scene = sc
+                    f.new_page = bool(sc.meta.get("own_page"))
                 scenes[:] = again
             rows, _ = M.cluster_rows(model, _drawn(scenes, labels))
             col = clusters.headers.index("In figure")
@@ -75,7 +79,7 @@ def build(b: Any, ch: Chapter, dtype: DiagramType) -> bool:
                 if f.scene.meta.get("summarised"):
                     f.note = f"Clusters in a \"+N more\" card are listed in {ref}."
         continued_notes(figs, lambda sc: ", ".join(
-            short_name(model.name_of(sid)) for sid in sc.meta.get("sites", [])))
+            short_name(drawn.name_of(sid)) for sid in sc.meta.get("sites", [])))
 
     b.finalizers.append(finalize)
     return True

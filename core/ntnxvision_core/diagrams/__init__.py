@@ -21,6 +21,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from . import dr as _dr
+from . import edit_designs as _edits
 from . import estate as _estate
 from . import management as _management
 from . import network as _network
@@ -78,7 +79,8 @@ TYPES: dict[str, DiagramType] = {
         id="conceptual", title="Solution conceptual overview", chapter="logical_design",
         section="Solution Conceptual Overview", applies=lambda env: bool(env.clusters),
         build_model=conceptual_model, layout=conceptual_layout, to_doc=conceptual_to_doc,
-        from_doc=conceptual_from_doc, edit=CONCEPTUAL_EDIT, slug="solution-conceptual-overview"),
+        from_doc=conceptual_from_doc, edit=CONCEPTUAL_EDIT,
+        slug="solution-conceptual-overview"),
     "estate": DiagramType(
         id="estate", title="Estate map", chapter="logical_design",
         section="Solution Conceptual Overview", applies=_estate.applies,
@@ -88,22 +90,25 @@ TYPES: dict[str, DiagramType] = {
         id="logical", title="Logical cluster design", chapter="logical_design",
         section="Logical Cluster Design", applies=lambda env: bool(env.clusters and env.hosts),
         build_model=logical_model, layout=logical_layout, to_doc=logical_to_doc,
-        from_doc=logical_from_doc, slug="logical-design"),
+        from_doc=logical_from_doc, edit=_edits.LOGICAL, slug="logical-design"),
     "management": DiagramType(
         id="management", title="Management plane design", chapter="prism_central",
         section="Management Plane Design",
         applies=lambda env: env.source_type != "prism_element" and bool(env.clusters),
         build_model=_management.management_model, layout=management_layout,
-        to_doc=_management.to_doc, from_doc=_management.from_doc, slug="management-plane"),
+        to_doc=_management.to_doc, from_doc=_management.from_doc, edit=_edits.MANAGEMENT,
+        slug="management-plane"),
     "network": DiagramType(
         id="network", title="Host network configuration", chapter="physical_design",
         section="Host Network Configuration", applies=_network.applies,
         build_model=_network.network_model, layout=network_layout,
-        to_doc=_network.to_doc, from_doc=_network.from_doc, slug="host-network-profile"),
+        to_doc=_network.to_doc, from_doc=_network.from_doc, edit=_edits.NETWORK,
+        slug="host-network-profile"),
     "dr": DiagramType(
         id="dr", title="Disaster recovery design", chapter="data_protection",
         section="Disaster Recovery Design", applies=_dr.applies, build_model=_dr.dr_model,
-        layout=dr_layout, to_doc=_dr.to_doc, from_doc=_dr.from_doc, slug="data-protection"),
+        layout=dr_layout, to_doc=_dr.to_doc, from_doc=_dr.from_doc, edit=_edits.DR,
+        slug="data-protection"),
 }
 
 

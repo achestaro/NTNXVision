@@ -43,6 +43,7 @@ from ..build import (
     legend,
     text_h,
 )
+from ..check import ANCHOR, _gap_to_path
 from ..dr import (
     DrCluster,
     DrFlow,
@@ -59,6 +60,7 @@ from ..model import Repl
 from ..scene import Edge, EdgeLabel, Node, Scene, Style, q
 from . import parts as parts_mod
 from .conceptual import Page, Refs, _deoverlap
+from .fit import place_first
 
 MX = 0.5
 TOP = 5.0
@@ -237,7 +239,17 @@ def _header_rows(m: DrModel, s: DrSite) -> list[Row]:
             Row(sub, K.SIZE_SMALL, False, K.INK_3, 2, gap_before=0.5)]
 
 
+#: Second line of a component the author added in the Diagrams editor.
+NOT_COLLECTED = "Added by the author, not collected"
+
+
 def _card_rows(it: _Item, brief: bool) -> list[Row]:
+    if it.cluster is not None and it.cluster.kind == "note":  # free text
+        return [Row(it.cluster.name, K.SIZE_BODY, False, K.INK_2, 3, tx.MIN_SIZE)]
+    if it.cluster is not None and it.cluster.kind == "user":
+        return [Row(it.cluster.name, K.SIZE_CARD_TITLE, True, K.INK, 2, tx.MIN_SIZE),
+                Row(it.cluster.note or NOT_COLLECTED, K.SIZE_SMALL, False, K.INK_3, 2,
+                    gap_before=0.5)]
     if it.cluster is None:
         n = len(it.hidden)
         rows = [Row(f"+{fmt.plural(n, 'cluster')} without a protection policy",
@@ -250,10 +262,14 @@ def _card_rows(it: _Item, brief: bool) -> list[Row]:
     if not brief:
         rows.append(Row(cluster_line(c), K.SIZE_BODY, False, K.INK_3 if muted else K.INK_2,
                         2, gap_before=0.5))
+        if c.note:  # a line the author added to a collected cluster
+            rows.append(Row(c.note, K.SIZE_SMALL, False, K.INK_3, 2))
     return rows
 
 
 def _card_style(it: _Item) -> Style:
+    if it.cluster is not None and it.cluster.kind != "cluster":
+        return K.NOTE if it.cluster.kind == "note" else K.USER
     if it.cluster is None or it.cluster.protected is False:
         return K.CLUSTER_MUTED
     return K.CLUSTER
@@ -328,12 +344,31 @@ def _target_lines(m: DrModel, gs: list[_Group]) -> list[LabelText]:
     return lines
 
 
+def _on_last_run(e: Edge, lab: EdgeLabel, others: list[EdgeLabel]) -> EdgeLabel:
+    """`lab` moved onto the run that ends at `e`'s arrowhead (its first run for a
+    flow drawn backwards), just above the line, or below it when that side is taken."""
+    pts = e.points if e.arrow_end or not e.arrow_start else e.points[::-1]
+    (x0, y0), (x1, _) = pts[-2], pts[-1]
+    lo, hi = sorted((x0, x1))
+    cx = min(max((lo + hi) / 2, lo + lab.w / 2), hi - lab.w / 2)
+
+    def clash(y: float) -> bool:
+        return any(o.x < cx + lab.w / 2 and cx - lab.w / 2 < o.x + o.w and o.y < y + lab.h
+                   and y < o.y + o.h for o in others)
+
+    above, below = q(y0 - lab.h - 1), q(y0 + 1)
+    y = below if clash(above) and not clash(below) else above
+    return EdgeLabel(x=q(cx - lab.w / 2), y=y, w=lab.w, h=lab.h, lines=lab.lines,
+                     background=lab.background)
+
+
 # ─── one part ──────────────────────────────────────────────────────────
 
 
 def _items(s: DrSite, collapse_all: bool) -> list[_Item]:
-    shown = [c for c in s.clusters if c.protected is not False]
-    off = [c for c in s.clusters if c.protected is False]
+    # What the author added is always drawn (never folded into the unprotected card).
+    shown = [c for c in s.clusters if c.protected is not False or c.kind != "cluster"]
+    off = [c for c in s.clusters if c.protected is False and c.kind == "cluster"]
     items = [_Item(c.id, c) for c in shown]
     if off and (collapse_all or len(off) > MAX_UNPROTECTED):
         items.append(_Item(f"{s.id}:unprotected", None, off))
@@ -432,7 +467,7 @@ def _layout_part(m: DrModel, sites: list[DrSite], parts: list[list[DrSite]], pag
     cols: dict[str, Node] = {}
     cards: dict[str, Node] = {}
     x = MX
-    used = {"protected": False, "muted": False}
+    used = {"protected": False, "muted": False, "user": False}
     for i, s in enumerate(sites):
         cont = box(s.id, "container", x, TOP, col_w, _header_rows(m, s), K.SITE, pad_x=P,
                    pad_y=head_top - TOP, h=site_bottom - TOP, data=dict(s.data))
@@ -444,7 +479,8 @@ def _layout_part(m: DrModel, sites: list[DrSite], parts: list[list[DrSite]], pag
         for r, it in enumerate(items[s.id]):
             y = cards_y + r * (card_h + CARD_GAP)
             st = _card_style(it)
-            used["protected" if st is K.CLUSTER else "muted"] = True
+            used["protected" if st is K.CLUSTER else "muted" if st is K.CLUSTER_MUTED
+                 else "user"] = True
             data = dict(it.cluster.data) if it.cluster else \
                 {"clusters": str(len(it.hidden)), "kind": "unprotected"}
             node = box(it.id, "box", x + lm, y, cw, _card_rows(it, rung >= 2), st, pad_x=5,
@@ -452,6 +488,9 @@ def _layout_part(m: DrModel, sites: list[DrSite], parts: list[list[DrSite]], pag
                        data=data)
             sc.nodes.append(node)
             cards[it.id] = node
+            if st is K.USER or st is K.NOTE:
+                sc.nodes.append(chip(f"{it.id}:tag", "USER-ADDED", node.x + 5, node.y,
+                                     K.TAG_USER, parent=it.id))
         x = q(x + col_w + (gaps[i] if i < len(gaps) else 0.0))
 
     def anchor(ident: str, site: str) -> Node:
@@ -573,6 +612,7 @@ def _layout_part(m: DrModel, sites: list[DrSite], parts: list[list[DrSite]], pag
             n = len(bent)
             for j, k in enumerate(route.lane_order(spans)):
                 lane_of[bent[k][0].id] = q(lane_lo + (lane_hi - lane_lo) * (j + 0.5) / n)
+        placed_labels: list[EdgeLabel] = []
         for f, lft, rgt in in_gut:
             yl, yr = geo[f.id]
             xl, xr = lft.x + lft.w, rgt.x
@@ -590,7 +630,13 @@ def _layout_part(m: DrModel, sites: list[DrSite], parts: list[list[DrSite]], pag
             e = edge(f.id, f.a, f.b, pts, _strength(reps), arrow_end=bool(f.forward),
                      arrow_start=bool(f.backward), data={"kind": "replication"})
             cx, cy = place[f.id]
-            e.labels.append(edge_label([flow_text(f)], cx, cy, span))
+            lab = edge_label([flow_text(f)], cx, cy, span)
+            if _gap_to_path(lab.x, lab.y, lab.w, lab.h, e.points) > ANCHOR:
+                # Stacked off its own line (several flows into one card): beside the
+                # arrowhead on its last run instead, above or below the line.
+                lab = _on_last_run(e, lab, placed_labels)
+            placed_labels.append(lab)
+            e.labels.append(lab)
             sc.edges.append(e)
 
     # Recovery plan chips on the gutters.
@@ -828,6 +874,8 @@ def _layout_part(m: DrModel, sites: list[DrSite], parts: list[list[DrSite]], pag
         items_l.append(("box", K.CLUSTER, "Protected cluster"))
     if used["muted"]:
         items_l.append(("box", K.CLUSTER_MUTED, "No protection policy"))
+    if used["user"]:
+        items_l.append(("box", K.USER, "Added by the author"))
     styles = {n.style for n in sc.nodes if n.kind == "box"}
     if K.REMOTE in styles:
         items_l.append(("box", K.REMOTE, "Outside this inventory"))
@@ -850,11 +898,11 @@ def _layout_part(m: DrModel, sites: list[DrSite], parts: list[list[DrSite]], pag
 
 def _caption(m: DrModel, sites: list[DrSite], part: tuple[int, int]) -> str:
     names = fmt.join_names([short_name(s.name) for s in sites])
+    head = "Disaster recovery design" + (" (edited)" if m.edited else "")
     if part[1] > 1:
-        return (f"Disaster recovery design, part {part[0]} of {part[1]}: {names}, protection "
+        return (f"{head}, part {part[0]} of {part[1]}: {names}, protection "
                 "policies by source and target cluster, type and RPO.")
-    return "Disaster recovery design: protection policies by source and target cluster, " \
-        "type and RPO."
+    return f"{head}: protection policies by source and target cluster, type and RPO."
 
 
 def _best(m: DrModel, sites: list[DrSite], parts: list[list[DrSite]], page: Page,
@@ -871,6 +919,13 @@ def _best(m: DrModel, sites: list[DrSite], parts: list[list[DrSite]], page: Page
 
 def layout(model: DrModel, page: Page | None = None, refs: Refs | None = None,
            first_budget: Budget | None = None) -> list[Scene]:
+    """The figure's parts; part 1 under the section's summary when it fits there, else
+    on a page of its own (`fit.place_first`)."""
+    return place_first(lambda budget: _layout(model, page, refs, budget), first_budget)
+
+
+def _layout(model: DrModel, page: Page | None = None, refs: Refs | None = None,
+            first_budget: Budget | None = None) -> list[Scene]:
     """Scenes (parts) of the disaster recovery design. Every part fits `page.max_h` and
     part 1 `first_budget(width)` when it can; a part that cannot gives its last linked
     group (or zone) to a new part."""

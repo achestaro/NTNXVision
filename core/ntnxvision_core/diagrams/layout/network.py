@@ -36,6 +36,7 @@ from ..network import (
 )
 from ..scene import Scene, Style, q
 from .conceptual import Page, Refs
+from .fit import place_first
 
 MX = 0.5
 TOP = 5.0
@@ -305,7 +306,7 @@ def _part(m: NetworkModel, p: Profile, switches: list[VSwitch], width: float,
     what = "virtual switches, bonds, uplinks and MTU"
     if used_neighbour:
         what = "virtual switches, bonds, uplinks, MTU and LLDP neighbours"
-    sc.caption = (f"Host network profile {p.letter}"
+    sc.caption = (f"Host network profile {p.letter}" + (" (edited)" if m.edited else "")
                   + (f", part {part[0]} of {part[1]}" if part[1] > 1 else "") + f": {what}.")
     sc.part = part
     sc.meta = {"group": p.id, "group_name": f"Profile {p.letter}", "profile": p.letter,
@@ -315,6 +316,13 @@ def _part(m: NetworkModel, p: Profile, switches: list[VSwitch], width: float,
 
 def layout(model: NetworkModel, page: Page | None = None, refs: Refs | None = None,
            first_budget: Budget | None = None) -> list[Scene]:
+    """The figure's parts; part 1 under the section's summary when it fits there, else
+    on a page of its own (`fit.place_first`)."""
+    return place_first(lambda budget: _layout(model, page, refs, budget), first_budget)
+
+
+def _layout(model: NetworkModel, page: Page | None = None, refs: Refs | None = None,
+            first_budget: Budget | None = None) -> list[Scene]:
     """Scenes for the first `MAX_DRAWN` profiles (each split into parts when its
     switches do not fit side by side or under the height budget)."""
     page = page or Page()

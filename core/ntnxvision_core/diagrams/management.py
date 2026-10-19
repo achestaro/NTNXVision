@@ -28,6 +28,7 @@ from ntnxvision_core.versions import short_version
 from . import fmt
 from .facts import _sites, conceptual_model, hypervisor_label, pc_size_label, pc_version, short_name
 from .model import dumps, envelope, open_envelope
+from .model import known as _known
 
 GIB = 1024**3
 
@@ -64,6 +65,11 @@ class MgmtCluster:
     nodes: int | None = None
     #: CONNECTED / DISCONNECTED / PENDING as registered, None when not reported.
     connectivity: str | None = None
+    #: "cluster" (collected), "user" (added in the Diagrams editor) or "note" (free
+    #: text added in the editor).
+    kind: str = "cluster"
+    #: A line the author added in the Diagrams editor.
+    note: str | None = None
     data: dict[str, str] = field(default_factory=dict)
 
     @property
@@ -133,6 +139,8 @@ class ManagementModel:
     remotes: list[MgmtRemote] = field(default_factory=list)
     links: list[MgmtLink] = field(default_factory=list)
     title: str = "Management plane design"
+    #: Set when saved Diagrams-page edits were replayed on the model (captions say so).
+    edited: bool = False
 
     def site(self, ident: str) -> MgmtSite | None:
         return next((s for s in self.sites if s.id == ident), None)
@@ -162,14 +170,15 @@ def from_doc(d: dict[str, Any]) -> ManagementModel:
     def site(s: dict[str, Any]) -> MgmtSite:
         pc = s.get("pc")
         return MgmtSite(id=s["id"], name=s["name"], pc=MgmtPc(**pc) if pc else None,
-                        clusters=[MgmtCluster(**c) for c in s.get("clusters", [])],
+                        clusters=[MgmtCluster(**_known(MgmtCluster, c))
+                                  for c in s.get("clusters", [])],
                         registered=s.get("registered", 0), data=dict(s.get("data", {})))
 
     return ManagementModel(
         sites=[site(s) for s in d.get("sites", [])],
         remotes=[MgmtRemote(**r) for r in d.get("remotes", [])],
         links=[MgmtLink(**lk) for lk in d.get("links", [])],
-        title=d.get("title", "Management plane design"))
+        title=d.get("title", "Management plane design"), edited=bool(d.get("edited")))
 
 
 def model_json(m: ManagementModel) -> bytes:

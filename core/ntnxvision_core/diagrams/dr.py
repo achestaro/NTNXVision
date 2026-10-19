@@ -33,6 +33,7 @@ from .facts import (
     short_name,
 )
 from .model import Repl
+from .model import known as _known
 
 TITLE = "Disaster recovery design"
 _UUID = re.compile(r"^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$", re.I)
@@ -52,6 +53,11 @@ class DrCluster:
     #: True: in a protection policy; False: in none; None: not known (a policy of this
     #: zone names no clusters, so a cluster may be protected through categories).
     protected: bool | None = None
+    #: "cluster" (collected), "user" (added in the Diagrams editor) or "note" (free
+    #: text added in the editor).
+    kind: str = "cluster"
+    #: A line the author added in the Diagrams editor.
+    note: str | None = None
     data: dict[str, str] = field(default_factory=dict)
 
 
@@ -121,6 +127,8 @@ class DrModel:
     policies: int = 0
     recovery_plans: int = 0
     title: str = TITLE
+    #: Set when saved Diagrams-page edits were replayed on the model (captions say so).
+    edited: bool = False
 
     def site(self, ident: str) -> DrSite | None:
         return next((s for s in self.sites if s.id == ident), None)
@@ -157,7 +165,8 @@ def to_doc(m: DrModel) -> dict[str, Any]:
 def from_doc(d: dict[str, Any]) -> DrModel:
     return DrModel(
         sites=[DrSite(id=s["id"], name=s["name"],
-                      clusters=[DrCluster(**c) for c in s.get("clusters", [])],
+                      clusters=[DrCluster(**_known(DrCluster, c))
+                                for c in s.get("clusters", [])],
                       data=dict(s.get("data", {}))) for s in d.get("sites", [])],
         remotes=[DrRemote(**r) for r in d.get("remotes", [])],
         flows=[DrFlow(**{**f, "forward": [Repl(**r) for r in f.get("forward", [])],
@@ -165,7 +174,7 @@ def from_doc(d: dict[str, Any]) -> DrModel:
                for f in d.get("flows", [])],
         plans=[DrPlans(**p) for p in d.get("plans", [])],
         policies=int(d.get("policies", 0)), recovery_plans=int(d.get("recovery_plans", 0)),
-        title=d.get("title", TITLE))
+        title=d.get("title", TITLE), edited=bool(d.get("edited")))
 
 
 # ─── facts ─────────────────────────────────────────────────────────────
@@ -447,11 +456,12 @@ def cluster_line(c: DrCluster) -> str:
 
 
 def protected_line(s: DrSite) -> str:
-    known = [c for c in s.clusters if c.protected is not None]
-    n = sum(1 for c in s.clusters if c.protected)
-    if len(known) < len(s.clusters):
-        return f"{fmt.plural(n, 'cluster')} named in policies, of {len(s.clusters):,}"
-    return f"{n:,} of {fmt.plural(len(s.clusters), 'cluster')} protected"
+    collected = [c for c in s.clusters if c.kind == "cluster"]
+    known = [c for c in collected if c.protected is not None]
+    n = sum(1 for c in collected if c.protected)
+    if len(known) < len(collected):
+        return f"{fmt.plural(n, 'cluster')} named in policies, of {len(collected):,}"
+    return f"{n:,} of {fmt.plural(len(collected), 'cluster')} protected"
 
 
 def remote_cluster_line(r: DrRemote) -> str | None:
