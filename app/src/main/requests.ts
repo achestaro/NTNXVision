@@ -36,6 +36,7 @@ import {
   strArray,
 } from './validate';
 import { requireLocalAbsolute } from './pathpolicy';
+import { normalizeSectionOrder } from '../shared/reportSections';
 
 /** A snapshot path from the renderer: bounded text, absolute, never a UNC path (R3-03). */
 function snapshotPath(v: unknown, name: string): string {
@@ -170,6 +171,9 @@ export function asExportRequest(v: unknown): ExportRequest {
   optStr(r.exportDir, 'exportDir');
   optStr(r.filePrefix, 'filePrefix', 200);
   optStrArray(r.sections, 'sections', 64, 64);
+  // Report section ids: bounded here; unknown ids are ignored by the sidecar (forward compatible).
+  optStrArray(r.chapters, 'chapters', 64, 64);
+  optStrArray(r.sectionOrder, 'sectionOrder', 64, 64);
   if (r.word !== undefined && r.word !== null) {
     const w = obj(r.word, 'word');
     str(w.template, 'word.template', 4096);
@@ -236,6 +240,9 @@ export function cleanSettings(v: unknown): AppSettings {
   if ('filePrefix' in r) out.filePrefix = cleared('filePrefix') ? undefined : str(r.filePrefix, 'filePrefix', 200);
   if ('vcpuRatio' in r) out.vcpuRatio = cleared('vcpuRatio') ? undefined : num(r.vcpuRatio, 'vcpuRatio', RATIO_MIN, RATIO_MAX);
   if ('startAtLogin' in r) out.startAtLogin = bool(r.startAtLogin, 'startAtLogin');
+  if ('customSectionOrder' in r) out.customSectionOrder = bool(r.customSectionOrder, 'customSectionOrder');
+  // Stored normalized: known movable ids only, every one once, missing ones appended.
+  if ('sectionOrder' in r) out.sectionOrder = cleared('sectionOrder') ? undefined : normalizeSectionOrder(strArray(r.sectionOrder, 'sectionOrder', 64, 64));
   return out;
 }
 

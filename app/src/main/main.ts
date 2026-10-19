@@ -87,6 +87,7 @@ import {
   cleanSettings,
 } from './requests';
 import { requireLocalAbsolute } from './pathpolicy';
+import { defaultSectionOrder } from '../shared/reportSections';
 import { ValidationError, int, oneOf, optStr, str } from './validate';
 
 // A packaged build never honours debugger or engine-flag switches (R2-05): they would let
@@ -473,6 +474,11 @@ function vcpuRatio(): number | undefined {
   return store.getSettings().vcpuRatio;
 }
 
+/** The Settings section order for every export that does not ask for its own (undefined = default order). */
+function sectionOrder(): string[] | undefined {
+  return defaultSectionOrder(store.getSettings());
+}
+
 /** The certificate pin for a test or listing: the request's own, else the saved target's for that endpoint. */
 function requestPin(req: { targetId?: string; mode?: string; host: string; port: number; insecure: boolean; pinnedCert?: string }): string | undefined {
   if (!req.insecure) return undefined;
@@ -551,6 +557,7 @@ ipc.handle(IPC.startCollection, async (_e, raw: CollectionRequest) => {
     vcenter: req.mode === 'prism_central' ? req.vcenter : undefined,
     vcpu_ratio: vcpuRatio(),
     vcpu_ratio_overrides: overrides,
+    section_order: sectionOrder(),
   });
   legacyRuns.set(id, runId);
   promise
@@ -596,6 +603,7 @@ ipc.handle(IPC.startMultiCollection, async (_e, raw: MultiCollectionRequest) => 
     combine: req.combine,
     combined_name: req.combinedName,
     vcpu_ratio: vcpuRatio(),
+    section_order: sectionOrder(),
   });
   legacyRuns.set(id, runId);
   promise
@@ -673,6 +681,9 @@ ipc.handle(IPC.exportSnapshot, (_e, raw: ExportRequest) => {
     export_dir: exportDir || store.getSettings().exportDir,
     file_prefix: filePrefix(req.filePrefix),
     sections: req.sections,
+    chapters: req.chapters,
+    // An explicit order (or null: the default order) wins over the Settings order.
+    section_order: req.sectionOrder !== undefined ? req.sectionOrder ?? undefined : sectionOrder(),
     word: req.word
       ? {
           template: req.word.template,
@@ -683,6 +694,10 @@ ipc.handle(IPC.exportSnapshot, (_e, raw: ExportRequest) => {
     vcpu_ratio: req.vcpuRatio ?? vcpuRatio(),
   });
 });
+
+ipc.handle(IPC.getReportSections, (_e, snapshotPath: string) =>
+  sidecar.call('report_sections', { snapshot: snapshotPathArg(snapshotPath) }),
+);
 
 ipc.handle(IPC.renameSnapshot, (_e, snapshotPath: string, newName: string) =>
   sidecar.call('rename_snapshot', { snapshot: snapshotPathArg(snapshotPath), new_name: str(newName, 'newName', 512) }),
