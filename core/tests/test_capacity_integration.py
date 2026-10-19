@@ -205,7 +205,7 @@ def test_reports_render_the_capacity_figures(demo: Any, tmp_path: Path) -> None:
     assert "Capacity & Oversubscription" in text and "5.0 : 1 vCPU:pCPU target" in text
     tables = Document(str(docx)).tables
     assert any(t.rows[0].cells[0].text == "Cluster" and
-               any(c.text == "vCPU:pCore N-1" for c in t.rows[0].cells) for t in tables)
+               any(c.text.replace("\u200b", "") == "vCPU:pCore N-1" for c in t.rows[0].cells) for t in tables)
     pdf = export_environment(env, "pdf", tmp_path, "cap", opts)
     assert pdf.stat().st_size > 10_000
 
@@ -281,8 +281,8 @@ def test_per_cluster_targets_are_recorded_and_used(demo: Any, data_dir: Path) ->
     text = "\n".join(p.text for p in Document(run["exports"]["word"]).paragraphs)
     assert "SEA-ROBO-01 6.5 : 1" in text
     tables = Document(run["exports"]["word"]).tables
-    cpu = next(t for t in tables if any(c.text == "vCPU:pCore N-1" for c in t.rows[0].cells))
-    heads = [c.text for c in cpu.rows[0].cells]
+    cpu = next(t for t in tables if any(c.text.replace("\u200b", "") == "vCPU:pCore N-1" for c in t.rows[0].cells))
+    heads = [c.text.replace("\u200b", "") for c in cpu.rows[0].cells]  # header break hints
     assert heads[0] == "Cluster" and "Target" in heads
     assert any(r.cells[0].text == "SEA-ROBO-01" and
                r.cells[heads.index("Target")].text == "6.5 : 1 (custom)" for r in cpu.rows)
