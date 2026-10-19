@@ -266,6 +266,55 @@
 
   const finalAreas = () => RUN.map((r, i) => areaObj(i, r[1] === 'running' ? 'collected' : r[1]));
 
+  // ── the optional LCM inventory (when the request switches it on) ──
+  const UPGRADE = {
+    operation: 'UPGRADE',
+    description: 'Upgrade root task',
+    percent: 35,
+    started_at: new Date(Date.now() - 22 * 60000).toISOString(),
+    task_id: 'ZXJnb24=:5b1c0e7a-2f4d-4c1b-9a1e-7d2c3b4a5f60',
+    components: [
+      { name: 'AOS', from_version: '7.0', to_version: '7.3' },
+      { name: 'AHV hypervisor', from_version: '20230302.101026', to_version: '20230302.102001' },
+    ],
+  };
+  const lcmTarget = (name, kind, status, extra = {}) => ({
+    target_id: kind === 'cluster' ? `c-${name.toLowerCase()}` : null,
+    name,
+    kind,
+    status,
+    joined: false,
+    task_id: status === 'skipped_busy' || status === 'forbidden' ? null : `ZXJnb24=:${name.length}a7c4e2-0b1d-4f6e-8a9c-${String(name.length).padStart(12, '0')}`,
+    percent: status === 'succeeded' ? 100 : null,
+    started_at: new Date(Date.now() - 150000).toISOString(),
+    finished_at: null,
+    duration_ms: status === 'succeeded' ? 262000 : null,
+    detail: null,
+    busy: null,
+    ...extra,
+  });
+  const lcmInventory = (live) => ({
+    requested: true,
+    api: 'v4',
+    timeout_s: 1800,
+    started_at: new Date(Date.now() - 150000).toISOString(),
+    finished_at: live ? null : new Date().toISOString(),
+    duration_ms: live ? null : 271000,
+    targets: [
+      lcmTarget('Prism Central', 'prism_central', live ? 'running' : 'succeeded', { percent: live ? 62 : 100 }),
+      lcmTarget('AMS-EDGE-02', 'cluster', 'succeeded'),
+      lcmTarget('PHX-DR-01', 'cluster', 'skipped_busy', {
+        busy: UPGRADE,
+        detail: 'upgrade in progress (AOS 7.0 to 7.3, AHV hypervisor 20230302.101026 to 20230302.102001; 35%)',
+      }),
+      lcmTarget('PHX-PROD-01', 'cluster', live ? 'running' : 'succeeded', { percent: live ? 41 : 100 }),
+      lcmTarget('PHX-PROD-02', 'cluster', live ? 'running' : 'succeeded', {
+        joined: true,
+        percent: live ? 88 : 100,
+      }),
+    ],
+  });
+
   const result = (req) => ({
     summary: summary(4, 28, 1214),
     source_type: req.mode || 'prism_central',
@@ -307,6 +356,7 @@
     ],
     compat: { version: opt.longNotes ? LONG_VER : 'pc.2024.3', supported: true, range: 'pc.2024.1 to pc.7.5.1.6' },
     scope: req.mode === 'prism_element' ? null : scopeOf(req.clusters || REGISTERED.map((c) => c.uuid)),
+    lcm_inventory: req.lcmInventory ? lcmInventory(false) : { requested: false },
   });
 
   function runCollection(req, runId) {
@@ -321,9 +371,10 @@
         name: req.name,
         version: opt.longNotes ? LONG_VER : 'pc.2024.3',
         formats: req.formats || [],
-        typical_seconds: 240,
+        typical_seconds: req.lcmInventory ? 840 : 240,
         areas: RUN.map((_, i) => areaObj(i, 'pending')),
       });
+      if (req.lcmInventory) emit('progress', { type: 'lcm_inventory', runId, inventory: lcmInventory(opt.run === 'hold') });
       const upto = opt.run === 'hold' ? 12 : RUN.length;
       for (let i = 0; i < upto; i += 1) {
         const st = opt.run === 'hold' ? RUN[i][1] : RUN[i][1] === 'running' ? 'collected' : RUN[i][1];
@@ -612,7 +663,7 @@
           : REGISTERED;
       return delay({ mode: req.mode, host: req.host, api: pe ? 'v2' : 'v4', version: pe ? '7.0' : 'pc.2024.3', clusters }, 300);
     },
-    getCollectionAreas: () => delay({ areas: AREAS, typical_seconds: { prism_central: 240, prism_element: 60 } }),
+    getCollectionAreas: () => delay({ areas: AREAS, typical_seconds: { prism_central: 240, prism_element: 60 }, lcm_inventory_typical_seconds: 600 }),
     startCollection: (req) => {
       const runId = 'run-' + Math.random().toString(36).slice(2, 8);
       runCollection(req, runId);

@@ -49,6 +49,12 @@ test('request shape checks', () => {
   throwsValidation(() => req.asCollectionRequest({ ...testReq, name: 'n', formats: ['exe'] }));
   assert.doesNotThrow(() => req.asCollectionRequest({ ...testReq, name: 'n', formats: ['excel', 'pdf'], areas: ['vms'] }));
   throwsValidation(() => req.asMultiCollectionRequest({ targets: 'x', formats: [], combine: false }));
+  // The LCM inventory switch (the one non-read action) is a strict boolean.
+  throwsValidation(() => req.asCollectionRequest({ ...testReq, name: 'n', formats: [], lcmInventory: 'yes' }));
+  throwsValidation(() => req.asCollectionRequest({ ...testReq, name: 'n', formats: [], lcmInventory: 1 }));
+  assert.doesNotThrow(() => req.asCollectionRequest({ ...testReq, name: 'n', formats: [], lcmInventory: true }));
+  throwsValidation(() => req.asMultiCollectionRequest({ targets: [], formats: [], combine: false, lcmInventory: 'true' }));
+  assert.doesNotThrow(() => req.asMultiCollectionRequest({ targets: [], formats: [], combine: false, lcmInventory: false }));
   throwsValidation(() => req.asExportRequest({ snapshotPath: 5, formats: [] }));
   throwsValidation(() => req.asCompareExportRequest({ baseline: 'a', current: 'b', format: 'docx' }));
 });
@@ -252,3 +258,17 @@ test('R4-04: dialog-picked UNC paths are trusted, renderer-typed ones are not (s
   assert.ok(/chosenLexical\.has/.test(wt) && /requireLocalAbsolute/.test(wt));
 });
 
+
+test('schedules never request an LCM inventory (the option is per run, never inherited)', () => {
+  const src = readFileSync(join(srcDir, 'scheduler.ts'), 'utf8');
+  assert.ok(!/lcm_inventory|lcmInventory/.test(src), 'scheduler.ts must not send lcm_inventory');
+});
+
+test('the main process sends lcm_inventory only as an explicit true from the request', () => {
+  const src = readFileSync(join(srcDir, 'main.ts'), 'utf8');
+  const sends = src.match(/lcm_inventory: [^,\n]+/g) ?? [];
+  assert.deepEqual(sends, [
+    "lcm_inventory: req.mode === 'prism_central' && req.lcmInventory === true",
+    'lcm_inventory: req.lcmInventory === true',
+  ]);
+});
