@@ -667,8 +667,88 @@ def test_fresh_collection_replays_saved_edits(demo: Any, data_dir: Path) -> None
     sc._advance_demo("pc01.demo.local")
     third = sc._m_inventory(None, {**params, "name": "week3", "formats": ["pdf"]})
     assert ST.load(Path(third["snapshot_path"])) == {}
-    assert any(w.startswith("Saved diagram edits from week2 were not applied: 1 of 1")
+    assert any(w.startswith("Saved diagram edits from week2 were not applied: 1 edit no "
+                            "longer matches the collected data.")
                for w in third["warnings"])
     path = Path(third["snapshot_path"])
     notes = sc._diagram_notes(path, sc._cache.get(path))
     assert notes and notes[0].startswith("Saved diagram edits from week2")
+
+
+def test_scheduled_run_reports_draw_carried_edits(demo: Any, data_dir: Path,
+                                                  monkeypatch: pytest.MonkeyPatch) -> None:
+    """A schedule collects with formats [] and writes its reports in send_email: the
+    edits are carried at collection, and the emailed reports draw them."""
+    from ntnxvision_core import mailer
+
+    params = {"host": "pc01.demo.local", "username": "admin", "password": "demo",
+              "port": 9440, "insecure": False, "export_dir": str(data_dir / "exports")}
+    first = sc._m_inventory(None, {**params, "name": "week1", "formats": []})
+    got = sc._m_get_diagram(None, {"snapshot": first["snapshot_path"], "type": "conceptual"})
+    site = next(o for o in got["outline"] if o["collection"] == "sites")
+    sc._m_save_diagram(None, {"snapshot": first["snapshot_path"], "type": "conceptual",
+                              "ops": [{"op": "add", "parent": site["id"], "field": "cards",
+                                       "index": 0, "element": {
+                                           "id": "user:b", "palette": "storage",
+                                           "name": "Backup appliance"}}]})
+    sc._advance_demo("pc01.demo.local")
+    second = sc._m_inventory(None, {**params, "name": "week2", "formats": []})
+    snap2 = Path(second["snapshot_path"])
+    assert ST.load(snap2)["conceptual"]["carried_from"]["auto"]
+
+    drawn: list[Any] = []
+    real = sc.export_environment
+
+    def spy(env: Any, fmt: str, *a: Any, **k: Any) -> Any:
+        drawn.append(dict(k.get("options") or {}).get("diagram_models"))
+        return real(env, fmt, *a, **k)
+
+    sent: dict[str, str] = {}
+
+    def send_files(cfg: Any, to: Any, cc: Any, subject: str, body: str, paths: Any,
+                   zip_name: str = "") -> dict[str, Any]:
+        sent["body"] = body
+        return mailer.result(True, "ok", "Sent.")
+
+    monkeypatch.setattr(sc, "export_environment", spy)
+    monkeypatch.setattr(mailer, "send_files", send_files)
+    r = sc._m_send_email(None, {
+        "smtp": {"host": "127.0.0.1", "port": 2525, "security": "none", "username": "",
+                 "password": "", "from_address": "ntnxvision@example.com",
+                 "from_name": "NTNXVision", "allow_untrusted": False,
+                 "max_attachment_mb": 20, "zip_attachments": False},
+        "to": ["user@example.com"], "subject": "s", "body": "b",
+        "snapshots": [str(snap2)], "formats": ["word"],
+        "export_dir": str(data_dir / "exports")})
+    assert r["ok"], r
+    assert drawn and drawn[0] and "conceptual" in drawn[0]
+    model = drawn[0]["conceptual"]
+    assert any(c.id == "user:b" for s in model.sites for c in s.cards)
+    assert "were carried forward" in sent["body"]
+
+
+def test_failed_auto_carry_is_a_warning(demo: Any, data_dir: Path,
+                                        monkeypatch: pytest.MonkeyPatch) -> None:
+    params = {"host": "pc01.demo.local", "username": "admin", "password": "demo",
+              "port": 9440, "insecure": False, "export_dir": str(data_dir / "exports")}
+    first = sc._m_inventory(None, {**params, "name": "week1", "formats": []})
+    sc._m_save_diagram(None, {"snapshot": first["snapshot_path"], "type": "conceptual",
+                              "ops": [{"op": "set", "id": next(
+                                  o["id"] for o in sc._m_get_diagram(None, {
+                                      "snapshot": first["snapshot_path"],
+                                      "type": "conceptual"})["outline"]
+                                  if o["collection"] == "sites"),
+                                       "field": "sublabel", "value": "Main DC"}]})
+
+    def boom(*_a: Any, **_k: Any) -> Any:
+        raise OSError("disk full")
+
+    monkeypatch.setattr(ST, "carry_forward", boom)
+    sc._advance_demo("pc01.demo.local")
+    second = sc._m_inventory(None, {**params, "name": "week2", "formats": []})
+    warning = next(w for w in second["warnings"] if w.startswith("Saved diagram edits"))
+    assert "could not be saved with this snapshot (disk full)" in warning
+    # Kept with the snapshot, so a later email says it too.
+    path = Path(second["snapshot_path"])
+    sc._cache.invalidate(path)
+    assert warning in sc._cache.get(path).warnings
