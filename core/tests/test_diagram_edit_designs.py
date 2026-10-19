@@ -149,7 +149,8 @@ def _renamed(env: Any, type_id: str, new: str, drawn: set[str]
 def test_saved_edits_reach_every_part_of_a_multi_part_report(design_envs: dict[str, Any],
                                                              type_id: str) -> None:
     """The report draws the saved edit in the figure (every part keeps it), says so in
-    the caption and the summary, and keeps the summary and tables as collected."""
+    the caption of the parts it touches and in the summary, and keeps the summary and
+    tables as collected."""
     from ntnxvision_core.exporters import ExportOptions
     from ntnxvision_core.exporters.content import SceneFigure, build_report
 
@@ -169,9 +170,17 @@ def test_saved_edits_reach_every_part_of_a_multi_part_report(design_envs: dict[s
     assert after and len(after) >= 1
     text = [ln.text for f in after for n in f.scene.nodes for ln in n.lines]
     assert any(new in t for t in text), f"{type_id}: the edit is not drawn"
-    assert all("(edited)" in f.scene.caption for f in after)
+    # Only the parts that draw the edit say "(edited)"; a logical section (one per
+    # zone) discloses only its own zone's edits.
+    touched = [f for f in after if any(new in ln.text for n in f.scene.nodes
+                                       for ln in n.lines)]
+    assert touched and all("(edited)" in f.caption for f in touched)
+    assert all("(edited)" not in f.caption for f in after if f not in touched), type_id
     disclosure = [b for f in after for b in f.summary if b.startswith("Figure edited")]
     assert disclosure and "renamed to" in disclosure[0]
+    if type_id == "logical":
+        assert all(not b.startswith("Figure edited") for f in after if f not in touched
+                   for b in f.summary)
     # Everything else in the summary is as collected.
     assert [b for f in after for b in f.summary if not b.startswith("Figure edited")] == \
         [b for f in before for b in f.summary]

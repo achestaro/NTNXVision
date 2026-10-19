@@ -32,12 +32,13 @@ from ntnxvision_core.exporters.content import (
 def build(b: Any, ch: Chapter, dtype: Any) -> bool:
     model: LogicalModel = dtype.build_model(b.env)
     drawn: LogicalModel = b.figure_model(dtype, model)
-    note = b.edit_disclosure(dtype, model, drawn)
     shown = {s.id: s for s in drawn.sites}
     many = len(model.sites) > 1
     sites = [s for s in model.sites if s.clusters]
 
     def bullets_of(site: Any) -> list[str]:
+        # Each zone's section discloses only the edits inside that zone.
+        note = b.edit_disclosure(dtype, model, drawn, {site.id})
         return [*logical_bullets(site), *([note] if note else [])]
 
     # One detail level for the estate (the least detail any drawn AZ needs), so like
@@ -66,6 +67,7 @@ def build(b: Any, ch: Chapter, dtype: Any) -> bool:
             continue
         figs = scene_figures(scenes)
         figs[0].summary = bullets
+        b.scope_edit_marks(dtype, model, drawn, figs, lambda sc, sid=site.id: {sid})
         ch.add(title, *figs, table)
         b.design_figures.setdefault(dtype.id, []).extend(figs)
         added = True

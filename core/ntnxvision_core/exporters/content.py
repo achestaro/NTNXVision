@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import importlib
 import logging
-from collections.abc import Callable
+from collections.abc import Callable, Collection, Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -59,6 +59,10 @@ from ntnxvision_core.numfmt import NA, PLAIN_HEADERS, fmt_count, fmt_ratio
 from ntnxvision_core.versions import pc_version
 
 _log = logging.getLogger(__name__)
+
+#: What a figure's caption carries when it draws the author's edit (layouts add it).
+EDITED = " (edited)"
+
 GIB = 1024**3
 TIB = GIB * 1024
 #: Diagrams drawn per chapter before the rest are summarised in a sentence.
@@ -922,17 +926,45 @@ class _Builder:
         edited = getattr(self.opts, "diagram_models", None) or {}
         return edited.get(dtype.id, generated)
 
-    def edit_disclosure(self, dtype: DiagramType, generated: Any, drawn: Any) -> str | None:
+    def edit_disclosure(self, dtype: DiagramType, generated: Any, drawn: Any,
+                        scope: Collection[str] | None = None) -> str | None:
         """The design-summary bullet that says how an edited figure differs from the
         data (None for a generated figure). Summaries, headers and captions stay as
-        collected; this bullet is where the edit is disclosed."""
+        collected; this bullet is where the edit is disclosed. `scope` (element ids)
+        limits it to the edits inside one zone or profile (`edits.disclosure`)."""
         if drawn is generated:
             return None
         from ntnxvision_core.diagrams.edits import disclosure
 
         origins = getattr(self.opts, "diagram_origins", None) or {}
         return disclosure(dtype.to_doc(generated), dtype.to_doc(drawn), dtype.edit_spec,
-                          origins.get(dtype.id))
+                          origins.get(dtype.id), scope)
+
+    @staticmethod
+    def part_scope(model: Any, scene: Scene) -> set[str]:
+        """The element ids one part of a figure draws, for `scope_edit_marks`: its
+        zones (`scene.meta["sites"]`) and the remote zones its links or flows reach."""
+        sites = set(scene.meta.get("sites", []))
+        remotes = {r.id for r in getattr(model, "remotes", [])}
+        out = set(sites)
+        for lk in [*getattr(model, "links", []), *getattr(model, "flows", [])]:
+            ends = {getattr(lk, k, None) for k in ("a", "b", "site_a", "site_b")}
+            if ends & sites:
+                out |= {e for e in ends if e in remotes}
+        return out
+
+    def scope_edit_marks(self, dtype: DiagramType, generated: Any, drawn: Any,
+                         figs: Sequence[SceneFigure],
+                         scope_of: Callable[[Scene], Collection[str]]) -> None:
+        """Drop " (edited)" from the caption of each part of an edited figure that no
+        edit touches (`scope_of(scene)`: the element ids that part draws)."""
+        if drawn is generated:
+            return
+        for f in figs:
+            if EDITED in f.caption and self.edit_disclosure(
+                    dtype, generated, drawn, scope_of(f.scene)) is None:
+                f.caption = f.caption.replace(EDITED, "", 1)
+                f.scene.caption = f.scene.caption.replace(EDITED, "", 1)
 
     def design_sections(self, ch: Chapter) -> bool:
         """The architecture diagrams registered for this chapter (`diagrams.TYPES`), each
@@ -1018,6 +1050,8 @@ class _Builder:
                                   first_part_budget(bullets, len(scenes) > 1))
         figs = [SceneFigure(sc, sc.caption, new_page=bool(sc.meta.get("own_page")))
                 for sc in scenes]
+        self.scope_edit_marks(dtype, model, drawn, figs,
+                              lambda sc: self.part_scope(model, sc))
         estate_fig: SceneFigure | None = None
         if with_map:
             assert estate_t is not None
@@ -1059,6 +1093,7 @@ class _Builder:
                 if [sc.part for sc in again] == [sc.part for sc in scenes]:
                     for f, sc in zip(figs, again, strict=True):
                         f.scene = sc
+                        sc.caption = f.caption  # as scoped (scope_edit_marks)
                         f.new_page = bool(sc.meta.get("own_page"))
                     scenes[:] = again
                 rows, _ = design.cluster_rows(model, scenes, labels)

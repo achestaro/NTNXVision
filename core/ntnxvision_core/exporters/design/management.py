@@ -47,6 +47,9 @@ def build(b: Any, ch: Chapter, dtype: DiagramType) -> bool:
         return False
     figs = scene_figures(scenes)
     figs[0].summary = bullets
+    # The summary covers the whole figure; a part's caption says "(edited)" only when
+    # an edit touches what that part draws.
+    b.scope_edit_marks(dtype, model, drawn, figs, lambda sc: b.part_scope(model, sc))
     pcs = make_table(M.PC_HEADERS, M.pc_rows(model), "Prism Central deployment",
                      prune=("Paired with", "PCVM IP addresses", "Per PCVM"))
     clusters: Table | None = None
@@ -67,6 +70,7 @@ def build(b: Any, ch: Chapter, dtype: DiagramType) -> bool:
             if [sc.part for sc in again] == [sc.part for sc in scenes]:
                 for f, sc in zip(figs, again, strict=True):
                     f.scene = sc
+                    sc.caption = f.caption  # as scoped (scope_edit_marks)
                     f.new_page = bool(sc.meta.get("own_page"))
                 scenes[:] = again
             rows, _ = M.cluster_rows(model, _drawn(scenes, labels))
