@@ -344,6 +344,7 @@
    "cluster:6ce6d622-1b20-52a3-98e8-31ed2e9a383a",
    "cluster:92c840d4-7d8a-5dce-b2c2-1e5e3e93e652"
   ],
+  "hops": 0,
   "sites": [
    "site:md-pc01.demo.local",
    "site:md-pc02.demo.local"

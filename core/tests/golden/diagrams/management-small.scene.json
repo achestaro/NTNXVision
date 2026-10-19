@@ -161,6 +161,7 @@
    "cluster:0ca0388a-8411-5a32-a54a-f18b3163a417",
    "cluster:8996917a-a180-5d7e-83b7-4e276021ce55"
   ],
+  "hops": 0,
   "sites": [
    "site:sm-pc01.demo.local"
   ],
