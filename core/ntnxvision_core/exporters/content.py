@@ -133,14 +133,27 @@ SUMMARY_BESIDE_MAX = 480.0
 # (172 mm) and Letter landscape in Word (6.8 in); the smaller one wins. The block heights
 # match what pdf.py and word.py draw, rounded up.
 BODY_H = 487.0
-HEADINGS_H = 80.0  # chapter heading + section heading
-CAPTION_H = 44.0  # caption and its note (two lines)
+# Calibrated on the PDF (the tighter of the two): headings 70.6 pt, a one-line caption
+# 29.5 pt, plus 11.9 pt for the "Continued in ..." note of a figure drawn in parts.
+HEADINGS_H = 72.0  # chapter heading + section heading
+CAPTION_H = 31.0  # the caption (one line)
+NOTE_H = 12.0  # the continuation note under part 1 of a figure in parts
 SUMMARY_EYEBROW_H = 18.0
 SUMMARY_LINE_H = 13.2
 SUMMARY_GAP_H = 4.0
-#: Characters per summary line: one column across a landscape page, or each of the
-#: two columns above a wide figure.
-SUMMARY_CHARS_WIDE, SUMMARY_CHARS_COLUMN = 150, 70
+#: Text width (pt) of a summary line: one column across the narrower landscape page
+#: (Letter in Word, 9.4 in less the bullet indent), or each of the two columns above a
+#: wide figure (half of it, less cell margins and indent). Bullets are measured with
+#: the bundled Figtree at Word's 9.5 pt, which is no narrower than Word's Calibri or
+#: the PDF's 9.2 pt Figtree, so the estimate never comes up short.
+SUMMARY_W_WIDE, SUMMARY_W_COLUMN = 664.0, 315.0
+SUMMARY_PT = 9.5
+
+
+def _summary_lines(text: str, width: float) -> int:
+    from ntnxvision_core.diagrams import text as tx
+
+    return len(tx.wrap(text, SUMMARY_PT, False, width, 1000))
 
 
 def summary_height(bullets: list[str], beside: bool) -> float:
@@ -148,20 +161,23 @@ def summary_height(bullets: list[str], beside: bool) -> float:
     if beside or not bullets:
         return 0.0
     two_cols = len(bullets) > 3
-    chars = SUMMARY_CHARS_COLUMN if two_cols else SUMMARY_CHARS_WIDE
-    heights = [(-(-len(b) // chars)) * SUMMARY_LINE_H + SUMMARY_GAP_H for b in bullets]
+    w = SUMMARY_W_COLUMN if two_cols else SUMMARY_W_WIDE
+    heights = [_summary_lines(b, w) * SUMMARY_LINE_H + SUMMARY_GAP_H for b in bullets]
     if two_cols:
         half = (len(bullets) + 1) // 2
         heights = [max(sum(heights[:half]), sum(heights[half:]))]
     return SUMMARY_EYEBROW_H + sum(heights)
 
 
-def first_part_budget(bullets: list[str]) -> Callable[[float], float]:
+def first_part_budget(bullets: list[str], parts: bool = False) -> Callable[[float], float]:
     """Height budget for part 1 of a diagram by its width: the page body less the
-    headings, the summary (above a figure wider than 480 pt) and the caption."""
+    headings, the summary (above a figure wider than 480 pt, measured with real font
+    metrics), the caption and, when the figure is drawn in `parts`, its continuation
+    note. A figure moves to a page of its own only when this measured fit fails."""
     def budget(width: float) -> float:
         beside = width <= SUMMARY_BESIDE_MAX
-        return BODY_H - HEADINGS_H - CAPTION_H - summary_height(bullets, beside) - 6.0
+        return (BODY_H - HEADINGS_H - CAPTION_H - (NOTE_H if parts else 0.0)
+                - summary_height(bullets, beside) - 4.0)
     return budget
 
 
@@ -854,7 +870,8 @@ class _Builder:
         # The summary depends on the parts; lay out, summarise, then fit part 1 under it.
         scenes = dtype.layout(drawn, page)
         bullets = summary(scenes)
-        scenes = dtype.layout(drawn, page, None, first_part_budget(bullets))
+        scenes = dtype.layout(drawn, page, None,
+                              first_part_budget(bullets, len(scenes) > 1))
         figs = [SceneFigure(sc, sc.caption, new_page=bool(sc.meta.get("own_page")))
                 for sc in scenes]
         figs[0].summary = summary(scenes)
@@ -876,7 +893,7 @@ class _Builder:
                 ref = clusters.label.rstrip(".")
                 bullets = summary(scenes, ref)
                 again = dtype.layout(drawn, page, Refs(clusters_table=ref),
-                                     first_part_budget(bullets))
+                                     first_part_budget(bullets, len(scenes) > 1))
                 if [sc.part for sc in again] == [sc.part for sc in scenes]:
                     for f, sc in zip(figs, again, strict=True):
                         f.scene = sc
