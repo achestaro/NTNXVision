@@ -504,7 +504,7 @@ def logical_bullets(s: LSite) -> list[str]:
     out: list[str] = []
     hyp = Counter(c.hypervisor or "N/A" for c in cl)
     aos = sorted({c.aos for c in cl if c.aos})
-    sw = fmt.join_names(sorted(hyp)) + (f" and AOS {fmt.join_names(aos)}" if aos else "")
+    sw = fmt.join_names(sorted(hyp)) + (f", AOS {fmt.join_names(aos)}" if aos else "")
     pods = [p for p in s.pods if p.name]
     if pods:
         out.append(f"{fmt.plural(len(cl), 'cluster')} in {fmt.plural(len(pods), 'POD')} "
