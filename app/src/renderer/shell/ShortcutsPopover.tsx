@@ -39,11 +39,15 @@ export function ShortcutsPopover({ onClose }: { onClose(): void }): JSX.Element 
     ['Go to Inventory', ['g', 'i']],
     ['Go to Snapshots', ['g', 's']],
     ['Go to Compare', ['g', 'c']],
+    ['Go to Diagrams', ['g', 'd']],
     ['Go to Settings', ['g', ',']],
     ['Next / previous row', ['j', 'k']],
     ['Open row', ['↵']],
     ['Confirm (start, export)', [`${mod}↵`]],
     ['Close dialog or menu', ['Esc']],
+    ['Diagrams: undo, redo', [`${mod}Z`, `⇧${mod}Z`]],
+    ['Diagrams: save', [`${mod}S`]],
+    ['Diagrams: rename, delete, move', ['F2', '⌫', '⌥←→']],
   ];
   return (
     <div

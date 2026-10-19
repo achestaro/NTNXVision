@@ -254,15 +254,18 @@ def test_stale_detection(snap: Path, env: Environment) -> None:
     ops = _ops(env)
     old = ST.generated(env, "conceptual")
     changed_id = ops[0]["id"]
+    now = 0
     for card in old["sites"][0]["cards"]:
         if card["id"] == changed_id:
-            card["nodes"] = (card["nodes"] or 0) - 1  # the data the edit was made on
+            now = card["nodes"]
+            card["nodes"] = now - 1  # the data the edit was made on
     ST.save(snap, "conceptual", E.clean_ops(ops), old)
     got = ST.get_result(snap, env, "conceptual")
     assert got["stale"] is not None
     assert got["stale"]["changes"] == [{"id": changed_id, "kind": "changed",
                                         "label": got["stale"]["changes"][0]["label"],
-                                        "fields": ["nodes"]}]
+                                        "fields": ["nodes"],
+                                        "values": {"nodes": [now - 1, now]}}]
     assert got["stale"]["affected_ops"] == [0]
     assert ST.list_result(snap, env)[0]["stale"]
     # Keep my edits = save again: the base moves to today's data.
