@@ -298,7 +298,7 @@
       { areas: 'Recovery plans · availability zones', api: 'v3', reason: 'No v4 equivalent yet', after_sunset: { tone: 'warn', label: 'Stops collecting' } },
       { areas: 'X-Play playbooks · IAM projects', api: 'v3', reason: 'No v4 equivalent yet', after_sunset: { tone: 'warn', label: 'Stops collecting' } },
     ],
-    compat: { version: opt.longNotes ? LONG_VER : 'pc.2024.3', supported: true, range: 'pc.2024.1 – 7.5.1.6' },
+    compat: { version: opt.longNotes ? LONG_VER : 'pc.2024.3', supported: true, range: 'pc.2024.1 to 7.5.1.6' },
     scope: req.mode === 'prism_element' ? null : scopeOf(req.clusters || REGISTERED.map((c) => c.uuid)),
   });
 
@@ -543,7 +543,7 @@
     testRaw: (req) => {
       const host = req.host;
       const scenario = host.startsWith('pc03') && !req.password ? 'auth_failed' : opt.test;
-      const base = { product: req.mode, name: host, supported_range: 'pc.2024.1 – 7.5.1.6', typical_seconds: req.mode === 'prism_element' ? 60 : 240 };
+      const base = { product: req.mode, name: host, supported_range: 'pc.2024.1 to 7.5.1.6', typical_seconds: req.mode === 'prism_element' ? 60 : 240 };
       if (scenario === 'auth_failed') return delay({ ...base, status: 'auth_failed', ok: false, message: 'HTTP 401 Unauthorized' }, 300);
       if (scenario === 'untrusted_cert')
         return delay(

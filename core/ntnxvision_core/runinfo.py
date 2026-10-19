@@ -22,8 +22,8 @@ from ntnxvision_core.compat import check_aos, check_prism_central
 from ntnxvision_core.notes import clean_error
 from ntnxvision_core.numfmt import fmt_count
 
-PC_RANGE = "pc.2024.1 – 7.5.1.6"
-AOS_RANGE = "AOS 6.5 – 7.5"
+PC_RANGE = "pc.2024.1 to 7.5.1.6"
+AOS_RANGE = "AOS 6.5 to 7.5"
 
 Emit = Callable[[dict[str, Any]], None]
 

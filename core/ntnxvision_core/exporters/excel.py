@@ -335,6 +335,9 @@ class ExcelExporter:
         headers = ["Property", "Value"]
         rows: list[list[Any]] = [
             ["Version", cfg.version],
+            # The one place the full build string appears: support cases and LCM
+            # matching need the exact build; every report and UI view shows the version.
+            ["Build", cfg.build],
             ["Deployment", "Scale-out" if cfg.is_scale_out else "Single-node"
              if cfg.is_scale_out is not None else None],
             ["PC Nodes", cfg.node_count],
