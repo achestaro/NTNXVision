@@ -15,11 +15,10 @@ import re
 from xml.sax.saxutils import escape, quoteattr
 
 from .. import text as tx
-from ..scene import Edge, EdgeLabel, Node, Scene, TextLine, num
+from ..scene import LAYER, Edge, EdgeLabel, Node, Scene, TextLine, num
 from .vsdx import page_names
 
 FONT = "Figtree,Calibri,Segoe UI,Arial"
-_LAYER = {"container": 0, "box": 1, "swatch": 1, "label": 1, "strip": 3, "pill": 3, "tag": 3}
 _ATTR = re.compile(r"[^A-Za-z0-9_]")
 
 
@@ -51,7 +50,7 @@ def _text_style(lines: list[TextLine], w: float) -> list[str]:
             f"spacingTop={num(top)}", "spacingBottom=0", "spacing=0"]
 
 
-def _node_style(n: Node) -> str:
+def _node_style(n: Node, container: bool = False) -> str:
     st = n.style
     parts = ["html=1", "whiteSpace=nowrap", f"fontFamily={FONT}", *_text_style(n.lines, n.w)]
     if n.kind == "label":
@@ -63,22 +62,42 @@ def _node_style(n: Node) -> str:
             parts += ["dashed=1", f"dashPattern={num(st.dash[0])} {num(st.dash[1])}"]
         if st.radius:
             parts += ["rounded=1", "absoluteArcSize=1", f"arcSize={num(st.radius * 2)}"]
-    if n.kind == "container":
+    if container or n.kind == "container":
         parts += ["container=1", "collapsible=0", "recursiveResize=0"]
     return ";".join(parts) + ";"
 
 
-def _edge_style(e: Edge) -> str:
+def _port(n: Node | None, p: tuple[float, float]) -> tuple[float, float] | None:
+    """`p` relative to node `n` (0..1 each way), when it lies on the node's edge."""
+    if n is None or n.w <= 0 or n.h <= 0:
+        return None
+    rx, ry = (p[0] - n.x) / n.w, (p[1] - n.y) / n.h
+    if not (-0.01 <= rx <= 1.01 and -0.01 <= ry <= 1.01):
+        return None
+    return (min(1.0, max(0.0, rx)), min(1.0, max(0.0, ry)))
+
+
+def _edge_style(e: Edge, by_id: dict[str, Node] | None = None) -> str:
     st = e.style
     color = st.stroke or "#000000"
     routed = bool(e.src or e.dst)
+    # Arrowheads grow with the line, as in the report.
+    size = num(4 + 2 * st.stroke_w)
     parts = ["html=1", "rounded=0", f"fontFamily={FONT}", f"strokeColor={color}",
              f"strokeWidth={num(st.stroke_w)}", "labelBackgroundColor=#FFFFFF",
-             f"endArrow={'block' if e.arrow_end else 'none'}", "endFill=1", "endSize=4",
+             f"endArrow={'block' if e.arrow_end else 'none'}", "endFill=1", f"endSize={size}",
              f"startArrow={'block' if e.arrow_start else 'none'}", "startFill=1",
-             "startSize=4"]
+             f"startSize={size}"]
     if routed:
         parts.insert(0, "edgeStyle=orthogonalEdgeStyle")
+        # Pinned ports: the edge leaves and enters where the layout drew it, and
+        # keeps those points when a shape is moved.
+        by_id = by_id or {}
+        if e.points and (src := _port(by_id.get(e.src), e.points[0])) is not None:
+            parts += [f"exitX={num(src[0])}", f"exitY={num(src[1])}", "exitDx=0", "exitDy=0"]
+        if e.points and (dst := _port(by_id.get(e.dst), e.points[-1])) is not None:
+            parts += [f"entryX={num(dst[0])}", f"entryY={num(dst[1])}", "entryDx=0",
+                      "entryDy=0"]
     if e.labels and not e.labels[0].background:
         parts[parts.index("labelBackgroundColor=#FFFFFF")] = "labelBackgroundColor=none"
     if st.dash:
@@ -124,15 +143,12 @@ def _scene(sc: Scene, idx: int, name: str) -> str:
     by_id = {n.id: n for n in sc.nodes}
     index = {n.id: i for i, n in enumerate(sc.nodes)}
 
+    # Every node with members is a draw.io container (an AZ, a POD, a card holding its
+    # chips), so moving it moves what it holds.
+    parents = {n.parent for n in sc.nodes if n.parent in by_id}
+
     def container_of(n: Node) -> str | None:
-        seen = {n.id}
-        p = n.parent
-        while p and p in by_id and p not in seen:
-            if by_id[p].kind == "container":
-                return p
-            seen.add(p)
-            p = by_id[p].parent
-        return None
+        return n.parent if n.parent in by_id and n.parent != n.id else None
 
     def depth(n: Node) -> int:
         d, c = 0, container_of(n)
@@ -146,11 +162,11 @@ def _scene(sc: Scene, idx: int, name: str) -> str:
 
     cells = ['<mxCell id="0"/>', '<mxCell id="1" parent="0"/>']
     # Parents before members; then the scene's paint order.
-    nodes = sorted(sc.nodes, key=lambda n: (_LAYER.get(n.kind, 1) >= 2,
-                                            depth(n) if n.kind == "container" else 99,
-                                            _LAYER.get(n.kind, 1), index[n.id]))
-    lower = [n for n in nodes if _LAYER.get(n.kind, 1) < 2]
-    upper = [n for n in nodes if _LAYER.get(n.kind, 1) >= 2]
+    nodes = sorted(sc.nodes, key=lambda n: (LAYER.get(n.kind, 1) >= 2,
+                                            depth(n) if n.id in parents else 99,
+                                            LAYER.get(n.kind, 1), index[n.id]))
+    lower = [n for n in nodes if LAYER.get(n.kind, 1) < 2]
+    upper = [n for n in nodes if LAYER.get(n.kind, 1) >= 2]
 
     def vertex(n: Node) -> str:
         parent = container_of(n)
@@ -158,7 +174,7 @@ def _scene(sc: Scene, idx: int, name: str) -> str:
         value = _html(n.lines)
         attrs = _data_attrs({"kind": n.kind, **n.data})
         return (f'<object id={quoteattr(cid(n.id))} label={quoteattr(value)}{attrs}>'
-                f'<mxCell style={quoteattr(_node_style(n))} vertex="1" '
+                f'<mxCell style={quoteattr(_node_style(n, n.id in parents))} vertex="1" '
                 f'parent={quoteattr(cid(parent) if parent else "1")}>'
                 f'<mxGeometry x="{num(n.x - ox)}" y="{num(n.y - oy)}" width="{num(n.w)}" '
                 f'height="{num(n.h)}" as="geometry"/></mxCell></object>')
@@ -174,7 +190,7 @@ def _scene(sc: Scene, idx: int, name: str) -> str:
         (sx, sy), (tx_, ty) = e.points[0], e.points[-1]
         cells.append(
             f'<mxCell id={quoteattr(cid(e.id))} value={quoteattr(label)} '
-            f'style={quoteattr(_edge_style(e))} edge="1" parent="1"{src}{dst}>'
+            f'style={quoteattr(_edge_style(e, by_id))} edge="1" parent="1"{src}{dst}>'
             f'<mxGeometry x="{num(rel_x)}" relative="1" as="geometry">'
             f'<mxPoint x="{num(sx)}" y="{num(sy)}" as="sourcePoint"/>'
             f'<mxPoint x="{num(tx_)}" y="{num(ty)}" as="targetPoint"/>'

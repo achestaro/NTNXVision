@@ -32,7 +32,7 @@ from dataclasses import dataclass
 from xml.sax.saxutils import escape, quoteattr
 
 from .. import text as tx
-from ..scene import Edge, EdgeLabel, Node, Scene, Style, TextLine
+from ..scene import LAYER, Edge, EdgeLabel, Node, Scene, Style, TextLine
 
 NS = "http://schemas.microsoft.com/office/visio/2012/main"
 NS_R = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
@@ -51,7 +51,6 @@ XML_HEAD = "<?xml version='1.0' encoding='utf-8' standalone='yes'?>\n"
 #: Visio arrowhead: a filled triangle.
 ARROW = "4"
 #: Paint layer per node kind, as in `scene.draw_order` (connectors sit at 2).
-_LAYER = {"container": 0, "box": 1, "swatch": 1, "label": 1, "strip": 3, "pill": 3, "tag": 3}
 
 
 def _in(v_pt: float) -> str:
@@ -185,30 +184,26 @@ class _Page:
         self.index = {n.id: i for i, n in enumerate(sc.nodes)}
         self.ids = {n.id: i + 1 for i, n in enumerate(sc.nodes)}
         self.next_id = len(sc.nodes) + 1
+        #: Every node with members is a Visio group (an AZ, a POD, a cluster card with
+        #: its chips and strips), so moving it moves what it holds.
+        self.parents = {n.parent for n in sc.nodes if n.parent in self.by_id}
         self.members: dict[str | None, list[Node]] = {}
         for n in sc.nodes:
             self.members.setdefault(self.group_of(n), []).append(n)
 
     def group_of(self, n: Node) -> str | None:
-        """The nearest container ancestor of `n` (its Visio group), None at page level."""
-        seen = {n.id}
-        p = n.parent
-        while p and p in self.by_id and p not in seen:
-            if self.by_id[p].kind == "container":
-                return p
-            seen.add(p)
-            p = self.by_id[p].parent
-        return None
+        """The group holding `n` (its parent), None at page level."""
+        return n.parent if n.parent in self.by_id and n.parent != n.id else None
 
     def _ordered(self, nodes: list[Node]) -> list[Node]:
-        return sorted(nodes, key=lambda n: (_LAYER.get(n.kind, 1), self.index[n.id]))
+        return sorted(nodes, key=lambda n: (LAYER.get(n.kind, 1), self.index[n.id]))
 
     def node(self, n: Node, ox: float, oy_bottom: float) -> str:
         """`n` positioned in its parent's coordinates: origin (`ox`, `oy_bottom`) is the
         parent's bottom-left corner in scene points (y down)."""
         cx, cy = n.x + n.w / 2, n.y + n.h / 2
         text_only = n.kind == "label"
-        group = n.kind == "container"
+        group = n.id in self.parents
         cells = [
             _c("PinX", _in(cx - ox), "PT"), _c("PinY", _in(oy_bottom - cy), "PT"),
             _c("Width", _in(n.w), "PT"), _c("Height", _in(n.h), "PT"),
@@ -233,7 +228,8 @@ class _Page:
             kids = self._ordered(self.members.get(n.id, []))
             inner = "<Shapes>" + "".join(self.node(k, n.x, n.y + n.h) for k in kids) + \
                 "</Shapes>"
-        return (f"<Shape ID='{self.ids[n.id]}' NameU={quoteattr(n.id)} Name={quoteattr(n.id)} "
+        return (f"<Shape ID='{self.ids[n.id]}' NameU='Sheet.{self.ids[n.id]}' "
+                f"Name={quoteattr(n.id)} "
                 f"Type='{kind}' LineStyle='0' FillStyle='0' TextStyle='0'>{''.join(cells)}"
                 f"{chars}{_shape_data(n)}{_rect_geom(no_fill, no_line)}{text}{inner}</Shape>")
 
@@ -252,7 +248,7 @@ class _Page:
             _c("LocPinY", _in(lab.h / 2), "PT", "Height*0.5"), _c("Angle", "0"),
             _style_cells(n.style, False), _c("LinePattern", "0"), _text_cells(b, lab.w, lab.h),
         ]
-        return (f"<Shape ID='{sid}' NameU={quoteattr(n.id)} Name={quoteattr(n.id)} "
+        return (f"<Shape ID='{sid}' NameU='Sheet.{sid}' Name={quoteattr(n.id)} "
                 f"Type='Shape' LineStyle='0' FillStyle='0' TextStyle='0'>{''.join(cells)}"
                 f"{chars}{_rect_geom(not lab.background, True)}{text}</Shape>")
 
@@ -264,6 +260,7 @@ class _Page:
         (bx, by), (ex, ey) = pts[0], pts[-1]
         st = e.style
         src, dst = self.ids.get(e.src), self.ids.get(e.dst)
+        arrow = "1" if st.stroke_w < 1.0 else "2" if st.stroke_w < 1.5 else "3"
         cells = [
             _c("PinX", _in((bx + ex) / 2), "PT"), _c("PinY", _in((by + ey) / 2), "PT"),
             _c("Width", _in(ex - bx), "PT", "GUARD(EndX-BeginX)"),
@@ -277,7 +274,8 @@ class _Page:
             _c("LinePattern", _pattern(st)), _c("Rounding", "0", "PT"),
             _c("BeginArrow", ARROW if e.arrow_start else "0"),
             _c("EndArrow", ARROW if e.arrow_end else "0"),
-            _c("BeginArrowSize", "1"), _c("EndArrowSize", "1"),
+            # Arrowheads grow with the line weight (Visio sizes: 1 small to 3 large).
+            _c("BeginArrowSize", arrow), _c("EndArrowSize", arrow),
             # Right-angle routing when Visio re-routes after a glued shape moves.
             _c("ShapeRouteStyle", "1" if (src or dst) else "0"),
             _c("ConLineRouteExt", "1"), _c("FillPattern", "0"),
@@ -328,8 +326,8 @@ class _Page:
     def xml(self) -> str:
         H = self.sc.height
         top = self._ordered(self.members.get(None, []))
-        lower = [n for n in top if _LAYER.get(n.kind, 1) < 2]
-        upper = [n for n in top if _LAYER.get(n.kind, 1) >= 2]
+        lower = [n for n in top if LAYER.get(n.kind, 1) < 2]
+        upper = [n for n in top if LAYER.get(n.kind, 1) >= 2]
         shapes = [self.node(n, 0.0, H) for n in lower]
         connects: list[str] = []
         for e in self.sc.edges:

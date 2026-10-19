@@ -82,15 +82,28 @@ def _outline(t: TextLine, x: float, y: float) -> str:
     return f'<g fill="{t.color}">{"".join(parts)}</g>' if parts else ""
 
 
-def _text(lines: list[TextLine], ox: float, oy: float, mode: str = "live") -> str:
+def _anchor(t: TextLine, w: float | None) -> tuple[float, str]:
+    """(x, text-anchor) for live text: a line centred in its box anchors at the box
+    centre, so a viewer that substitutes a wider or narrower font keeps it centred."""
+    if w is not None and abs((w - t.width) / 2 - t.x) < 0.06:
+        return w / 2, ' text-anchor="middle"'
+    return t.x, ""
+
+
+def _text(lines: list[TextLine], ox: float, oy: float, mode: str = "live",
+          w: float | None = None) -> str:
     out = []
     for t in lines:
         if mode == "outline":
             out.append(_outline(t, ox + t.x, oy + t.baseline))
             continue
         weight = ' font-weight="600"' if t.bold else ""
-        out.append(f'<text x="{num(ox + t.x)}" y="{num(oy + t.baseline)}" '
-                   f'font-size="{num(t.size)}"{weight} fill="{t.color}">'
+        x, anchor = _anchor(t, w)
+        # textLength pins each line to the width the layout measured, so a viewer
+        # without Figtree (Arial runs up to 11% wider on digits) never overflows a box.
+        out.append(f'<text x="{num(ox + x)}" y="{num(oy + t.baseline)}"{anchor} '
+                   f'font-size="{num(t.size)}"{weight} fill="{t.color}" '
+                   f'textLength="{num(t.width)}" lengthAdjust="spacingAndGlyphs">'
                    f"{escape(t.text)}</text>")
     return "".join(out)
 
@@ -107,7 +120,7 @@ def _node(n: Node, mode: str) -> str:
     title = f"<title>{escape(n.data.get('name') or n.text)}</title>" if n.lines else ""
     shape = "" if n.kind == "label" else _rect(n.x, n.y, n.w, n.h, n.style)
     return (f'<g id={quoteattr(n.id)} data-kind="{n.kind}"{attrs}>{title}{shape}'
-            f"{_text(n.lines, n.x, n.y, mode)}</g>")
+            f"{_text(n.lines, n.x, n.y, mode, n.w)}</g>")
 
 
 def arrow_points(p0: tuple[float, float], p1: tuple[float, float], width: float
@@ -158,7 +171,7 @@ def _edge(e: Edge) -> str:
 def _label(e: Edge, lab: EdgeLabel, mode: str) -> str:
     bg = (f'<rect x="{num(lab.x)}" y="{num(lab.y)}" width="{num(lab.w)}" '
           f'height="{num(lab.h)}" rx="1.5" fill="#FFFFFF"/>' if lab.background else "")
-    return f"<g>{bg}{_text(lab.lines, lab.x, lab.y, mode)}</g>"
+    return f"<g>{bg}{_text(lab.lines, lab.x, lab.y, mode, lab.w)}</g>"
 
 
 def render_svg(sc: Scene, mode: str = "live") -> bytes:
