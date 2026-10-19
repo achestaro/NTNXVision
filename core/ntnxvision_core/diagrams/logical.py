@@ -45,6 +45,10 @@ class NodeGroup:
     mem_max_gib: int | None = None
     #: "" (hyperconverged), "compute-only" or "storage-only".
     role: str = ""
+    #: GPUs per node ("2 x NVIDIA L40S"); part of the group key.
+    gpus: str | None = None
+    #: Nodes of the group whose maintenance state is not NORMAL.
+    maintenance: int = 0
 
 
 @dataclass
@@ -185,6 +189,19 @@ def cpu_label(model: str | None) -> str | None:
     return re.sub(r"\s+", " ", text).strip() or None
 
 
+def gpu_text(gpus: list[str]) -> str | None:
+    """One node's GPUs: "2 x NVIDIA L40S", models in name order."""
+    if not gpus:
+        return None
+    c = Counter(g.strip() for g in gpus if g and g.strip())
+    return ", ".join(f"{n:,} x {g}" for g, n in sorted(c.items())) or None
+
+
+def in_maintenance(state: str | None) -> bool:
+    """A maintenance state other than NORMAL (missing reads as normal)."""
+    return bool(state) and str(state).strip().upper() not in ("NORMAL", "NONE", "")
+
+
 def _role(host_type: str | None) -> str:
     t = (host_type or "").upper()
     if "COMPUTE" in t:
@@ -296,17 +313,21 @@ def _cluster(env: Environment, c: Any, host: str, src: Any, hosts: list[Any],
              cvms: list[Any], blocks: list[Any], ctrs: list[Any]) -> LCluster:
     name = c.name or c.uuid[:8]
     # Nodes that differ only in memory share a group (memory then reads as a range).
-    groups: dict[tuple[str, str, int, int, str], list[int]] = {}
+    groups: dict[tuple[str, str, int, int, str, str], list[int]] = {}
+    down: Counter[tuple[str, str, int, int, str, str]] = Counter()
     for h in hosts:
-        groups.setdefault((h.block_model or "", cpu_label(h.cpu_model) or "",
-                           h.num_cpu_sockets or 0, h.num_cpu_cores or 0, _role(h.host_type)),
-                          []).append(round((h.memory_bytes or 0) / GIB))
+        key = (h.block_model or "", cpu_label(h.cpu_model) or "", h.num_cpu_sockets or 0,
+               h.num_cpu_cores or 0, _role(h.host_type), gpu_text(h.gpu_list) or "")
+        groups.setdefault(key, []).append(round((h.memory_bytes or 0) / GIB))
+        if in_maintenance(h.maintenance_state):
+            down[key] += 1
     node_groups = [NodeGroup(count=len(mems), model=m or None, cpu=cpu or None,
                              sockets=s or None, cores=co or None,
                              mem_gib=min(mems) or None,
                              mem_max_gib=max(mems) if max(mems) != min(mems) else None,
-                             role=role)
-                   for (m, cpu, s, co, role), mems in
+                             role=role, gpus=gpu or None,
+                             maintenance=down[(m, cpu, s, co, role, gpu)])
+                   for (m, cpu, s, co, role, gpu), mems in
                    sorted(groups.items(), key=lambda kv: (kv[0][4] != "", -len(kv[1]), kv[0]))]
     per = [len(b.nodes) for b in blocks if b.nodes]
     per_block = max(per) if per else None
@@ -547,6 +568,19 @@ def logical_bullets(s: LSite) -> list[str]:
         more = f" ({len(s.arrays) - 1:,} more arrays in the table)" if len(s.arrays) > 1 else ""
         out.append(f"{a.cluster_name or 'A cluster'} keeps {ctr} on {array_title(a)}"
                    f"{proto}{more}.")
+    gpu = [(c, [g for g in c.groups if g.gpus]) for c in cl]
+    gpu = [(c, gs) for c, gs in gpu if gs]
+    if gpu:
+        c, gs = gpu[0]
+        models = sorted({g.gpus or "" for g in gs})
+        more = f" ({len(gpu) - 1:,} more clusters with GPUs)" if len(gpu) > 1 else ""
+        out.append(f"{c.name} has GPUs on {fmt.plural(sum(g.count for g in gs), 'node')} "
+                   f"({'; '.join(models)} per node){more}.")
+    maint = [(c, sum(g.maintenance for g in c.groups)) for c in cl]
+    maint = [(c, n) for c, n in maint if n]
+    if maint:
+        out.append("In maintenance: " + ", ".join(
+            f"{fmt.plural(n, 'node')} of {c.name}" for c, n in maint[:3]) + ".")
     compute = [(c, sum(g.count for g in c.groups if g.role == "compute-only")) for c in cl]
     compute = [(c, n) for c, n in compute if n]
     if compute:
