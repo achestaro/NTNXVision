@@ -21,6 +21,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from . import estate as _estate
+from . import management as _management
 from . import network as _network
 from .check import check_scene
 from .edit_conceptual import SPEC as CONCEPTUAL_EDIT
@@ -30,6 +31,7 @@ from .layout.conceptual import Page, Refs
 from .layout.conceptual import layout as conceptual_layout
 from .layout.estate import layout as estate_layout
 from .layout.logical import layout as logical_layout
+from .layout.management import layout as management_layout
 from .layout.network import layout as network_layout
 from .logical import from_doc as logical_from_doc
 from .logical import logical_model
@@ -85,6 +87,12 @@ TYPES: dict[str, DiagramType] = {
         section="Logical Cluster Design", applies=lambda env: bool(env.clusters and env.hosts),
         build_model=logical_model, layout=logical_layout, to_doc=logical_to_doc,
         from_doc=logical_from_doc, slug="logical-design"),
+    "management": DiagramType(
+        id="management", title="Management plane design", chapter="prism_central",
+        section="Management Plane Design",
+        applies=lambda env: env.source_type != "prism_element" and bool(env.clusters),
+        build_model=_management.management_model, layout=management_layout,
+        to_doc=_management.to_doc, from_doc=_management.from_doc, slug="management-plane"),
     "network": DiagramType(
         id="network", title="Host network configuration", chapter="physical_design",
         section="Host Network Configuration", applies=_network.applies,

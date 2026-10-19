@@ -106,3 +106,14 @@ TAG_NEIGHBOUR = Style(fill=INK_2, radius=1.9)
 NOT_REPORTED = Style(fill=WHITE, stroke=RULE_STRONG, stroke_w=0.75, dash=(2.6, 1.9),
                      radius=3.75)
 
+# ─── management plane (A3) ─────────────────────────────────────────────
+#: Status green ("connected").
+GOOD = _h(T.OK)
+#: "PCVM 1 of 3" chips inside the Prism Central block (a lighter iris).
+PCVM_CHIP = Style(fill="#7A63E3", radius=1.5)
+#: The vCenter Server box under an ESXi cluster.
+VCENTER = Style(fill=WHITE, stroke=INK_2, stroke_w=0.6, radius=2.25)
+#: The AZ pairing glyph between two Prism Centrals (a circle with two arrows).
+PAIR_GLYPH = Style(stroke=IRIS, stroke_w=0.8, radius=7.5)
+#: Version strip at the foot of a management-plane column ("LCM 3.1.2 · NCC 5.1.1").
+FOOT_STRIP = Style(fill=WHITE, stroke=RULE_2, stroke_w=0.6, radius=1.5)
