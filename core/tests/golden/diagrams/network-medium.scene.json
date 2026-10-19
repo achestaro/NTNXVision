@@ -1,0 +1,2681 @@
+{
+ "caption": "Host network profile A: virtual switches, bonds, uplinks, MTU and LLDP neighbours.",
+ "edges": [
+  {
+   "arrow_end": false,
+   "arrow_start": false,
+   "data": {
+    "kind": "uses"
+   },
+   "dst": "profile:70713501173a:vs:vs0",
+   "id": "profile:70713501173a:vs:vs0:t:host->profile:70713501173a:vs:vs0",
+   "labels": [],
+   "points": [
+    [
+     43.75,
+     62.32
+    ],
+    [
+     43.75,
+     72.32
+    ]
+   ],
+   "src": "profile:70713501173a:vs:vs0:t:host",
+   "style": {
+    "dash": null,
+    "fill": null,
+    "radius": 0.0,
+    "stroke": "#8E99A4",
+    "stroke_w": 0.68
+   }
+  },
+  {
+   "arrow_end": false,
+   "arrow_start": false,
+   "data": {
+    "kind": "uses"
+   },
+   "dst": "profile:70713501173a:vs:vs0",
+   "id": "profile:70713501173a:vs:vs0:t:cvm->profile:70713501173a:vs:vs0",
+   "labels": [],
+   "points": [
+    [
+     120.25,
+     62.32
+    ],
+    [
+     120.25,
+     72.32
+    ]
+   ],
+   "src": "profile:70713501173a:vs:vs0:t:cvm",
+   "style": {
+    "dash": null,
+    "fill": null,
+    "radius": 0.0,
+    "stroke": "#8E99A4",
+    "stroke_w": 0.68
+   }
+  },
+  {
+   "arrow_end": false,
+   "arrow_start": false,
+   "data": {
+    "kind": "uses"
+   },
+   "dst": "profile:70713501173a:vs:vs0",
+   "id": "profile:70713501173a:vs:vs0:t:guest->profile:70713501173a:vs:vs0",
+   "labels": [],
+   "points": [
+    [
+     196.75,
+     62.32
+    ],
+    [
+     196.75,
+     72.32
+    ]
+   ],
+   "src": "profile:70713501173a:vs:vs0:t:guest",
+   "style": {
+    "dash": null,
+    "fill": null,
+    "radius": 0.0,
+    "stroke": "#8E99A4",
+    "stroke_w": 0.68
+   }
+  },
+  {
+   "arrow_end": false,
+   "arrow_start": false,
+   "data": {
+    "kind": "uplink"
+   },
+   "dst": "profile:70713501173a:vs:vs0:bond",
+   "id": "profile:70713501173a:vs:vs0->profile:70713501173a:vs:vs0:bond",
+   "labels": [],
+   "points": [
+    [
+     120.25,
+     88.32
+    ],
+    [
+     120.25,
+     97.32
+    ]
+   ],
+   "src": "profile:70713501173a:vs:vs0",
+   "style": {
+    "dash": null,
+    "fill": null,
+    "radius": 0.0,
+    "stroke": "#8E99A4",
+    "stroke_w": 0.68
+   }
+  },
+  {
+   "arrow_end": false,
+   "arrow_start": false,
+   "data": {
+    "kind": "uplink"
+   },
+   "dst": "profile:70713501173a:vs:vs0:nic:eth0",
+   "id": "profile:70713501173a:vs:vs0:bond->profile:70713501173a:vs:vs0:nic:eth0",
+   "labels": [],
+   "points": [
+    [
+     120.25,
+     130.65
+    ],
+    [
+     120.25,
+     138.65
+    ],
+    [
+     85.25,
+     138.65
+    ],
+    [
+     85.25,
+     146.65
+    ]
+   ],
+   "src": "profile:70713501173a:vs:vs0:bond",
+   "style": {
+    "dash": null,
+    "fill": null,
+    "radius": 0.0,
+    "stroke": "#8E99A4",
+    "stroke_w": 0.68
+   }
+  },
+  {
+   "arrow_end": false,
+   "arrow_start": false,
+   "data": {
+    "kind": "uplink"
+   },
+   "dst": "profile:70713501173a:vs:vs0:nic:eth1",
+   "id": "profile:70713501173a:vs:vs0:bond->profile:70713501173a:vs:vs0:nic:eth1",
+   "labels": [],
+   "points": [
+    [
+     120.25,
+     130.65
+    ],
+    [
+     120.25,
+     138.65
+    ],
+    [
+     155.25,
+     138.65
+    ],
+    [
+     155.25,
+     146.65
+    ]
+   ],
+   "src": "profile:70713501173a:vs:vs0:bond",
+   "style": {
+    "dash": null,
+    "fill": null,
+    "radius": 0.0,
+    "stroke": "#8E99A4",
+    "stroke_w": 0.68
+   }
+  },
+  {
+   "arrow_end": false,
+   "arrow_start": false,
+   "data": {
+    "kind": "uplink"
+   },
+   "dst": "profile:70713501173a:vs:vs1-storage:bond",
+   "id": "profile:70713501173a:vs:vs1-storage->profile:70713501173a:vs:vs1-storage:bond",
+   "labels": [],
+   "points": [
+    [
+     359.75,
+     88.32
+    ],
+    [
+     359.75,
+     97.32
+    ]
+   ],
+   "src": "profile:70713501173a:vs:vs1-storage",
+   "style": {
+    "dash": null,
+    "fill": null,
+    "radius": 0.0,
+    "stroke": "#8E99A4",
+    "stroke_w": 0.68
+   }
+  },
+  {
+   "arrow_end": false,
+   "arrow_start": false,
+   "data": {
+    "kind": "uplink"
+   },
+   "dst": "profile:70713501173a:vs:vs1-storage:nic:eth2",
+   "id": "profile:70713501173a:vs:vs1-storage:bond->profile:70713501173a:vs:vs1-storage:nic:eth2",
+   "labels": [],
+   "points": [
+    [
+     359.75,
+     130.65
+    ],
+    [
+     359.75,
+     138.65
+    ],
+    [
+     324.75,
+     138.65
+    ],
+    [
+     324.75,
+     146.65
+    ]
+   ],
+   "src": "profile:70713501173a:vs:vs1-storage:bond",
+   "style": {
+    "dash": null,
+    "fill": null,
+    "radius": 0.0,
+    "stroke": "#8E99A4",
+    "stroke_w": 0.68
+   }
+  },
+  {
+   "arrow_end": false,
+   "arrow_start": false,
+   "data": {
+    "kind": "uplink"
+   },
+   "dst": "profile:70713501173a:vs:vs1-storage:nic:eth3",
+   "id": "profile:70713501173a:vs:vs1-storage:bond->profile:70713501173a:vs:vs1-storage:nic:eth3",
+   "labels": [],
+   "points": [
+    [
+     359.75,
+     130.65
+    ],
+    [
+     359.75,
+     138.65
+    ],
+    [
+     394.75,
+     138.65
+    ],
+    [
+     394.75,
+     146.65
+    ]
+   ],
+   "src": "profile:70713501173a:vs:vs1-storage:bond",
+   "style": {
+    "dash": null,
+    "fill": null,
+    "radius": 0.0,
+    "stroke": "#8E99A4",
+    "stroke_w": 0.68
+   }
+  }
+ ],
+ "height": 315.15,
+ "id": "network-a",
+ "meta": {
+  "group": "profile:70713501173a",
+  "group_name": "Profile A",
+  "multi_row_nics": false,
+  "profile": "A",
+  "switches": [
+   "vs0",
+   "vs1-storage"
+  ]
+ },
+ "nodes": [
+  {
+   "data": {
+    "name": "Host network profile A",
+    "profile": "A"
+   },
+   "h": 190.51,
+   "id": "profile:70713501173a:host",
+   "kind": "container",
+   "lines": [
+    {
+     "baseline": 17.91,
+     "bold": true,
+     "color": "#0F1A24",
+     "size": 9.0,
+     "text": "Host network profile A",
+     "width": 93.22,
+     "x": 7.5
+    },
+    {
+     "baseline": 26.96,
+     "bold": false,
+     "color": "#5B6976",
+     "size": 6.0,
+     "text": "Applies to 16 hosts: PROD-E01 and PROD-W01",
+     "width": 125.57,
+     "x": 7.5
+    }
+   ],
+   "parent": null,
+   "style": {
+    "dash": null,
+    "fill": "#FAFBFB",
+    "radius": 5.25,
+    "stroke": "#C9D0D6",
+    "stroke_w": 0.75
+   },
+   "w": 479.0,
+   "x": 0.5,
+   "y": 5.0
+  },
+  {
+   "data": {},
+   "h": 9.0,
+   "id": "profile:70713501173a:host:tag",
+   "kind": "tag",
+   "lines": [
+    {
+     "baseline": 6.6,
+     "bold": true,
+     "color": "#FFFFFF",
+     "size": 6.0,
+     "text": "AHV HOST",
+     "width": 30.7,
+     "x": 4.42
+    }
+   ],
+   "parent": "profile:70713501173a:host",
+   "style": {
+    "dash": null,
+    "fill": "#5B3FD9",
+    "radius": 1.9,
+    "stroke": null,
+    "stroke_w": 0.75
+   },
+   "w": 39.54,
+   "x": 6.0,
+   "y": 0.5
+  },
+  {
+   "data": {
+    "name": "AHV host management"
+   },
+   "h": 21.62,
+   "id": "profile:70713501173a:vs:vs0:t:host",
+   "kind": "box",
+   "lines": [
+    {
+     "baseline": 9.14,
+     "bold": true,
+     "color": "#0F1A24",
+     "size": 6.2,
+     "text": "AHV host",
+     "width": 27.32,
+     "x": 22.09
+    },
+    {
+     "baseline": 16.88,
+     "bold": false,
+     "color": "#3E4C59",
+     "size": 6.0,
+     "text": "management",
+     "width": 35.37,
+     "x": 18.07
+    }
+   ],
+   "parent": "profile:70713501173a:host",
+   "style": {
+    "dash": null,
+    "fill": "#FFFFFF",
+    "radius": 2.25,
+    "stroke": "#C9D0D6",
+    "stroke_w": 0.68
+   },
+   "w": 71.5,
+   "x": 8.0,
+   "y": 40.7
+  },
+  {
+   "data": {
+    "name": "CVM external"
+   },
+   "h": 21.62,
+   "id": "profile:70713501173a:vs:vs0:t:cvm",
+   "kind": "box",
+   "lines": [
+    {
+     "baseline": 9.14,
+     "bold": true,
+     "color": "#0F1A24",
+     "size": 6.2,
+     "text": "CVM",
+     "width": 14.18,
+     "x": 28.66
+    },
+    {
+     "baseline": 16.88,
+     "bold": false,
+     "color": "#3E4C59",
+     "size": 6.0,
+     "text": "external",
+     "width": 21.43,
+     "x": 25.04
+    }
+   ],
+   "parent": "profile:70713501173a:host",
+   "style": {
+    "dash": null,
+    "fill": "#FFFFFF",
+    "radius": 2.25,
+    "stroke": "#C9D0D6",
+    "stroke_w": 0.68
+   },
+   "w": 71.5,
+   "x": 84.5,
+   "y": 40.7
+  },
+  {
+   "data": {
+    "name": "Guest VMs 5 subnets per cluster"
+   },
+   "h": 21.62,
+   "id": "profile:70713501173a:vs:vs0:t:guest",
+   "kind": "box",
+   "lines": [
+    {
+     "baseline": 9.14,
+     "bold": true,
+     "color": "#0F1A24",
+     "size": 6.2,
+     "text": "Guest VMs",
+     "width": 30.97,
+     "x": 20.26
+    },
+    {
+     "baseline": 16.88,
+     "bold": false,
+     "color": "#3E4C59",
+     "size": 6.0,
+     "text": "5 subnets per cluster",
+     "width": 56.38,
+     "x": 7.56
+    }
+   ],
+   "parent": "profile:70713501173a:host",
+   "style": {
+    "dash": null,
+    "fill": "#FFFFFF",
+    "radius": 2.25,
+    "stroke": "#C9D0D6",
+    "stroke_w": 0.68
+   },
+   "w": 71.5,
+   "x": 161.0,
+   "y": 40.7
+  },
+  {
+   "data": {
+    "bridge": "br0",
+    "name": "vs0",
+    "virtual_switch": "vs0"
+   },
+   "h": 16.0,
+   "id": "profile:70713501173a:vs:vs0",
+   "kind": "box",
+   "lines": [
+    {
+     "baseline": 10.62,
+     "bold": true,
+     "color": "#5B3FD9",
+     "size": 7.5,
+     "text": "vs0",
+     "width": 12.4,
+     "x": 6.0
+    }
+   ],
+   "parent": "profile:70713501173a:host",
+   "style": {
+    "dash": null,
+    "fill": "#EAE8F8",
+    "radius": 2.25,
+    "stroke": "#5B3FD9",
+    "stroke_w": 0.75
+   },
+   "w": 224.5,
+   "x": 8.0,
+   "y": 72.32
+  },
+  {
+   "data": {},
+   "h": 9.0,
+   "id": "profile:70713501173a:vs:vs0:default",
+   "kind": "tag",
+   "lines": [
+    {
+     "baseline": 6.6,
+     "bold": true,
+     "color": "#FFFFFF",
+     "size": 6.0,
+     "text": "DEFAULT",
+     "width": 26.05,
+     "x": 4.28
+    }
+   ],
+   "parent": "profile:70713501173a:vs:vs0",
+   "style": {
+    "dash": null,
+    "fill": "#5B3FD9",
+    "radius": 1.9,
+    "stroke": null,
+    "stroke_w": 0.75
+   },
+   "w": 34.61,
+   "x": 30.4,
+   "y": 75.82
+  },
+  {
+   "data": {},
+   "h": 16.0,
+   "id": "profile:70713501173a:vs:vs0:bridge",
+   "kind": "label",
+   "lines": [
+    {
+     "baseline": 10.1,
+     "bold": false,
+     "color": "#3E4C59",
+     "size": 6.0,
+     "text": "bridge br0",
+     "width": 28.12,
+     "x": 0.0
+    }
+   ],
+   "parent": "profile:70713501173a:vs:vs0",
+   "style": {
+    "dash": null,
+    "fill": null,
+    "radius": 0.0,
+    "stroke": null,
+    "stroke_w": 0.75
+   },
+   "w": 30.81,
+   "x": 195.69,
+   "y": 72.32
+  },
+  {
+   "data": {
+    "bond_mode": "ACTIVE_BACKUP",
+    "mtu": "1500",
+    "name": "Uplink bond br0-up"
+   },
+   "h": 33.33,
+   "id": "profile:70713501173a:vs:vs0:bond",
+   "kind": "box",
+   "lines": [
+    {
+     "baseline": 11.03,
+     "bold": true,
+     "color": "#0F1A24",
+     "size": 6.6,
+     "text": "Uplink bond br0-up",
+     "width": 58.42,
+     "x": 6.0
+    },
+    {
+     "baseline": 19.09,
+     "bold": false,
+     "color": "#3E4C59",
+     "size": 6.2,
+     "text": "Active-backup",
+     "width": 40.81,
+     "x": 6.0
+    },
+    {
+     "baseline": 27.03,
+     "bold": false,
+     "color": "#3E4C59",
+     "size": 6.2,
+     "text": "2 x 25 GbE: eth0, eth1",
+     "width": 61.0,
+     "x": 6.0
+    }
+   ],
+   "parent": "profile:70713501173a:host",
+   "style": {
+    "dash": null,
+    "fill": "#FFFFFF",
+    "radius": 2.25,
+    "stroke": "#3E4C59",
+    "stroke_w": 0.68
+   },
+   "w": 224.5,
+   "x": 8.0,
+   "y": 97.32
+  },
+  {
+   "data": {},
+   "h": 9.5,
+   "id": "profile:70713501173a:vs:vs0:bond:mtu",
+   "kind": "pill",
+   "lines": [
+    {
+     "baseline": 6.85,
+     "bold": true,
+     "color": "#0F1A24",
+     "size": 6.0,
+     "text": "MTU 1,500",
+     "width": 29.42,
+     "x": 4.38
+    }
+   ],
+   "parent": "profile:70713501173a:vs:vs0:bond",
+   "style": {
+    "dash": null,
+    "fill": "#FFFFFF",
+    "radius": 1.5,
+    "stroke": "#3E4C59",
+    "stroke_w": 0.6
+   },
+   "w": 38.18,
+   "x": 188.32,
+   "y": 101.32
+  },
+  {
+   "data": {
+    "lldp_switch": "A",
+    "name": "eth0",
+    "speed_mbps": "25000"
+   },
+   "h": 29.68,
+   "id": "profile:70713501173a:vs:vs0:nic:eth0",
+   "kind": "box",
+   "lines": [
+    {
+     "baseline": 9.44,
+     "bold": true,
+     "color": "#0F1A24",
+     "size": 6.5,
+     "text": "eth0",
+     "width": 14.0,
+     "x": 25.0
+    },
+    {
+     "baseline": 17.26,
+     "bold": false,
+     "color": "#3E4C59",
+     "size": 6.0,
+     "text": "25 GbE, up",
+     "width": 29.65,
+     "x": 17.18
+    },
+    {
+     "baseline": 24.94,
+     "bold": false,
+     "color": "#5B6976",
+     "size": 6.0,
+     "text": "LLDP: switch A",
+     "width": 40.14,
+     "x": 11.93
+    }
+   ],
+   "parent": "profile:70713501173a:host",
+   "style": {
+    "dash": null,
+    "fill": "#FFFFFF",
+    "radius": 1.5,
+    "stroke": "#0F1A24",
+    "stroke_w": 0.75
+   },
+   "w": 64.0,
+   "x": 53.25,
+   "y": 146.65
+  },
+  {
+   "data": {
+    "lldp_switch": "B",
+    "name": "eth1",
+    "speed_mbps": "25000"
+   },
+   "h": 29.68,
+   "id": "profile:70713501173a:vs:vs0:nic:eth1",
+   "kind": "box",
+   "lines": [
+    {
+     "baseline": 9.44,
+     "bold": true,
+     "color": "#0F1A24",
+     "size": 6.5,
+     "text": "eth1",
+     "width": 12.53,
+     "x": 25.74
+    },
+    {
+     "baseline": 17.26,
+     "bold": false,
+     "color": "#3E4C59",
+     "size": 6.0,
+     "text": "25 GbE, up",
+     "width": 29.65,
+     "x": 17.18
+    },
+    {
+     "baseline": 24.94,
+     "bold": false,
+     "color": "#5B6976",
+     "size": 6.0,
+     "text": "LLDP: switch B",
+     "width": 39.74,
+     "x": 12.13
+    }
+   ],
+   "parent": "profile:70713501173a:host",
+   "style": {
+    "dash": null,
+    "fill": "#FFFFFF",
+    "radius": 1.5,
+    "stroke": "#0F1A24",
+    "stroke_w": 0.75
+   },
+   "w": 64.0,
+   "x": 123.25,
+   "y": 146.65
+  },
+  {
+   "data": {
+    "bridge": "br1",
+    "name": "vs1-storage",
+    "virtual_switch": "vs1-storage"
+   },
+   "h": 16.0,
+   "id": "profile:70713501173a:vs:vs1-storage",
+   "kind": "box",
+   "lines": [
+    {
+     "baseline": 10.62,
+     "bold": true,
+     "color": "#5B3FD9",
+     "size": 7.5,
+     "text": "vs1-storage",
+     "width": 39.84,
+     "x": 6.0
+    }
+   ],
+   "parent": "profile:70713501173a:host",
+   "style": {
+    "dash": null,
+    "fill": "#EAE8F8",
+    "radius": 2.25,
+    "stroke": "#5B3FD9",
+    "stroke_w": 0.75
+   },
+   "w": 224.5,
+   "x": 247.5,
+   "y": 72.32
+  },
+  {
+   "data": {},
+   "h": 16.0,
+   "id": "profile:70713501173a:vs:vs1-storage:bridge",
+   "kind": "label",
+   "lines": [
+    {
+     "baseline": 10.1,
+     "bold": false,
+     "color": "#3E4C59",
+     "size": 6.0,
+     "text": "bridge br1",
+     "width": 26.75,
+     "x": 0.0
+    }
+   ],
+   "parent": "profile:70713501173a:vs:vs1-storage",
+   "style": {
+    "dash": null,
+    "fill": null,
+    "radius": 0.0,
+    "stroke": null,
+    "stroke_w": 0.75
+   },
+   "w": 29.36,
+   "x": 436.64,
+   "y": 72.32
+  },
+  {
+   "data": {
+    "bond_mode": "BALANCE_TCP",
+    "mtu": "9000",
+    "name": "Uplink bond br1-up"
+   },
+   "h": 33.33,
+   "id": "profile:70713501173a:vs:vs1-storage:bond",
+   "kind": "box",
+   "lines": [
+    {
+     "baseline": 11.03,
+     "bold": true,
+     "color": "#0F1A24",
+     "size": 6.6,
+     "text": "Uplink bond br1-up",
+     "width": 56.92,
+     "x": 6.0
+    },
+    {
+     "baseline": 19.09,
+     "bold": false,
+     "color": "#3E4C59",
+     "size": 6.2,
+     "text": "Balance-tcp with LACP",
+     "width": 64.27,
+     "x": 6.0
+    },
+    {
+     "baseline": 27.03,
+     "bold": false,
+     "color": "#3E4C59",
+     "size": 6.2,
+     "text": "2 x 25 GbE: eth2, eth3",
+     "width": 61.3,
+     "x": 6.0
+    }
+   ],
+   "parent": "profile:70713501173a:host",
+   "style": {
+    "dash": null,
+    "fill": "#FFFFFF",
+    "radius": 2.25,
+    "stroke": "#3E4C59",
+    "stroke_w": 0.68
+   },
+   "w": 224.5,
+   "x": 247.5,
+   "y": 97.32
+  },
+  {
+   "data": {},
+   "h": 9.5,
+   "id": "profile:70713501173a:vs:vs1-storage:bond:mtu",
+   "kind": "pill",
+   "lines": [
+    {
+     "baseline": 6.85,
+     "bold": true,
+     "color": "#0F1A24",
+     "size": 6.0,
+     "text": "MTU 9,000",
+     "width": 30.75,
+     "x": 4.43
+    }
+   ],
+   "parent": "profile:70713501173a:vs:vs1-storage:bond",
+   "style": {
+    "dash": null,
+    "fill": "#FFFFFF",
+    "radius": 1.5,
+    "stroke": "#3E4C59",
+    "stroke_w": 0.6
+   },
+   "w": 39.6,
+   "x": 426.4,
+   "y": 101.32
+  },
+  {
+   "data": {
+    "lldp_switch": "A",
+    "name": "eth2",
+    "speed_mbps": "25000"
+   },
+   "h": 29.68,
+   "id": "profile:70713501173a:vs:vs1-storage:nic:eth2",
+   "kind": "box",
+   "lines": [
+    {
+     "baseline": 9.44,
+     "bold": true,
+     "color": "#0F1A24",
+     "size": 6.5,
+     "text": "eth2",
+     "width": 13.52,
+     "x": 25.24
+    },
+    {
+     "baseline": 17.26,
+     "bold": false,
+     "color": "#3E4C59",
+     "size": 6.0,
+     "text": "25 GbE, up",
+     "width": 29.65,
+     "x": 17.18
+    },
+    {
+     "baseline": 24.94,
+     "bold": false,
+     "color": "#5B6976",
+     "size": 6.0,
+     "text": "LLDP: switch A",
+     "width": 40.14,
+     "x": 11.93
+    }
+   ],
+   "parent": "profile:70713501173a:host",
+   "style": {
+    "dash": null,
+    "fill": "#FFFFFF",
+    "radius": 1.5,
+    "stroke": "#0F1A24",
+    "stroke_w": 0.75
+   },
+   "w": 64.0,
+   "x": 292.75,
+   "y": 146.65
+  },
+  {
+   "data": {
+    "lldp_switch": "B",
+    "name": "eth3",
+    "speed_mbps": "25000"
+   },
+   "h": 29.68,
+   "id": "profile:70713501173a:vs:vs1-storage:nic:eth3",
+   "kind": "box",
+   "lines": [
+    {
+     "baseline": 9.44,
+     "bold": true,
+     "color": "#0F1A24",
+     "size": 6.5,
+     "text": "eth3",
+     "width": 13.39,
+     "x": 25.3
+    },
+    {
+     "baseline": 17.26,
+     "bold": false,
+     "color": "#3E4C59",
+     "size": 6.0,
+     "text": "25 GbE, up",
+     "width": 29.65,
+     "x": 17.18
+    },
+    {
+     "baseline": 24.94,
+     "bold": false,
+     "color": "#5B6976",
+     "size": 6.0,
+     "text": "LLDP: switch B",
+     "width": 39.74,
+     "x": 12.13
+    }
+   ],
+   "parent": "profile:70713501173a:host",
+   "style": {
+    "dash": null,
+    "fill": "#FFFFFF",
+    "radius": 1.5,
+    "stroke": "#0F1A24",
+    "stroke_w": 0.75
+   },
+   "w": 64.0,
+   "x": 362.75,
+   "y": 146.65
+  },
+  {
+   "data": {},
+   "h": 7.68,
+   "id": "profile:70713501173a:host:nics",
+   "kind": "label",
+   "lines": [
+    {
+     "baseline": 5.94,
+     "bold": false,
+     "color": "#5B6976",
+     "size": 6.0,
+     "text": "NICs: Mellanox ConnectX-6 Lx · driver mlx5_core · firmware 26.36.1010 · as reported on host prod-e01-n1",
+     "width": 280.39,
+     "x": 91.8
+    }
+   ],
+   "parent": "profile:70713501173a:host",
+   "style": {
+    "dash": null,
+    "fill": null,
+    "radius": 0.0,
+    "stroke": null,
+    "stroke_w": 0.75
+   },
+   "w": 464.0,
+   "x": 8.0,
+   "y": 180.33
+  },
+  {
+   "data": {
+    "chassis": "00:00:5E:00:53:10",
+    "model": "Arista DCS-7050SX3-48YC8",
+    "name": "Switch A"
+   },
+   "h": 36.31,
+   "id": "profile:70713501173a:lldp:A",
+   "kind": "box",
+   "lines": [
+    {
+     "baseline": 14.53,
+     "bold": true,
+     "color": "#0F1A24",
+     "size": 6.6,
+     "text": "Switch A: Arista DCS-7050SX3-48YC8",
+     "width": 117.9,
+     "x": 6.0
+    },
+    {
+     "baseline": 22.39,
+     "bold": false,
+     "color": "#3E4C59",
+     "size": 6.0,
+     "text": "Chassis 00:00:5E:00:53:10 · seen on eth0, eth2",
+     "width": 127.5,
+     "x": 6.0
+    },
+    {
+     "baseline": 30.07,
+     "bold": false,
+     "color": "#3E4C59",
+     "size": 6.0,
+     "text": "Switch ports: Ethernet1/1 (eth0), Ethernet1/2 (eth2)",
+     "width": 138.66,
+     "x": 6.0
+    }
+   ],
+   "parent": null,
+   "style": {
+    "dash": null,
+    "fill": "#FFFFFF",
+    "radius": 2.25,
+    "stroke": "#3E4C59",
+    "stroke_w": 0.68
+   },
+   "w": 224.5,
+   "x": 8.0,
+   "y": 206.51
+  },
+  {
+   "data": {},
+   "h": 9.0,
+   "id": "profile:70713501173a:lldp:A:tag",
+   "kind": "tag",
+   "lines": [
+    {
+     "baseline": 6.6,
+     "bold": true,
+     "color": "#FFFFFF",
+     "size": 6.0,
+     "text": "LLDP NEIGHBOUR",
+     "width": 50.84,
+     "x": 5.02
+    }
+   ],
+   "parent": "profile:70713501173a:lldp:A",
+   "style": {
+    "dash": null,
+    "fill": "#3E4C59",
+    "radius": 1.9,
+    "stroke": null,
+    "stroke_w": 0.75
+   },
+   "w": 60.89,
+   "x": 14.0,
+   "y": 202.01
+  },
+  {
+   "data": {
+    "chassis": "00:00:5E:00:53:11",
+    "model": "Arista DCS-7050SX3-48YC8",
+    "name": "Switch B"
+   },
+   "h": 36.31,
+   "id": "profile:70713501173a:lldp:B",
+   "kind": "box",
+   "lines": [
+    {
+     "baseline": 14.53,
+     "bold": true,
+     "color": "#0F1A24",
+     "size": 6.6,
+     "text": "Switch B: Arista DCS-7050SX3-48YC8",
+     "width": 117.33,
+     "x": 6.0
+    },
+    {
+     "baseline": 22.39,
+     "bold": false,
+     "color": "#3E4C59",
+     "size": 6.0,
+     "text": "Chassis 00:00:5E:00:53:11 · seen on eth1, eth3",
+     "width": 124.67,
+     "x": 6.0
+    },
+    {
+     "baseline": 30.07,
+     "bold": false,
+     "color": "#3E4C59",
+     "size": 6.0,
+     "text": "Switch ports: Ethernet1/1 (eth1), Ethernet1/2 (eth3)",
+     "width": 137.2,
+     "x": 6.0
+    }
+   ],
+   "parent": null,
+   "style": {
+    "dash": null,
+    "fill": "#FFFFFF",
+    "radius": 2.25,
+    "stroke": "#3E4C59",
+    "stroke_w": 0.68
+   },
+   "w": 224.5,
+   "x": 247.5,
+   "y": 206.51
+  },
+  {
+   "data": {},
+   "h": 9.0,
+   "id": "profile:70713501173a:lldp:B:tag",
+   "kind": "tag",
+   "lines": [
+    {
+     "baseline": 6.6,
+     "bold": true,
+     "color": "#FFFFFF",
+     "size": 6.0,
+     "text": "LLDP NEIGHBOUR",
+     "width": 50.84,
+     "x": 5.02
+    }
+   ],
+   "parent": "profile:70713501173a:lldp:B",
+   "style": {
+    "dash": null,
+    "fill": "#3E4C59",
+    "radius": 1.9,
+    "stroke": null,
+    "stroke_w": 0.75
+   },
+   "w": 60.89,
+   "x": 253.5,
+   "y": 202.01
+  },
+  {
+   "data": {
+    "clusters": "ESX-W01, VDI-E01",
+    "name": "ESXi host networking"
+   },
+   "h": 40.33,
+   "id": "profile:70713501173a:esxi",
+   "kind": "box",
+   "lines": [
+    {
+     "baseline": 14.53,
+     "bold": true,
+     "color": "#0F1A24",
+     "size": 6.6,
+     "text": "ESXi hosts (ESX-W01 and VDI-E01, 7 hosts): vSwitch and dvSwitch, teaming, LACP and MTU are not drawn.",
+     "width": 322.17,
+     "x": 6.0
+    },
+    {
+     "baseline": 22.59,
+     "bold": false,
+     "color": "#3E4C59",
+     "size": 6.2,
+     "text": "Collected: vmnic0 to vmnic3 per host (2 x 10 GbE, 2 x 25 GbE link speed) and 6 port groups.",
+     "width": 254.29,
+     "x": 6.0
+    },
+    {
+     "baseline": 30.53,
+     "bold": false,
+     "color": "#3E4C59",
+     "size": 6.2,
+     "text": "Source of truth for this network: vCenter 198.51.100.31 and 198.51.100.32.",
+     "width": 202.93,
+     "x": 6.0
+    }
+   ],
+   "parent": null,
+   "style": {
+    "dash": [
+     2.6,
+     1.9
+    ],
+    "fill": "#FFFFFF",
+    "radius": 3.75,
+    "stroke": "#8E99A4",
+    "stroke_w": 0.75
+   },
+   "w": 479.0,
+   "x": 0.5,
+   "y": 253.82
+  },
+  {
+   "data": {},
+   "h": 9.0,
+   "id": "profile:70713501173a:esxi:tag",
+   "kind": "tag",
+   "lines": [
+    {
+     "baseline": 6.6,
+     "bold": true,
+     "color": "#FFFFFF",
+     "size": 6.0,
+     "text": "NOT REPORTED BY NUTANIX APIS",
+     "width": 96.47,
+     "x": 6.4
+    }
+   ],
+   "parent": "profile:70713501173a:esxi",
+   "style": {
+    "dash": null,
+    "fill": "#5B6976",
+    "radius": 1.9,
+    "stroke": null,
+    "stroke_w": 0.75
+   },
+   "w": 109.26,
+   "x": 6.0,
+   "y": 249.32
+  },
+  {
+   "data": {},
+   "h": 7.5,
+   "id": "legend:0",
+   "kind": "swatch",
+   "lines": [],
+   "parent": null,
+   "style": {
+    "dash": null,
+    "fill": "#EAE8F8",
+    "radius": 2.25,
+    "stroke": "#5B3FD9",
+    "stroke_w": 0.75
+   },
+   "w": 17,
+   "x": 0.5,
+   "y": 304.65
+  },
+  {
+   "data": {},
+   "h": 10.5,
+   "id": "legend:0:label",
+   "kind": "label",
+   "lines": [
+    {
+     "baseline": 7.35,
+     "bold": false,
+     "color": "#3E4C59",
+     "size": 6.0,
+     "text": "Virtual switch",
+     "width": 36.81,
+     "x": 0.0
+    }
+   ],
+   "parent": null,
+   "style": {
+    "dash": null,
+    "fill": null,
+    "radius": 0.0,
+    "stroke": null,
+    "stroke_w": 0.75
+   },
+   "w": 40.02,
+   "x": 21.5,
+   "y": 303.15
+  },
+  {
+   "data": {},
+   "h": 7.5,
+   "id": "legend:1",
+   "kind": "swatch",
+   "lines": [],
+   "parent": null,
+   "style": {
+    "dash": null,
+    "fill": "#FFFFFF",
+    "radius": 2.25,
+    "stroke": "#3E4C59",
+    "stroke_w": 0.68
+   },
+   "w": 17,
+   "x": 75.52,
+   "y": 304.65
+  },
+  {
+   "data": {},
+   "h": 10.5,
+   "id": "legend:1:label",
+   "kind": "label",
+   "lines": [
+    {
+     "baseline": 7.35,
+     "bold": false,
+     "color": "#3E4C59",
+     "size": 6.0,
+     "text": "Bond, NIC or switch (reported)",
+     "width": 82.79,
+     "x": 0.0
+    }
+   ],
+   "parent": null,
+   "style": {
+    "dash": null,
+    "fill": null,
+    "radius": 0.0,
+    "stroke": null,
+    "stroke_w": 0.75
+   },
+   "w": 88.76,
+   "x": 96.52,
+   "y": 303.15
+  },
+  {
+   "data": {},
+   "h": 7.5,
+   "id": "legend:2",
+   "kind": "swatch",
+   "lines": [],
+   "parent": null,
+   "style": {
+    "dash": [
+     2.6,
+     1.9
+    ],
+    "fill": "#FFFFFF",
+    "radius": 3.75,
+    "stroke": "#8E99A4",
+    "stroke_w": 0.75
+   },
+   "w": 17,
+   "x": 199.28,
+   "y": 304.65
+  },
+  {
+   "data": {},
+   "h": 10.5,
+   "id": "legend:2:label",
+   "kind": "label",
+   "lines": [
+    {
+     "baseline": 7.35,
+     "bold": false,
+     "color": "#3E4C59",
+     "size": 6.0,
+     "text": "Not reported",
+     "width": 35.29,
+     "x": 0.0
+    }
+   ],
+   "parent": null,
+   "style": {
+    "dash": null,
+    "fill": null,
+    "radius": 0.0,
+    "stroke": null,
+    "stroke_w": 0.75
+   },
+   "w": 38.41,
+   "x": 220.28,
+   "y": 303.15
+  }
+ ],
+ "part": [
+  1,
+  1
+ ],
+ "schema": "ntnxvision.diagram.scene/1",
+ "title": "Host network configuration",
+ "type": "network",
+ "width": 480.0
+}
+{
+ "caption": "Host network profile B: virtual switches, bonds, uplinks, MTU and LLDP neighbours.",
+ "edges": [
+  {
+   "arrow_end": false,
+   "arrow_start": false,
+   "data": {
+    "kind": "uses"
+   },
+   "dst": "profile:67025c1055ad:vs:vs0",
+   "id": "profile:67025c1055ad:vs:vs0:t:host->profile:67025c1055ad:vs:vs0",
+   "labels": [],
+   "points": [
+    [
+     43.75,
+     62.32
+    ],
+    [
+     43.75,
+     72.32
+    ]
+   ],
+   "src": "profile:67025c1055ad:vs:vs0:t:host",
+   "style": {
+    "dash": null,
+    "fill": null,
+    "radius": 0.0,
+    "stroke": "#8E99A4",
+    "stroke_w": 0.68
+   }
+  },
+  {
+   "arrow_end": false,
+   "arrow_start": false,
+   "data": {
+    "kind": "uses"
+   },
+   "dst": "profile:67025c1055ad:vs:vs0",
+   "id": "profile:67025c1055ad:vs:vs0:t:cvm->profile:67025c1055ad:vs:vs0",
+   "labels": [],
+   "points": [
+    [
+     120.25,
+     62.32
+    ],
+    [
+     120.25,
+     72.32
+    ]
+   ],
+   "src": "profile:67025c1055ad:vs:vs0:t:cvm",
+   "style": {
+    "dash": null,
+    "fill": null,
+    "radius": 0.0,
+    "stroke": "#8E99A4",
+    "stroke_w": 0.68
+   }
+  },
+  {
+   "arrow_end": false,
+   "arrow_start": false,
+   "data": {
+    "kind": "uses"
+   },
+   "dst": "profile:67025c1055ad:vs:vs0",
+   "id": "profile:67025c1055ad:vs:vs0:t:guest->profile:67025c1055ad:vs:vs0",
+   "labels": [],
+   "points": [
+    [
+     196.75,
+     62.32
+    ],
+    [
+     196.75,
+     72.32
+    ]
+   ],
+   "src": "profile:67025c1055ad:vs:vs0:t:guest",
+   "style": {
+    "dash": null,
+    "fill": null,
+    "radius": 0.0,
+    "stroke": "#8E99A4",
+    "stroke_w": 0.68
+   }
+  },
+  {
+   "arrow_end": false,
+   "arrow_start": false,
+   "data": {
+    "kind": "uplink"
+   },
+   "dst": "profile:67025c1055ad:vs:vs0:bond",
+   "id": "profile:67025c1055ad:vs:vs0->profile:67025c1055ad:vs:vs0:bond",
+   "labels": [],
+   "points": [
+    [
+     120.25,
+     88.32
+    ],
+    [
+     120.25,
+     97.32
+    ]
+   ],
+   "src": "profile:67025c1055ad:vs:vs0",
+   "style": {
+    "dash": null,
+    "fill": null,
+    "radius": 0.0,
+    "stroke": "#8E99A4",
+    "stroke_w": 0.68
+   }
+  },
+  {
+   "arrow_end": false,
+   "arrow_start": false,
+   "data": {
+    "kind": "uplink"
+   },
+   "dst": "profile:67025c1055ad:vs:vs0:nic:eth0",
+   "id": "profile:67025c1055ad:vs:vs0:bond->profile:67025c1055ad:vs:vs0:nic:eth0",
+   "labels": [],
+   "points": [
+    [
+     120.25,
+     130.65
+    ],
+    [
+     120.25,
+     138.65
+    ],
+    [
+     85.25,
+     138.65
+    ],
+    [
+     85.25,
+     146.65
+    ]
+   ],
+   "src": "profile:67025c1055ad:vs:vs0:bond",
+   "style": {
+    "dash": null,
+    "fill": null,
+    "radius": 0.0,
+    "stroke": "#8E99A4",
+    "stroke_w": 0.68
+   }
+  },
+  {
+   "arrow_end": false,
+   "arrow_start": false,
+   "data": {
+    "kind": "uplink"
+   },
+   "dst": "profile:67025c1055ad:vs:vs0:nic:eth1",
+   "id": "profile:67025c1055ad:vs:vs0:bond->profile:67025c1055ad:vs:vs0:nic:eth1",
+   "labels": [],
+   "points": [
+    [
+     120.25,
+     130.65
+    ],
+    [
+     120.25,
+     138.65
+    ],
+    [
+     155.25,
+     138.65
+    ],
+    [
+     155.25,
+     146.65
+    ]
+   ],
+   "src": "profile:67025c1055ad:vs:vs0:bond",
+   "style": {
+    "dash": null,
+    "fill": null,
+    "radius": 0.0,
+    "stroke": "#8E99A4",
+    "stroke_w": 0.68
+   }
+  },
+  {
+   "arrow_end": false,
+   "arrow_start": false,
+   "data": {
+    "kind": "uplink"
+   },
+   "dst": "profile:67025c1055ad:vs:vs2-guest:bond",
+   "id": "profile:67025c1055ad:vs:vs2-guest->profile:67025c1055ad:vs:vs2-guest:bond",
+   "labels": [],
+   "points": [
+    [
+     359.75,
+     88.32
+    ],
+    [
+     359.75,
+     97.32
+    ]
+   ],
+   "src": "profile:67025c1055ad:vs:vs2-guest",
+   "style": {
+    "dash": null,
+    "fill": null,
+    "radius": 0.0,
+    "stroke": "#8E99A4",
+    "stroke_w": 0.68
+   }
+  },
+  {
+   "arrow_end": false,
+   "arrow_start": false,
+   "data": {
+    "kind": "uplink"
+   },
+   "dst": "profile:67025c1055ad:vs:vs2-guest:nic:eth2",
+   "id": "profile:67025c1055ad:vs:vs2-guest:bond->profile:67025c1055ad:vs:vs2-guest:nic:eth2",
+   "labels": [],
+   "points": [
+    [
+     359.75,
+     130.65
+    ],
+    [
+     359.75,
+     138.65
+    ],
+    [
+     324.75,
+     138.65
+    ],
+    [
+     324.75,
+     146.65
+    ]
+   ],
+   "src": "profile:67025c1055ad:vs:vs2-guest:bond",
+   "style": {
+    "dash": null,
+    "fill": null,
+    "radius": 0.0,
+    "stroke": "#8E99A4",
+    "stroke_w": 0.68
+   }
+  },
+  {
+   "arrow_end": false,
+   "arrow_start": false,
+   "data": {
+    "kind": "uplink"
+   },
+   "dst": "profile:67025c1055ad:vs:vs2-guest:nic:eth3",
+   "id": "profile:67025c1055ad:vs:vs2-guest:bond->profile:67025c1055ad:vs:vs2-guest:nic:eth3",
+   "labels": [],
+   "points": [
+    [
+     359.75,
+     130.65
+    ],
+    [
+     359.75,
+     138.65
+    ],
+    [
+     394.75,
+     138.65
+    ],
+    [
+     394.75,
+     146.65
+    ]
+   ],
+   "src": "profile:67025c1055ad:vs:vs2-guest:bond",
+   "style": {
+    "dash": null,
+    "fill": null,
+    "radius": 0.0,
+    "stroke": "#8E99A4",
+    "stroke_w": 0.68
+   }
+  }
+ ],
+ "height": 263.82,
+ "id": "network-b",
+ "meta": {
+  "group": "profile:67025c1055ad",
+  "group_name": "Profile B",
+  "multi_row_nics": false,
+  "profile": "B",
+  "switches": [
+   "vs0",
+   "vs2-guest"
+  ]
+ },
+ "nodes": [
+  {
+   "data": {
+    "name": "Host network profile B",
+    "profile": "B"
+   },
+   "h": 190.51,
+   "id": "profile:67025c1055ad:host",
+   "kind": "container",
+   "lines": [
+    {
+     "baseline": 17.91,
+     "bold": true,
+     "color": "#0F1A24",
+     "size": 9.0,
+     "text": "Host network profile B",
+     "width": 92.44,
+     "x": 7.5
+    },
+    {
+     "baseline": 26.96,
+     "bold": false,
+     "color": "#5B6976",
+     "size": 6.0,
+     "text": "Applies to 10 hosts: DR-W01 and PROD-E02",
+     "width": 118.77,
+     "x": 7.5
+    }
+   ],
+   "parent": null,
+   "style": {
+    "dash": null,
+    "fill": "#FAFBFB",
+    "radius": 5.25,
+    "stroke": "#C9D0D6",
+    "stroke_w": 0.75
+   },
+   "w": 479.0,
+   "x": 0.5,
+   "y": 5.0
+  },
+  {
+   "data": {},
+   "h": 9.0,
+   "id": "profile:67025c1055ad:host:tag",
+   "kind": "tag",
+   "lines": [
+    {
+     "baseline": 6.6,
+     "bold": true,
+     "color": "#FFFFFF",
+     "size": 6.0,
+     "text": "AHV HOST",
+     "width": 30.7,
+     "x": 4.42
+    }
+   ],
+   "parent": "profile:67025c1055ad:host",
+   "style": {
+    "dash": null,
+    "fill": "#5B3FD9",
+    "radius": 1.9,
+    "stroke": null,
+    "stroke_w": 0.75
+   },
+   "w": 39.54,
+   "x": 6.0,
+   "y": 0.5
+  },
+  {
+   "data": {
+    "name": "AHV host management"
+   },
+   "h": 21.62,
+   "id": "profile:67025c1055ad:vs:vs0:t:host",
+   "kind": "box",
+   "lines": [
+    {
+     "baseline": 9.14,
+     "bold": true,
+     "color": "#0F1A24",
+     "size": 6.2,
+     "text": "AHV host",
+     "width": 27.32,
+     "x": 22.09
+    },
+    {
+     "baseline": 16.88,
+     "bold": false,
+     "color": "#3E4C59",
+     "size": 6.0,
+     "text": "management",
+     "width": 35.37,
+     "x": 18.07
+    }
+   ],
+   "parent": "profile:67025c1055ad:host",
+   "style": {
+    "dash": null,
+    "fill": "#FFFFFF",
+    "radius": 2.25,
+    "stroke": "#C9D0D6",
+    "stroke_w": 0.68
+   },
+   "w": 71.5,
+   "x": 8.0,
+   "y": 40.7
+  },
+  {
+   "data": {
+    "name": "CVM external"
+   },
+   "h": 21.62,
+   "id": "profile:67025c1055ad:vs:vs0:t:cvm",
+   "kind": "box",
+   "lines": [
+    {
+     "baseline": 9.14,
+     "bold": true,
+     "color": "#0F1A24",
+     "size": 6.2,
+     "text": "CVM",
+     "width": 14.18,
+     "x": 28.66
+    },
+    {
+     "baseline": 16.88,
+     "bold": false,
+     "color": "#3E4C59",
+     "size": 6.0,
+     "text": "external",
+     "width": 21.43,
+     "x": 25.04
+    }
+   ],
+   "parent": "profile:67025c1055ad:host",
+   "style": {
+    "dash": null,
+    "fill": "#FFFFFF",
+    "radius": 2.25,
+    "stroke": "#C9D0D6",
+    "stroke_w": 0.68
+   },
+   "w": 71.5,
+   "x": 84.5,
+   "y": 40.7
+  },
+  {
+   "data": {
+    "name": "Guest VMs 5 subnets per cluster"
+   },
+   "h": 21.62,
+   "id": "profile:67025c1055ad:vs:vs0:t:guest",
+   "kind": "box",
+   "lines": [
+    {
+     "baseline": 9.14,
+     "bold": true,
+     "color": "#0F1A24",
+     "size": 6.2,
+     "text": "Guest VMs",
+     "width": 30.97,
+     "x": 20.26
+    },
+    {
+     "baseline": 16.88,
+     "bold": false,
+     "color": "#3E4C59",
+     "size": 6.0,
+     "text": "5 subnets per cluster",
+     "width": 56.38,
+     "x": 7.56
+    }
+   ],
+   "parent": "profile:67025c1055ad:host",
+   "style": {
+    "dash": null,
+    "fill": "#FFFFFF",
+    "radius": 2.25,
+    "stroke": "#C9D0D6",
+    "stroke_w": 0.68
+   },
+   "w": 71.5,
+   "x": 161.0,
+   "y": 40.7
+  },
+  {
+   "data": {
+    "bridge": "br0",
+    "name": "vs0",
+    "virtual_switch": "vs0"
+   },
+   "h": 16.0,
+   "id": "profile:67025c1055ad:vs:vs0",
+   "kind": "box",
+   "lines": [
+    {
+     "baseline": 10.62,
+     "bold": true,
+     "color": "#5B3FD9",
+     "size": 7.5,
+     "text": "vs0",
+     "width": 12.4,
+     "x": 6.0
+    }
+   ],
+   "parent": "profile:67025c1055ad:host",
+   "style": {
+    "dash": null,
+    "fill": "#EAE8F8",
+    "radius": 2.25,
+    "stroke": "#5B3FD9",
+    "stroke_w": 0.75
+   },
+   "w": 224.5,
+   "x": 8.0,
+   "y": 72.32
+  },
+  {
+   "data": {},
+   "h": 9.0,
+   "id": "profile:67025c1055ad:vs:vs0:default",
+   "kind": "tag",
+   "lines": [
+    {
+     "baseline": 6.6,
+     "bold": true,
+     "color": "#FFFFFF",
+     "size": 6.0,
+     "text": "DEFAULT",
+     "width": 26.05,
+     "x": 4.28
+    }
+   ],
+   "parent": "profile:67025c1055ad:vs:vs0",
+   "style": {
+    "dash": null,
+    "fill": "#5B3FD9",
+    "radius": 1.9,
+    "stroke": null,
+    "stroke_w": 0.75
+   },
+   "w": 34.61,
+   "x": 30.4,
+   "y": 75.82
+  },
+  {
+   "data": {},
+   "h": 16.0,
+   "id": "profile:67025c1055ad:vs:vs0:bridge",
+   "kind": "label",
+   "lines": [
+    {
+     "baseline": 10.1,
+     "bold": false,
+     "color": "#3E4C59",
+     "size": 6.0,
+     "text": "bridge br0",
+     "width": 28.12,
+     "x": 0.0
+    }
+   ],
+   "parent": "profile:67025c1055ad:vs:vs0",
+   "style": {
+    "dash": null,
+    "fill": null,
+    "radius": 0.0,
+    "stroke": null,
+    "stroke_w": 0.75
+   },
+   "w": 30.81,
+   "x": 195.69,
+   "y": 72.32
+  },
+  {
+   "data": {
+    "bond_mode": "ACTIVE_BACKUP",
+    "mtu": "1500",
+    "name": "Uplink bond br0-up"
+   },
+   "h": 33.33,
+   "id": "profile:67025c1055ad:vs:vs0:bond",
+   "kind": "box",
+   "lines": [
+    {
+     "baseline": 11.03,
+     "bold": true,
+     "color": "#0F1A24",
+     "size": 6.6,
+     "text": "Uplink bond br0-up",
+     "width": 58.42,
+     "x": 6.0
+    },
+    {
+     "baseline": 19.09,
+     "bold": false,
+     "color": "#3E4C59",
+     "size": 6.2,
+     "text": "Active-backup",
+     "width": 40.81,
+     "x": 6.0
+    },
+    {
+     "baseline": 27.03,
+     "bold": false,
+     "color": "#3E4C59",
+     "size": 6.2,
+     "text": "2 x 10 GbE: eth0, eth1",
+     "width": 60.5,
+     "x": 6.0
+    }
+   ],
+   "parent": "profile:67025c1055ad:host",
+   "style": {
+    "dash": null,
+    "fill": "#FFFFFF",
+    "radius": 2.25,
+    "stroke": "#3E4C59",
+    "stroke_w": 0.68
+   },
+   "w": 224.5,
+   "x": 8.0,
+   "y": 97.32
+  },
+  {
+   "data": {},
+   "h": 9.5,
+   "id": "profile:67025c1055ad:vs:vs0:bond:mtu",
+   "kind": "pill",
+   "lines": [
+    {
+     "baseline": 6.85,
+     "bold": true,
+     "color": "#0F1A24",
+     "size": 6.0,
+     "text": "MTU 1,500",
+     "width": 29.42,
+     "x": 4.38
+    }
+   ],
+   "parent": "profile:67025c1055ad:vs:vs0:bond",
+   "style": {
+    "dash": null,
+    "fill": "#FFFFFF",
+    "radius": 1.5,
+    "stroke": "#3E4C59",
+    "stroke_w": 0.6
+   },
+   "w": 38.18,
+   "x": 188.32,
+   "y": 101.32
+  },
+  {
+   "data": {
+    "lldp_switch": "A",
+    "name": "eth0",
+    "speed_mbps": "10000"
+   },
+   "h": 29.68,
+   "id": "profile:67025c1055ad:vs:vs0:nic:eth0",
+   "kind": "box",
+   "lines": [
+    {
+     "baseline": 9.44,
+     "bold": true,
+     "color": "#0F1A24",
+     "size": 6.5,
+     "text": "eth0",
+     "width": 14.0,
+     "x": 25.0
+    },
+    {
+     "baseline": 17.26,
+     "bold": false,
+     "color": "#3E4C59",
+     "size": 6.0,
+     "text": "10 GbE, up",
+     "width": 29.17,
+     "x": 17.42
+    },
+    {
+     "baseline": 24.94,
+     "bold": false,
+     "color": "#5B6976",
+     "size": 6.0,
+     "text": "LLDP: switch A",
+     "width": 40.14,
+     "x": 11.93
+    }
+   ],
+   "parent": "profile:67025c1055ad:host",
+   "style": {
+    "dash": null,
+    "fill": "#FFFFFF",
+    "radius": 1.5,
+    "stroke": "#0F1A24",
+    "stroke_w": 0.75
+   },
+   "w": 64.0,
+   "x": 53.25,
+   "y": 146.65
+  },
+  {
+   "data": {
+    "lldp_switch": "B",
+    "name": "eth1",
+    "speed_mbps": "10000"
+   },
+   "h": 29.68,
+   "id": "profile:67025c1055ad:vs:vs0:nic:eth1",
+   "kind": "box",
+   "lines": [
+    {
+     "baseline": 9.44,
+     "bold": true,
+     "color": "#0F1A24",
+     "size": 6.5,
+     "text": "eth1",
+     "width": 12.53,
+     "x": 25.74
+    },
+    {
+     "baseline": 17.26,
+     "bold": false,
+     "color": "#3E4C59",
+     "size": 6.0,
+     "text": "10 GbE, up",
+     "width": 29.17,
+     "x": 17.42
+    },
+    {
+     "baseline": 24.94,
+     "bold": false,
+     "color": "#5B6976",
+     "size": 6.0,
+     "text": "LLDP: switch B",
+     "width": 39.74,
+     "x": 12.13
+    }
+   ],
+   "parent": "profile:67025c1055ad:host",
+   "style": {
+    "dash": null,
+    "fill": "#FFFFFF",
+    "radius": 1.5,
+    "stroke": "#0F1A24",
+    "stroke_w": 0.75
+   },
+   "w": 64.0,
+   "x": 123.25,
+   "y": 146.65
+  },
+  {
+   "data": {
+    "bridge": "br2",
+    "name": "vs2-guest",
+    "virtual_switch": "vs2-guest"
+   },
+   "h": 16.0,
+   "id": "profile:67025c1055ad:vs:vs2-guest",
+   "kind": "box",
+   "lines": [
+    {
+     "baseline": 10.62,
+     "bold": true,
+     "color": "#5B3FD9",
+     "size": 7.5,
+     "text": "vs2-guest",
+     "width": 34.2,
+     "x": 6.0
+    }
+   ],
+   "parent": "profile:67025c1055ad:host",
+   "style": {
+    "dash": null,
+    "fill": "#EAE8F8",
+    "radius": 2.25,
+    "stroke": "#5B3FD9",
+    "stroke_w": 0.75
+   },
+   "w": 224.5,
+   "x": 247.5,
+   "y": 72.32
+  },
+  {
+   "data": {},
+   "h": 16.0,
+   "id": "profile:67025c1055ad:vs:vs2-guest:bridge",
+   "kind": "label",
+   "lines": [
+    {
+     "baseline": 10.1,
+     "bold": false,
+     "color": "#3E4C59",
+     "size": 6.0,
+     "text": "bridge br2",
+     "width": 27.63,
+     "x": 0.0
+    }
+   ],
+   "parent": "profile:67025c1055ad:vs:vs2-guest",
+   "style": {
+    "dash": null,
+    "fill": null,
+    "radius": 0.0,
+    "stroke": null,
+    "stroke_w": 0.75
+   },
+   "w": 30.29,
+   "x": 435.71,
+   "y": 72.32
+  },
+  {
+   "data": {
+    "bond_mode": "BALANCE_SLB",
+    "mtu": "1500",
+    "name": "Uplink bond br2-up"
+   },
+   "h": 33.33,
+   "id": "profile:67025c1055ad:vs:vs2-guest:bond",
+   "kind": "box",
+   "lines": [
+    {
+     "baseline": 11.03,
+     "bold": true,
+     "color": "#0F1A24",
+     "size": 6.6,
+     "text": "Uplink bond br2-up",
+     "width": 57.93,
+     "x": 6.0
+    },
+    {
+     "baseline": 19.09,
+     "bold": false,
+     "color": "#3E4C59",
+     "size": 6.2,
+     "text": "Balance-slb",
+     "width": 32.15,
+     "x": 6.0
+    },
+    {
+     "baseline": 27.03,
+     "bold": false,
+     "color": "#3E4C59",
+     "size": 6.2,
+     "text": "2 x 10 GbE: eth2, eth3",
+     "width": 60.8,
+     "x": 6.0
+    }
+   ],
+   "parent": "profile:67025c1055ad:host",
+   "style": {
+    "dash": null,
+    "fill": "#FFFFFF",
+    "radius": 2.25,
+    "stroke": "#3E4C59",
+    "stroke_w": 0.68
+   },
+   "w": 224.5,
+   "x": 247.5,
+   "y": 97.32
+  },
+  {
+   "data": {},
+   "h": 9.5,
+   "id": "profile:67025c1055ad:vs:vs2-guest:bond:mtu",
+   "kind": "pill",
+   "lines": [
+    {
+     "baseline": 6.85,
+     "bold": true,
+     "color": "#0F1A24",
+     "size": 6.0,
+     "text": "MTU 1,500",
+     "width": 29.42,
+     "x": 4.38
+    }
+   ],
+   "parent": "profile:67025c1055ad:vs:vs2-guest:bond",
+   "style": {
+    "dash": null,
+    "fill": "#FFFFFF",
+    "radius": 1.5,
+    "stroke": "#3E4C59",
+    "stroke_w": 0.6
+   },
+   "w": 38.18,
+   "x": 427.82,
+   "y": 101.32
+  },
+  {
+   "data": {
+    "lldp_switch": "A",
+    "name": "eth2",
+    "speed_mbps": "10000"
+   },
+   "h": 29.68,
+   "id": "profile:67025c1055ad:vs:vs2-guest:nic:eth2",
+   "kind": "box",
+   "lines": [
+    {
+     "baseline": 9.44,
+     "bold": true,
+     "color": "#0F1A24",
+     "size": 6.5,
+     "text": "eth2",
+     "width": 13.52,
+     "x": 25.24
+    },
+    {
+     "baseline": 17.26,
+     "bold": false,
+     "color": "#3E4C59",
+     "size": 6.0,
+     "text": "10 GbE, up",
+     "width": 29.17,
+     "x": 17.42
+    },
+    {
+     "baseline": 24.94,
+     "bold": false,
+     "color": "#5B6976",
+     "size": 6.0,
+     "text": "LLDP: switch A",
+     "width": 40.14,
+     "x": 11.93
+    }
+   ],
+   "parent": "profile:67025c1055ad:host",
+   "style": {
+    "dash": null,
+    "fill": "#FFFFFF",
+    "radius": 1.5,
+    "stroke": "#0F1A24",
+    "stroke_w": 0.75
+   },
+   "w": 64.0,
+   "x": 292.75,
+   "y": 146.65
+  },
+  {
+   "data": {
+    "lldp_switch": "B",
+    "name": "eth3",
+    "speed_mbps": "10000"
+   },
+   "h": 29.68,
+   "id": "profile:67025c1055ad:vs:vs2-guest:nic:eth3",
+   "kind": "box",
+   "lines": [
+    {
+     "baseline": 9.44,
+     "bold": true,
+     "color": "#0F1A24",
+     "size": 6.5,
+     "text": "eth3",
+     "width": 13.39,
+     "x": 25.3
+    },
+    {
+     "baseline": 17.26,
+     "bold": false,
+     "color": "#3E4C59",
+     "size": 6.0,
+     "text": "10 GbE, up",
+     "width": 29.17,
+     "x": 17.42
+    },
+    {
+     "baseline": 24.94,
+     "bold": false,
+     "color": "#5B6976",
+     "size": 6.0,
+     "text": "LLDP: switch B",
+     "width": 39.74,
+     "x": 12.13
+    }
+   ],
+   "parent": "profile:67025c1055ad:host",
+   "style": {
+    "dash": null,
+    "fill": "#FFFFFF",
+    "radius": 1.5,
+    "stroke": "#0F1A24",
+    "stroke_w": 0.75
+   },
+   "w": 64.0,
+   "x": 362.75,
+   "y": 146.65
+  },
+  {
+   "data": {},
+   "h": 7.68,
+   "id": "profile:67025c1055ad:host:nics",
+   "kind": "label",
+   "lines": [
+    {
+     "baseline": 5.94,
+     "bold": false,
+     "color": "#5B6976",
+     "size": 6.0,
+     "text": "NICs: Intel X710 · driver i40e · firmware 9.40 · as reported on host dr-w01-n1",
+     "width": 204.32,
+     "x": 129.84
+    }
+   ],
+   "parent": "profile:67025c1055ad:host",
+   "style": {
+    "dash": null,
+    "fill": null,
+    "radius": 0.0,
+    "stroke": null,
+    "stroke_w": 0.75
+   },
+   "w": 464.0,
+   "x": 8.0,
+   "y": 180.33
+  },
+  {
+   "data": {
+    "chassis": "00:00:5E:00:53:20",
+    "model": "Arista DCS-7050SX3-48YC8",
+    "name": "Switch A"
+   },
+   "h": 36.31,
+   "id": "profile:67025c1055ad:lldp:A",
+   "kind": "box",
+   "lines": [
+    {
+     "baseline": 14.53,
+     "bold": true,
+     "color": "#0F1A24",
+     "size": 6.6,
+     "text": "Switch A: Arista DCS-7050SX3-48YC8",
+     "width": 117.9,
+     "x": 6.0
+    },
+    {
+     "baseline": 22.39,
+     "bold": false,
+     "color": "#3E4C59",
+     "size": 6.0,
+     "text": "Chassis 00:00:5E:00:53:20 · seen on eth0, eth2",
+     "width": 128.38,
+     "x": 6.0
+    },
+    {
+     "baseline": 30.07,
+     "bold": false,
+     "color": "#5B6976",
+     "size": 6.0,
+     "text": "Switch port: not reported",
+     "width": 68.44,
+     "x": 6.0
+    }
+   ],
+   "parent": null,
+   "style": {
+    "dash": null,
+    "fill": "#FFFFFF",
+    "radius": 2.25,
+    "stroke": "#3E4C59",
+    "stroke_w": 0.68
+   },
+   "w": 224.5,
+   "x": 8.0,
+   "y": 206.51
+  },
+  {
+   "data": {},
+   "h": 9.0,
+   "id": "profile:67025c1055ad:lldp:A:tag",
+   "kind": "tag",
+   "lines": [
+    {
+     "baseline": 6.6,
+     "bold": true,
+     "color": "#FFFFFF",
+     "size": 6.0,
+     "text": "LLDP NEIGHBOUR",
+     "width": 50.84,
+     "x": 5.02
+    }
+   ],
+   "parent": "profile:67025c1055ad:lldp:A",
+   "style": {
+    "dash": null,
+    "fill": "#3E4C59",
+    "radius": 1.9,
+    "stroke": null,
+    "stroke_w": 0.75
+   },
+   "w": 60.89,
+   "x": 14.0,
+   "y": 202.01
+  },
+  {
+   "data": {
+    "chassis": "00:00:5E:00:53:21",
+    "model": "Arista DCS-7050SX3-48YC8",
+    "name": "Switch B"
+   },
+   "h": 36.31,
+   "id": "profile:67025c1055ad:lldp:B",
+   "kind": "box",
+   "lines": [
+    {
+     "baseline": 14.53,
+     "bold": true,
+     "color": "#0F1A24",
+     "size": 6.6,
+     "text": "Switch B: Arista DCS-7050SX3-48YC8",
+     "width": 117.33,
+     "x": 6.0
+    },
+    {
+     "baseline": 22.39,
+     "bold": false,
+     "color": "#3E4C59",
+     "size": 6.0,
+     "text": "Chassis 00:00:5E:00:53:21 · seen on eth1, eth3",
+     "width": 125.55,
+     "x": 6.0
+    },
+    {
+     "baseline": 30.07,
+     "bold": false,
+     "color": "#5B6976",
+     "size": 6.0,
+     "text": "Switch port: not reported",
+     "width": 68.44,
+     "x": 6.0
+    }
+   ],
+   "parent": null,
+   "style": {
+    "dash": null,
+    "fill": "#FFFFFF",
+    "radius": 2.25,
+    "stroke": "#3E4C59",
+    "stroke_w": 0.68
+   },
+   "w": 224.5,
+   "x": 247.5,
+   "y": 206.51
+  },
+  {
+   "data": {},
+   "h": 9.0,
+   "id": "profile:67025c1055ad:lldp:B:tag",
+   "kind": "tag",
+   "lines": [
+    {
+     "baseline": 6.6,
+     "bold": true,
+     "color": "#FFFFFF",
+     "size": 6.0,
+     "text": "LLDP NEIGHBOUR",
+     "width": 50.84,
+     "x": 5.02
+    }
+   ],
+   "parent": "profile:67025c1055ad:lldp:B",
+   "style": {
+    "dash": null,
+    "fill": "#3E4C59",
+    "radius": 1.9,
+    "stroke": null,
+    "stroke_w": 0.75
+   },
+   "w": 60.89,
+   "x": 253.5,
+   "y": 202.01
+  },
+  {
+   "data": {},
+   "h": 7.5,
+   "id": "legend:0",
+   "kind": "swatch",
+   "lines": [],
+   "parent": null,
+   "style": {
+    "dash": null,
+    "fill": "#EAE8F8",
+    "radius": 2.25,
+    "stroke": "#5B3FD9",
+    "stroke_w": 0.75
+   },
+   "w": 17,
+   "x": 0.5,
+   "y": 253.32
+  },
+  {
+   "data": {},
+   "h": 10.5,
+   "id": "legend:0:label",
+   "kind": "label",
+   "lines": [
+    {
+     "baseline": 7.35,
+     "bold": false,
+     "color": "#3E4C59",
+     "size": 6.0,
+     "text": "Virtual switch",
+     "width": 36.81,
+     "x": 0.0
+    }
+   ],
+   "parent": null,
+   "style": {
+    "dash": null,
+    "fill": null,
+    "radius": 0.0,
+    "stroke": null,
+    "stroke_w": 0.75
+   },
+   "w": 40.02,
+   "x": 21.5,
+   "y": 251.82
+  },
+  {
+   "data": {},
+   "h": 7.5,
+   "id": "legend:1",
+   "kind": "swatch",
+   "lines": [],
+   "parent": null,
+   "style": {
+    "dash": null,
+    "fill": "#FFFFFF",
+    "radius": 2.25,
+    "stroke": "#3E4C59",
+    "stroke_w": 0.68
+   },
+   "w": 17,
+   "x": 75.52,
+   "y": 253.32
+  },
+  {
+   "data": {},
+   "h": 10.5,
+   "id": "legend:1:label",
+   "kind": "label",
+   "lines": [
+    {
+     "baseline": 7.35,
+     "bold": false,
+     "color": "#3E4C59",
+     "size": 6.0,
+     "text": "Bond, NIC or switch (reported)",
+     "width": 82.79,
+     "x": 0.0
+    }
+   ],
+   "parent": null,
+   "style": {
+    "dash": null,
+    "fill": null,
+    "radius": 0.0,
+    "stroke": null,
+    "stroke_w": 0.75
+   },
+   "w": 88.76,
+   "x": 96.52,
+   "y": 251.82
+  }
+ ],
+ "part": [
+  1,
+  1
+ ],
+ "schema": "ntnxvision.diagram.scene/1",
+ "title": "Host network configuration",
+ "type": "network",
+ "width": 480.0
+}
