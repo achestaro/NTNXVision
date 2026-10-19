@@ -337,6 +337,72 @@ export interface CollectionAreasResult {
   areas: CollectionArea[];
   /** Typical full-run duration in seconds per mode, for the summary's estimate. */
   typical_seconds: { prism_central: number; prism_element: number };
+  /** What "Run LCM inventory first" typically adds to a run, in seconds. */
+  lcm_inventory_typical_seconds?: number;
+}
+
+// ─── the optional LCM inventory ─────────────────────────────────────────
+
+/**
+ * One target's LCM inventory outcome. `pending` / `running` while the run lasts; then
+ * `succeeded`, `failed`, `timed_out`, `cancelled`, `skipped_busy` (another LCM operation,
+ * an upgrade for example, was running: see `busy`), `forbidden` (the account lacks the
+ * LCM permission) or `unavailable`.
+ */
+export type LcmInventoryStatus =
+  | 'pending'
+  | 'running'
+  | 'succeeded'
+  | 'failed'
+  | 'timed_out'
+  | 'cancelled'
+  | 'skipped_busy'
+  | 'forbidden'
+  | 'unavailable';
+
+/** An LCM operation found running on a target, which is why no inventory was started there. */
+export interface LcmBusyInfo {
+  /** LCM's operationType: UPGRADE, PRECHECKS, UPLOAD, ... */
+  operation?: string | null;
+  description?: string | null;
+  percent?: number | null;
+  started_at?: string | null;
+  task_id?: string | null;
+  components: { name?: string | null; from_version?: string | null; to_version?: string | null }[];
+}
+
+export interface LcmInventoryTargetInfo {
+  /** Cluster uuid; null for Prism Central itself. */
+  target_id?: string | null;
+  name?: string | null;
+  kind: 'prism_central' | 'cluster';
+  status: LcmInventoryStatus;
+  /** An inventory was already running: the run waited for it instead of starting one. */
+  joined: boolean;
+  task_id?: string | null;
+  percent?: number | null;
+  started_at?: string | null;
+  finished_at?: string | null;
+  duration_ms?: number | null;
+  detail?: string | null;
+  busy?: LcmBusyInfo | null;
+  /** The Prism Central of this target in a combined run. */
+  source_pc?: string | null;
+}
+
+/** The optional LCM inventory of a run (stored on the snapshot's run metadata). */
+export interface LcmInventoryInfo {
+  /** False: the run did not ask for one (the default). */
+  requested: boolean;
+  /** 'v4' lifecycle API, or 'genesis' (the legacy LCM interface of pc.2024.1 / pc.2024.2). */
+  api?: 'v4' | 'genesis' | null;
+  timeout_s?: number | null;
+  started_at?: string | null;
+  finished_at?: string | null;
+  duration_ms?: number | null;
+  /** Why it did not run at all (a Prism Central without the v4 lifecycle API). */
+  detail?: string | null;
+  targets?: LcmInventoryTargetInfo[];
 }
 
 // ─── running a collection ───────────────────────────────────────────────
@@ -390,6 +456,12 @@ export interface CollectionRequest {
   ndb?: NdbRequest;
   /** Optional vCenter enrichment of the ESXi clusters (password from the keychain). */
   vcenter?: VcenterRequest;
+  /**
+   * Prism Central with the LCM area selected: start an LCM inventory on Prism Central and
+   * each selected cluster before collecting LCM (the one non-read action; upgrades
+   * nothing). Off unless exactly true; never remembered or inherited.
+   */
+  lcmInventory?: boolean;
 }
 
 export interface MultiCollectionTarget {
@@ -422,6 +494,8 @@ export interface MultiCollectionRequest {
   combine: boolean;
   /** Snapshot name of the combined result (required when combining). */
   combinedName?: string;
+  /** Run an LCM inventory first on every target (see CollectionRequest.lcmInventory). */
+  lcmInventory?: boolean;
 }
 
 /** Returned at once by startCollection / startMultiCollection; the run continues in the background. */
@@ -483,7 +557,14 @@ export interface RunPhaseEvent extends TargetTag {
   label: string;
 }
 
-export type RunProgressEvent = RunStartedEvent | RunAreaEvent | RunPhaseEvent;
+/** The LCM inventory changed: per-target status and progress (only when requested). */
+export interface RunLcmInventoryEvent extends TargetTag {
+  type: 'lcm_inventory';
+  runId: string;
+  inventory: LcmInventoryInfo;
+}
+
+export type RunProgressEvent = RunStartedEvent | RunAreaEvent | RunPhaseEvent | RunLcmInventoryEvent;
 
 /** A report file written by a run or an export. */
 export interface ReportFile {
@@ -562,6 +643,8 @@ export interface InventoryResult {
   compat?: CompatInfo | null;
   /** Clusters the run collected (null: combined run). */
   scope?: ClusterScopeInfo | null;
+  /** The optional LCM inventory ({requested: false} when not asked for). */
+  lcm_inventory?: LcmInventoryInfo | null;
 }
 
 export type MultiTargetResult =
@@ -624,6 +707,8 @@ export interface SnapshotRunInfo {
   reports?: ReportFile[];
   warnings?: string[];
   scope?: ClusterScopeInfo | null;
+  /** Absent on snapshots older than the option. */
+  lcm_inventory?: LcmInventoryInfo | null;
 }
 
 export interface SnapshotDetail extends SnapshotInfo {

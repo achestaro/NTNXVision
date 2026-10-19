@@ -48,6 +48,7 @@ import { RatioOverrides, initialRatioText, ratioIssue, ratioOverrides } from './
 import type { RatioText } from './RatioOverrides';
 import { TestOutcome, connectionSummary } from './ConnectionTest';
 import type { TestState } from './ConnectionTest';
+import { LCM_INVENTORY_DEFAULT_SECONDS, LcmInventoryToggle } from './LcmInventory';
 
 const FORMATS: { id: ExportFormat; label: string; desc: string }[] = [
   { id: 'excel', label: 'Excel workbook', desc: 'One sheet per object type, RVTools-style' },
@@ -86,6 +87,9 @@ export function NewCollectionView({
   const [vcOn, setVcOn] = useState(false);
   const [vcHost, setVcHost] = useState('');
   const [vcUser, setVcUser] = useState('');
+  // Off by default and per run: never remembered, reset when the target changes.
+  const [lcmInv, setLcmInv] = useState(false);
+  useEffect(() => setLcmInv(false), [selected]);
 
   const [fmt, setFmt] = useState<Record<ExportFormat, boolean>>({ excel: true, pdf: false, word: false });
   const [name, setName] = useState('');
@@ -293,10 +297,14 @@ export function NewCollectionView({
   const chosenAreas = available.filter(isOn);
 
   const chosenFormats = FORMATS.filter((f) => fmt[f.id]);
-  const typical =
+  const lcmChosen = chosenAreas.some((a) => a.id === 'lcm');
+  const lcmOn = lcmInv && !isPe && lcmChosen;
+  const lcmExtra = catalogue.data?.lcm_inventory_typical_seconds ?? LCM_INVENTORY_DEFAULT_SECONDS;
+  const baseTypical =
     (test.kind === 'done' ? test.result.typical_seconds : null) ??
     catalogue.data?.typical_seconds?.[mode] ??
     null;
+  const typical = baseTypical === null ? null : baseTypical + (lcmOn ? lcmExtra : 0);
 
   const connection = connectionSummary(test);
 
@@ -351,6 +359,7 @@ export function NewCollectionView({
         ndb: !isPe && ndbOn && ndbHost ? { host: ndbHost, username: ndbUser, password: '' } : undefined,
         // So do the vCenter's details and password (ESXi enrichment).
         vcenter: !isPe && vcOn && vcHost ? { host: vcHost, username: vcUser, password: '' } : undefined,
+        lcmInventory: lcmOn,
       });
       if (prefix !== (settings.filePrefix ?? '')) void update({ filePrefix: prefix });
     } catch (err) {
@@ -669,6 +678,12 @@ export function NewCollectionView({
                   </div>
                 </div>
               </div>
+              <LcmInventoryToggle
+                checked={lcmOn}
+                onChange={setLcmInv}
+                disabled={isPe || !lcmChosen}
+                reason={isPe ? 'Prism Central only: LCM is collected through Prism Central.' : 'Select the LCM firmware and software area to use it.'}
+              />
             </div>
           </Panel>
 
@@ -788,6 +803,12 @@ export function NewCollectionView({
               <div className="kv">
                 <dt>Reports</dt>
                 <dd className="strong">{chosenFormats.length ? chosenFormats.map((f) => f.label.split(' ')[0]).join(', ') : 'Snapshot only'}</dd>
+              </div>
+              <div className="kv">
+                <dt>LCM inventory</dt>
+                <dd className={lcmOn ? 'strong' : undefined} data-testid="summary-lcm">
+                  {lcmOn ? `On, adds ≈ ${Math.max(1, Math.round(lcmExtra / 60))} min` : 'Off'}
+                </dd>
               </div>
               <div className="kv">
                 <dt>Typical time</dt>

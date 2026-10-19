@@ -1313,12 +1313,19 @@ def report_instance_v3(r: dict[str, Any]) -> dict[str, Any]:
                                      "generation_end_time": r["last_run"]}}}
 
 
-def lcm_entity_v4(e: dict[str, Any]) -> dict[str, Any]:
+def lcm_entity_v4(e: dict[str, Any], upgrading: bool = False) -> dict[str, Any]:
+    """An LCM entity. With `upgrading` an upgrade is in progress on its cluster, so
+    targetVersion names the newest version on offer. lastUpdatedTime is when the entity
+    last changed, not when it was last inventoried (as on a live PC), so an inventory
+    leaves it alone."""
+    target = e["version"]
+    if upgrading and e["available"] and e["model"] in ("AOS", "AHV hypervisor"):
+        target = max(e["available"], key=lambda x: x[1])[0]
     return _v4("lifecycle.v4.resources.Entity", {
         "extId": e["uuid"], "entityModel": e["model"], "entityClass": e["class"],
         "entityType": e["type"], "entityVersion": e["version"],
-        # Equals entityVersion while no upgrade is staged — not an upgrade target.
-        "targetVersion": e["version"],
+        # Equals entityVersion unless an upgrade is staged — not an upgrade target.
+        "targetVersion": target,
         "availableVersions": [{"version": v, "isEnabled": True, "order": o,
                                "status": "RECOMMENDED" if o == max(x[1] for x in e["available"])
                                else "AVAILABLE"} for v, o in e["available"]],
@@ -1327,11 +1334,13 @@ def lcm_entity_v4(e: dict[str, Any]) -> dict[str, Any]:
     })
 
 
-def lcm_status_v4(stale: bool = False) -> dict[str, Any]:
+def lcm_status_v4(stale: bool = False, operation: dict[str, Any] | None = None
+                  ) -> dict[str, Any]:
     return _v4("lifecycle.v4.resources.StatusInfo", {
         "frameworkVersion": {"currentVersion": "3.1.2" if stale else "3.2",
                              "availableVersion": "3.2", "isUpdateNeeded": stale},
-        "inProgressOperation": {},
+        "inProgressOperation": {"$objectType": "lifecycle.v4.resources.InProgressOpInfo",
+                                **(operation or {})},
     })
 
 

@@ -142,6 +142,12 @@ class Features:
     groups_mh_vm: bool = False
     #: LCM reports its own framework as out of date (an LCM "with notes" outcome).
     lcm_framework_stale: bool = False
+    #: LCM operations already running when the PC is first asked: (cluster index, -1 for
+    #: Prism Central itself; "inventory" | "upgrade"). See `synthetic.lcm`.
+    lcm_running: tuple[tuple[int, str], ...] = ()
+    #: How an LCM inventory started through the API ends: succeeded / failed /
+    #: forbidden / status_forbidden / stuck.
+    lcm_outcome: str = "succeeded"
     #: Prism Central proxies Prism Element APIs (``proxyClusterUuid``), as real PCs do.
     #: Off: the proxy answers 403, which leaves only the groups API as an ESXi fallback.
     pe_proxy: bool = True

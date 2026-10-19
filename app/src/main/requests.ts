@@ -132,6 +132,7 @@ export function asCollectionRequest(v: unknown): CollectionRequest {
   optStr(r.filePrefix, 'filePrefix', 200);
   optNdb(r.ndb, 'ndb');
   optVcenter(r.vcenter, 'vcenter');
+  optBool(r.lcmInventory, 'lcmInventory');
   return r as unknown as CollectionRequest;
 }
 
@@ -151,6 +152,7 @@ export function asMultiCollectionRequest(v: unknown): MultiCollectionRequest {
   optStr(r.filePrefix, 'filePrefix', 200);
   bool(r.combine, 'combine');
   optStr(r.combinedName, 'combinedName', 256);
+  optBool(r.lcmInventory, 'lcmInventory');
   return r as unknown as MultiCollectionRequest;
 }
 

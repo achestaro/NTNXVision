@@ -64,6 +64,13 @@ from ntnxvision_core.engine import (
 )
 from ntnxvision_core.exporters import export_environment, extension_for
 from ntnxvision_core.exporters.naming import report_path
+from ntnxvision_core.lcm_inventory import (
+    DEFAULT_TIMEOUT_S,
+    MAX_TIMEOUT_S,
+    MIN_TIMEOUT_S,
+    InventoryOptions,
+    valid_timeout,
+)
 from ntnxvision_core.paths import demo_enabled, exports_dir, snapshots_dir
 from ntnxvision_core.runinfo import CombinedTracker, RunTracker, build_run_metadata
 from ntnxvision_core.store import SnapshotStore, transfer
@@ -509,6 +516,7 @@ def _finalize(env: Any, name: str, params: dict[str, Any], *,
         "api_routing": run.get("api_routing") or [],
         "compat": run.get("compat"),
         "scope": run.get("scope"),
+        "lcm_inventory": run.get("lcm_inventory"),
     })
     return result
 
@@ -674,6 +682,29 @@ def _ratio_overrides_param(raw: Any) -> dict[str, float]:
     return out
 
 
+def _lcm_inventory_param(params: dict[str, Any]) -> InventoryOptions | None:
+    """The run's LCM inventory option: None (off) unless ``lcm_inventory`` is exactly
+    true. A non-boolean value or an out-of-range timeout is a caller error, refused
+    before anything is collected: the option starts work on the customer's systems, so
+    it is never inferred from a truthy value."""
+    flag = params.get("lcm_inventory", False)
+    if flag is None:
+        flag = False
+    if not isinstance(flag, bool):
+        raise NutanixApiError("lcm_inventory must be true or false.")
+    if not flag:
+        return None
+    raw = params.get("lcm_inventory_timeout_s")
+    timeout = DEFAULT_TIMEOUT_S if raw is None else valid_timeout(raw)
+    if timeout is None:
+        raise NutanixApiError(
+            f"lcm_inventory_timeout_s must be {MIN_TIMEOUT_S:,} to {MAX_TIMEOUT_S:,} seconds.")
+    if demo_enabled():
+        # The mock's inventories take seconds: poll often so the demo shows progress.
+        return InventoryOptions(timeout_s=timeout, poll_initial_s=1.0, poll_max_s=2.0)
+    return InventoryOptions(timeout_s=timeout)
+
+
 def _m_inventory(req_id: Any, params: dict[str, Any]) -> dict[str, Any]:
     handle = _runs.begin(params.get("run_id"))
     try:
@@ -688,12 +719,14 @@ def _m_inventory(req_id: Any, params: dict[str, Any]) -> dict[str, Any]:
         )
         name = snapshot_name_for(params.get("name"), unique=bool(params.get("unique_name")))
         overrides = _ratio_overrides_param(params.get("vcpu_ratio_overrides"))
+        lcm = _lcm_inventory_param(params)
         tracker = RunTracker(_emit_progress, run_id=handle.run_id, mode="prism_central",
                              host=creds.host, name=name, formats=params.get("formats") or [])
         env = collect_environment(creds, ndb_creds=_ndb_from(params.get("ndb"), insecure),
                                   vcenter_creds=_vcenter_from(params.get("vcenter"), insecure),
                                   areas=params.get("areas"), cancel=handle.token,
-                                  tracker=tracker, clusters=_clusters_param(params))
+                                  tracker=tracker, clusters=_clusters_param(params),
+                                  lcm_inventory=lcm)
         apply_targets(env, params.get("vcpu_ratio"), overrides)
         result = _finalize(env, name, params, tracker=tracker, mode="prism_central",
                            handle=handle)
@@ -750,6 +783,7 @@ def _m_inventory_multi(req_id: Any, params: dict[str, Any]) -> dict[str, Any]:
         store = _store()
         claimed: set[str] = set()
         unique = bool(params.get("unique_name"))
+        params["_lcm"] = _lcm_inventory_param(params)  # one option for every target
         for t in targets:
             _clusters_param(t)  # a bad per-target cluster list fails before collecting
             t["vcpu_ratio_overrides"] = _ratio_overrides_param(t.get("vcpu_ratio_overrides"))
@@ -798,7 +832,8 @@ def _multi(handle: RunHandle, targets: list[dict[str, Any]], params: dict[str, A
             env = collect_environment(creds, ndb_creds=_ndb_from(t.get("ndb"), insecure),
                                       vcenter_creds=_vcenter_from(t.get("vcenter"), insecure),
                                       areas=params.get("areas"), cancel=handle.token,
-                                      tracker=tracker, clusters=_clusters_param(t))
+                                      tracker=tracker, clusters=_clusters_param(t),
+                                      lcm_inventory=params.get("_lcm"))
             apply_targets(env, params.get("vcpu_ratio"), t.get("vcpu_ratio_overrides"))
             tracker.finish()
             outcomes[i] = (env, tracker, None)

@@ -42,6 +42,13 @@ from ntnxvision_core.exporters.theme import (
     switch_label,
     tone_for,
 )
+from ntnxvision_core.lcm_inventory import (
+    provenance,
+    report_rows,
+    report_sentence,
+    started_count,
+    targets_phrase,
+)
 from ntnxvision_core.models import Environment
 from ntnxvision_core.numfmt import NA, PLAIN_HEADERS, fmt_count, fmt_ratio
 from ntnxvision_core.versions import pc_version
@@ -592,8 +599,7 @@ class _Builder:
             title="Nutanix Platform Architecture & Inventory Report",
             subtitle=subtitle,
             meta=meta,
-            note=("Confidential. Generated from a read-only inventory snapshot; no "
-                  "configuration was changed."),
+            note=f"Confidential. {provenance(env.lcm_inventory)}",
         )
 
     # ─ chapters ─
@@ -749,9 +755,13 @@ class _Builder:
             apis = "the Prism Central v4 and v3 APIs"
             if any(a.get("api") == "era" for a in self.areas):
                 apis += " and the NDB (Era) API"
+        started = started_count(env.lcm_inventory)
         items = [
             f"Inventory was collected read-only via {apis}; no configuration changes were "
-            "made.",
+            "made." if not started else
+            f"Inventory was collected read-only via {apis}, except that an LCM inventory "
+            f"was run on {targets_phrase(started)} before collection (it refreshes LCM's "
+            "view and upgrades nothing); no configuration changes were made.",
             f"Data reflects the environment state at the collection time ({collected_label(env)}).",
             "Feature availability depends on installed licenses and the platform version; "
             "areas not deployed are listed below rather than shown as empty sections.",
@@ -1342,6 +1352,8 @@ class _Builder:
         ents = env.lcm_entities
         if not ents:
             return ch
+        if (fresh := report_sentence(env.lcm_inventory)):
+            ch.blocks.append(Paragraph(clean(fresh)))
         pending = sum(1 for e in ents if e.update_available)
         unknown = sum(1 for e in ents if e.update_available is None)
         ch.blocks.append(Paragraph(
@@ -1409,6 +1421,21 @@ class _Builder:
                           r_src if env.is_combined else None),
                Bullets([clean(w) for w in env.warnings], intro="Compatibility warnings:")
                if env.warnings else None)
+        inv = env.lcm_inventory
+        if inv is not None and inv.requested:
+            rows = [[clean(c) if isinstance(c, str) else c for c in row]
+                    for row in report_rows(inv)]
+            ch.add("LCM Inventory", Paragraph(
+                "The run asked LCM to refresh its inventory before collecting LCM, the "
+                "only request NTNXVision makes that starts work on a Nutanix system. An "
+                "inventory upgrades nothing. Targets busy with another LCM operation were "
+                "not inventoried."
+                + (f" {clean(inv.detail)[:1].upper()}{clean(inv.detail)[1:]}."
+                   if inv.detail and not inv.targets else "")),
+                make_table(["Cluster", "Result", "Duration", "Task", "Detail"], rows,
+                           "LCM inventory per target",
+                           [t.source_pc or "" for t in inv.targets] if env.is_combined
+                           else None))
         return ch
 
 
