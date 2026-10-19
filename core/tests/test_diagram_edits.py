@@ -612,6 +612,40 @@ def test_word_tables_never_orphan_their_header(env: Environment, tmp_path: Path)
         assert any(item in t for t in texts), item
 
 
+def test_word_columns_hold_their_longest_word(enterprise: Environment, tmp_path: Path) -> None:
+    """Every Word table's columns are at least as wide as their longest word measured
+    with real font metrics (so "NYC-PROD-01" never breaks at its hyphen); when the
+    minimums cannot all fit, the Cluster column still gets its own."""
+    from docx import Document
+    from docx.oxml.ns import qn
+
+    from ntnxvision_core.exporters import export_environment
+    from ntnxvision_core.exporters.word import CELL_PAD_PT, MAX_WORD_PT, _text_pt
+
+    doc = Document(str(export_environment(enterprise, "word", tmp_path, "ent")))
+    checked = 0
+    for table in doc.tables:
+        rows = table.rows
+        tr_pr = rows[0]._tr.trPr
+        if tr_pr is None or tr_pr.find(qn("w:tblHeader")) is None:
+            continue  # figure and summary layout tables
+        grid = [int(c.get(qn("w:w"))) / 20 for c in
+                table._tbl.tblGrid.findall(qn("w:gridCol"))]
+        need = []
+        for ci in range(len(grid)):
+            words = [(w, ri == 0) for ri, r in enumerate(rows)
+                     for w in r.cells[ci].text.split()]
+            longest = max((_text_pt(w, b) for w, b in words), default=0.0)
+            need.append(min(longest, MAX_WORD_PT) + CELL_PAD_PT)
+        head = rows[0].cells[0].text
+        if sum(need) <= sum(grid) + 1:
+            assert all(g >= n - 1 for g, n in zip(grid, need, strict=True)), (head, grid, need)
+        elif head == "Cluster":
+            assert grid[0] >= need[0] - 1, (grid, need)
+        checked += 1
+    assert checked > 10
+
+
 def test_empty_user_zone_is_only_its_header(env: Environment) -> None:
     [scene] = _scenes(env, [{"op": "add", "parent": None, "field": "sites", "index": 99,
                              "element": {"id": "user:az", "palette": "az", "name": "Colo"}}])
