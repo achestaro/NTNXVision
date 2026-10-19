@@ -3,7 +3,8 @@ network and security figures N1 to N3): the AZ's figure (in parts when large) wi
 design summary, then the AZ's tables, which list everything the figure summarises.
 
 The figure draws the Diagrams page's saved edit (`figure_model`); the summary and the
-tables come from the generated model, plus one bullet disclosing the edit. AZs past
+tables come from the generated model, plus one bullet disclosing the edits inside that
+AZ (an AZ no edit touches has no bullet and no "(edited)" caption). AZs past
 `MAX_AZ_FIGURES` get their tables only, in one closing section with a note.
 """
 
@@ -40,7 +41,6 @@ class PerAz:
 def build(b: Any, ch: Chapter, dtype: Any, spec: PerAz) -> bool:
     model = dtype.build_model(b.env)
     drawn = b.figure_model(dtype, model)
-    edit_note = b.edit_disclosure(dtype, model, drawn)
     sites = spec.sites(model)
     if not sites:
         return False
@@ -48,6 +48,8 @@ def build(b: Any, ch: Chapter, dtype: Any, spec: PerAz) -> bool:
     many = len(sites) > 1
     for site in sites[:MAX_AZ_FIGURES]:
         bullets = spec.bullets(site)
+        # Each AZ's section discloses only the edits inside that AZ.
+        edit_note = b.edit_disclosure(dtype, model, drawn, {site.id})
         if edit_note:
             bullets = [*bullets[:4], edit_note]
         # The drawn (edited) model itself is laid out, one AZ at a time.
@@ -58,6 +60,7 @@ def build(b: Any, ch: Chapter, dtype: Any, spec: PerAz) -> bool:
             scenes = dtype.layout(src, dtype.page, None, first_part_budget(bullets, True),
                                   site=site.id)
         figs = [SceneFigure(sc, sc.caption) for sc in scenes]
+        b.scope_edit_marks(dtype, model, drawn, figs, lambda sc, sid=site.id: {sid})
         if figs:
             figs[0].summary = bullets
         tables = [t for t in spec.tables(site) if t is not None]
@@ -79,7 +82,9 @@ def build(b: Any, ch: Chapter, dtype: Any, spec: PerAz) -> bool:
 def _finalize(dtype: Any, figs: list[SceneFigure], tables: list[Table], model: Any,
               site: str, bullets: list[str]) -> None:
     """Point the figure's "+N more" text at the numbered table, chain the parts."""
-    if tables and figs:
+    if not figs or not figs[0].label:  # the chapter is left out of this report
+        return
+    if tables:
         ref = tables[0].label.rstrip(".")
         scenes = [f.scene for f in figs]
         again = dtype.layout(model, dtype.page, Refs(clusters_table=ref),
@@ -87,7 +92,7 @@ def _finalize(dtype: Any, figs: list[SceneFigure], tables: list[Table], model: A
         if [sc.part for sc in again] == [sc.part for sc in scenes]:
             for f, sc in zip(figs, again, strict=True):
                 f.scene = sc
-                f.caption = sc.caption
+                sc.caption = f.caption  # as scoped (scope_edit_marks)
         if any(f.scene.meta.get("summarised") for f in figs):
             figs[-1].note = f"Everything a \"+N more\" card stands for is listed in {ref}."
     continued_notes(figs)

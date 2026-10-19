@@ -189,3 +189,83 @@ def test_prism_element_run_is_titled_with_the_element() -> None:
     H.assert_clean([sc])
     assert "PRISM ELEMENT" in H.texts(sc) and "pe01.example.lab" in H.texts(sc)
     assert "No VLAN id carries two different prefixes in this cluster." in N1.bullets(site)
+
+
+def _report(env: Any, **opts: Any) -> Any:
+    from ntnxvision_core.exporters import ExportOptions
+    from ntnxvision_core.exporters.content import build_report
+
+    r = build_report(env, ExportOptions(**opts), "Report")
+    assert r.warnings == []
+    return r
+
+
+def _figures(r: Any, type_id: str) -> list[Any]:
+    from ntnxvision_core.exporters.content import SceneFigure
+
+    return [b for ch in r.chapters for s in ch.sections for b in s.blocks
+            if isinstance(b, SceneFigure) and b.scene.type == type_id]
+
+
+NET_TYPES = [("segments", "networking"), ("vpc", "networking"), ("flow", "security")]
+
+
+@pytest.mark.parametrize(("type_id", "chapter"), NET_TYPES)
+def test_left_out_or_reordered_chapters(design_envs: dict[str, Any], type_id: str,
+                                        chapter: str) -> None:
+    """A per-AZ figure follows its chapter: left out, it is in neither the report nor
+    the diagrams bundle; moved, it is numbered in the chapter's new place."""
+    from ntnxvision_core.diagrams.bundle import report_scenes
+    from ntnxvision_core.exporters import sections
+
+    env = design_envs["medium"]
+    assert TYPES[type_id].applies(env)
+    every = frozenset(s.id for s in sections.CATALOG)
+    assert _figures(_report(env), type_id)
+    out = _report(env, chapters=every - {chapter})
+    assert not _figures(out, type_id)
+    assert all(sc.type != type_id for sc in report_scenes(env, {"chapters": sorted(
+        every - {chapter})}))
+    assert any(sc.type == type_id for sc in report_scenes(env))
+    order = (chapter, *(s for s in sections.DEFAULT_ORDER if s != chapter))
+    moved = _report(env, section_order=order)
+    figs = _figures(moved, type_id)
+    num = next(ch.number for ch in moved.chapters if ch.key == chapter)
+    assert figs and all(f.label.startswith(f"Figure {num}-") for f in figs)
+    assert all(f.caption and "(edited)" not in f.caption for f in figs)
+
+
+@pytest.mark.parametrize(("type_id", "chapter"), NET_TYPES)
+def test_edit_disclosed_only_in_its_own_az(design_envs: dict[str, Any], type_id: str,
+                                           chapter: str) -> None:
+    """A rename in the first AZ: that AZ's section says "(edited)" and discloses it;
+    the other AZs' sections are as generated."""
+    from ntnxvision_core.diagrams.edits import walk
+
+    env = design_envs["enterprise"]
+    t = TYPES[type_id]
+    gen = t.build_model(env)
+    doc = t.to_doc(gen)
+    first = gen.sites[0].id
+    slots = walk(doc, t.edit_spec)
+
+    def site_of(i: str | None) -> str | None:
+        while i is not None and i != first:
+            i = slots[i].parent if i in slots else None
+        return i
+
+    target = next(i for i, sl in slots.items() if site_of(i) == first and i != first
+                  and (c := t.edit_spec.collection(sl.field)) is not None and c.label)
+    payload, problems = H.edit(type_id, env, [{"op": "set", "id": target, "field": "label",
+                                               "value": "Renamed by author"}])
+    assert problems == []
+    r = _report(env, diagram_models={type_id: t.from_doc(payload)})
+    figs = _figures(r, type_id)
+    mine = [f for f in figs if f.scene.meta["group"] == first]
+    other = [f for f in figs if f.scene.meta["group"] != first]
+    assert mine and other
+    assert all("(edited)" in f.caption for f in mine)
+    assert any(b.startswith("Figure edited") and "Renamed by author" in b
+               for b in mine[0].summary)
+    assert all("(edited)" not in f.caption for f in other)
+    assert not any(b.startswith("Figure edited") for f in other for b in f.summary)

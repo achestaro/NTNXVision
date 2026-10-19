@@ -27,6 +27,7 @@ from ..netcommon import (
     P,
     az_container,
     label_right,
+    mark_edited,
     more_card,
     pill_right,
     pill_w,
@@ -392,12 +393,12 @@ def layout(model: SegmentsModel, page: Page | None = None, refs: Refs | None = N
     out: list[Scene] = []
     if site is not None:
         one = next((s for s in model.sites if s.id == site), None)
-        return layout_site(one, page, refs, first_budget) if one is not None and \
-            (one.clusters) else []
+        return mark_edited(layout_site(one, page, refs, first_budget), model.edited) \
+            if one is not None and (one.clusters) else []
     for i, s in enumerate(model.sites[:MAX_AZ_FIGURES]):
         if s.clusters:
             out.extend(layout_site(s, page, refs, first_budget if i == 0 else None))
-    return out
+    return mark_edited(out, model.edited)
 
 
 __all__ = ["PG_SWITCH", "layout", "layout_site"]
