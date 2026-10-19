@@ -44,6 +44,7 @@ from ntnxvision_core.exporters.content import (
 )
 from ntnxvision_core.exporters.pdf import PdfExporter, _Pdf
 from ntnxvision_core.exporters.tables import COMPARE_TYPES, SPECS
+from ntnxvision_core.lcm_inventory import provenance
 from ntnxvision_core.models import Environment
 from ntnxvision_core.numfmt import NA, fmt_count
 
@@ -160,8 +161,8 @@ def build_comparison_report(base: Environment, cur: Environment, base_name: str,
     return Report(
         cover=Cover(eyebrow="Snapshot comparison", title="What Changed",
                     subtitle=scope, meta=meta,
-                    note=("Confidential. Generated from read-only inventory snapshots; no "
-                          "configuration was changed.")),
+                    note="Confidential. " + provenance(base.lcm_inventory,
+                                                       cur.lcm_inventory, snapshots=2)),
         chapters=chapters,
         title=f"Snapshot comparison: {scope}",
         subject="What changed between two NTNXVision inventory snapshots",

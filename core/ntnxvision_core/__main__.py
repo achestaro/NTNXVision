@@ -100,6 +100,13 @@ def inventory(
         None, help="Optional vCenter of the ESXi clusters, for ESXi details Nutanix lacks"),
     vcenter_username: str = typer.Option(None, help="vCenter username"),
     vcenter_password: str = typer.Option(None, help="vCenter password (prompted if host given)"),
+    lcm_inventory: bool = typer.Option(
+        False, "--lcm-inventory",
+        help="Before collecting LCM, start an LCM inventory on Prism Central and every "
+             "cluster (the one non-read action; it upgrades nothing and can take several "
+             "minutes). Off by default."),
+    lcm_inventory_timeout: int = typer.Option(
+        1800, "--lcm-inventory-timeout", help="Seconds to wait for the LCM inventory"),
 ) -> None:
     """Connect, collect the full platform inventory, snapshot it, and export."""
     pwd = password or getpass.getpass("Prism Central password: ")
@@ -121,10 +128,21 @@ def inventory(
     def progress(idx: int, total: int, label: str, status: str) -> None:
         console.print(f"  [{idx + 1}/{total}] {label}: [dim]{status}[/dim]")
 
+    lcm = None
+    if lcm_inventory:
+        from ntnxvision_core.lcm_inventory import InventoryOptions, valid_timeout
+
+        timeout = valid_timeout(lcm_inventory_timeout)
+        if timeout is None:
+            raise typer.BadParameter("--lcm-inventory-timeout must be 60 to 21,600 seconds")
+        lcm = InventoryOptions(timeout_s=timeout)
+        console.print("[yellow]LCM inventory requested: an inventory task starts on Prism "
+                      "Central and each cluster (nothing is upgraded).[/yellow]")
+
     try:
         console.print(f"[bold]Connecting[/bold] to {host} …")
         env = collect_environment(creds, progress=progress, ndb_creds=ndb_creds,
-                                  vcenter_creds=vc_creds)
+                                  vcenter_creds=vc_creds, lcm_inventory=lcm)
     except NutanixApiError as exc:
         console.print(f"[red]Collection failed:[/red] {exc}")
         raise typer.Exit(1) from exc

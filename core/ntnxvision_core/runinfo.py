@@ -92,6 +92,8 @@ class RunTracker:
         self._lock = threading.Lock()
         self.objects_total = 0
         self.clusters = 0
+        #: The LCM inventory's last state (`LcmInventoryRun` as a dict), when requested.
+        self.inventory: dict[str, Any] | None = None
 
     # ─── events ────────────────────────────────────────────────────
 
@@ -101,7 +103,10 @@ class RunTracker:
         payload = {**payload, "run_id": self.run_id, **self.target}
         self._emit(payload)
 
-    def start(self, areas: list[Area], version: str | None) -> None:
+    def start(self, areas: list[Area], version: str | None, *,
+              extra_seconds: int = 0) -> None:
+        """Announce the run. `extra_seconds` adds to the typical duration (an LCM
+        inventory requested for the run)."""
         self.version = version
         with self._lock:
             self.areas = []
@@ -122,7 +127,7 @@ class RunTracker:
             "name": self.name,
             "version": version,
             "formats": self.formats,
-            "typical_seconds": TYPICAL_SECONDS.get(self.mode, 240),
+            "typical_seconds": TYPICAL_SECONDS.get(self.mode, 240) + extra_seconds,
             "areas": [dict(a) for a in self.areas],
         })
 
@@ -161,6 +166,23 @@ class RunTracker:
                 self.clusters = clusters
             snapshot = dict(entry)
         self._area_event(snapshot)
+
+    def lcm_inventory(self, run: Any) -> None:
+        """The LCM inventory changed (an `LcmInventoryRun`): emit its per-target state and
+        show its progress on the LCM area while that is still waiting for it."""
+        from ntnxvision_core.lcm_inventory import progress_line
+
+        self.inventory = run.model_dump()
+        snapshot = None
+        with self._lock:
+            entry = self._by_id.get("lcm")
+            if entry is not None and entry["status"] in ("pending", "running") \
+                    and run.targets:
+                entry["detail"] = progress_line(run)
+                snapshot = dict(entry)
+        self._send({"type": "lcm_inventory", "inventory": self.inventory})
+        if snapshot is not None:
+            self._area_event(snapshot)
 
     def cancel_pending(self) -> None:
         """Mark everything that never finished as cancelled (no events: the run is over)."""
@@ -437,6 +459,9 @@ def build_run_metadata(
         # Which registered clusters the run collected (None: every cluster, recorded
         # before cluster selection existed, or a combined run).
         "scope": scope_dict(env.cluster_scope),
+        # The optional LCM inventory (requested False: the run did not ask for one).
+        "lcm_inventory": (env.lcm_inventory.model_dump() if env.lcm_inventory is not None
+                          else {"requested": False}),
     }
 
 

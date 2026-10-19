@@ -52,6 +52,8 @@ GROUPS = (INFRA, PLATFORM, OPS)
 
 #: Typical full-run durations (seconds) the UI shows as an estimate before a run.
 TYPICAL_SECONDS = {"prism_central": 240, "prism_element": 60}
+#: What the optional LCM inventory typically adds (`lcm_inventory.TYPICAL_SECONDS`).
+LCM_INVENTORY_SECONDS = 600
 
 
 @dataclass(frozen=True)
@@ -186,4 +188,5 @@ def catalogue() -> dict[str, object]:
             for a in ordered
         ],
         "typical_seconds": dict(TYPICAL_SECONDS),
+        "lcm_inventory_typical_seconds": LCM_INVENTORY_SECONDS,
     }

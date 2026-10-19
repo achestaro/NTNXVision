@@ -1302,6 +1302,37 @@ try {
     await page.waitForFunction(() => document.querySelector('[role="switch"][aria-label="Enable Nightly Tiny"]')?.getAttribute('aria-checked') === 'false');
   });
 
+  await run('lcm-inventory', async () => {
+    // "Run LCM inventory first": off by default; on pc01 the PC and two clusters run an
+    // inventory, one cluster joins the inventory already running and one is skipped
+    // because an AOS upgrade is in progress (the mock's scenario).
+    await fillTarget('Lab PC01 renamed', '', 'pc01-lcm');
+    await clustersListed(4);
+    const sw = page.getByRole('switch', { name: /Run LCM inventory first/ });
+    if ((await sw.getAttribute('aria-checked')) !== 'false') throw new Error('LCM inventory is on by default');
+    await page.getByTestId('summary-lcm').getByText('Off').waitFor();
+    await sw.click();
+    await page.getByTestId('summary-lcm').getByText(/On, adds/).waitFor();
+    await uxShot('lcm-inventory-switch');
+    await startButton().click();
+    const panel = page.getByTestId('lcm-inventory');
+    await panel.waitFor({ timeout: 60_000 });
+    await panel.getByText(/Skipped: LCM busy/).waitFor({ timeout: 60_000 });
+    await panel.getByText(/AOS/).first().waitFor();
+    await uxShot('lcm-inventory-collecting');
+    await heading('Collection complete', 180_000);
+    const done = page.getByTestId('lcm-inventory');
+    await done.getByText(/Joined running inventory, succeeded/).waitFor({ timeout: 15_000 });
+    await done.getByText(/Succeeded on 4 of 5 targets/).waitFor();
+    if (await done.getByText(/Failed|Timed out/).count()) throw new Error('an LCM inventory failed in demo mode');
+    await uxShot('lcm-inventory-results');
+    // The next collection starts with the switch off again (never remembered).
+    await fillTarget('Lab PC01 renamed');
+    if ((await page.getByRole('switch', { name: /Run LCM inventory first/ }).getAttribute('aria-checked')) !== 'false') {
+      throw new Error('the LCM inventory switch was remembered');
+    }
+  });
+
   await run('overview', async () => {
     await rail('Overview');
     await page.getByText('Run notes').first().waitFor({ timeout: 30_000 });

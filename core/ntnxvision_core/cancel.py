@@ -30,6 +30,10 @@ class CancelToken:
     def cancelled(self) -> bool:
         return self._event.is_set()
 
+    def wait(self, seconds: float) -> bool:
+        """Sleep up to `seconds`, waking early on cancel. True when cancelled."""
+        return self._event.wait(max(0.0, seconds))
+
     def check(self) -> None:
         """Raise `RunCancelled` if the run has been cancelled."""
         if self._event.is_set():

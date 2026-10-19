@@ -1223,6 +1223,78 @@ class LcmEntity(SourcedObject):
     api_source: str = "v4"
 
 
+class LcmBusyComponent(_Base):
+    """One component an LCM operation already running on a target is changing."""
+
+    name: str | None = None
+    from_version: str | None = None
+    to_version: str | None = None
+
+
+class LcmBusyOperation(_Base):
+    """An LCM operation (upgrade, prechecks, upload) found running on a target, which is
+    why NTNXVision did not start an inventory there."""
+
+    #: LCM's operationType: UPGRADE, PRECHECKS, UPLOAD, ...
+    operation: str | None = None
+    description: str | None = None
+    percent: int | None = None
+    started_at: str | None = None
+    task_id: str | None = None
+    components: list[LcmBusyComponent] = Field(default_factory=list)
+
+
+class LcmInventoryTarget(_Base):
+    """The LCM inventory outcome on one target: Prism Central itself or one cluster.
+
+    `status` is one of ``succeeded``, ``failed``, ``timed_out``, ``cancelled``,
+    ``skipped_busy`` (another LCM operation was running), ``forbidden`` (the account
+    lacks the LCM permission) or ``unavailable`` (LCM could not be asked). `joined` is
+    True when an inventory was already running and the run waited for it instead of
+    starting one.
+    """
+
+    target_id: str | None = None
+    name: str | None = None
+    #: "prism_central" or "cluster".
+    kind: str = "cluster"
+    status: str = "pending"
+    joined: bool = False
+    task_id: str | None = None
+    percent: int | None = None
+    started_at: str | None = None
+    finished_at: str | None = None
+    duration_ms: int | None = None
+    detail: str | None = None
+    busy: LcmBusyOperation | None = None
+    #: The Prism Central of this target in a combined run.
+    source_pc: str | None = None
+
+
+class LcmInventoryRun(_Base):
+    """The optional LCM inventory a run started before collecting LCM (off by default).
+
+    The one write NTNXVision can make to a Nutanix system: it asks LCM to refresh its
+    own view of what is installed and available. It upgrades nothing.
+    """
+
+    requested: bool = False
+    #: "v4" (lifecycle namespace) or None when it could not run at all.
+    api: str | None = None
+    timeout_s: int | None = None
+    started_at: str | None = None
+    finished_at: str | None = None
+    duration_ms: int | None = None
+    #: Why no target was attempted (e.g. the PC does not serve the v4 lifecycle API).
+    detail: str | None = None
+    targets: list[LcmInventoryTarget] = Field(default_factory=list)
+
+    @property
+    def started_count(self) -> int:
+        """Targets on which this run itself started an inventory (joined ones excluded)."""
+        return sum(1 for t in self.targets if t.task_id and not t.joined and t.busy is None)
+
+
 # ─── Feature-area summaries ────────────────────────────────────────────
 
 
@@ -1440,6 +1512,10 @@ class Environment(_Base):
     #: API routing, compatibility, duration, reports (see `runinfo.build_run_metadata`).
     #: None on snapshots written before it existed; the UI then shows the summary only.
     run: dict[str, Any] | None = None
+
+    #: The LCM inventory this run asked for before collecting LCM (None: not requested,
+    #: or a snapshot older than the option). See `ntnxvision_core.lcm_inventory`.
+    lcm_inventory: LcmInventoryRun | None = None
 
     @property
     def is_combined(self) -> bool:

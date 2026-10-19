@@ -279,6 +279,35 @@ const SHOTS = [
     },
     1180,
   ]),
+  // "Run LCM inventory first": the switch, the live per-target progress and the result.
+  ['new-lcm', {}, async (p) => {
+    await rail(p, 'New collection');
+    await p.getByTestId('cluster-list').waitFor();
+    await p.getByRole('switch', { name: /Run LCM inventory first/ }).click();
+    await p.getByTestId('summary-lcm').getByText('On, adds').waitFor();
+    await p.getByTestId('lcm-inventory-switch').scrollIntoViewIfNeeded();
+  }, 1180],
+  ['collecting-lcm', { run: 'hold' }, async (p) => {
+    await rail(p, 'New collection');
+    await p.getByTestId('cluster-list').waitFor();
+    await p.getByRole('switch', { name: /Run LCM inventory first/ }).click();
+    await p.getByLabel('Snapshot name').fill('pc01 week 3');
+    await p.getByRole('button', { name: /Start collection/ }).click();
+    await p.getByTestId('lcm-inventory').waitFor();
+    await cardsFit(p);
+    await p.getByTestId('lcm-inventory').scrollIntoViewIfNeeded();
+  }, 1180],
+  ['results-lcm', { run: 'finish' }, async (p) => {
+    await rail(p, 'New collection');
+    await p.getByTestId('cluster-list').waitFor();
+    await p.getByRole('switch', { name: /Run LCM inventory first/ }).click();
+    await p.getByLabel('Snapshot name').fill('pc01 week 3');
+    await p.getByRole('button', { name: /Start collection/ }).click();
+    await p.getByRole('heading', { name: 'Collection complete' }).waitFor();
+    await p.waitForTimeout(5200);
+    await cardsFit(p);
+    await p.getByTestId('lcm-inventory').scrollIntoViewIfNeeded();
+  }, 1180],
   ['collecting', { run: 'hold' }, async (p) => {
     await rail(p, 'New collection');
     await p.getByLabel('Snapshot name').fill('pc01 week 3');

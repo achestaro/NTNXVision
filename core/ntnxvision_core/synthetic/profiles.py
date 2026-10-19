@@ -81,6 +81,9 @@ def demo_targets() -> dict[str, Target]:
         _pc("pc01.demo.local", "medium", "pc.2024.3", Features(
             v4_unavailable={"objects"}, v4_absent={"files"}, files=False,
             alerts_rate_limited=True, esxi_bad_vms=3, lcm_framework_stale=True,
+            # With "Run LCM inventory first": an inventory is already running on the
+            # second cluster (joined) and an AOS/AHV upgrade on the third (skipped).
+            lcm_running=((1, "inventory"), (2, "upgrade")),
             vcenter_address=VCENTER_ADDRESS,
             # Paired with pc02; a Metro (Sync) policy inside the AZ and a NearSync one
             # to pc02's SEA-PROD-01.
@@ -100,7 +103,9 @@ def demo_targets() -> dict[str, Target]:
         _pc("pc04.demo.local", "tiny", "7.5.1.1", Features(files=False, objects=False)),
         _pc("legacy-pc.demo.local", "tiny", "pc.2023.4", Features(files=False, objects=False)),
         _pc("selfsigned.demo.local", "tiny", "pc.7.3", tls="self"),
-        _pc("tiny.demo.local", "tiny", "pc.7.3", Features(files=False, objects=False)),
+        # The demo account lacks LCM permissions here: an inventory request gets 403.
+        _pc("tiny.demo.local", "tiny", "pc.7.3", Features(files=False, objects=False,
+                                                          lcm_outcome="forbidden")),
         Target(host="pe01.demo.local", kind="pe",
                build=lambda epoch: build_pe_estate("pe01.demo.local", version="7.0",
                                                    epoch=epoch)),

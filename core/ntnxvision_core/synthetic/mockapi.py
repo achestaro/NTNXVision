@@ -45,9 +45,11 @@ from collections import deque
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
+from urllib.parse import unquote
 
 from ntnxvision_core.synthetic import render as r
 from ntnxvision_core.synthetic.estate import NdbEstate, PcEstate, PeEstate, uid
+from ntnxvision_core.synthetic.lcm import MockLcm
 
 Response = tuple[int, Any, dict[str, str]]
 
@@ -167,12 +169,15 @@ class MockApi:
         self.hits: dict[tuple[str, str, str], int] = {}
         #: (host, path) → the last ``$filter`` served, for tests of server-side scoping.
         self.filters: dict[tuple[str, str], str] = {}
+        #: LCM operations and their tasks (the optional LCM inventory).
+        self.lcm = MockLcm()
 
     def reset(self) -> None:
         """Forget rate-limit history, so the one-off 429 replays for a fresh session."""
         with self._lock:
             self._alert_hits.clear()
             self._throttled_once.clear()
+        self.lcm.reset()
 
     # ─── entry point ───────────────────────────────────────────────
 
@@ -211,7 +216,8 @@ class MockApi:
         est = target.estate()
         try:
             if target.kind == "pc":
-                return self._pc(target, est, method, path, query, body or {})
+                return self._pc(target, est, method, path, query, body or {},
+                                {k.lower(): v for k, v in (headers or {}).items()})
             if target.kind == "pe":
                 return self._pe(est, method, path, query)
             if target.kind == "ndb":
@@ -231,7 +237,25 @@ class MockApi:
     # ─── Prism Central ─────────────────────────────────────────────
 
     def _pc(self, target: Target, est: PcEstate, method: str, path: str,
-            query: dict[str, str], body: dict[str, Any]) -> Response:
+            query: dict[str, str], body: dict[str, Any],
+            headers: dict[str, str] | None = None) -> Response:
+        headers = headers or {}
+        if method == "POST" and re.fullmatch(
+                r"/api/lifecycle/v4\.\d+/operations/\$actions/inventory", unquote(path)):
+            if not est.v4_ga:
+                return _not_found_v4(path)
+            status, payload = self.lcm.inventory(target.host, est, headers.get("x-cluster-id"),
+                                                 headers.get("ntnx-request-id"))
+            return status, payload, {}
+        if method == "POST" and path == "/PrismGateway/services/rest/v1/genesis":
+            # The legacy LCM interface (Genesis RPC); clusters through the PE proxy.
+            status, payload = self.lcm.genesis(target.host, est,
+                                               query.get("proxyClusterUuid"), body)
+            return status, payload, {}
+        m = re.fullmatch(r"/api/nutanix/v3/tasks/([0-9a-f-]+)", path)
+        if method == "GET" and m:
+            status, payload = self.lcm.v3_task(m.group(1), est)
+            return status, payload, {}
         if method == "GET" and path == "/PrismGateway/services/rest/v1/cluster":
             return 200, r.pc_gateway_v1(est), {}
         if method == "GET" and query.get("proxyClusterUuid") and \
@@ -243,7 +267,7 @@ class MockApi:
         if method == "POST" and path == "/api/nutanix/v3/groups":
             return self._v3_groups(est, body)
         if method == "GET" and path.startswith("/api/") and re.search(r"/v4\.\d+/", path):
-            return self._v4(target, est, path[len("/api/"):], query)
+            return self._v4(target, est, path[len("/api/"):], query, headers)
         if method == "GET" and path == "/api/nutanix/v3/prism_central":
             return 200, r.prism_central_v3(est), {}
         m = re.fullmatch(r"/api/nutanix/v3/services/([a-z_]+)/status", path)
@@ -377,7 +401,8 @@ class MockApi:
 
     # ─── v4 ────────────────────────────────────────────────────────
 
-    def _v4(self, target: Target, est: PcEstate, path: str, query: dict[str, str]) -> Response:
+    def _v4(self, target: Target, est: PcEstate, path: str, query: dict[str, str],
+            headers: dict[str, str] | None = None) -> Response:
         page = _int(query.get("$page"), 0)
         limit = _int(query.get("$limit"), 50)
         if limit > 100 or limit < 1:
@@ -489,7 +514,20 @@ class MockApi:
                 return 500, _internal_error(), {}
             return 200, r.v4_single(render_vm(vm)), {}
         if path == "lifecycle/v4.0/resources/status":
-            return 200, r.v4_single(r.lcm_status_v4(f.lcm_framework_stale)), {}
+            status, payload = self.lcm.status(target.host, est,
+                                              (headers or {}).get("x-cluster-id"))
+            return status, payload, {}
+        m = re.fullmatch(r"prism/v4\.0/config/tasks/(.+)", unquote(path))
+        if m:
+            status, payload = self.lcm.task(m.group(1), est)
+            return status, payload, {}
+        if path == "lifecycle/v4.0/resources/entities":
+            upgrading = self.lcm.upgrading(target.host, est)
+
+            def entity(e: dict[str, Any]) -> dict[str, Any]:
+                key = e["cluster_uuid"] if e["cluster_uuid"] != est.pc_uuid else "pc"
+                return r.lcm_entity_v4(e, upgrading=key in upgrading)
+            return self._v4_page(est.lcm_entities, entity, path, page, limit)
         if path == "monitoring/v4.0/serviceability/alerts":
             return self._v4_page(alerts, r.alert_v4, path, page, limit)
         if path in lists:

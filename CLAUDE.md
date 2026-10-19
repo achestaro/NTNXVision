@@ -119,6 +119,13 @@ the typed channels in `app/src/shared/ipc.ts`, which the main process relays to 
   `test_connection` for PC / PE / NDB with outcome classification; `capacity.py` — per-cluster
   CPU / storage capacity and oversubscription (`X.X : 1`, full and N-1), the one place that
   math lives (see `docs/ARCHITECTURE.md` §6).
+- `lcm_inventory.py` — the optional "Run LCM inventory first" (off by default, per run):
+  the tool's only non-read request. Reads each target's LCM status, starts (or joins) an
+  inventory on Prism Central and each selected cluster over the v4 lifecycle API (on
+  pc.2024.1 / pc.2024.2, `LegacyLcmInventory` uses LCM's Genesis RPC instead), skips
+  targets busy with an upgrade (reporting what it changes), polls the tasks with backoff,
+  timeout and cancel while the other areas run; LCM is collected last. Result on
+  `Environment.lcm_inventory` and the run metadata. The mock side is `synthetic/lcm.py`.
 - `synthetic/` — deterministic synthetic estates (`estate.py`), v4/v3/v2.0/Era payload
   renderers (`render.py`), the mock Nutanix API (`mockapi.py`, HTTPS front in `server.py`,
   TLS material minted at runtime by `certgen.py`) and demo mode (`demo.py`, `profiles.py`,
@@ -210,6 +217,21 @@ rule rather than assuming v4 is always available.
 ### Safety invariants
 
 - Collectors are **read-only** — GET/list calls only, never create/update/delete.
+  `api/transport.py`'s guard (`check_request`) enforces it on every session: GET/HEAD, the
+  v3 `list`/`groups` POSTs, the vCenter session login/logout (path match on any host) and
+  the two read-only LCM Genesis RPCs (`get_config`, `is_lcm_operation_in_progress`, body
+  checked) pass, anything else is refused before it is sent. The **one exception** is the
+  opt-in LCM inventory, in one of two forms: `POST /api/lifecycle/v4.x/operations/$actions/inventory`
+  (v4), or on pc.2024.1 / pc.2024.2 `POST /PrismGateway/services/rest/v1/genesis` whose
+  body is checked to be exactly the LCM framework `perform_inventory` RPC, naming the
+  catalogue URL that LCM's own `get_config` reply gave (Genesis is a generic RPC
+  endpoint, so its path alone admits nothing; raw path, strict UTF-8 JSON, no duplicate
+  keys). Either is allowed only inside
+  `transport.lcm_inventory_permit()`, entered only by `lcm_inventory.py`, only when the
+  user switched "Run LCM inventory first" on for that run (never by default, never from
+  schedules). It refreshes LCM's view and upgrades nothing; it is never started on a
+  target already running an LCM operation. Do not add another non-read request
+  (`tests/test_lcm_inventory.py` fails on one).
 - Credentials go through the OS keychain, never plaintext to disk.
 - IPC is local-only (stdio), no external listeners. Demo mode's mock Nutanix API is the
   only socket the sidecar opens: 127.0.0.1 only, opt-in, synthetic data only.

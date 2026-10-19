@@ -28,6 +28,7 @@ import { useRun } from '../lib/run';
 import { useRouter } from '../lib/router';
 import { useConfirmShortcut } from '../lib/keyboard';
 import { testOutcome } from './ConnectionTest';
+import { LCM_INVENTORY_DEFAULT_SECONDS, LcmInventoryToggle } from './LcmInventory';
 import { NA, REPORT_EXT, errorMessage, fmtCount, plural, reportFileName, sanitizeSnapshotName, snapshotNameIssue, targetLabel, tildify } from '../lib/format';
 
 type RowTest =
@@ -86,6 +87,8 @@ export function MultiPCView(): JSX.Element {
   const [saved, setSaved] = useState<SavedConnection[]>([]);
   const [rows, setRows] = useState<Row[] | null>(null);
   const [combine, setCombine] = useState(true);
+  // Off by default and per run, as on New collection.
+  const [lcmInv, setLcmInv] = useState(false);
   const [combinedName, setCombinedName] = useState('');
   /** The run's snapshot name: each target is saved as "<name> (<target>)". */
   const [runName, setRunName] = useState('');
@@ -169,7 +172,8 @@ export function MultiPCView(): JSX.Element {
   const verified = all.filter((r) => r.test.kind === 'done' && r.test.result.ok);
   const runnable = all.filter((r) => !failed(r) && (r.hasPassword || r.password));
   const failedRows = all.filter(failed);
-  const typical = Math.max(0, ...verified.map((r) => (r.test.kind === 'done' ? r.test.result.typical_seconds ?? 0 : 0)));
+  const baseTypical = Math.max(0, ...verified.map((r) => (r.test.kind === 'done' ? r.test.result.typical_seconds ?? 0 : 0)));
+  const typical = baseTypical ? baseTypical + (lcmInv ? LCM_INVENTORY_DEFAULT_SECONDS : 0) : 0;
   const formats = (['excel', 'pdf', 'word'] as ExportFormat[]).filter((f) => fmt[f]);
 
   // ── snapshot names: "<name> (<target>)" per target, "<name> (combined)" for the merge ──
@@ -220,6 +224,7 @@ export function MultiPCView(): JSX.Element {
         filePrefix: prefix,
         combine: combining,
         combinedName: combining ? combinedSnapshot : undefined,
+        lcmInventory: lcmInv,
       });
       if (prefix !== (settings.filePrefix ?? '')) void update({ filePrefix: prefix });
     } catch (e) {
@@ -442,6 +447,7 @@ export function MultiPCView(): JSX.Element {
                 <div className="hint">Each object keeps its source Prism Central. Needs 2 or more successful targets.</div>
               </div>
             </div>
+            <LcmInventoryToggle id="mpLcmLbl" checked={lcmInv} onChange={setLcmInv} />
             <p className="hint" data-testid="multi-ratio-hint" style={{ margin: 0 }}>
               Capacity figures use the vCPU:pCPU target from Settings
               {all.some((r) => r.customRatios > 0)
