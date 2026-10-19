@@ -16,6 +16,7 @@ show a clean, believable change list between two synthetic collections.
 
 from __future__ import annotations
 
+import hashlib
 import random
 import uuid
 from dataclasses import dataclass, field
@@ -23,6 +24,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from ntnxvision_core.compat import parse_version
+from ntnxvision_core.versions import pc_version
 
 _NS = uuid.UUID("6f1c2d4e-9a3b-4c5d-8e7f-0a1b2c3d4e5f")
 GIB = 1024**3
@@ -35,6 +37,18 @@ BASE_TIME = datetime(2026, 10, 1, 9, 0, tzinfo=timezone.utc)
 
 def uid(*parts: object) -> str:
     return str(uuid.uuid5(_NS, "/".join(str(p) for p in parts)))
+
+
+def build_string(version: str, *parts: object) -> str:
+    """A realistic full build string with a fake, deterministic 40-hex commit id.
+
+    Real Prism Central and AOS endpoints answer some version fields with
+    ``el8.5-release-<branch>-<version>-stable-<commit>``; the reports must never show
+    it. The commit here is a hash of the synthetic seed, never a real build's.
+    """
+    commit = hashlib.sha1("/".join(["synthetic-build", version, *map(str, parts)])
+                          .encode()).hexdigest()
+    return f"el8.5-release-fraser-{version}-stable-{commit}"
 
 
 def rng(*parts: object) -> random.Random:
@@ -440,7 +454,7 @@ def build_pc_estate(
     est.pc_uuid = uid(seed, "pc")
     octet = 10 + (sum(map(ord, seed)) % 200)
     est.pc_ip = pc_ip or f"10.{octet}.0.50"
-    est.pc_build = f"el8.5-release-fraser-{version.removeprefix('pc.')}-stable-pc-0"
+    est.pc_build = build_string(version, seed, "pc")
 
     _clusters_and_hosts(est, specs)
     _networking(est)
@@ -1172,7 +1186,8 @@ def _automation(est: PcEstate) -> None:
 def _lcm(est: PcEstate) -> None:
     seed, epoch = est.seed, est.epoch
     rows: list[tuple[str, str, str, str | None, list[tuple[str, int]]]] = [
-        ("Prism Central", "PC Core Cluster", est.version, est.pc_uuid,
+        # LCM names the PC entity version with its prefix ("pc.7.5.1.1"), as a real PC does.
+        ("Prism Central", "PC Core Cluster", pc_version(est.version) or est.version, est.pc_uuid,
          [("pc.2024.3.0.2", 3), ("pc.7.3", 4)] if est.version.startswith("pc.2024") else []),
         ("LCM framework", "PC Service", "LM.2025.9.2", est.pc_uuid, []),
         ("Calm", "PC Service", "4.0.0", est.pc_uuid, [("4.1.0", 2)]),

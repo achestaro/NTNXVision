@@ -14,6 +14,8 @@ exercises a different path through the app:
                             PC VMs, Large); a Pure FlashArray on SEA-PROD-02 (v4.3).
 ``pc03.demo.local``         pc.2024.1 — below the v4 GA line, so every area falls back to
                             v3 and the v4-only areas (licensing, LCM) are skipped.
+``pc04.demo.local``         A tiny PC reporting the numeric version 7.5.1.1 (no ``pc.``
+                            prefix): reports must show ``pc.7.5.1.1`` in full.
 ``legacy-pc.demo.local``    pc.2023.4 — outside the supported range (warn, may proceed).
 ``pe01.demo.local``         Prism Element, AOS 7.0, 6 hosts / 212 VMs (v2.0 API).
 ``ndb.demo.local``          NDB (Era API) with 12 database servers.
@@ -95,6 +97,7 @@ def demo_targets() -> dict[str, Target]:
             v4_minor={"clustermgmt": 3, "networking": 3, "prism": 3, "datapolicies": 2,
                       "dataprotection": 3})),
         _pc("pc03.demo.local", "legacy", "pc.2024.1", Features(files=False, ncm=False)),
+        _pc("pc04.demo.local", "tiny", "7.5.1.1", Features(files=False, objects=False)),
         _pc("legacy-pc.demo.local", "tiny", "pc.2023.4", Features(files=False, objects=False)),
         _pc("selfsigned.demo.local", "tiny", "pc.7.3", tls="self"),
         _pc("tiny.demo.local", "tiny", "pc.7.3", Features(files=False, objects=False)),
@@ -175,27 +178,27 @@ def scenario_targets() -> list[Target]:
     md1, md2 = SCENARIOS["medium"]
     en1, en2, en3, en4 = SCENARIOS["enterprise"]
     out = [
-        _pc("sm-pc01.demo.local", "small-branch", "pc.7.5.1", Features(
+        _pc("sm-pc01.demo.local", "small-branch", "pc.7.5.1.1", Features(
             objects=False, fvn=False, files=False, azs=(dr_colo,),
             policies=(_p("Branch-4h", 4 * _HOUR, "dr-colo"),))),
         # md-pc01 to md-pc02: NearSync 1 min and Async 1 h; back: Async 1 h only.
-        _pc(md1, "med-east", "pc.7.5.1", Features(
+        _pc(md1, "med-east", "pc.7.5.1.1", Features(
             objects=False, vcenter_address="198.51.100.31", azs=(), az_peers=(md2,),
             extra_policies=(("SQL-NearSync", _NEAR, "PROD-E01", md2, "PROD-W01"),
                             ("Prod-1h", _HOUR, "PROD-E02", md2, "DR-W01")))),
-        _pc(md2, "med-west", "pc.7.5.1", Features(
+        _pc(md2, "med-west", "pc.7.5.1.1", Features(
             files=False, vcenter_address="198.51.100.32", azs=(), az_peers=(md1,),
             extra_policies=(("West-Prod-1h", _HOUR, "PROD-W01", md1, "PROD-E01"),))),
         # A scale-out PC on its management cluster, Sync / NearSync / Async to Chicago,
         # a Pure FlashArray on the database cluster.
-        _pc(en1, "ent-nyc", "pc.7.5.1", Features(
+        _pc(en1, "ent-nyc", "pc.7.5.1.1", Features(
             pc_vm_count=3, pc_size="LARGE", pc_cluster=4, v4_minor=dict(_V43),
             vcenter_address="198.51.100.41", azs=(), az_peers=(en2,),
             external_storage=((2, "EVERPURE_FLASHARRAY"),),
             extra_policies=(("Tier0-Metro", _SYNC, "NYC-PROD-01", en2, "CHI-PROD-01"),
                             ("Tier1-NearSync", _NEAR, "NYC-DB-01", en2, "CHI-DR-01"),
                             ("Tier2-1h", _HOUR, "NYC-PROD-02", en2, "CHI-DR-01")))),
-        _pc(en2, "ent-chi", "pc.7.5.1", Features(
+        _pc(en2, "ent-chi", "pc.7.5.1.1", Features(
             files=False, vcenter_address="198.51.100.42", azs=(), az_peers=(en1,),
             extra_policies=(("CHI-Prod-1h", _HOUR, "CHI-PROD-01", en1, "NYC-PROD-02"),))),
         # London and Singapore replicate to each other with different RPOs, and each
@@ -224,7 +227,7 @@ def scenario_targets() -> list[Target]:
             azs.append(AzSpec("Xi-AP-Southeast", "https://xi.nutanix.com", type="XI",
                               region="ap-southeast"))
         big = i in (1, 5)
-        out.append(_pc(xl[i - 1], f"xl-{i}", "pc.7.5.1", Features(
+        out.append(_pc(xl[i - 1], f"xl-{i}", "pc.7.5.1.1", Features(
             files=i % 3 == 0, objects=i % 4 == 0, fvn=i % 2 == 0,
             pc_vm_count=3 if big else 1, pc_size="LARGE" if big else "SMALL",
             external_storage=arrays.get(i, ()), v4_minor=dict(_V43),

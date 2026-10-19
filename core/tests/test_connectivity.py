@@ -23,7 +23,7 @@ def test_ok_reports_version_counts_and_routing(demo: Any) -> None:
     api = r["api"]
     assert api["v4"] > api["v3"] > 0 and api["not_deployed"] >= 1  # Files not deployed
     assert sum(api.values()) == 22
-    assert r["supported_range"] == "pc.2024.1 – 7.5.1.6"
+    assert r["supported_range"] == "pc.2024.1 to pc.7.5.1.6"
     assert "within supported range" in r["detail"]
 
 
@@ -80,7 +80,7 @@ def test_prism_element(demo: Any) -> None:
                "username": "admin", "password": "x", "insecure": False})
     assert r["status"] == "ok" and r["name"] == "phx-dr-01"
     assert r["hosts"] == 6 and r["vms"] == 212 and "v2.0 API" in r["detail"]
-    assert r["supported_range"] == "AOS 6.5 – 7.5"
+    assert r["supported_range"] == "AOS 6.5 to 7.5"
 
 
 def test_ndb(demo: Any) -> None:

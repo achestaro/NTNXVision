@@ -44,6 +44,7 @@ from ntnxvision_core.areas import AREAS, TYPICAL_SECONDS
 from ntnxvision_core.compat import check_aos, check_prism_central
 from ntnxvision_core.numfmt import fmt_count
 from ntnxvision_core.runinfo import AOS_RANGE, PC_RANGE
+from ntnxvision_core.versions import pc_version
 
 TEST_TIMEOUT = 10
 
@@ -129,8 +130,8 @@ def _test_pc(host: str, port: int, username: str, password: str, insecure: bool,
     creds = PrismCredentials(host=host, username=username, password=password, port=port,
                              verify_ssl=not insecure, pinned_sha256=pinned)
     with PrismConnection(creds, timeout=TEST_TIMEOUT) as conn:
-        version = conn.pc_version
-        compat = check_prism_central(version)
+        compat = check_prism_central(conn.pc_version)
+        version = pc_version(conn.pc_version)
         clusters = _count_pc_clusters(conn)
         hosts = _v3_total(conn, "hosts", minus=1)
         vms = _vm_total(conn)

@@ -38,7 +38,8 @@ def test_model_shortens_on_load() -> None:
         "clusters": [{"uuid": "c1", "aos_version": LONG}],
     })
     assert env.prism_central.version == "7.5.1.1"
-    assert env.pc_config.version == env.pc_config.build == "7.5.1.1"
+    assert env.pc_config.version == "7.5.1.1"
+    assert env.pc_config.build == LONG  # the Excel "Build" row keeps the full string
     assert env.clusters[0].aos_version == "7.5.1.1"
     assert Cluster(uuid="c2", aos_version=LONG).aos_version == "7.5.1.1"
 
@@ -53,5 +54,5 @@ def test_old_index_shortened_on_read(tmp_path) -> None:
     meta["stats"]["aos_min"] = LONG
     meta_path(path).write_text(json.dumps(meta), encoding="utf-8")
     again = read_meta(path)
-    assert again["version"] == "7.5.1.1"
+    assert again["version"] == "pc.7.5.1.1"  # shortened, and shown with its prefix
     assert again["stats"]["aos_min"] == "7.5.1.1"

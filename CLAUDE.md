@@ -52,7 +52,7 @@ npm run package      # electron-builder → release/ (bundles the PyInstaller si
 ### Demo mode (no lab)
 `NTNXVISION_DEMO=1` / `--demo` runs the real connection layer, collectors and exporters
 against a local mock Nutanix API serving a synthetic estate (`pc01.demo.local`,
-`pc02`, `pc03`, `pe01`, `ndb`, `selfsigned`, `down`, `large1..3`). Any non-empty password
+`pc02`, `pc03`, `pc04`, `pe01`, `ndb`, `selfsigned`, `down`, `large1..3`). Any non-empty password
 except `wrong`. Each completed collection drifts that system one "week" so Compare has
 changes. A first demo launch seeds saved targets and six backdated snapshots (`demo_seed`). Full host table and tests: `docs/DEVELOPMENT.md` §4.
 

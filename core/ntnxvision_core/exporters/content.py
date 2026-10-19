@@ -41,6 +41,7 @@ from ntnxvision_core.exporters.theme import (
 )
 from ntnxvision_core.models import Environment
 from ntnxvision_core.numfmt import NA, PLAIN_HEADERS, fmt_count, fmt_ratio
+from ntnxvision_core.versions import pc_version
 
 GIB = 1024**3
 TIB = GIB * 1024
@@ -491,10 +492,16 @@ class _Builder:
         if env.is_combined:
             return (f"{fmt_count(len(env.source_environments))} Prism Centrals "
                     f"({', '.join(source_hosts(env))})")
-        host, ver = env.prism_central.host or NA, env.prism_central.version or NA
+        host, ver = env.prism_central.host or NA, self.version() or NA
         if self.is_pe:
             return f"Prism Element {host} (AOS {ver})"
         return f"Prism Central {host} (version {ver})"
+
+    def version(self) -> str | None:
+        """The management plane's version as reports show it: ``pc.7.5.1.1``, or the
+        plain AOS version in Prism Element mode (labelled "AOS" where it is used)."""
+        v = self.env.prism_central.version
+        return v if self.is_pe else pc_version(v)
 
     def scope_label(self) -> str | None:
         """"3 of 5 clusters (A, B, C)" / "All 4 clusters", or None (no scope recorded)."""
@@ -522,7 +529,7 @@ class _Builder:
         info = compat_info(self.env)
         rng = info.get("range") or NA
         if self.env.is_combined:
-            parts = [f"{s.prism_central.host} runs {s.prism_central.version or NA}"
+            parts = [f"{s.prism_central.host} runs {pc_version(s.prism_central.version) or NA}"
                      for s in self.env.source_environments]
             verdict = ("all within" if info.get("supported")
                        else "not all within")
@@ -537,12 +544,12 @@ class _Builder:
     # ─ cover ─
     def cover(self, eyebrow: str) -> Cover:
         env, opts = self.env, self.opts
-        host, ver = env.prism_central.host or NA, env.prism_central.version or NA
+        host, ver = env.prism_central.host or NA, self.version() or NA
         if env.is_combined:
             subtitle = (f"{fmt_count(len(env.source_environments))} Prism Centrals combined: "
                         f"{', '.join(source_hosts(env))}")
             source = ("Prism Centrals", ", ".join(
-                f"{s.prism_central.host} ({s.prism_central.version or NA})"
+                f"{s.prism_central.host} ({pc_version(s.prism_central.version) or NA})"
                 for s in env.source_environments))
             mode = f"Combined run of {fmt_count(len(env.source_environments))} Prism Centrals"
         elif self.is_pe:
@@ -771,7 +778,8 @@ class _Builder:
                 ["Prism Central", "Version", "Deployment", "PC nodes", "Clusters", "Hosts",
                  "VMs"],
                 [[s.prism_central.host or "unknown",
-                  s.prism_central.version or s.pc_config.version, deployment(s.pc_config),
+                  pc_version(s.prism_central.version or s.pc_config.version),
+                  deployment(s.pc_config),
                   s.pc_config.node_count, s.summary.get("clusters"), s.summary.get("hosts"),
                   s.summary.get("vms")] for s in env.source_environments],
                 "Source Prism Centrals combined into this report") or Paragraph(""))
@@ -784,7 +792,7 @@ class _Builder:
         ))
         ch.blocks.append(make_table(
             ["Property", "Value"],
-            [["Version", cfg.version or env.prism_central.version],
+            [["Version", pc_version(cfg.version or env.prism_central.version)],
              ["Deployment", deployment(cfg)],
              ["PC nodes", fmt_count(cfg.node_count) if cfg.node_count else None],
              ["Registered clusters", fmt_count(cfg.registered_cluster_count)

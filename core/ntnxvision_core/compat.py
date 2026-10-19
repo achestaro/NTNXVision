@@ -18,6 +18,8 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
+from ntnxvision_core.versions import pc_version, short_version
+
 # Supported windows as comparable numeric tuples.
 PC_MIN = (2024, 1)  # pc.2024.1
 PC_MAX = (7, 5, 1, 6)  # 7.5.1.6
@@ -47,7 +49,9 @@ def parse_version(raw: str | None) -> tuple[tuple[int, ...] | None, str]:
     """
     if not raw:
         return None, "unknown"
-    match = _VERSION_RE.search(raw)
+    # A full build string ("el8.5-release-…-7.5.1.1-stable-<commit>") would otherwise
+    # parse as its "8.5" OS prefix.
+    match = _VERSION_RE.search(short_version(raw) or "")
     if not match:
         return None, "unknown"
     parts = tuple(int(p) for p in match.group(1).split("."))
@@ -63,6 +67,7 @@ def _is_calendar(parsed: tuple[int, ...]) -> bool:
 
 def check_prism_central(raw: str | None) -> CompatResult:
     """Assess a Prism Central version against the supported window."""
+    raw = short_version(raw)
     parsed, scheme = parse_version(raw)
     if parsed is None:
         return CompatResult(raw, None, scheme, in_range=True,
@@ -74,7 +79,7 @@ def check_prism_central(raw: str | None) -> CompatResult:
         if parsed < PC_MIN:
             return CompatResult(
                 raw, parsed, scheme, in_range=False,
-                warning=f"Prism Central {raw} is below the supported floor "
+                warning=f"Prism Central {pc_version(raw)} is below the supported floor "
                         "(pc.2024.1). Collection will proceed but some fields may be "
                         "missing or shaped differently.",
             )
@@ -86,22 +91,23 @@ def check_prism_central(raw: str | None) -> CompatResult:
     if parsed > PC_MAX:
         return CompatResult(
             raw, parsed, scheme, in_range=True,
-            warning=f"Prism Central {raw} is newer than the tested ceiling "
-                    "(7.5.1.6). Collection will proceed; newer builds are usually "
+            warning=f"Prism Central {pc_version(raw)} is newer than the tested ceiling "
+                    "(pc.7.5.1.6). Collection will proceed; newer builds are usually "
                     "backward-compatible with the v3 API used here.",
         )
     if parsed < (7, 0):
         # A semantic build below 7.0 shouldn't occur in this window, but handle it.
         return CompatResult(
             raw, parsed, scheme, in_range=False,
-            warning=f"Prism Central {raw} is below the supported range. Proceeding "
+            warning=f"Prism Central {pc_version(raw)} is below the supported range. Proceeding "
                     "with best effort.",
         )
     return CompatResult(raw, parsed, scheme, in_range=True)
 
 
 def check_aos(raw: str | None) -> CompatResult:
-    """Assess an AOS (cluster) version against the supported window (6.5–7.5)."""
+    """Assess an AOS (cluster) version against the supported window (6.5 to 7.5)."""
+    raw = short_version(raw)
     parsed, scheme = parse_version(raw)
     if parsed is None:
         return CompatResult(raw, None, scheme, in_range=True,
