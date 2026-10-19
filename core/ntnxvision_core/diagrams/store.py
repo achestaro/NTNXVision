@@ -107,6 +107,52 @@ def save(snapshot: Path, type_id: str, ops: list[dict[str, Any]],
         return entry
 
 
+#: Most diagram entries one snapshot file may carry (imports are untrusted).
+MAX_ENTRIES = 64
+
+
+def portable(snapshot: Path) -> dict[str, Any] | None:
+    """The saved edits as they travel inside a ``.ntnxsnap`` file (None: no edits)."""
+    entries = load(snapshot)
+    if not entries:
+        return None
+    return {"schema": SCHEMA, "diagrams": {
+        t: {k: e.get(k) for k in ("ops", "base_model", "base_hash", "saved_at")}
+        for t, e in entries.items()}}
+
+
+def restore(snapshot: Path, doc: Any) -> int:
+    """Write edits that came inside a ``.ntnxsnap`` file next to the imported snapshot.
+    Every entry is checked like a local file (schema, edit shapes and bounds, a model
+    object); anything else is dropped. Returns the number of diagrams restored."""
+    if not isinstance(doc, dict) or doc.get("schema") != SCHEMA:
+        return 0
+    raw = doc.get("diagrams")
+    if not isinstance(raw, dict):
+        return 0
+    entries: dict[str, dict[str, Any]] = {}
+    for type_id, entry in sorted(raw.items())[:MAX_ENTRIES]:
+        if not isinstance(type_id, str) or not isinstance(entry, dict) or \
+                not isinstance(entry.get("base_model"), dict):
+            continue
+        try:
+            ops = E.clean_ops(entry.get("ops"))
+        except E.EditError:
+            continue
+        if not ops:
+            continue
+        saved_at = entry.get("saved_at")
+        entries[type_id] = {
+            "ops": ops, "base_model": entry["base_model"],
+            "base_hash": E.payload_hash(type_id, entry["base_model"]),
+            "saved_at": saved_at if isinstance(saved_at, str) and len(saved_at) < 40
+            else None,
+            "carried_from": None}
+    with _lock:
+        _write(snapshot, entries)
+    return len(entries)
+
+
 def reset(snapshot: Path, type_id: str) -> None:
     save(snapshot, type_id, [], {})
 
