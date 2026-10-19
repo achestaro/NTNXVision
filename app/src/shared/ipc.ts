@@ -1635,6 +1635,8 @@ export interface AppSettings {
   author?: string;
   /** The last report file name prefix used (Export dialog, New collection, Multiple PCs). */
   filePrefix?: string;
+  /** The Export dialog's last "Editable diagrams" choice. Unset = on. */
+  exportDiagrams?: boolean;
   /**
    * The default vCPU:pCPU target behind the cluster capacity figures ("vCPU Total"):
    * recorded on every cluster a new collection collects unless New collection sets a

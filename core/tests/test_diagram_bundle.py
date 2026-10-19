@@ -298,6 +298,45 @@ def test_sidecar_export_writes_the_bundle_next_to_the_reports(demo: Any,
     assert {e["format"] for e in detail["exports"]} == {"pdf"}
 
 
+
+def test_sidecar_bundle_draws_the_saved_edits(demo: Any, data_dir: Path,
+                                              monkeypatch: pytest.MonkeyPatch) -> None:
+    """The saved Diagrams-page edits are resolved once per export: the reports and the
+    bundle's SVGs draw the same edited figure."""
+    run = sc._m_inventory(None, {
+        "host": "pc01.demo.local", "username": "admin", "password": "demo", "port": 9440,
+        "insecure": False, "name": "pc01-edited", "formats": []})
+    snap = run["snapshot_path"]
+    got = sc._m_get_diagram(None, {"snapshot": snap, "type": "conceptual"})
+    site = next(o for o in got["outline"] if o["collection"] == "sites")
+    sc._m_save_diagram(None, {"snapshot": snap, "type": "conceptual", "ops": [
+        {"op": "set", "id": site["id"], "field": "label", "value": "Renamed Zone"}]})
+    calls: list[Any] = []
+    real = sc._with_diagram_edits
+
+    def spy(*a: Any, **k: Any) -> Any:
+        calls.append(a)
+        return real(*a, **k)
+
+    monkeypatch.setattr(sc, "_with_diagram_edits", spy)
+    res = sc._m_export(None, {"snapshot": snap, "formats": ["pdf", "word"],
+                              "export_dir": str(data_dir / "exp"), "diagrams": True})
+    assert res["errors"] == {} and res["diagrams"]
+    assert len(calls) == 1  # once for both reports and the bundle
+    with zipfile.ZipFile(res["diagrams"]["path"]) as z:
+        svgs = [z.read(n).decode() for n in z.namelist() if n.startswith("svg/")]
+    assert any("Renamed Zone" in x for x in svgs)
+
+
+def test_sidecar_refuses_diagrams_without_a_document(demo: Any, data_dir: Path) -> None:
+    run = sc._m_inventory(None, {
+        "host": "pc01.demo.local", "username": "admin", "password": "demo", "port": 9440,
+        "insecure": False, "name": "pc01-xl", "formats": []})
+    with pytest.raises(sc.NutanixApiError, match="PDF or Word"):
+        sc._m_export(None, {"snapshot": run["snapshot_path"], "formats": ["excel"],
+                            "export_dir": str(data_dir / "exp"), "diagrams": True})
+
+
 CARLITO = Path("/Applications/LibreOffice.app/Contents/Resources/fonts/truetype")
 
 

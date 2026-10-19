@@ -399,11 +399,8 @@ def _write_reports(env: Any, name: str, formats: list[str], out_dir: Path,
     """Write each format as ``<prefix>-<name>-<YYYY-MM-DD>.<ext>`` (see exporters.naming),
     never overwriting an existing file. The figures of a saved `snapshot` draw the
     diagram edits saved on the Diagrams page."""
-    if snapshot is not None:  # every format: the diagrams bundle draws them too
-        from ntnxvision_core.diagrams import store as diagram_store
-
-        options = {**options, "diagram_models": diagram_store.edited_models(snapshot, env),
-                   "diagram_origins": _carried_names(snapshot)}
+    if snapshot is not None:
+        options = _with_diagram_edits(options, snapshot, env)
     files: list[dict[str, Any]] = []
     errors: dict[str, str] = {}
     for fmt in formats:
@@ -597,6 +594,18 @@ def _current_name(source: dict[str, Any], names: dict[str, str] | None = None) -
     now when it still exists, else the name stored with it."""
     names = _snapshot_names() if names is None else names
     return names.get(str(source.get("snapshot_id") or ""), "") or str(source.get("name") or "")
+
+
+def _with_diagram_edits(options: dict[str, Any], snapshot: Path, env: Any
+                        ) -> dict[str, Any]:
+    """`options` with the diagram edits saved for `snapshot` (resolved once per export,
+    so the reports and the diagrams bundle draw the same edited models)."""
+    if "diagram_models" in options:
+        return options
+    from ntnxvision_core.diagrams import store as diagram_store
+
+    return {**options, "diagram_models": diagram_store.edited_models(snapshot, env),
+            "diagram_origins": _carried_names(snapshot)}
 
 
 def _carried_names(snapshot: Path) -> dict[str, str]:
@@ -972,15 +981,19 @@ def _m_export(_req_id: Any, params: dict[str, Any]) -> dict[str, Any]:
     env = _cache.get(snap_path)
     name = params.get("name") or snapstore.snapshot_name(snap_path)
     formats = params.get("formats") or [params.get("format", "excel")]
+    want_diagrams = params.get("diagrams") is True
+    if want_diagrams and not {"pdf", "word"} & set(formats):
+        raise NutanixApiError("Editable diagrams need a PDF or Word report in the export.")
     out_dir = _export_dir_from(params)
-    options = _export_options(params)
+    # The saved diagram edits, resolved once for the reports and the bundle alike.
+    options = _with_diagram_edits(_export_options(params), snap_path, env)
     files, errors = _write_reports(env, name, list(formats), out_dir, options,
-                                   prefix=_file_prefix(params), snapshot=snap_path)
+                                   prefix=_file_prefix(params))
     if files:
         snapstore.record_exports(snap_path, files)
     paths = {f["format"]: f["path"] for f in files}
     bundle = None
-    if params.get("diagrams") is True:
+    if want_diagrams:
         bundle = _write_diagrams(env, name, out_dir, options, _file_prefix(params), errors)
     return {"paths": paths, "errors": errors,
             "path": next(iter(paths.values()), bundle["path"] if bundle else None),
