@@ -29,7 +29,7 @@ from urllib.parse import urlparse
 
 from ntnxvision_core.models import Environment
 from ntnxvision_core.models.environment import replication_label, replication_type_for_rpo
-from ntnxvision_core.versions import short_version
+from ntnxvision_core.versions import pc_version, short_version
 
 from .model import (
     Card,
@@ -56,14 +56,6 @@ def hypervisor_label(value: str | None) -> str | None:
     if not value:
         return None
     return _HYP.get(value.strip().upper().replace(" ", ""), value.strip())
-
-
-def pc_version(value: str | None) -> str | None:
-    """One format for Prism Central versions: ``pc.7.5.1.1`` / ``pc.2024.3``."""
-    v = short_version(value)
-    if not v:
-        return None
-    return v if v.lower().startswith("pc.") or not v[0].isdigit() else f"pc.{v}"
 
 
 def pc_size_label(value: str | None) -> str | None:

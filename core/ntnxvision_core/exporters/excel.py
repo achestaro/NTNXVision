@@ -41,6 +41,7 @@ from ntnxvision_core.numfmt import (
     excel_number_format,
     fmt_count,
 )
+from ntnxvision_core.versions import pc_version
 
 GIB = 1024**3
 _FONT = TH.OFFICE_FONT
@@ -202,7 +203,7 @@ class ExcelExporter:
                        f"{env.prism_central.version or NA}"
         else:
             subtitle = f"Prism Central {env.prism_central.host or NA} · " \
-                       f"{env.prism_central.version or NA}"
+                       f"{pc_version(env.prism_central.version) or NA}"
         ws["A5"] = subtitle
         ws["A5"].font = Font(name=_FONT, size=11, color=TH.INK_2)
 
@@ -218,7 +219,7 @@ class ExcelExporter:
                            ("AOS Version", env.prism_central.version or NA)]
         else:
             source_rows = [("Prism Central", env.prism_central.host or NA),
-                           ("PC Version", env.prism_central.version or NA)]
+                           ("PC Version", pc_version(env.prism_central.version) or NA)]
         info = compat_info(env)
         compat = ("Within the supported range" if info.get("supported")
                   else "Outside the tested range (collection proceeded)")
@@ -334,7 +335,7 @@ class ExcelExporter:
         cfg = env.pc_config
         headers = ["Property", "Value"]
         rows: list[list[Any]] = [
-            ["Version", cfg.version],
+            ["Version", pc_version(cfg.version)],
             # The one place the full build string appears: support cases and LCM
             # matching need the exact build; every report and UI view shows the version.
             ["Build", cfg.build],
@@ -365,7 +366,7 @@ class ExcelExporter:
             cfg, counts = s.pc_config, s.summary
             rows.append([
                 s.prism_central.host or "unknown",
-                s.prism_central.version or cfg.version,
+                pc_version(s.prism_central.version or cfg.version),
                 "Scale-out" if cfg.is_scale_out else "Single-node"
                 if cfg.is_scale_out is not None else None,
                 cfg.node_count, cfg.registered_cluster_count, cfg.num_vcpus,

@@ -19,6 +19,7 @@ from ntnxvision_core.api.element_client import ElementConnection, ElementCredent
 from ntnxvision_core.api.errors import AuthenticationError, NutanixApiError
 from ntnxvision_core.api.transport import require_pin
 from ntnxvision_core.scope import element_cluster, registered_clusters
+from ntnxvision_core.versions import pc_version
 
 #: Seconds per request: the picker should fail fast rather than hang the form.
 LIST_TIMEOUT = 20
@@ -50,6 +51,6 @@ def list_clusters(params: dict[str, Any]) -> dict[str, Any]:
                           verify_ssl=not insecure, pinned_sha256=pin)
     with PrismConnection(pc, timeout=LIST_TIMEOUT) as conn:
         clusters, api = registered_clusters(conn)
-        version = conn.pc_version
+        version = pc_version(conn.pc_version)
     return {"mode": mode, "host": host, "api": api, "version": version,
             "clusters": [c.as_dict() for c in clusters]}

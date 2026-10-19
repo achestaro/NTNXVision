@@ -69,6 +69,7 @@ from ntnxvision_core.runinfo import CombinedTracker, RunTracker, build_run_metad
 from ntnxvision_core.store import SnapshotStore, transfer
 from ntnxvision_core.store import snapshot as snapstore
 from ntnxvision_core.store.names import max_stem_for, safe_name, unique_name
+from ntnxvision_core.versions import pc_version
 
 CANCELLED = -32800
 BUSY = -32002
@@ -440,7 +441,10 @@ def _finalize(env: Any, name: str, params: dict[str, Any], *,
     result: dict[str, Any] = {
         "summary": env.summary(),
         "source_type": env.source_type,
-        "prism_central": env.prism_central.model_dump(),
+        "prism_central": {**env.prism_central.model_dump(),
+                          "version": env.prism_central.version
+                          if env.source_type == "prism_element"
+                          else pc_version(env.prism_central.version)},
         "warnings": list(env.warnings),
         "collection_notes": env.collection_notes,
         "snapshot_path": None,

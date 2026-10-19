@@ -21,8 +21,9 @@ from ntnxvision_core.areas import AREAS_BY_ID, NDB_AREA, PE_LABELS, TYPICAL_SECO
 from ntnxvision_core.compat import check_aos, check_prism_central
 from ntnxvision_core.notes import clean_error
 from ntnxvision_core.numfmt import fmt_count
+from ntnxvision_core.versions import pc_version
 
-PC_RANGE = "pc.2024.1 to 7.5.1.6"
+PC_RANGE = "pc.2024.1 to pc.7.5.1.6"
 AOS_RANGE = "AOS 6.5 to 7.5"
 
 Emit = Callable[[dict[str, Any]], None]
@@ -226,7 +227,7 @@ class CombinedTracker:
 
 def compat_info(env: Any) -> dict[str, Any]:
     if env.is_combined:
-        versions = [s.prism_central.version for s in env.source_environments]
+        versions = [pc_version(s.prism_central.version) for s in env.source_environments]
         supported = all(s.prism_central.version_supported for s in env.source_environments)
         return {"version": None, "supported": supported, "range": PC_RANGE,
                 "versions": versions}
@@ -235,7 +236,7 @@ def compat_info(env: Any) -> dict[str, Any]:
         return {"version": env.prism_central.version, "supported": result.in_range,
                 "range": AOS_RANGE}
     result = check_prism_central(env.prism_central.version)
-    return {"version": env.prism_central.version, "supported": result.in_range,
+    return {"version": pc_version(env.prism_central.version), "supported": result.in_range,
             "range": PC_RANGE}
 
 
@@ -322,7 +323,7 @@ def api_routing(env: Any, areas: list[dict[str, Any]],
         elif area is not None and area.v4_area:
             verdict = negotiated.get(area.v4_area, "")
             if "not GA" in verdict:
-                reason = f"v4 not GA on {pc.version or 'this PC'}"
+                reason = f"v4 not GA on {pc_version(pc.version) or 'this PC'}"
             elif "absent" in verdict:
                 reason = "v4 namespace not served by this Prism Central"
             elif "unavailable" in verdict:
