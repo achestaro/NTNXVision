@@ -278,6 +278,7 @@
    "site:md-pc01.demo.local",
    "site:md-pc02.demo.local"
   ],
+  "summarise": false,
   "summarised": []
  },
  "nodes": [

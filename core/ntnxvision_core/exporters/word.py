@@ -22,6 +22,7 @@ template keeps its own styles: only direct table and cover formatting is applied
 from __future__ import annotations
 
 import io
+import re
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -372,18 +373,22 @@ class WordExporter:
                 if isinstance(value, Status):
                     glyph = p.add_run(f"{GLYPH} ")
                     _run(glyph, 8.5, RGBColor.from_string(T.STATUS_HEX[value.tone]))
-                _run(p.add_run(text), 8.5, _INK_3 if text == NA else _INK)
+                _run(_nb_run(p, text), 8.5, _INK_3 if text == NA else _INK)
         self._tables += 1
         spacer = doc.add_paragraph()
         spacer.paragraph_format.space_after = Pt(6)
 
     def _figure(self, doc: DocumentObject, f: Figure) -> None:
-        width = _text_width(doc)
+        width = min(_text_width(doc), int(Inches(f.diagram.width_in)))
+        # A picture taller than the page body would be clipped and push its caption to
+        # an otherwise empty page: scale it to fit with its caption.
+        max_h = _body_height(doc) - int(Pt(48))
+        if f.diagram.width and width * f.diagram.height / f.diagram.width > max_h:
+            width = int(max_h * f.diagram.width / f.diagram.height)
         p = doc.add_paragraph()
         p.paragraph_format.keep_with_next = True
         p.paragraph_format.space_before = Pt(4)
-        p.add_run().add_picture(io.BytesIO(f.diagram.png),
-                                width=Emu(min(width, int(Inches(f.diagram.width_in)))))
+        p.add_run().add_picture(io.BytesIO(f.diagram.png), width=Emu(width))
         _alt_text(p, T.clean(f.title))
         self._figure_caption(doc.add_paragraph(style="Caption"), f)
 
@@ -405,14 +410,18 @@ class WordExporter:
         """Bullets with the iris square marker the PDF and the mocks use."""
         for item in items:
             b = container.add_paragraph()
+            b.alignment = WD_ALIGN_PARAGRAPH.LEFT
             pf = b.paragraph_format
             pf.left_indent = Inches(0.17)
             pf.first_line_indent = -Inches(0.17)
             pf.space_after = Pt(3)
             pf.keep_with_next = True
             pf.tab_stops.add_tab_stop(Inches(0.17))
-            _run(b.add_run(GLYPH), 5.5, _IRIS)
-            _run(b.add_run("\t" + T.clean(item)), 9.5, _INK)
+            marker = _run(b.add_run(GLYPH), 5.5, _IRIS)
+            _rfonts(marker._r, "Arial")
+            b.add_run("\t")
+            text = _run(_nb_run(b, T.clean(item)), 9.5, _INK)
+            _rfonts(text._r, T.OFFICE_FONT)
 
     def _scene_figure(self, doc: DocumentObject, f: SceneFigure) -> None:
         text_w = _text_width(doc)
@@ -458,12 +467,12 @@ class WordExporter:
             cap.paragraph_format.keep_with_next = True
             note = doc.add_paragraph()
             note.paragraph_format.space_after = Pt(10)
-            _run(note.add_run(T.clean(f.note)), 8, _INK_3)
+            _run(_nb_run(note, T.clean(f.note)), 8, _INK_3)
 
     @staticmethod
     def _figure_caption(cap: Any, f: Figure | SceneFigure) -> None:
         cap.paragraph_format.space_after = Pt(10)
-        _run(cap.add_run(T.clean(f.title)), None, _INK_3, italic=True)
+        _run(_nb_run(cap, T.clean(f.title)), None, _INK_3, italic=True)
 
     def _figure_row(self, doc: DocumentObject, row: FigureRow) -> None:
         if not row.figures:
@@ -685,6 +694,44 @@ def _lang(style: Any, tag: str) -> None:
     lang = OxmlElement("w:lang")
     lang.set(qn("w:val"), tag)
     r_pr.append(lang)
+
+
+#: A hyphenated token this short (``Table 5-2``, ``X-Play``, ``en-pc02``,
+#: ``md-pc01.demo.local``) never breaks at its hyphen; longer ones (cluster names) may.
+_NB_TOKEN_MAX = 24
+_TOKEN = re.compile(r"\S+")
+_INNER_HYPHEN = re.compile(r"\w-\w")
+
+
+def _nb_hyphens(text: str) -> str:
+    """`text` with the hyphens of short hyphenated tokens as U+2011 markers."""
+    def keep(m: re.Match[str]) -> str:
+        tok = m.group(0)
+        if len(tok) <= _NB_TOKEN_MAX and _INNER_HYPHEN.search(tok):
+            return tok.replace("-", "\u2011")
+        return tok
+    return _TOKEN.sub(keep, text)
+
+
+def _nb_run(paragraph: Any, text: str) -> Any:
+    """A run with `text`, its short hyphenated tokens joined by Word's non-breaking
+    hyphen (``w:noBreakHyphen``), so "Table 5-2" or "en-pc02" never split at a line end."""
+    run = paragraph.add_run()
+    for i, part in enumerate(_nb_hyphens(text).split("\u2011")):
+        if i:
+            run._r.append(OxmlElement("w:noBreakHyphen"))
+        if part:
+            t = OxmlElement("w:t")
+            t.set(qn("xml:space"), "preserve")
+            t.text = part
+            run._r.append(t)
+    return run
+
+
+def _body_height(doc: DocumentObject) -> int:
+    s = doc.sections[-1]
+    return (int(s.page_height or Inches(11)) - int(s.top_margin or 0)
+            - int(s.bottom_margin or 0))
 
 
 def _run(run: Any, size: float | None, color: RGBColor, bold: bool = False,

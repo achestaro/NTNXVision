@@ -170,17 +170,29 @@ def _link_bullets(model: ConceptualModel) -> list[str]:
         if in_reps:
             entry["from"].append((_site_short(model, site), in_reps))
     lines = []
+
+    def who_text(sites: list[str]) -> str:
+        return fmt.join_names(sites) if len(sites) <= 3 else \
+            f"{', '.join(sites[:2])} and {len(sites) - 2:,} more"
+
     for rid in sorted(remotes, key=lambda r: model.name_of(r).lower()):
         remote = model.name_of(rid)
-        for way in ("to", "from"):
-            flows = remotes[rid][way]
-            if not flows:
+        to = {w: fmt.repl_group(reps) for w, reps in remotes[rid]["to"]}
+        back = {w: fmt.repl_group(reps) for w, reps in remotes[rid]["from"]}
+        # A site replicating the same schedules both ways is one bullet, as the figure
+        # draws one double-headed edge reading "both directions".
+        both = sorted(w for w in to if back.get(w) == to[w])
+        groups = (("both", both, to), ("to", sorted(w for w in to if w not in both), to),
+                  ("from", sorted(w for w in back if w not in both), back))
+        for way, who_list, sched in groups:
+            if not who_list:
                 continue
-            who_list = sorted({w for w, _ in flows})
-            who = fmt.join_names(who_list) if len(who_list) <= 3 else \
-                f"{', '.join(who_list[:2])} and {len(who_list) - 2:,} more"
-            types = ", ".join(fmt.repl_group([r for _, reps in flows for r in reps]))
-            if way == "to":
+            types = ", ".join(dict.fromkeys(t for w in who_list for t in sched[w]))
+            who = who_text(who_list)
+            if way == "both":
+                lines.append(f"{who} and {remote} (outside this inventory) replicate both "
+                             f"ways ({types}).")
+            elif way == "to":
                 verb = "replicates" if len(who_list) == 1 else "replicate"
                 lines.append(f"{who} {verb} to {remote}, outside this inventory ({types}).")
             else:
