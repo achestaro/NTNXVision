@@ -347,11 +347,17 @@ def layout_site(site: VSite, page: Page | None = None, refs: Refs | None = None,
 
 
 def layout(model: VpcModel, page: Page | None = None, refs: Refs | None = None,
-           first_budget: Budget | None = None) -> list[Scene]:
+           first_budget: Budget | None = None, site: str | None = None) -> list[Scene]:
+    """Every AZ's scenes (the first `MAX_AZ_FIGURES` AZs) in model order, or only the
+    AZ whose id is `site` (a report section per AZ)."""
     out: list[Scene] = []
-    for i, site in enumerate(model.sites[:MAX_AZ_FIGURES]):
-        if site.vpcs or site.externals:
-            out.extend(layout_site(site, page, refs, first_budget if i == 0 else None))
+    if site is not None:
+        one = next((s for s in model.sites if s.id == site), None)
+        return layout_site(one, page, refs, first_budget) if one is not None and \
+            (one.vpcs or one.externals) else []
+    for i, s in enumerate(model.sites[:MAX_AZ_FIGURES]):
+        if s.vpcs or s.externals:
+            out.extend(layout_site(s, page, refs, first_budget if i == 0 else None))
     return out
 
 

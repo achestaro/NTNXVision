@@ -1,7 +1,7 @@
 {
  "caption": "Logical cluster design, md-pc01: nodes, CVMs and containers.",
  "edges": [],
- "height": 339.6,
+ "height": 347.66,
  "id": "logical-md-pc01.demo.local",
  "meta": {
   "drawn": [
@@ -19,7 +19,7 @@
    "data": {
     "name": "md-pc01.demo.local"
    },
-   "h": 313.6,
+   "h": 321.66,
    "id": "site:md-pc01.demo.local",
    "kind": "container",
    "lines": [
@@ -646,7 +646,7 @@
     "name": "VDI-E01",
     "prism_central": "md-pc01.demo.local"
    },
-   "h": 116.89,
+   "h": 124.95,
    "id": "cluster:9b4738ef-4d63-5e4f-92be-6214d8858c4e",
    "kind": "box",
    "lines": [
@@ -692,7 +692,7 @@
   },
   {
    "data": {},
-   "h": 40.5,
+   "h": 48.56,
    "id": "cluster:9b4738ef-4d63-5e4f-92be-6214d8858c4e:nodes",
    "kind": "box",
    "lines": [
@@ -724,7 +724,16 @@
      "x": 4.0
     },
     {
-     "baseline": 35.68,
+     "baseline": 34.68,
+     "bold": false,
+     "color": "#3E4C59",
+     "size": 6.3,
+     "text": "GPU: 1 x NVIDIA L4 per node",
+     "width": 81.46,
+     "x": 4.0
+    },
+    {
+     "baseline": 43.74,
      "bold": false,
      "color": "#3E4C59",
      "size": 6.3,
@@ -771,7 +780,7 @@
    },
    "w": 219.5,
    "x": 11.5,
-   "y": 273.46
+   "y": 281.52
   },
   {
    "data": {
@@ -801,7 +810,7 @@
    },
    "w": 100.68,
    "x": 11.5,
-   "y": 282.64
+   "y": 290.7
   },
   {
    "data": {
@@ -831,7 +840,7 @@
    },
    "w": 112.03,
    "x": 115.18,
-   "y": 282.64
+   "y": 290.7
   },
   {
    "data": {
@@ -861,7 +870,7 @@
    },
    "w": 137.83,
    "x": 11.5,
-   "y": 295.62
+   "y": 303.68
   },
   {
    "data": {},
@@ -879,7 +888,7 @@
    },
    "w": 17,
    "x": 0.5,
-   "y": 329.1
+   "y": 337.16
   },
   {
    "data": {},
@@ -907,7 +916,7 @@
    },
    "w": 21.52,
    "x": 21.5,
-   "y": 327.6
+   "y": 335.66
   },
   {
    "data": {},
@@ -925,7 +934,7 @@
    },
    "w": 17,
    "x": 57.02,
-   "y": 329.1
+   "y": 337.16
   },
   {
    "data": {},
@@ -953,7 +962,7 @@
    },
    "w": 41.28,
    "x": 78.02,
-   "y": 327.6
+   "y": 335.66
   }
  ],
  "part": [

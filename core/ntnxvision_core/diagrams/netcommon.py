@@ -123,9 +123,11 @@ def ip_range(ips: list[str]) -> str:
 
 
 def ip_key(ip: str | None) -> tuple[Any, ...]:
-    parts = (ip or "").split(".")
-    if len(parts) == 4 and all(p.isdigit() for p in parts):
-        return (0, *(int(p) for p in parts))
+    """Numeric order for dotted IPv4 (a prefix length sorts after), text otherwise."""
+    addr, _, plen = (ip or "").partition("/")
+    parts = addr.split(".")
+    if len(parts) == 4 and all(p.isdigit() for p in parts) and (not plen or plen.isdigit()):
+        return (0, *(int(p) for p in parts), int(plen or 0))
     return (1, ip or "")
 
 
