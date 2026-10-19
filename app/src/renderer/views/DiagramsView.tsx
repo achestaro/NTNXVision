@@ -10,14 +10,18 @@ import {
   CaretLeftIcon,
   CaretRightIcon,
   CubeIcon,
+  GlobeIcon,
   HardDrivesIcon,
   MinusIcon,
   NoteIcon,
   PlusIcon,
   RectangleIcon,
+  ShareNetworkIcon,
+  ShieldCheckIcon,
   SquaresFourIcon,
   TrashIcon,
   TreeStructureIcon,
+  WallIcon,
 } from '@phosphor-icons/react';
 import type { Icon as PhosphorIcon } from '@phosphor-icons/react';
 import type {
@@ -49,6 +53,12 @@ const PALETTE_ICONS: Record<string, PhosphorIcon> = {
   storage: HardDrivesIcon,
   switch: RectangleIcon,
   note: NoteIcon,
+  // Network segments, virtual networking and microsegmentation palettes.
+  segment: ShareNetworkIcon,
+  gateway: WallIcon,
+  overlay: ShareNetworkIcon,
+  external: GlobeIcon,
+  policy: ShieldCheckIcon,
 };
 
 const DISMISSED_KEY = 'ntnxvision.diagrams.carryDismissed';

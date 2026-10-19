@@ -1005,6 +1005,7 @@ try {
   const el = (prefix) => page.locator(`[data-el^="${prefix}"]`);
   const order = () => page.locator('.dg-order .mono').innerText();
   let generatedDocx = '';
+  let editedDocx = '';
 
   await run('diagrams-open', async () => {
     await rail('Diagrams');
@@ -1094,7 +1095,31 @@ try {
     if (![...ed.media].some((h) => !gen.media.has(h))) throw new Error('the edited Word export has the same figures as the generated one');
     // The user-added element is in the figure only, never in the document's text or tables.
     if (ed.mentions) throw new Error('"Backup appliance" leaked into the Word text or tables');
+    editedDocx = edited;
     await page.screenshot({ path: join(uxDir, 'diagrams-saved.png'), fullPage: true });
+  });
+
+  // A per-AZ network figure (Network Segment Design): rename a segment in place, save,
+  // and the Word export draws the new name in the figure only (the segments table keeps
+  // the collected name).
+  await run('diagrams-segments-edit', async () => {
+    await page.getByRole('button', { name: /Network segment design/ }).first().click();
+    const seg = page.locator('[data-el^="subnet:"]').first();
+    await seg.waitFor({ timeout: 60_000 });
+    await seg.dblclick();
+    const input = page.locator('.dg-inline');
+    await input.fill('E2E web segment');
+    await input.press('Enter');
+    await page.locator('[data-el^="subnet:"]', { hasText: 'E2E web segment' }).waitFor({ timeout: 15_000 });
+    await page.getByRole('button', { name: /^Save/ }).click();
+    await page.getByText('Diagram saved.').first().waitFor({ timeout: 30_000 });
+    await page.getByText('No unsaved changes').waitFor();
+    const docx = await exportWordFromDiagrams();
+    const before = docxFacts(editedDocx, 'E2E web segment');
+    const after = docxFacts(docx, 'E2E web segment');
+    if (![...after.media].some((h) => !before.media.has(h))) throw new Error('the segment edit did not change any Word figure');
+    if (after.mentions) throw new Error('"E2E web segment" leaked into the Word text or tables');
+    await page.screenshot({ path: join(uxDir, 'diagrams-segments.png'), fullPage: true });
   });
 
   await run('snapshot-file-export', async () => {
