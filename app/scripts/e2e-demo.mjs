@@ -952,6 +952,8 @@ try {
     for (const entry of [`ACME Q4-pc01-week1-${today}_diagrams.vsdx`, `ACME Q4-pc01-week1-${today}_diagrams.drawio`, 'svg/01-']) {
       if (!zip.includes(Buffer.from(entry))) throw new Error(`diagrams bundle has no ${entry}`);
     }
+    // It follows the chosen sections: Data Protection was left out, so no DR figure.
+    if (zip.includes(Buffer.from('-data-protection'))) throw new Error('diagrams bundle has the left-out DR figure');
   });
 
   await run('export-dialog-remembers-prefix', async () => {

@@ -224,7 +224,10 @@ def continued_notes(figs: list[SceneFigure],
                     scope: Callable[[Scene], str] | None = None) -> None:
     """Chain a diagram's parts: each part but the last notes where it continues
     ("Continued in Figure 5-3 (part 2 of 3: pc04, pc05)."), ahead of any note it has.
-    Run once figures are numbered (a finaliser)."""
+    Run once figures are numbered (a finaliser); figures of a chapter left out of the
+    report are never numbered and get no note."""
+    if not figs or not figs[0].label:
+        return
     for f, nxt in zip(figs, figs[1:], strict=False):
         sc = nxt.scene
         what = f"part {sc.part[0]} of {sc.part[1]}"

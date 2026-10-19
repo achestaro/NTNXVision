@@ -170,8 +170,19 @@ def _dp_xref(rep: Report) -> str | None:
     return next((t for t in texts if "Solution Conceptual Overview" in t), None)
 
 
-def test_cross_reference_follows_reordering(estates: dict[str, Environment]) -> None:
+def test_cross_reference_follows_reordering(estates: dict[str, Environment],
+                                            monkeypatch: pytest.MonkeyPatch) -> None:
+    """The Data Protection chapter points at the overview's replication only when it has
+    no Disaster Recovery Design figure of its own; that pointer follows the order."""
+    import dataclasses
+
+    from ntnxvision_core.diagrams import TYPES
+
     env = estates["medium"]
+    assert TYPES["dr"].applies(env)
+    assert _dp_xref(build_report(env, ExportOptions(), "x")) is None  # its own figure
+    monkeypatch.setitem(TYPES, "dr", dataclasses.replace(TYPES["dr"],
+                                                         applies=lambda _env: False))
     for order in (None, ("data_protection", "logical_design")):
         rep = build_report(env, ExportOptions(section_order=order), "x")
         (ld,) = [c for c in rep.chapters if c.key == "logical_design"]
@@ -182,7 +193,13 @@ def test_cross_reference_follows_reordering(estates: dict[str, Environment]) -> 
 
 
 def test_cross_reference_dropped_without_logical_design(
-        estates: dict[str, Environment]) -> None:
+        estates: dict[str, Environment], monkeypatch: pytest.MonkeyPatch) -> None:
+    import dataclasses
+
+    from ntnxvision_core.diagrams import TYPES
+
+    monkeypatch.setitem(TYPES, "dr", dataclasses.replace(TYPES["dr"],
+                                                         applies=lambda _env: False))
     env = estates["medium"]
     chapters = frozenset(S.DEFAULT_ORDER) - {"logical_design"}
     rep = build_report(env, ExportOptions(chapters=chapters), "x")
@@ -368,3 +385,16 @@ def test_typescript_catalogue_matches() -> None:
                      src)
     assert [(i, lbl, f or None) for i, lbl, f in ids] == \
         [(s.id, s.label, s.fixed) for s in S.CATALOG]
+
+
+@pytest.mark.parametrize("left_out", ["prism_central", "logical_design", "physical_design",
+                                      "data_protection"])
+def test_design_figures_of_a_left_out_chapter_resolve_nothing(
+        design_envs: dict[str, Any], left_out: str) -> None:
+    """The finalisers of a chapter left out (its figures never numbered, in parts on
+    xlarge) do nothing: no cross reference warning, and no figure in the report."""
+    env = design_envs["xlarge"]
+    rep = build_report(env, ExportOptions(chapters=frozenset(S.DEFAULT_ORDER) - {left_out}),
+                       "x")
+    assert rep.warnings == []
+    assert left_out not in [c.key for c in rep.chapters]

@@ -332,7 +332,7 @@ function ExportDialog({
           </div>
           {withDiagrams && (
             <p className="hint" style={{ margin: '6px 0 0' }}>
-              One .zip next to the report: a .vsdx with a page per figure, a .drawio with a tab per figure and an .svg of each.
+              One .zip next to the report: a .vsdx with a page per figure, a .drawio with a tab per figure and an .svg of each. It follows the chosen sections.
             </p>
           )}
         </fieldset>
