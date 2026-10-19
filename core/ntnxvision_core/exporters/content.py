@@ -65,8 +65,6 @@ EDITED = " (edited)"
 
 GIB = 1024**3
 TIB = GIB * 1024
-#: Diagrams drawn per chapter before the rest are summarised in a sentence.
-MAX_CLUSTER_FIGURES = 8
 
 # ─── model ─────────────────────────────────────────────────────────────────────
 
@@ -1139,26 +1137,18 @@ class _Builder:
     def physical_design(self) -> Chapter:
         env = self.env
         ch = Chapter("physical_design", "Physical Design", "clusters_hosts")
-        figs: list[Block] = []
-        drawn = 0
-        for c in env.clusters:
-            if drawn >= MAX_CLUSTER_FIGURES:
-                break
-            d = diagrams.cluster_compute(env, c)
-            if d:
-                drawn += 1
-                figs.append(Figure(d, f"Cluster {c.name}: node composition and capacity."))
-        if len(env.clusters) > MAX_CLUSTER_FIGURES:
-            figs.append(Paragraph(
-                f"Compute diagrams are shown for the first {MAX_CLUSTER_FIGURES} of "
-                f"{plural(len(env.clusters), 'cluster')}; the hosts table lists every node.",
-                "note"))
+        # Node composition is drawn by the Logical Cluster Design (A2); this table
+        # lists every host.
+        from ntnxvision_core.diagrams.logical import in_maintenance
+
         ch.add("Nodes / Hosts", make_table(
             ["Host", "Cluster", "Hypervisor", "CPU Model", "Cores", "Memory (GiB)", "VMs",
-             "GPUs"],
+             "GPUs", "Maintenance"],
             [[h.name, self.cluster(h), h.hypervisor_type, h.cpu_model, h.num_cpu_cores,
-              gib(h.memory_bytes), h.num_vms, ", ".join(h.gpu_list)] for h in env.hosts],
-            "Physical hosts", self.src(env.hosts), prune=("GPUs",)), *figs)
+              gib(h.memory_bytes), h.num_vms, ", ".join(h.gpu_list),
+              h.maintenance_state if in_maintenance(h.maintenance_state) else None]
+             for h in env.hosts],
+            "Physical hosts", self.src(env.hosts), prune=("GPUs", "Maintenance")))
         cap = diagrams.storage_capacity_chart(env)
         shown = len([c for c in env.storage_containers if c.max_capacity_bytes][:8])
         total = len([c for c in env.storage_containers if c.max_capacity_bytes])
