@@ -1342,6 +1342,18 @@ def _dr_design(est: PcEstate) -> None:
     for i, rp in enumerate(est.recovery_plans):
         rp["primary_cluster"] = ahv[i % len(ahv)]["uuid"]
         rp["recovery_cluster"] = remote[i % len(remote)]
+    # A synchronous (Metro) policy to a paired PC gets a recovery plan with a witness.
+    for name, rpo, source, peer, target in f.extra_policies:
+        if rpo != 0 or not peer or source not in by_name:
+            continue
+        plan = f"RP-{name}"
+        est.recovery_plans.append({
+            "uuid": uid(est.seed, "rp", plan), "name": plan, "stages": 2, "entities": 8,
+            "network_maps": 1, "primary": est.pc_uuid, "recovery": uid(peer, "pc"),
+            "primary_cluster": by_name[source]["uuid"],
+            "recovery_cluster": uid(peer, "cluster", target),
+            "witness": uid(est.seed, "witness", plan),
+        })
 
 
 def _cluster_design(est: PcEstate) -> None:

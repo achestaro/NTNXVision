@@ -480,6 +480,13 @@ def bullets(m: DrModel) -> list[str]:
     out = [f"{pols} and {fmt.plural(m.recovery_plans, 'recovery plan')} across {zones}."
            if m.recovery_plans else f"{pols} across {zones}; no recovery plans.",
            "Type follows the RPO: 0 Sync, up to 15 min NearSync, else Async."]
+    witnessed = [p for p in m.plans if p.witness]
+    if witnessed:
+        pairs = [f"{short_name(m.name_of(p.a))} and {short_name(m.name_of(p.b))}"
+                 for p in witnessed]
+        out[1] = (out[1].removesuffix(".") + "; a witness arbitrates the Metro recovery "
+                  "plans between " + (fmt.join_names(pairs) if len(pairs) <= 2
+                                      else fmt.plural(len(pairs), "zone pair")) + ".")
     inner = [f for f in m.flows if not f.site_b.startswith("az:")
              and not f.site_a.startswith("az:")]
     inner.sort(key=lambda f: (_rk(f.repl[0]) if f.repl else (10**12, ""), f.id))
