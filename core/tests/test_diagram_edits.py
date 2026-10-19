@@ -529,7 +529,7 @@ def test_edited_figure_keeps_collected_counts_and_discloses_the_edit(env: Enviro
     assert note.startswith("Figure edited on the Diagrams page: ")
     assert f"1 cluster ({deleted['name']}, {deleted['nodes']} nodes) not drawn" in note
     assert "1 user-added item" in note
-    assert ' renamed to "SQL tier"' in note and "(" not in note.split("renamed to")[0][-3:]
+    assert ' renamed to \u201cSQL tier\u201d' in note and '"' not in note
     assert note.endswith("Counts are as collected.")
     # The caption keeps the collected numbers and says the figure is edited.
     assert figs[0].caption.startswith("Solution conceptual overview (edited): ")
@@ -756,3 +756,79 @@ def test_failed_auto_carry_is_a_warning(demo: Any, data_dir: Path,
     path = Path(second["snapshot_path"])
     sc._cache.invalidate(path)
     assert warning in sc._cache.get(path).warnings
+
+
+_PC01 = {"host": "pc01.demo.local", "username": "admin", "password": "demo", "port": 9440,
+         "insecure": False}
+
+
+def _collect(data_dir: Path, name: str) -> dict[str, Any]:
+    return sc._m_inventory(None, {**_PC01, "name": name, "formats": [],
+                                  "export_dir": str(data_dir / "exports")})
+
+
+def _add_backup(snap: str, extra: list[dict[str, Any]] | None = None) -> None:
+    got = sc._m_get_diagram(None, {"snapshot": snap, "type": "conceptual"})
+    site = next(o for o in got["outline"] if o["collection"] == "sites")
+    sc._m_save_diagram(None, {"snapshot": snap, "type": "conceptual", "ops": [
+        {"op": "add", "parent": site["id"], "field": "cards", "index": 0,
+         "element": {"id": "user:b", "palette": "storage", "name": "Backup appliance"}},
+        *(extra or [])]})
+
+
+def test_reset_edits_never_come_back(demo: Any, data_dir: Path) -> None:
+    """week1 edited, week2 carries them, the author resets week2: week3 starts from the
+    generated diagram (only the newest earlier snapshot counts, and it has no edits)."""
+    first = _collect(data_dir, "week1")
+    _add_backup(first["snapshot_path"])
+    sc._advance_demo("pc01.demo.local")
+    second = _collect(data_dir, "week2")
+    s2 = Path(second["snapshot_path"])
+    assert ST.load(s2)["conceptual"]["carried_from"]["auto"]
+    assert second["diagram_carry"]["from"] == "week1"
+    sc._m_reset_diagram(None, {"snapshot": str(s2), "type": "conceptual"})
+    sc._advance_demo("pc01.demo.local")
+    third = _collect(data_dir, "week3")
+    s3 = Path(third["snapshot_path"])
+    assert ST.load(s3) == {}
+    assert "diagram_carry" not in third
+    assert not any("diagram edits" in w for w in third["warnings"])
+    # The Diagrams page's carry offer (C3) follows the same rule.
+    assert sc._m_list_diagrams(None, {"snapshot": str(s3)})["carry"] is None
+
+
+def test_not_applied_warning_is_not_repeated(demo: Any, data_dir: Path) -> None:
+    first = _collect(data_dir, "week1")
+    _add_backup(first["snapshot_path"], [{"op": "delete", "id": "cluster:gone"}])
+    sc._advance_demo("pc01.demo.local")
+    second = _collect(data_dir, "week2")
+    assert sum("were not applied" in w for w in second["warnings"]) == 1
+    sc._advance_demo("pc01.demo.local")
+    third = _collect(data_dir, "week3")
+    assert not any("were not applied" in w for w in third["warnings"])
+
+
+def test_auto_carried_figure_says_where_its_edits_came_from(demo: Any, data_dir: Path,
+                                                          monkeypatch: pytest.MonkeyPatch
+                                                          ) -> None:
+    first = _collect(data_dir, "week1")
+    _add_backup(first["snapshot_path"])
+    sc._advance_demo("pc01.demo.local")
+    second = _collect(data_dir, "week2")
+    seen: list[Any] = []
+    real = sc.export_environment
+
+    def spy(env: Any, fmt: str, *a: Any, **k: Any) -> Any:
+        seen.append(dict(k.get("options") or {}))
+        return real(env, fmt, *a, **k)
+
+    monkeypatch.setattr(sc, "export_environment", spy)
+    sc._m_export(None, {"snapshot": second["snapshot_path"], "formats": ["pdf"],
+                        "export_dir": str(data_dir / "exports")})
+    opts = seen[0]
+    assert opts["diagram_origins"] == {"conceptual": "week1"}
+    env = sc._cache.get(Path(second["snapshot_path"]))
+    report = build_report(env, ExportOptions.coerce(opts), "Report")
+    bullets = [s for b in _blocks(report) if isinstance(b, SceneFigure) for s in b.summary]
+    assert any(s.startswith("Figure edited on the Diagrams page (edits carried from "
+                            "week1): ") for s in bullets)

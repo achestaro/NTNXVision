@@ -433,10 +433,11 @@ def _count(n: int, one: str, many: str | None = None) -> str:
     return f"{n:,} {one if n == 1 else (many or one + 's')}"
 
 
-def disclosure(generated: dict[str, Any], edited: dict[str, Any], spec: EditSpec
-               ) -> str | None:
+def disclosure(generated: dict[str, Any], edited: dict[str, Any], spec: EditSpec,
+               carried_from: str | None = None) -> str | None:
     """One design-summary bullet saying how a saved edit differs from the data:
-    elements not drawn, user-added items, renames, roles and notes set by the author.
+    elements not drawn, user-added items, renames, roles and notes set by the author,
+    and the snapshot the edits were carried from automatically (`carried_from`).
     None when the two models are the same."""
     if generated == edited:
         return None
@@ -467,7 +468,7 @@ def disclosure(generated: dict[str, Any], edited: dict[str, Any], spec: EditSpec
             continue
         before = gen[ident][0]
         if col.label and elem.get(col.label) != before.get(col.label):
-            renamed.append(f"{before.get(col.label)} renamed to \"{elem.get(col.label)}\"")
+            renamed.append(f"{before.get(col.label)} renamed to \u201c{elem.get(col.label)}\u201d")
         if col.roles and elem.get("role") != before.get("role"):
             roles += 1
         if col.sublabel and elem.get(col.sublabel) != before.get(col.sublabel):
@@ -481,7 +482,9 @@ def disclosure(generated: dict[str, Any], edited: dict[str, Any], spec: EditSpec
         parts.append(f"{_count(notes, 'note')} added")
     if not parts:
         parts.append("elements reordered")
-    return f"Figure edited on the Diagrams page: {', '.join(parts)}. Counts are as collected."
+    origin = f" (edits carried from {carried_from})" if carried_from else ""
+    return (f"Figure edited on the Diagrams page{origin}: {', '.join(parts)}. "
+            "Counts are as collected.")
 
 
 def touched(op: dict[str, Any]) -> set[str]:

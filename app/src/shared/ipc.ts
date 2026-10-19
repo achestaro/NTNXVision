@@ -544,6 +544,11 @@ export interface InventoryResult {
   exports: Record<string, string>;
   export_errors: Record<string, string>;
   excel_path?: string;
+  /**
+   * The previous snapshot's saved diagram edits all applied and were carried to this
+   * one automatically (its reports draw them).
+   */
+  diagram_carry?: { from: string | null; diagrams: string[] } | null;
   // ─── added for the Runway UI ───
   started_at?: string | null;
   finished_at?: string | null;
