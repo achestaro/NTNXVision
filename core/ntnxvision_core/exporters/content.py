@@ -1425,7 +1425,9 @@ class _Builder:
     def security(self) -> Chapter:
         env = self.env
         ch = Chapter("security", "Security Posture (Flow)", "security_networking")
-        ch.add("Security Policies", make_table(
+        # The Microsegmentation Design sections carry the policies table per AZ.
+        designed = self.design_sections(ch, only=("flow",))
+        ch.add("Security Policies", None if designed else make_table(
             ["Policy", "Type", "State", "Inbound", "Outbound", "Secured Group"],
             [[p.name, p.policy_type, p.state, p.inbound_rule_count, p.outbound_rule_count,
               p.secured_group] for p in env.security_policies],
