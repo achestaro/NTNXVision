@@ -35,7 +35,16 @@ from ..flow import (
     site_line,
     site_title,
 )
-from ..netcommon import MAX_AZ_FIGURES, MX, P, az_container, more_card, tag_w, user_chip
+from ..netcommon import (
+    MAX_AZ_FIGURES,
+    MX,
+    P,
+    az_container,
+    mark_edited,
+    more_card,
+    tag_w,
+    user_chip,
+)
 from ..scene import Node, Scene, Style, q
 from .conceptual import Page, Refs
 
@@ -290,12 +299,12 @@ def layout(model: FlowModel, page: Page | None = None, refs: Refs | None = None,
     out: list[Scene] = []
     if site is not None:
         one = next((s for s in model.sites if s.id == site), None)
-        return layout_site(one, page, refs, first_budget) if one is not None and \
-            (one.lanes) else []
+        return mark_edited(layout_site(one, page, refs, first_budget), model.edited) \
+            if one is not None and (one.lanes) else []
     for i, s in enumerate(model.sites[:MAX_AZ_FIGURES]):
         if s.lanes:
             out.extend(layout_site(s, page, refs, first_budget if i == 0 else None))
-    return out
+    return mark_edited(out, model.edited)
 
 
 __all__ = ["layout", "layout_site"]

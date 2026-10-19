@@ -189,6 +189,15 @@ def more_card(sid: str, x: float, y: float, w: float, title: str, lines: list[st
                parent=parent, data=data)
 
 
+def mark_edited(scenes: list[Scene], edited: bool) -> list[Scene]:
+    """Say " (edited)" after the figure name in each caption of an edited model (the
+    report drops it from the parts no edit touches, `scope_edit_marks`)."""
+    if edited:
+        for sc in scenes:
+            sc.caption = sc.caption.replace(", ", " (edited), ", 1)
+    return scenes
+
+
 def user_chip(node: Node) -> Node:
     """The USER-ADDED chip on a user-added element's top edge."""
     return chip(f"{node.id}:user", "USER-ADDED", node.x + node.w - 6 - tag_w("USER-ADDED"),
@@ -196,6 +205,7 @@ def user_chip(node: Node) -> Node:
 
 
 __all__ = ["MAX_AZ_FIGURES", "MAX_PARTS", "MX", "P", "TOP", "AzInfo", "az_container",
+           "mark_edited",
            "azs", "default_host", "ip_key", "ip_range", "label_right", "more_card",
            "natural", "pill_right", "pill_w", "short_gw", "src_of", "tag_at", "tag_w",
            "user_chip", "vlan_text", "vms_text"]
