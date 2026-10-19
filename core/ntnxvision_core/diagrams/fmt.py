@@ -47,7 +47,8 @@ def repl_group(reps: list[Repl], limit: int = 3) -> list[str]:
     if not rpos:
         return [plural(len(lines), "schedule")]
     lo = "Sync" if rpos[0] == 0 else f"RPO {rpo(rpos[0])}"
-    return [f"{plural(len(lines), 'schedule')}, {lo} to {rpo(rpos[-1])}"]
+    span = f"{lo} to {rpo(rpos[-1])}".replace(" ", NBSP)
+    return [f"{plural(len(lines), 'schedule')}, {span}"]
 
 
 @dataclass(frozen=True)
@@ -125,9 +126,21 @@ def storage_text(card: Card) -> str:
 
 
 def hypervisor_mix(cards: list[Card]) -> str:
-    """"AHV 10, ESXi 1" (clusters per hypervisor, most first)."""
+    """"10 AHV, 1 ESXi" (clusters per hypervisor, most first)."""
     c = Counter(k.hypervisor or "N/A" for k in cards)
-    return ", ".join(f"{h} {n:,}" for h, n in sorted(c.items(), key=lambda kv: (-kv[1], kv[0])))
+    return ", ".join(f"{n:,} {h}" for h, n in sorted(c.items(), key=lambda kv: (-kv[1], kv[0])))
+
+
+#: Region values as the APIs spell them, as people read them.
+_REGIONS = {"onprem": "on-premises", "onpremises": "on-premises", "onpremise": "on-premises"}
+
+
+def region_label(value: str | None) -> str | None:
+    """"OnPrem" (an AZ region enum) -> "on-premises"; other regions as given."""
+    if not value:
+        return None
+    key = value.strip().lower().replace("-", "").replace("_", "").replace(" ", "")
+    return _REGIONS.get(key, value.strip())
 
 
 def join_names(names: list[str]) -> str:

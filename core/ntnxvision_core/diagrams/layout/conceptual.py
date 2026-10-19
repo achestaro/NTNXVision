@@ -67,7 +67,7 @@ CARD_W = 135.0
 CARD_MIN_W = 120.0
 CG = 6.0  # card column gap
 RG = 4.5  # card row gap
-CHANNEL = 12.0  # below-mode channel pitch
+CHANNEL = 9.0  # below-mode channel pitch
 PER_PART = 3
 #: Clusters each summarised site keeps drawn: the PC host plus the 2 largest.
 MIN_KEEP = 3
@@ -125,9 +125,13 @@ class _Plan:
 # ─── parts ─────────────────────────────────────────────────────────────
 
 
-def plan_parts(model: ConceptualModel, per: int = PER_PART) -> list[list[Site]]:
-    """Group sites into parts of up to `per`, keeping linked sites together."""
-    ids = [s.id for s in model.sites]
+def plan_parts(model: ConceptualModel, per: int = PER_PART,
+               sites: list[Site] | None = None) -> list[list[Site]]:
+    """Group sites (default: all, in model order) into parts of up to `per`: a linked
+    group stays together (one larger than a part is cut into consecutive chunks), and
+    unlinked AZs fill the free slots of earlier parts in model order."""
+    pool = sites if sites is not None else model.sites
+    ids = [s.id for s in pool]
     adj: dict[str, set[str]] = {i: set() for i in ids}
     for lk in model.links:
         if lk.a in adj and lk.b in adj:
@@ -149,23 +153,20 @@ def plan_parts(model: ConceptualModel, per: int = PER_PART) -> list[list[Site]]:
         seen |= found
         comps.append([i for i in ids if i in found])
     parts: list[list[str]] = []
-    cur: list[str] = []
     for comp in comps:
-        if len(comp) > per:
-            if cur:
-                parts.append(cur)
-                cur = []
-            chunks = [comp[i:i + per] for i in range(0, len(comp), per)]
-            parts.extend(chunks[:-1])
-            cur = list(chunks[-1])
-        elif len(cur) + len(comp) <= per:
-            cur.extend(comp)
+        if len(comp) == 1:  # an unlinked AZ takes the first free slot
+            free = next((p for p in parts if len(p) < per), None)
+            if free is not None:
+                free.append(comp[0])
+            else:
+                parts.append(list(comp))
+        elif len(comp) > per:
+            parts.extend(comp[k:k + per] for k in range(0, len(comp), per))
+        elif parts and len(parts[-1]) + len(comp) <= per:
+            parts[-1].extend(comp)
         else:
-            parts.append(cur)
-            cur = list(comp)
-    if cur:
-        parts.append(cur)
-    by_id = {s.id: s for s in model.sites}
+            parts.append(list(comp))
+    by_id = {s.id: s for s in pool}
     return [[by_id[i] for i in p] for p in parts] or [[]]
 
 
@@ -224,8 +225,8 @@ def _remote_target(r: Remote) -> _Target:
         sub, kind = "Nutanix Cloud (Xi)", "Nutanix Cloud"
     else:
         sub, kind = "Physical AZ", "Prism Central"
-    if r.region:
-        sub += f", {r.region}"
+    if region := fmt.region_label(r.region):
+        sub += f", {region}"
     return _Target(id=r.id, name=r.name, sub=sub, kind_line=kind,
                    note="not in this inventory", chip="REMOTE AZ")
 
@@ -313,9 +314,12 @@ def _pill_rows(pills: list[tuple[str, float]], inner: float) -> list[list[tuple[
     return [r for r in rows if r]
 
 
-def _title_row(c: Card) -> Row:
-    # Up to three lines, down to the 6 pt floor, before anything is ellipsised.
-    return Row(c.name, K.SIZE_CARD_TITLE, True, K.INK, 3, tx.MIN_SIZE)
+def _title_row(c: Card, width: float) -> Row:
+    """Two lines when the name fits in two down to the 6 pt floor, else three; never
+    ellipsised before that."""
+    _, two = tx.fit(c.name, K.SIZE_CARD_TITLE, True, width, 2, tx.MIN_SIZE)
+    lines = 2 if not two[-1].endswith(tx.ELLIPSIS) else 3
+    return Row(c.name, K.SIZE_CARD_TITLE, True, K.INK, lines, tx.MIN_SIZE)
 
 
 def _card_parts(c: Card, w: float) -> tuple[list[Row], list[Row], bool, float]:
@@ -329,10 +333,10 @@ def _card_parts(c: Card, w: float) -> tuple[list[Row], list[Row], bool, float]:
         inline = len(fitted) == 1 and not fitted[0].endswith(tx.ELLIPSIS)
     title_w = inner - (pills_w + 4 if inline else 0)
     if c.kind != "cluster":
-        return ([_title_row(c)],
+        return ([_title_row(c, title_w)],
                 [Row(c.note, K.SIZE_SMALL, False, K.INK_3, 2)] if c.note else [], inline,
                 title_w)
-    return ([_title_row(c)], [Row(fmt.card_body(c), K.SIZE_BODY, False, K.INK_2, 3)],
+    return ([_title_row(c, title_w)], [Row(fmt.card_body(c), K.SIZE_BODY, False, K.INK_2, 3)],
             inline, title_w)
 
 
@@ -388,13 +392,17 @@ def _card_h(c: Card, w: float) -> float:
     return q(h + 4.0)
 
 
-def _more_rows(hidden: list[Card], refs: Refs) -> list[Row]:
-    nodes = sum(c.nodes or 0 for c in hidden)
+def _more_rows(hidden: list[Card], refs: Refs, inner_w: float) -> list[Row]:
+    """"+N more clusters", the nodes (with the hypervisor split when it fits on the
+    line), and "listed in Table 5-2" on a line of its own."""
+    nodes = fmt.plural(sum(c.nodes or 0 for c in hidden), "node")
+    mixed = f"{nodes} ({fmt.hypervisor_mix(hidden)})"
     ref = refs.clusters_table.replace(" ", fmt.NBSP)
     return [Row(f"+{fmt.plural(len(hidden), 'more cluster')}", K.SIZE_CARD_TITLE, True,
                 K.INK_2),
-            Row(f"{fmt.plural(nodes, 'node')} ({fmt.hypervisor_mix(hidden)}), listed in "
-                f"{ref}", K.SIZE_SMALL, False, K.INK_3, 3, gap_before=0.5)]
+            Row(mixed if tx.width(mixed, K.SIZE_SMALL) <= inner_w else nodes, K.SIZE_SMALL,
+                False, K.INK_3, 2, gap_before=0.5),
+            Row(f"listed in {ref}", K.SIZE_SMALL, False, K.INK_3, 2)]
 
 
 # ─── one part ──────────────────────────────────────────────────────────
@@ -417,17 +425,13 @@ def _visible(s: Site, keep: int | None) -> tuple[list[Card], list[Card]]:
     return [c for c in s.cards if c.id in ids], [c for c in s.cards if c.id not in ids]
 
 
-def _ladder(plan: _Plan, max_cols: int) -> list[_Try]:
-    tries = [_Try(c, None) for c in range(1, max_cols + 1)]
-    most = max((len(s.cards) for s in plan.sites), default=0)
-    if most > MIN_KEEP + 1:
-        for c in range(max_cols, 1, -1):
-            for r in range(math.ceil(most / c) - 1, 1, -1):
-                if c * r - 1 >= MIN_KEEP:
-                    tries.append(_Try(c, c * r - 1))
-        # The PC host and the 2 largest clusters: the floor. Below it, the part splits.
-        tries.append(_Try(1, MIN_KEEP))
-    return tries
+def _ladder(plan: _Plan, max_cols: int, summarise: bool) -> list[_Try]:
+    """Full detail in 1..N columns; or, when the estate is summarised, decision 7 for
+    every AZ: the PC host plus the 2 largest clusters, then "+N more" (AZs with up to
+    4 clusters show them all), so equal AZs look equal in every part."""
+    if summarise:
+        return [_Try(1, MIN_KEEP)]
+    return [_Try(c, None) for c in range(1, max_cols + 1)]
 
 
 def _layout_part(model: ConceptualModel, plan: _Plan, page: Page, refs: Refs,
@@ -467,7 +471,7 @@ def _layout_part(model: ConceptualModel, plan: _Plan, page: Page, refs: Refs,
             while len(row_h) <= r:
                 row_h.append(0.0)
             row_h[r] = max(row_h[r], *hs, 26.0) if hs else max(row_h[r], 26.0)
-    more_h = {s.id: q(text_h(_more_rows(vis[s.id][1], refs), card_w - 10) + 9)
+    more_h = {s.id: q(text_h(_more_rows(vis[s.id][1], refs, card_w - 10), card_w - 10) + 9)
               for s in sites if vis[s.id][1]}
 
     top = TOP
@@ -512,7 +516,8 @@ def _layout_part(model: ConceptualModel, plan: _Plan, page: Page, refs: Refs,
                     drawn.append(cd.id)
                 else:
                     node = box(f"{s.id}:more", "box", cx, cy, card_w,
-                               _more_rows(hidden, refs), K.MORE, pad_x=5, h=more_h[s.id],
+                               _more_rows(hidden, refs, card_w - 10), K.MORE, pad_x=5,
+                               h=more_h[s.id],
                                valign="middle", parent=s.id,
                                data={"clusters": str(len(hidden))})
                     sc.nodes.append(node)
@@ -602,7 +607,10 @@ def _layout_part(model: ConceptualModel, plan: _Plan, page: Page, refs: Refs,
     if has_pc:
         items.append(("line", K.MANAGES, "Manages"))
     content_w = max((nd.x + nd.w for nd in sc.nodes), default=200.0)
-    lg_w = min(page.width - 2 * MX, max(content_w, 300.0))
+    # A figure already wider than a summary column may take the page width for its
+    # legend (one row instead of two); a narrow one keeps it within its own width.
+    lg_w = min(page.width - 2 * MX, max(content_w, 300.0) if content_w <= 480.0
+               else page.width)
     lh = legend(sc, items, MX, content_bottom + 9, lg_w)
     right = max(max(nd.x + nd.w for nd in sc.nodes),
                 max((max(p[0] for p in e.points) for e in sc.edges), default=0.0),
@@ -719,11 +727,17 @@ def _card(sc: Scene, s: Site, cd: Card, x: float, y: float, w: float, h: float,
     return node
 
 
-def _target_rows(t: _Target, below: bool) -> list[Row]:
+def _target_rows(t: _Target, below: bool, paired: list[str] | None = None) -> list[Row]:
     if below:
-        return [Row(t.name, K.SIZE_REMOTE_TITLE, True, K.INK, 2, 6.5),
+        rows = [Row(t.name, K.SIZE_REMOTE_TITLE, True, K.INK, 2, 6.5),
                 Row(f"{t.sub} · {t.note}", K.SIZE_SMALL, False, K.INK_2, 2,
                     gap_before=0.5)]
+        if paired:
+            text = f"AZ pairing with {fmt.join_names(paired)}"
+            if tx.width(text, K.SIZE_SMALL) > BELOW_W - 10:
+                text = f"AZ pairing with {fmt.plural(len(paired), 'AZ')} of this part"
+            rows.append(Row(text, K.SIZE_SMALL, False, K.IRIS, 2))
+        return rows
     return [Row(t.name, K.SIZE_REMOTE_TITLE, True, K.INK, 3, tx.MIN_SIZE),
             Row(t.sub, K.SIZE_SMALL, False, K.INK_2, 2, gap_before=0.5),
             Row(t.kind_line, K.SIZE_SMALL, False, K.INK_3, 1),
@@ -800,11 +814,23 @@ def _below(sc: Scene, plan: _Plan, site_nodes: dict[str, Node], page: Page,
     by_target: dict[str, list[tuple[str, list[Link]]]] = {}
     for x, t, lks in plan.external:
         by_target.setdefault(t, []).append((x, lks))
+    # A source that both replicates to and pairs with a target draws the replication;
+    # the pairing is noted in the target box ("AZ pairing with ..."), so no dashed drop
+    # crosses a replication bus. Pairing-only sources keep their dashed bus.
+    noted: dict[str, list[str]] = {}
     for t in [tg.id for tg in plan.targets]:
-        for kind in ("replication", "pairing"):
-            srcs = [(x, lk) for x, lks in by_target.get(t, []) for lk in lks if lk.kind == kind]
-            if srcs:
-                groups.append(_Group(t, kind, srcs, False))
+        srcs = by_target.get(t, [])
+        rep_src = [(x, lk) for x, lks in srcs for lk in lks if lk.kind == "replication"]
+        pair_src = [(x, lk) for x, lks in srcs for lk in lks if lk.kind == "pairing"]
+        replicating = {x for x, _ in rep_src}
+        noted[t] = [names[x] for x, _ in pair_src if x in replicating]
+        if rep_src:
+            groups.append(_Group(t, "replication", rep_src, False))
+        alone = [(x, lk) for x, lk in pair_src if x not in replicating]
+        if alone:
+            groups.append(_Group(t, "pairing", alone, False))
+        if noted[t]:
+            kinds["pairing"] = True
     for x, y, lks in plan.inner:
         for kind in ("replication", "pairing"):
             for lk in lks:
@@ -819,7 +845,8 @@ def _below(sc: Scene, plan: _Plan, site_nodes: dict[str, Node], page: Page,
         return centre(g.target) if g.inner else sum(centre(x) for x, _ in g.sources) / len(
             g.sources)
 
-    groups.sort(key=lambda g: (proxy_x(g), g.kind != "replication", g.target))
+    # Pairing channels run nearest the sites, replication below them.
+    groups.sort(key=lambda g: (g.kind != "pairing", proxy_x(g), g.target))
     ports: dict[str, list[tuple[int, str]]] = {}
     for gi, g in enumerate(groups):
         for x, _ in g.sources:
@@ -848,11 +875,11 @@ def _below(sc: Scene, plan: _Plan, site_nodes: dict[str, Node], page: Page,
             labels[(gi, x)] = (text, lw, lh)
     label_h = max((lh for _, _, lh in labels.values()), default=0.0)
     stagger = any(len(lst) > 2 for lst in ports.values())
-    chan0 = q(site_bottom + 6 + label_h * (2 if stagger else 1) + (3 if stagger else 0)
+    chan0 = q(site_bottom + 3 + label_h * (2 if stagger else 1) + (3 if stagger else 0)
               + (4 if labels else 0))
     remote_groups = [g for g in groups if not g.inner]
     n_ch = len(groups)
-    row_y = q(chan0 + CHANNEL * (n_ch - 1) + 14) if remote_groups else 0.0
+    row_y = q(chan0 + CHANNEL * (n_ch - 1) + 11) if remote_groups else 0.0
     targets = {t.id: t for t in plan.targets}
     want: dict[str, list[float]] = {}
     for gi, g in enumerate(groups):
@@ -864,7 +891,7 @@ def _below(sc: Scene, plan: _Plan, site_nodes: dict[str, Node], page: Page,
     boxes: dict[str, Node] = {}
     for t, bx in zip(order, xs, strict=True):
         tg = targets[t]
-        node = box(t, "box", bx, row_y, BELOW_W, _target_rows(tg, below=True),
+        node = box(t, "box", bx, row_y, BELOW_W, _target_rows(tg, True, noted.get(t)),
                    _target_style(tg), pad_x=5, pad_y=CHIP_H / 2 + 4,
                    data={"availability_zone": tg.name, "name": tg.name})
         sc.nodes.append(node)
@@ -957,14 +984,14 @@ def _caption(sites: list[Site], part: tuple[int, int]) -> str:
 
 
 def _best(model: ConceptualModel, sites: list[Site], parts: list[list[Site]], page: Page,
-          refs: Refs, limit: Budget, sid: str) -> tuple[Scene, bool]:
+          refs: Refs, limit: Budget, sid: str, summarise: bool) -> tuple[Scene, bool]:
     """The first ladder rung that fits `limit`, else the most compact one."""
     plan = _plan(model, sites, parts, page)
     side_w = (SIDE_GUT + REMOTE_W) if plan.side else 0.0
     avail = (page.width - 2 * MX - sum(_gaps(plan)) - side_w) / max(1, len(sites))
     max_cols = max(1, int((avail - 2 * P + CG) // (CARD_MIN_W + CG)))
     sc: Scene | None = None
-    for attempt in _ladder(plan, max_cols):
+    for attempt in _ladder(plan, max_cols, summarise):
         sc = _layout_part(model, plan, page, refs, attempt, sid)
         if sc.height <= limit(sc.width):
             return sc, True
@@ -996,34 +1023,41 @@ def _split(model: ConceptualModel, sites: list[Site]) -> tuple[list[Site], list[
 
 def layout(model: ConceptualModel, page: Page | None = None, refs: Refs | None = None,
            first_budget: Budget | None = None) -> list[Scene]:
-    """Scenes (parts) for the model. Every part fits `page.max_h`, and part 1 fits
-    `first_budget(width)` (the room the report leaves under the heading and summary);
-    a part that cannot fit, even with "+N more" cards, gives its last site to a new
-    part."""
+    """Scenes (parts) for the model, up to 3 AZs each (linked AZs together). Every part
+    fits `page.max_h`, and part 1 fits `first_budget(width)` (the room the report leaves
+    under the headings and summary).
+
+    The detail level is one decision for the whole estate: every AZ in full when every
+    part fits that way, else decision 7 everywhere ("+N more" cards). A part that still
+    does not fit gives up its last linked group (or last AZ) to the parts after it."""
     page = page or Page()
     refs = refs or Refs()
-    parts = plan_parts(model)
 
     def limit(pi: int) -> Budget:
         if pi == 0 and first_budget is not None:
             return lambda w: min(page.max_h, first_budget(w))
         return lambda _w: page.max_h
 
-    # Pass 1: settle the parts (split any that cannot fit).
-    pi = 0
-    while pi < len(parts):
-        _, ok = _best(model, parts[pi], parts, page, refs, limit(pi), "probe")
-        if not ok and len(parts[pi]) > 1:
-            keep, move = _split(model, parts[pi])
-            parts = parts[:pi] + [keep, move] + parts[pi + 1:]
-            continue
-        pi += 1
-    # Pass 2: lay out with the final part numbers (reference boxes name them).
+    parts = plan_parts(model)
+    summarise = not all(
+        _best(model, part, parts, page, refs, limit(pi), "probe", False)[1]
+        for pi, part in enumerate(parts))
+    if summarise:
+        pi = 0
+        while pi < len(parts):
+            _, ok = _best(model, parts[pi], parts, page, refs, limit(pi), "probe", True)
+            if not ok and len(parts[pi]) > 1:
+                keep, move = _split(model, parts[pi])
+                rest = [s for p in [move, *parts[pi + 1:]] for s in p]
+                parts = parts[:pi] + [keep] + plan_parts(model, sites=rest)
+                continue
+            pi += 1
     scenes: list[Scene] = []
     for pi, sites in enumerate(parts):
         sid = "conceptual" if len(parts) == 1 else f"conceptual-{pi + 1}"
-        sc, _ = _best(model, sites, parts, page, refs, limit(pi), sid)
+        sc, _ = _best(model, sites, parts, page, refs, limit(pi), sid, summarise)
         sc.part = (pi + 1, len(parts))
         sc.caption = _caption(sites, sc.part)
+        sc.meta["summarise"] = summarise
         scenes.append(sc)
     return scenes

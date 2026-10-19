@@ -451,8 +451,9 @@ class _Builder:
         self.sunset = sunset_areas(self.routing)
         #: Run once every caption and table is numbered (cross references).
         self.finalizers: list[Callable[[], None]] = []
-        #: The first figure of each diagram type, for cross references from other chapters.
-        self.design_figures: dict[str, SceneFigure] = {}
+        #: The figures (parts) of each diagram type, for cross references from other
+        #: chapters.
+        self.design_figures: dict[str, list[SceneFigure]] = {}
 
     # ─ helpers ─
     def src(self, objs: list[Any]) -> list[str] | None:
@@ -828,7 +829,7 @@ class _Builder:
         scenes = dtype.layout(model, page, None, first_part_budget(bullets))
         figs = [SceneFigure(sc, sc.caption) for sc in scenes]
         figs[0].summary = design.conceptual_bullets(model, scenes)
-        self.design_figures[dtype.id] = figs[0]
+        self.design_figures[dtype.id] = figs
         az = None if self.is_pe else make_table(
             design.AZ_HEADERS, design.az_rows(model), "Availability zones and Prism Central")
         clusters = None
@@ -1115,12 +1116,17 @@ class _Builder:
             xref = Paragraph("The Solution Conceptual Overview draws the replication between "
                              "availability zones.")
             ch.blocks.append(xref)
-            fig = self.design_figures["conceptual"]
+            figs = self.design_figures["conceptual"]
 
-            def name_figure(p: Paragraph = xref, f: SceneFigure = fig) -> None:
-                p.text = (f"{f.label.rstrip('.')} (Solution Conceptual Overview, Logical "
-                          "Design chapter) draws the replication and AZ pairing between "
-                          "availability zones.")
+            def name_figure(p: Paragraph = xref, fs: list[SceneFigure] = figs) -> None:
+                first, last = fs[0].label.rstrip("."), fs[-1].label.rstrip(".")
+                which = (f"{first} (Solution Conceptual Overview, Logical Design chapter) "
+                         "draws" if len(fs) == 1 else
+                         f"Figures {first.removeprefix('Figure ')} to "
+                         f"{last.removeprefix('Figure ')} (Solution Conceptual Overview, "
+                         "Logical Design chapter) draw")
+                p.text = (f"{which} the replication and AZ pairing between availability "
+                          "zones.")
 
             self.finalizers.append(name_figure)
         ch.add("Protection Policies", make_table(

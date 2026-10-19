@@ -218,6 +218,7 @@
   "sites": [
    "site:sm-pc01.demo.local"
   ],
+  "summarise": false,
   "summarised": []
  },
  "nodes": [

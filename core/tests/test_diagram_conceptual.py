@@ -321,6 +321,38 @@ def test_every_summarised_site_shows_the_pc_host_and_two_largest(
     assert any("Table 5-2" in t for sc in scenes for t in _all_text(sc))
 
 
+def test_same_size_azs_are_drawn_alike_in_every_part(estates: dict[str, Environment]
+                                                      ) -> None:
+    """One detail level for the whole estate: the 8 equal xlarge AZs (13 clusters each)
+    all show 3 clusters and a "+10 more" card, whichever part they land in, over a
+    handful of parts of up to 3 AZs."""
+    from ntnxvision_core.exporters.content import first_part_budget
+
+    m = conceptual_model(estates["xlarge"])
+    for budget in (None, first_part_budget(["x" * 90] * 5)):
+        scenes = conceptual_layout(m, None, None, budget)
+        counts = {sid: sum(1 for c in m.site(sid).cards if c.id in sc.meta["drawn"])
+                  for sc in scenes for sid in sc.meta["sites"]}
+        assert set(counts.values()) == {MIN_KEEP}, counts
+        assert len(scenes) <= 4 and max(len(sc.meta["sites"]) for sc in scenes) == 3
+        assert all(sc.meta["summarise"] for sc in scenes)
+
+
+def test_two_way_remote_replication_is_one_bullet() -> None:
+    from ntnxvision_core.diagrams.summary import conceptual_bullets as bullets
+
+    m = M.ConceptualModel(
+        sites=[M.Site(id="site:pc.example.lab", name="pc.example.lab",
+                      cards=[M.Card(id="cluster:c", name="CL", hypervisor="AHV", nodes=2)])],
+        remotes=[M.Remote(id="az:dr", name="dr", region="OnPrem")],
+        links=[M.Link(id="r", kind="replication", a="site:pc.example.lab", b="az:dr",
+                      forward=[M.Repl("Async", 3600)], backward=[M.Repl("Async", 3600)])])
+    sc = conceptual_layout(m)[0]
+    found = [b for b in bullets(m, [sc]) if "dr" in b]
+    assert found == ["pc and dr (outside this inventory) replicate both ways (Async 1 h)."]
+    assert "Physical AZ, on-premises" in _all_text(sc)
+
+
 def test_paired_sites_share_a_part(estates: dict[str, Environment]) -> None:
     parts = [sc.meta["sites"] for sc in _scenes(estates["enterprise"])]
     assert parts == [["site:en-pc01.demo.local", "site:en-pc02.demo.local"],
@@ -377,7 +409,7 @@ def test_stress_model_never_overflows_and_keeps_six_point_floor() -> None:
         assert sc.height <= Page().max_h
     texts = [t for sc in scenes for t in _all_text(sc)]
     assert "External storage" in texts
-    assert any("Sync to 1 d" in t for t in texts)
+    assert any("Sync to 1 d" in t for t in texts)
     assert not any("…" in t for t in texts if t.startswith("STRESS"))
 
 
@@ -409,8 +441,12 @@ def test_word_report_contains_the_figure(estates: dict[str, Environment],
     beside = [t for t in doc.tables if len(t.rows[0].cells) == 2
               and "DESIGN SUMMARY" in t.rows[0].cells[1].text]
     assert beside
-    # The DR chapter names the figure that draws replication.
-    assert "Figure 5-1 (Solution Conceptual Overview" in text
+    # The DR chapter names the figures that draw replication.
+    assert "Figures 5-1 to 5-2 (Solution Conceptual Overview" in text
+    # Short hyphenated tokens never break at their hyphen in Word.
+    xml = doc.element.xml
+    assert "w:noBreakHyphen" in xml
+    assert "2 AHV" in text or "3 AHV" in text
 
 
 def test_word_heading_summary_and_figure_are_chained(estates: dict[str, Environment],
