@@ -930,20 +930,28 @@ try {
     await uxShot('export-dialog-sections');
     // File name prefix with a live preview of every file.
     await dialog.locator('#exp-prefix').fill('ACME Q4');
+    // Editable diagrams is on by default with a PDF or Word report: one more file.
     for (const ext of ['xlsx', 'pdf', 'docx']) {
       await dialog.getByText(`ACME Q4-pc01-week1-${today}.${ext}`, { exact: true }).waitFor();
     }
+    await dialog.getByText(`ACME Q4-pc01-week1-${today}_diagrams.zip`, { exact: true }).waitFor();
     await uxShot('export-dialog-prefix');
-    await dialog.getByRole('button', { name: /^Export 3 files/ }).click();
-    await page.getByText(/Exported 3 files/).first().waitFor({ timeout: 120_000 });
+    await dialog.getByRole('button', { name: /^Export 4 files/ }).click();
+    await page.getByText(/Exported 4 files/).first().waitFor({ timeout: 180_000 });
     const files = await readdir(exportDir);
-    for (const ext of ['.xlsx', '.pdf', '.docx']) {
+    for (const ext of ['.xlsx', '.pdf', '.docx', '_diagrams.zip']) {
       if (!files.includes(`ACME Q4-pc01-week1-${today}${ext}`)) throw new Error(`no ACME Q4 ${ext} written: ${files.join(', ')}`);
     }
     // The Word chapters follow the order and the selection.
     const heads = await wordHeadings(join(exportDir, `ACME Q4-pc01-week1-${today}.docx`));
     if (heads[0] !== '1. Executive Summary' || heads[1] !== '2. Networking') throw new Error(`chapter order: ${heads.join(' | ')}`);
     if (heads.some((h) => h.includes('Data Protection'))) throw new Error(`Data Protection was left out: ${heads.join(' | ')}`);
+    // The bundle holds a Visio file, a draw.io file and one SVG per figure (zip entry
+    // names are stored uncompressed, so a byte search finds them).
+    const zip = await readFile(join(exportDir, `ACME Q4-pc01-week1-${today}_diagrams.zip`));
+    for (const entry of [`ACME Q4-pc01-week1-${today}_diagrams.vsdx`, `ACME Q4-pc01-week1-${today}_diagrams.drawio`, 'svg/01-']) {
+      if (!zip.includes(Buffer.from(entry))) throw new Error(`diagrams bundle has no ${entry}`);
+    }
   });
 
   await run('export-dialog-remembers-prefix', async () => {

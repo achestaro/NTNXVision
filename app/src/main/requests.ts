@@ -183,6 +183,7 @@ export function asExportRequest(v: unknown): ExportRequest {
     optStr(w.author, 'word.author', 500);
   }
   if (r.vcpuRatio !== undefined && r.vcpuRatio !== null) num(r.vcpuRatio, 'vcpuRatio', RATIO_MIN, RATIO_MAX);
+  optBool(r.diagrams, 'diagrams');
   return r as unknown as ExportRequest;
 }
 

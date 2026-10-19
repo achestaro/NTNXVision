@@ -695,6 +695,7 @@ ipc.handle(IPC.exportSnapshot, (_e, raw: ExportRequest) => {
         }
       : undefined,
     vcpu_ratio: req.vcpuRatio ?? vcpuRatio(),
+    diagrams: req.diagrams === true,
   });
 });
 
