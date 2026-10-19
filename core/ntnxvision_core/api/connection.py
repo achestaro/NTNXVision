@@ -139,8 +139,9 @@ class PrismConnection:
 
     # ─── raw request helpers ───────────────────────────────────────
 
-    def get_json(self, url: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
-        return self._json_or_raise(self._send("GET", url, params=params))
+    def get_json(self, url: str, params: dict[str, Any] | None = None, *,
+                 headers: dict[str, str] | None = None) -> dict[str, Any]:
+        return self._json_or_raise(self._send("GET", url, params=params, headers=headers))
 
     def post_json(self, url: str, body: dict[str, Any]) -> dict[str, Any]:
         return self._json_or_raise(self._send("POST", url, json=body))
@@ -311,10 +312,14 @@ class PrismConnection:
 
     # ─── v4 REST (SDKs wrap these; collectors may call directly) ────
 
-    def v4_get(self, path: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
-        """GET a v4 endpoint, e.g. 'clustermgmt/v4.0/config/clusters'."""
+    def v4_get(self, path: str, params: dict[str, Any] | None = None, *,
+               headers: dict[str, str] | None = None) -> dict[str, Any]:
+        """GET a v4 endpoint, e.g. 'clustermgmt/v4.0/config/clusters'.
+
+        `headers` adds request headers, e.g. ``X-Cluster-Id`` to address one cluster's
+        LCM through Prism Central."""
         url = f"{self.creds.base}/api/{path.lstrip('/')}"
-        return self.get_json(url, params=params)
+        return self.get_json(url, params=params, headers=headers)
 
     def v4_list(self, path: str, page_size: int = 100, *,
                 filter: str | None = None) -> list[dict[str, Any]]:  # noqa: A002

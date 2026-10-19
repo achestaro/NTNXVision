@@ -28,9 +28,13 @@ from ntnxvision_core.collectors.ndb import collect_ndb
 from ntnxvision_core.collectors.vcenter import enrich_from_vcenter
 from ntnxvision_core.compat import check_aos, check_prism_central
 from ntnxvision_core.designdata import resolve_design_data
+from ntnxvision_core.lcm_inventory import TYPICAL_SECONDS as LCM_INVENTORY_SECONDS
+from ntnxvision_core.lcm_inventory import InventoryOptions, LcmInventory, note_line
 from ntnxvision_core.models import (
     ClusterScope,
     Environment,
+    LcmInventoryRun,
+    LcmInventoryTarget,
     PrismCentral,
     ScopeCluster,
     SourcedObject,
@@ -55,6 +59,7 @@ def collect_environment(
     tracker: RunTracker | None = None,
     clusters: list[str] | None = None,
     vcenter_creds: VcenterCredentials | None = None,
+    lcm_inventory: InventoryOptions | None = None,
 ) -> Environment:
     """Connect to Prism Central and run the selected collectors into an Environment.
 
@@ -74,6 +79,11 @@ def collect_environment(
     plane after the Prism Central collectors. If `vcenter_creds` is provided, a vCenter
     step then fills what Nutanix cannot say about the ESXi clusters in scope
     (`collectors.vcenter`); its failure is isolated like any collector's.
+
+    `lcm_inventory` (off unless given, and only with the LCM area selected) first asks
+    LCM on Prism Central and the selected clusters to refresh its inventory, in the
+    background while the other areas run; LCM is then collected last, once that has
+    finished (`ntnxvision_core.lcm_inventory`, the run's only non-read request).
     """
     if collectors is not None:
         run_areas = [a for a in AREAS if a.collector in collectors]
@@ -84,6 +94,11 @@ def collect_environment(
         ]
     else:
         run_areas = select_areas(areas, "prism_central")
+    lcm_on = lcm_inventory is not None and any(a.id == "lcm" for a in run_areas)
+    if lcm_on:
+        # LCM waits for the inventory, so it runs last and everything else meanwhile.
+        run_areas = [a for a in run_areas if a.id != "lcm"] + \
+            [a for a in run_areas if a.id == "lcm"]
     env = Environment(
         collected_at=datetime.now(timezone.utc).isoformat(),
         prism_central=PrismCentral(host=creds.host),
@@ -106,7 +121,14 @@ def collect_environment(
         conn.scope = scope
 
         if tracker is not None:
-            tracker.start(planned, pc_version(conn.pc_version))
+            tracker.start(planned, pc_version(conn.pc_version),
+                          extra_seconds=LCM_INVENTORY_SECONDS if lcm_on else 0)
+
+        inventory: LcmInventory | None = None
+        if lcm_on:
+            assert lcm_inventory is not None
+            inventory = _start_lcm_inventory(creds, conn, scope, lcm_inventory, env, cancel,
+                                             tracker)
 
         try:
             for idx, area in enumerate(run_areas):
@@ -114,8 +136,10 @@ def collect_environment(
                     cancel.check()
                 assert area.collector is not None
                 collector = area.collector(conn)
-                work = _noting_rate_limits(conn, env, collector.name,
-                                           partial(collector.collect, env))
+                collect = partial(collector.collect, env)
+                if area.id == "lcm" and inventory is not None:
+                    collect = partial(_collect_after_inventory, inventory, env, collect)
+                work = _noting_rate_limits(conn, env, collector.name, collect)
                 _run_area(env, area, idx, total, work, progress, tracker, conn.negotiated,
                           collector.label, collector.name, scope=scope)
         except RunCancelled:
@@ -150,6 +174,45 @@ def collect_environment(
         scope.prune(env)
         env.cluster_scope = scope.record()
     return env
+
+
+def _start_lcm_inventory(creds: PrismCredentials, conn: PrismConnection, scope: Scope | None,
+                         options: InventoryOptions, env: Environment,
+                         cancel: CancelToken | None, tracker: RunTracker | None
+                         ) -> LcmInventory | None:
+    """Start the LCM inventory in the background, or record why it cannot run."""
+    if not conn.v4_ready("lifecycle"):
+        env.lcm_inventory = LcmInventoryRun(
+            requested=True, detail=(
+                "the v4 lifecycle API is not served by this Prism Central "
+                f"({conn.negotiated.get('lifecycle', 'unavailable')}); NTNXVision reads LCM "
+                "only through it, so an inventory could not refresh any collected value"))
+        env.collection_notes["lcm_inventory"] = note_line(env.lcm_inventory)
+        if tracker is not None:
+            tracker.lcm_inventory(env.lcm_inventory)
+        return None
+    clusters: list[tuple[str, str | None]] = []
+    registered: set[str] = set()
+    if scope is not None:
+        registered = set(scope.registered)
+        clusters = [(u, c.name) for u, c in scope.registered.items() if u in scope.selected]
+    inventory = LcmInventory(
+        partial(PrismConnection, creds, cancel=cancel), clusters, options=options,
+        cancel=cancel, registered=registered,
+        on_update=tracker.lcm_inventory if tracker is not None else None)
+    inventory.start()
+    return inventory
+
+
+def _collect_after_inventory(inventory: LcmInventory, env: Environment,
+                             collect: Callable[[], None]) -> None:
+    """The LCM area with the inventory on: wait for it, then read the fresh entities."""
+    try:
+        env.lcm_inventory = inventory.wait()
+    finally:
+        if env.lcm_inventory is not None:
+            env.collection_notes["lcm_inventory"] = note_line(env.lcm_inventory)
+    collect()
 
 
 def _noting_rate_limits(conn: Any, env: Environment, note_key: str,
@@ -382,6 +445,14 @@ def combine_environments(envs: list[Environment]) -> Environment:
         )
         for env in envs
     ]
+    runs = [(env.prism_central.host or "unknown", env.lcm_inventory) for env in envs
+            if env.lcm_inventory is not None and env.lcm_inventory.requested]
+    if runs:
+        combined.lcm_inventory = LcmInventoryRun(
+            requested=True, api="v4" if any(r.api for _, r in runs) else None,
+            targets=[LcmInventoryTarget(**{**t.model_dump(), "source_pc": host})
+                     for host, r in runs for t in r.targets],
+            detail="; ".join(f"{host}: {r.detail}" for host, r in runs if r.detail) or None)
     defaults = {env.vcpu_ratio_default for env in envs}
     combined.vcpu_ratio_default = defaults.pop() if len(defaults) == 1 else None
     # Another PC's clusters are now known: name the DR targets that pointed at them.
