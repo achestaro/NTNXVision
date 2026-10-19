@@ -19,15 +19,26 @@ size. v3 `hosts/list` carries no disk sizes, so the v3 path (and a v4 host witho
 list) reads the node's `storage.capacity_bytes` from the groups API instead, the same
 attribute the Prism hosts table shows as disk capacity. Best-effort: a PC that rejects the
 query just leaves the field empty and the storage figures read N/A.
+
+**Blocks and Controller VMs** (for the logical cluster design). v4 lists them per cluster:
+``clusters/{c}/rackable-units`` (block model, serial, each node's slot, the rack id when
+rack awareness is configured) and ``clusters/{c}/cvms`` (CVM vCPU, memory, IP per node).
+Both are called only for the clusters in scope. Below the v4 line the blocks come from
+each cluster's Prism Element (v2.0 ``hosts`` through the PC proxy: block model, serial and
+slot), and the CVMs from the system VMs the VM area collects (see the engine). A cluster
+whose blocks or CVMs cannot be read is named in the area note; the hosts themselves are
+unaffected.
 """
 
 from __future__ import annotations
 
 from typing import Any
 
+from ntnxvision_core.api.errors import NutanixApiError
 from ntnxvision_core.collectors.base import Collector
+from ntnxvision_core.collectors.esxi import scoped_clusters
 from ntnxvision_core.collectors.normalize import hypervisor_name
-from ntnxvision_core.models import Host
+from ntnxvision_core.models import Block, BlockNode, Cvm, Host
 
 
 def _is_physical_host(resources: dict[str, Any]) -> bool:
@@ -48,12 +59,85 @@ class HostCollector(Collector):
     label = "Hosts / Nodes"
 
     def collect(self, env: Any) -> None:
-        if self.conn.v4_ready("hosts"):
+        v4 = self.conn.v4_ready("hosts")
+        if v4:
             self._collect_v4(env)
         else:
             self._collect_v3(env)
         self._backfill_storage_capacity(env)
-        env.collection_notes[self.name] = "ok"
+        failed = self._blocks_and_cvms(env, v4)
+        env.collection_notes[self.name] = (
+            "ok: " + "; ".join(failed) if failed else "ok")
+
+    # ─── blocks (rackable units) and CVMs ─────────────────────────
+
+    def _blocks_and_cvms(self, env: Any, v4: bool) -> list[str]:
+        """Blocks and CVMs of the clusters in scope, each read on its own: returns
+        "<part> of <cluster> unavailable (<reason>)" for every part that failed."""
+        failed: list[str] = []
+        for uuid, name, _hvs in scoped_clusters(self.conn, env):
+            parts = ((self._v4_blocks, "blocks"), (self._v4_cvms, "CVMs")) if v4 \
+                else ((self._pe_blocks, "blocks"),)
+            for read, what in parts:
+                try:
+                    read(env, uuid, name)
+                except NutanixApiError as exc:
+                    failed.append(f"{what} of {name or uuid} unavailable ({_reason(exc)})")
+        return failed
+
+    def _v4_blocks(self, env: Any, cluster_uuid: str, cluster_name: str | None) -> None:
+        base = f"clustermgmt/v4.0/config/clusters/{cluster_uuid}"
+        for unit in self.conn.v4_list(f"{base}/rackable-units"):
+            rack = unit.get("rack") or {}
+            env.blocks.append(Block(
+                uuid=str(unit.get("extId") or unit.get("serial") or ""),
+                cluster_uuid=cluster_uuid,
+                cluster_name=cluster_name,
+                model_name=unit.get("modelName"),
+                model=unit.get("model"),
+                serial=unit.get("serial"),
+                rack_id=_int_or_none(rack.get("id")),
+                rack_uuid=rack.get("uuid"),
+                nodes=[BlockNode(host_uuid=n.get("uuid"), position=_int_or_none(n.get("position")))
+                       for n in unit.get("nodes") or [] if isinstance(n, dict)],
+                api_source="v4",
+            ))
+
+    def _v4_cvms(self, env: Any, cluster_uuid: str, cluster_name: str | None) -> None:
+        base = f"clustermgmt/v4.0/config/clusters/{cluster_uuid}"
+        for cvm in self.conn.v4_list(f"{base}/cvms"):
+            env.cvms.append(Cvm(
+                uuid=str(cvm.get("extId") or ""),
+                name=cvm.get("name"),
+                cluster_uuid=cvm.get("clusterExtId") or cluster_uuid,
+                cluster_name=cluster_name,
+                host_uuid=cvm.get("nodeExtId"),
+                num_vcpus=_int_or_none(cvm.get("numVcpus")),
+                memory_bytes=_int_or_none(cvm.get("memorySizeBytes")),
+                ip_address=_v4_ipv4(cvm.get("ipAddress")),
+                backplane_ip=_v4_ipv4(cvm.get("backplaneIpAddress")),
+                hypervisor_type=hypervisor_name(cvm.get("hypervisorType")),
+                api_source="v4",
+            ))
+
+    def _pe_blocks(self, env: Any, cluster_uuid: str, cluster_name: str | None) -> None:
+        """Blocks from the cluster's Prism Element (v2.0 hosts), grouped by block serial."""
+        blocks: dict[str, Block] = {}
+        for h in self.conn.pe_v2_list(cluster_uuid, "hosts"):
+            serial = h.get("block_serial")
+            if not serial:
+                continue
+            block = blocks.get(serial)
+            if block is None:
+                block = blocks[serial] = Block(
+                    uuid=str(h.get("rackable_unit_uuid") or serial),
+                    cluster_uuid=cluster_uuid, cluster_name=cluster_name,
+                    model_name=h.get("block_model_name"), serial=serial,
+                    api_source="v2.0")
+            position = h.get("position") or {}
+            block.nodes.append(BlockNode(host_uuid=h.get("uuid"),
+                                         position=_int_or_none(position.get("ordinal"))))
+        env.blocks.extend(blocks[k] for k in sorted(blocks))
 
     def _backfill_storage_capacity(self, env: Any) -> None:
         """Fill `storage_capacity_bytes` from the groups API where the list gave none."""
@@ -116,6 +200,8 @@ class HostCollector(Collector):
                     gpu_list=[g for g in (entity.get("gpuList") or []) if g],
                     disk_count=len(disks) if disks else None,
                     storage_capacity_bytes=_v4_raw_bytes(disks),
+                    host_type=_enum(entity.get("hostType")),
+                    rackable_unit_uuid=entity.get("rackableUnitUuid") or None,
                     api_source="v4",
                 )
             )
@@ -162,9 +248,21 @@ class HostCollector(Collector):
                     maintenance_state=_maintenance_state(resources),
                     num_vms=resources.get("num_vms"),
                     gpu_list=[g for g in gpus if g],
+                    host_type=_enum(resources.get("host_type")),
                     api_source="v3",
                 )
             )
+
+
+def _enum(value: Any) -> str | None:
+    if not isinstance(value, str) or not value or value.startswith("$"):
+        return None
+    return value
+
+
+def _reason(exc: NutanixApiError) -> str:
+    return f"HTTP {exc.status_code}" if exc.status_code else (
+        str(exc).split(":", 1)[0] or "request failed")
 
 
 def _v4_raw_bytes(disks: list[dict[str, Any]]) -> int | None:

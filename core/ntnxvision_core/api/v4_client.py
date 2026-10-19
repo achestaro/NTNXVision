@@ -149,13 +149,43 @@ def _probe(conn: PrismConnection, namespace: V4Namespace) -> str:
     # The version gate is free, so apply it before spending a round-trip.
     if not v4_is_ga(conn.pc_version):
         return BELOW_GA
+    # The HTTP status of a failed probe, per area (0: no HTTP answer at all), for callers
+    # that tell "service not running" (503) apart from other failures.
+    statuses: dict[str, int] = conn.__dict__.setdefault("probe_status", {})
     try:
         conn.v4_get(namespace.probe_path, params={"$limit": 1})
     except NutanixApiError as exc:
+        statuses[namespace.area] = exc.status_code or 0
         # 404 means the namespace genuinely is not routed on this PC. Any other error
         # (503 for a deployed-but-down service, gateway hiccups) is not evidence that
         # v4 is missing, so it is reported separately and the caller falls back.
         return ABSENT if exc.status_code == 404 else UNAVAILABLE
     except Exception:  # noqa: BLE001 — a probe must never abort a collection run
+        statuses[namespace.area] = 0
         return UNAVAILABLE
     return AVAILABLE
+
+
+def first_served(conn: PrismConnection, candidates: list[str]) -> str | None:
+    """The first of `candidates` (v4 list paths, newest first) this PC serves.
+
+    Collectors stay on ``v4.0`` paths unless a field or endpoint only exists in a newer
+    version (external storage is clustermgmt ``v4.3``, a container's external storage
+    link ``v4.2``). Each path is probed once with ``$limit=1``: a PC that does not serve
+    that version answers 404 (pc.7.5.1.1 does for clustermgmt v4.3). Any error counts
+    as not served, so the caller moves on to the next candidate. Cached on the
+    connection: one request per path per run.
+    """
+    if not v4_is_ga(getattr(conn, "pc_version", None)):
+        return None
+    cache: dict[str, bool] = conn.__dict__.setdefault("_served_paths", {})
+    for path in candidates:
+        if path not in cache:
+            try:
+                conn.v4_get(path, params={"$limit": 1})
+                cache[path] = True
+            except NutanixApiError:
+                cache[path] = False
+        if cache[path]:
+            return path
+    return None

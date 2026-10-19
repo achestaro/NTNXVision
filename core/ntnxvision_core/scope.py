@@ -26,7 +26,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 from ntnxvision_core.api.errors import NutanixApiError
-from ntnxvision_core.models import ClusterScope, ScopeCluster
+from ntnxvision_core.models import ClusterScope, ScopeCluster, place_arrays_by_containers
 from ntnxvision_core.numfmt import fmt_count
 
 if TYPE_CHECKING:  # pragma: no cover
@@ -39,6 +39,7 @@ CLUSTER_BOUND_FIELDS: tuple[str, ...] = (
     "hosts", "vms", "system_vms", "storage_containers", "subnets", "port_groups", "licenses",
     "alerts",
     "lcm_entities", "ovas", "volume_groups", "file_servers", "object_stores", "remote_sites",
+    "blocks", "cvms", "virtual_switches", "host_nics", "external_storages",
 )
 
 #: What stays Prism-Central-wide in a scoped run (shown in the docs and the reports).
@@ -204,6 +205,17 @@ class Scope:
         kept_clusters = [c for c in env.clusters if c.uuid not in self.excluded]
         removed += len(env.clusters) - len(kept_clusters)
         env.clusters[:] = kept_clusters
+
+        # An external array the groups API reported without a cluster belongs to the
+        # cluster of the containers that live on it (read before the containers go).
+        place_arrays_by_containers(env.external_storages, env.storage_containers)
+
+        # Registered clusters (AOS registrations) follow the scope; the paired remote
+        # Prism Centrals (DOMAIN_MANAGER) are PC-wide and stay.
+        kept_regs = [r for r in env.pc_registrations
+                     if r.is_remote_pc or r.remote_uuid not in self.excluded]
+        removed += len(env.pc_registrations) - len(kept_regs)
+        env.pc_registrations[:] = kept_regs
 
         for name in CLUSTER_BOUND_FIELDS:
             items = getattr(env, name)

@@ -16,6 +16,22 @@ merged, and the v1 gateway stays as the fallback for PCs below the v4 GA line.
 This collector runs last: the vCPU/memory totals are summed from the classified
 `PRISM_CENTRAL` system VMs, which is the only source that is unambiguously the *aggregate*
 across every PCVM.
+
+**Deployment design** (for the management plane diagram):
+
+* the domain manager also gives the PC's size (SMALL / LARGE / EXTRALARGE), the cluster
+  hosting its VMs, its FQDN and scale-out VIP, and the configured size of one PC VM;
+* ``prism/v4.0/management/domain-managers/{id}/products`` lists the PC products (Flow,
+  DR, Self-Service, ...) and whether each is enabled. Below v4 the v3
+  ``services/{microseg,nucalm,disaster_recovery}/status`` calls give the same for the
+  three services they cover (``oss`` is Objects, recorded by the Objects area);
+* ``.../registrations`` lists the registered clusters and the paired remote Prism
+  Centrals (``DOMAIN_MANAGER`` entries), with their connectivity: the v4 AZ pairing;
+* v3 ``prism_central`` (a GET) lists each PC VM with its hosting cluster, container and
+  sizing, on every supported version.
+
+Each of these is best-effort: one that is not served is skipped, one that fails is named
+in the area note, and the rest of the configuration is kept.
 """
 
 from __future__ import annotations
@@ -23,7 +39,16 @@ from __future__ import annotations
 from typing import Any
 
 from ntnxvision_core.api.errors import NutanixApiError
+from ntnxvision_core.api.v4_client import v4_is_ga
 from ntnxvision_core.collectors.base import Collector
+from ntnxvision_core.models import PcProduct, PcRegistration, PcVm, pc_size
+
+#: v3 service status endpoints → the v4 product they stand for.
+_V3_SERVICES = {
+    "microseg": "FLOW_NETWORK_SECURITY",
+    "nucalm": "SELF_SERVICE",
+    "disaster_recovery": "NUTANIX_DISASTER_RECOVERY",
+}
 
 
 class PrismCentralConfigCollector(Collector):
@@ -31,6 +56,9 @@ class PrismCentralConfigCollector(Collector):
     label = "Prism Central Configuration"
 
     def collect(self, env: Any) -> None:
+        self._manager: dict[str, Any] | None = None
+        self._manager_read = False
+        self._notes: list[str] = []
         cfg = env.pc_config
         cfg.version = env.prism_central.version
         cfg.registered_cluster_count = len(env.clusters)
@@ -80,7 +108,143 @@ class PrismCentralConfigCollector(Collector):
             if cfg.memory_bytes is None:
                 cfg.memory_bytes = details.get("memory_bytes")
 
-        env.collection_notes[self.name] = "ok"
+        self._deployment(env)
+        env.collection_notes[self.name] = (
+            "ok: " + "; ".join(self._notes) if self._notes else "ok")
+
+    # ─── deployment design ─────────────────────────────────────────
+
+    def _deployment(self, env: Any) -> None:
+        cfg = env.pc_config
+        manager = (self._domain_manager()
+                   if v4_is_ga(getattr(self.conn, "pc_version", None)) else None)
+        if manager is not None:
+            config = manager.get("config") or {}
+            resources = config.get("resourceConfig") or {}
+            network = manager.get("network") or {}
+            cfg.size = pc_size(config.get("size")) or cfg.size
+            cfg.hosting_cluster_uuid = manager.get("hostingClusterExtId") or None
+            cfg.is_registered_with_hosting_cluster = manager.get(
+                "isRegisteredWithHostingCluster")
+            cfg.fqdn = network.get("fqdn") or None
+            cfg.virtual_ip = _v4_ipv4(network.get("externalAddress"))
+            cfg.vm_vcpus = resources.get("numVcpus")
+            cfg.vm_memory_bytes = resources.get("memorySizeBytes")
+            cfg.vm_data_disk_bytes = resources.get("dataDiskSizeBytes")
+            cfg.high_availability = manager.get("shouldEnableHighAvailability")
+            manager_id = manager.get("extId")
+            if manager_id:
+                self._products(env, manager_id)
+                self._registrations(env, manager_id)
+        if not cfg.products:
+            self._products_v3(env)
+        self._pc_vms_v3(env)
+
+    def _products(self, env: Any, manager_id: str) -> None:
+        path = f"prism/v4.0/management/domain-managers/{manager_id}/products"
+        rows = self._optional_list(path, "PC products")
+        env.pc_config.products = sorted(
+            (PcProduct(
+                name=str(r.get("name")),
+                enablement_state=r.get("enablementState") if _known(r.get("enablementState"))
+                else None,
+                version=r.get("version") or None,
+                enabled_at=r.get("serviceEnablementTime") or None,
+                cpu_count=(r.get("resourceSpec") or {}).get("cpuCount"),
+                memory_bytes=(r.get("resourceSpec") or {}).get("memorySizeBytes"),
+                api_source="v4",
+            ) for r in rows if _known(r.get("name"))),
+            key=lambda p: p.name)
+
+    def _registrations(self, env: Any, manager_id: str) -> None:
+        path = f"prism/v4.0/management/domain-managers/{manager_id}/registrations"
+        for r in self._optional_list(path, "registrations"):
+            remote = r.get("remoteClusterDetails") or {}
+            uuid = r.get("remoteClusterExtId") or r.get("extId")
+            if not uuid:
+                continue
+            status = r.get("connectivityStatus")
+            env.pc_registrations.append(PcRegistration(
+                remote_uuid=str(uuid),
+                name=remote.get("name"),
+                remote_type=remote.get("clusterType") if _known(remote.get("clusterType"))
+                else None,
+                version=remote.get("clusterVersion") or None,
+                address=_v4_address(remote.get("externalAddress")),
+                node_ips=[ip for a in remote.get("nodeIpAddresses") or []
+                          if (ip := _v4_address(a))],
+                connectivity_status=status if _known(status) else None,
+                api_source="v4",
+            ))
+        env.pc_registrations.sort(key=lambda r: (r.remote_type or "", (r.name or "").casefold(),
+                                                 r.remote_uuid))
+
+    def _optional_list(self, path: str, what: str) -> list[dict[str, Any]]:
+        """A v4 list that may not be served: 404 is silent, other errors are noted."""
+        try:
+            return self.conn.v4_list(path)
+        except NutanixApiError as exc:
+            if exc.status_code != 404:
+                self._notes.append(f"{what} unavailable ({_reason(exc)})")
+            return []
+
+    def _products_v3(self, env: Any) -> None:
+        products: list[PcProduct] = []
+        for service, product in _V3_SERVICES.items():
+            try:
+                data = self.conn.get_json(
+                    f"{self.conn.creds.base}/api/nutanix/v3/services/{service}/status")
+            except NutanixApiError:
+                continue
+            state = (data or {}).get("service_enablement_status")
+            if isinstance(state, str) and state:
+                products.append(PcProduct(
+                    name=product, enablement_state=state.upper(),
+                    enabled_at=data.get("service_enablement_timestamp") or None,
+                    api_source="v3"))
+        env.pc_config.products = sorted(products, key=lambda p: p.name)
+
+    def _pc_vms_v3(self, env: Any) -> None:
+        """PC VMs with their hosting cluster and sizing (v3 ``prism_central``, a GET)."""
+        try:
+            data = self.conn.get_json(f"{self.conn.creds.base}/api/nutanix/v3/prism_central")
+        except NutanixApiError as exc:
+            if exc.status_code != 404:
+                self._notes.append(f"PC VMs unavailable ({_reason(exc)})")
+            return
+        resources = (data or {}).get("resources") or {}
+        cfg = env.pc_config
+        if cfg.size is None:
+            cfg.size = pc_size(resources.get("pc_size"))
+        if cfg.is_registered_with_hosting_cluster is None:
+            cfg.is_registered_with_hosting_cluster = resources.get("is_registered_to_hosting_pe")
+        cmsp = resources.get("cmsp_config")
+        cfg.cmsp_enabled = bool(cmsp) if cmsp is not None else None
+        vms: list[PcVm] = []
+        for vm in resources.get("pc_vm_list") or []:
+            if not isinstance(vm, dict) or not vm.get("vm_uuid"):
+                continue
+            ips = [ip for nic in vm.get("nic_list") or [] if isinstance(nic, dict)
+                   for ip in nic.get("ip_list") or [] if ip]
+            vms.append(PcVm(
+                uuid=str(vm["vm_uuid"]),
+                name=vm.get("vm_name"),
+                hosting_cluster_uuid=(vm.get("cluster_reference") or {}).get("uuid"),
+                container_uuid=vm.get("container_uuid") or None,
+                # v3 reports PC VM vCPUs as sockets (one core each).
+                num_vcpus=vm.get("num_sockets"),
+                memory_bytes=vm.get("memory_size_bytes"),
+                data_disk_bytes=vm.get("data_disk_size_bytes"),
+                ip_addresses=list(dict.fromkeys(ips)),
+                power_state=vm.get("power_state"),
+                status=vm.get("status"),
+                api_source="v3",
+            ))
+        env.pc_vms.extend(sorted(vms, key=lambda v: ((v.name or "").casefold(), v.uuid)))
+        if cfg.hosting_cluster_uuid is None:
+            hosting = {v.hosting_cluster_uuid for v in vms if v.hosting_cluster_uuid}
+            if len(hosting) == 1:
+                cfg.hosting_cluster_uuid = hosting.pop()
 
     # ─── v4 ────────────────────────────────────────────────────────
 
@@ -157,12 +321,16 @@ class PrismCentralConfigCollector(Collector):
         a PC can route `clustermgmt` without routing `prism`, and the collector should
         then degrade to what the cluster entry carries instead of failing the run.
         """
+        if self._manager_read:
+            return self._manager
+        self._manager_read = True
         try:
             managers = self.conn.v4_list("prism/v4.0/config/domain-managers")
         except NutanixApiError:
             return None
         # The collection holds exactly one entry — the Prism Central being queried.
-        return managers[0] if managers else None
+        self._manager = managers[0] if managers else None
+        return self._manager
 
     def _pc_cluster_entry(self) -> dict[str, Any] | None:
         """The PRISM_CENTRAL pseudo-cluster the PC keeps for itself in the cluster list.
@@ -234,3 +402,25 @@ def _v4_ipv4(address: Any) -> str | None:
         return None
     value = ipv4.get("value")
     return value if isinstance(value, str) and value else None
+
+
+def _v4_address(address: Any) -> str | None:
+    """IPAddressOrFQDN → its address."""
+    if not isinstance(address, dict):
+        return None
+    for key in ("ipv4", "fqdn", "ipv6"):
+        inner = address.get(key)
+        if isinstance(inner, dict) and isinstance(inner.get("value"), str) and inner["value"]:
+            return str(inner["value"])
+    return None
+
+
+def _known(value: Any) -> bool:
+    """A real enum value (not None, empty or ``$UNKNOWN`` / ``$REDACTED``)."""
+    return isinstance(value, str) and bool(value) and not value.startswith("$")
+
+
+def _reason(exc: NutanixApiError) -> str:
+    if exc.status_code:
+        return f"HTTP {exc.status_code}"
+    return str(exc).split(":", 1)[0] or "request failed"

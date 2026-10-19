@@ -63,6 +63,9 @@ _DATE = "yyyy-mm-dd"
 _SPECS = (
     # Phase 1: core infrastructure
     T.CLUSTERS, T.CAPACITY, T.HOSTS, T.VMS, T.SYSTEM_VMS, T.STORAGE, T.SUBNETS, T.PORT_GROUPS,
+    # Design data: host networking, external arrays, the PC's own VMs (empty sheets are
+    # not written, so older snapshots look as before)
+    T.VIRTUAL_SWITCHES, T.HOST_NICS, T.EXTERNAL_STORAGE, T.PC_VMS,
     # PC catalog: templates / images / OVAs
     T.TEMPLATES, T.IMAGES, T.OVAS,
     # Phase 2: data protection / DR

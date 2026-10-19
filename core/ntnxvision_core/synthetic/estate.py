@@ -117,6 +117,28 @@ class Features:
     pe_proxy: bool = True
     #: The vCenter Server the ESXi clusters are registered to (v4 managementServer).
     vcenter_address: str | None = None
+    # ─ design data (see `_design`) ─
+    #: Prism Central VMs: 1 = single VM, 3 = scale-out (the VIP is then `pc_ip`).
+    pc_vm_count: int = 1
+    #: Deployment size (v4 vocabulary): SMALL / LARGE / EXTRALARGE.
+    pc_size: str = "SMALL"
+    #: Highest v4 minor version served per namespace prefix (others: v4.0 only).
+    #: clustermgmt 4.3 serves the external storage list; 4.2 the container link.
+    v4_minor: dict[str, int] = field(default_factory=lambda: {
+        "clustermgmt": 2, "networking": 3, "prism": 3, "datapolicies": 2,
+        "dataprotection": 3})
+    #: External arrays: (cluster index, provider enum) per array.
+    external_storage: tuple[tuple[int, str], ...] = ()
+    #: Hosts advertise LLDP neighbours (on the first two AHV clusters only).
+    lldp: bool = True
+    #: Nodes per block (chassis): 1 for current one-node hardware, 4 for 2U4N blocks.
+    nodes_per_block: int = 1
+    #: Other demo Prism Centrals this one is paired with (an AZ and a DOMAIN_MANAGER
+    #: registration each, keyed on the peer's own PC uuid).
+    az_peers: tuple[str, ...] = ()
+    #: Extra protection policies: (name, RPO seconds, source cluster, target PC host or
+    #: "" for this PC, target cluster). RPO 0 is a synchronous (Metro) policy.
+    extra_policies: tuple[tuple[str, int, str, str, str], ...] = ()
 
 
 PROFILES: dict[str, list[ClusterSpec]] = {
@@ -234,6 +256,14 @@ class PcEstate:
     report_configs: list[dict[str, Any]] = field(default_factory=list)
     lcm_entities: list[dict[str, Any]] = field(default_factory=list)
     licenses: list[dict[str, Any]] = field(default_factory=list)
+    # ─ design data (`_design`) ─
+    blocks: list[dict[str, Any]] = field(default_factory=list)
+    host_nics: list[dict[str, Any]] = field(default_factory=list)
+    uplink_bonds: list[dict[str, Any]] = field(default_factory=list)
+    external_storages: list[dict[str, Any]] = field(default_factory=list)
+    pc_vms: list[dict[str, Any]] = field(default_factory=list)
+    products: list[dict[str, Any]] = field(default_factory=list)
+    registrations: list[dict[str, Any]] = field(default_factory=list)
 
     @property
     def v4_ga(self) -> bool:
@@ -314,6 +344,7 @@ def build_pc_estate(
     _lcm(est)
     _licenses(est)
     _alerts(est)
+    _design(est)
     return est
 
 
@@ -740,38 +771,59 @@ def _vms(est: PcEstate, specs: list[ClusterSpec]) -> None:
             vm["esxi_bad"] = True
 
 
+#: Per-PC-VM sizing for each deployment size: (vCPU, memory GiB, data disk GiB).
+PC_SIZING: dict[str, tuple[int, int, int]] = {
+    "SMALL": (6, 28, 500), "LARGE": (10, 44, 2500), "EXTRALARGE": (14, 60, 2500),
+}
+
+
+def pc_vm_ips(est: PcEstate) -> list[str]:
+    """The PC VMs' addresses: `pc_ip` for a single VM; for scale-out `pc_ip` is the VIP
+    and the VMs take the next addresses."""
+    count = max(1, est.features.pc_vm_count)
+    if count == 1:
+        return [est.pc_ip]
+    base, last = est.pc_ip.rsplit(".", 1)
+    return [f"{base}.{int(last) + i}" for i in range(1, count + 1)]
+
+
 def _system_vms(est: PcEstate) -> None:
-    """The Prism Central VM itself, which collectors must reclassify as PRISM_CENTRAL."""
+    """The Prism Central VM(s), which collectors must reclassify as PRISM_CENTRAL."""
     c = est.clusters[0]
-    host = next(h for h in est.hosts if h["cluster_uuid"] == c["uuid"])
-    name = f"NTNX-{est.pc_ip.replace('.', '-')}-PCVM-1696000000"
+    hosts = [h for h in est.hosts if h["cluster_uuid"] == c["uuid"]]
     ctr = next(ct for ct in est.containers if ct["cluster_uuid"] == c["uuid"])
     subnet = next((s for s in est.subnets if s["cluster_uuid"] == c["uuid"]), None)
-    est.vms.append({
-        "uuid": uid(est.seed, "pcvm"),
-        "name": name,
-        "cluster_uuid": c["uuid"],
-        "cluster_name": c["name"],
-        "host_uuid": host["uuid"],
-        "host_name": host["name"],
-        "power": "ON",
-        "sockets": 6, "cores": 1, "memory": 28 * GIB,
-        "guest_os": "Prism Central", "guest_os_id": "linux:64:PrismCentral",
-        "description": "Prism Central VM",
-        "categories": {},
-        "protection_type": "UNPROTECTED",
-        "disks": [{"uuid": uid(est.seed, "pcvm", "disk", i), "size": s * GIB,
-                   "container_uuid": ctr["uuid"], "container_name": ctr["name"],
-                   "bus": "SCSI", "index": i, "image": None}
-                  for i, s in enumerate([30, 500, 100])],
-        "cdroms": 0,
-        "nics": [{"uuid": uid(est.seed, "pcvm", "nic"), "mac": "50:6b:8d:00:00:50",
-                  "subnet_uuid": subnet["uuid"] if subnet else None, "port_group": None,
-                  "ip": est.pc_ip, "connected": True}],
-        "boot": "LEGACY", "secure_boot": False,
-        "created": iso(BASE_TIME - timedelta(days=700)),
-        "gpus": [], "hypervisor": "AHV", "esxi_bad": False,
-    })
+    vcpus, mem_gib, _disk = PC_SIZING.get(est.features.pc_size, PC_SIZING["SMALL"])
+    for i, ip in enumerate(pc_vm_ips(est)):
+        # The first PC VM keeps the ids a single-VM estate always had.
+        key: tuple[object, ...] = () if i == 0 else (i,)
+        host = hosts[i % len(hosts)]
+        est.vms.append({
+            "uuid": uid(est.seed, "pcvm", *key),
+            "name": f"NTNX-{ip.replace('.', '-')}-PCVM-1696000000",
+            "cluster_uuid": c["uuid"],
+            "cluster_name": c["name"],
+            "host_uuid": host["uuid"],
+            "host_name": host["name"],
+            "power": "ON",
+            "sockets": vcpus, "cores": 1, "memory": mem_gib * GIB,
+            "guest_os": "Prism Central", "guest_os_id": "linux:64:PrismCentral",
+            "description": "Prism Central VM",
+            "categories": {},
+            "protection_type": "UNPROTECTED",
+            "disks": [{"uuid": uid(est.seed, "pcvm", *key, "disk", d), "size": size * GIB,
+                       "container_uuid": ctr["uuid"], "container_name": ctr["name"],
+                       "bus": "SCSI", "index": d, "image": None}
+                      for d, size in enumerate([30, 500, 100])],
+            "cdroms": 0,
+            "nics": [{"uuid": uid(est.seed, "pcvm", *key, "nic"),
+                      "mac": f"50:6b:8d:00:00:{0x50 + i:02x}",
+                      "subnet_uuid": subnet["uuid"] if subnet else None, "port_group": None,
+                      "ip": ip, "connected": True}],
+            "boot": "LEGACY", "secure_boot": False,
+            "created": iso(BASE_TIME - timedelta(days=700)),
+            "gpus": [], "hypervisor": "AHV", "esxi_bad": False,
+        })
 
 
 def _data_protection(est: PcEstate) -> None:
@@ -1044,6 +1096,263 @@ def _alerts(est: PcEstate) -> None:
 
 
 # ─── Prism Element (direct v2.0) estate ────────────────────────────────
+
+
+# ─── design data (architecture diagrams) ───────────────────────────────
+
+#: NIC hardware per host network profile: (model, PCI id, driver, firmware, Gb/s).
+_NIC_MODELS = {
+    "fast": ("Mellanox Technologies MT2894 Family [ConnectX-6 Lx]", "15b3:101f",
+             "mlx5_core:23.10", "26.36.1010", 25),
+    "standard": ("Intel Corporation Ethernet Controller X710 for 10GbE SFP+", "8086:1572",
+                 "i40e:2.23.17", "9.40 0x8000f19e", 10),
+}
+_SWITCH_MODEL = "Arista Networks EOS version 4.31.2F running on an Arista DCS-7050SX3-48YC8"
+_PROVIDERS = {"EVERPURE_FLASHARRAY": ("fa", 120), "DELL_POWERFLEX": ("pflex", 240),
+              "DELL_POWERSTORE": ("pstore", 80)}
+
+
+def _design(est: PcEstate) -> None:
+    """Blocks, host networking, external storage, PC deployment, products, registrations
+    and cluster design fields: everything the logical / management / network / DR
+    diagrams draw from. Added last and keyed on the estate's own objects only, so every
+    other object stays byte-identical."""
+    _cluster_design(est)
+    _blocks(est)
+    _host_network(est)
+    _external_storage(est)
+    # DR first: its AZ pairings become DOMAIN_MANAGER registrations.
+    _dr_design(est)
+    _pc_deployment(est)
+
+
+def _dr_design(est: PcEstate) -> None:
+    """Which cluster each policy protects and replicates to (v4 replication locations),
+    and each recovery plan's clusters. The remote AZ's clusters are outside the estate:
+    their ids are stable but they resolve to no collected cluster."""
+    ahv = [c for c in est.clusters if c["hypervisor"] == "AHV"] or est.clusters
+    remote = [uid(est.seed, "remote-cluster", n) for n in ("DR-01", "DR-02")]
+    for i, p in enumerate(est.protection_policies):
+        p["source_cluster"] = ahv[i % len(ahv)]["uuid"]
+        p["target_cluster"] = remote[i % len(remote)]
+        p["bidirectional"] = p["name"] == "Silver-1h"
+    f = est.features
+    # Paired demo PCs: each side lists the other as an AZ, by the peer's PC uuid.
+    for peer in f.az_peers:
+        ref = uid(peer, "pc")
+        est.availability_zones.append({"uuid": ref, "name": peer, "type": "PHYSICAL",
+                                       "url": ref, "region": "us-west",
+                                       "status": "CONNECTED"})
+    by_name = {c["name"]: c for c in est.clusters}
+    local = {"uuid": est.pc_uuid, "name": f"Local ({est.host})", "type": "PHYSICAL",
+             "url": est.pc_uuid}
+    for name, rpo, source, peer, target in f.extra_policies:
+        src = by_name.get(source)
+        if src is None or (not peer and target not in by_name):
+            continue
+        est.protection_policies.append({
+            "uuid": uid(est.seed, "pp", name), "name": name, "rpo": rpo,
+            "categories": {"DRTier": ["Platinum" if rpo == 0 else "Gold"]},
+            "local_retention": None if rpo == 0 else 24,
+            "remote_retention": None if rpo == 0 else 24,
+            "source": local,
+            "target": {"uuid": uid(peer, "pc"), "url": uid(peer, "pc")} if peer else local,
+            "source_cluster": src["uuid"],
+            # The peer's cluster uuid is what that PC's own estate gives it.
+            "target_cluster": uid(peer, "cluster", target) if peer
+            else by_name[target]["uuid"],
+            "bidirectional": False,
+        })
+    for i, rp in enumerate(est.recovery_plans):
+        rp["primary_cluster"] = ahv[i % len(ahv)]["uuid"]
+        rp["recovery_cluster"] = remote[i % len(remote)]
+
+
+def _cluster_design(est: PcEstate) -> None:
+    pods = len(est.clusters) >= 4
+    for c in est.clusters:
+        n = c["nodes"]
+        c["cluster_type"] = "HYPER_CONVERGED"
+        c["functions"] = ["AOS"] + (["ONE_NODE"] if n == 1 else ["TWO_NODE"] if n == 2 else [])
+        blocks = -(-n // max(1, est.features.nodes_per_block))
+        c["fault_domain"] = ("DISK" if n == 1 else "RACK" if n >= 12 else "BLOCK"
+                             if n >= 8 or (est.features.nodes_per_block > 1 and blocks >= 3)
+                             else "NODE")
+        c["fault_tolerance"] = c["rf"] - 1
+        c["nearsync"] = n >= 3
+        # A POD category on estates big enough to have PODs: clusters in pairs.
+        c["categories"] = ({"POD": [f"{c['name'].split('-')[0]}-{1 + c['index'] // 2}"]}
+                           if pods else {})
+
+
+def _blocks(est: PcEstate) -> None:
+    """Blocks of `Features.nodes_per_block` nodes (1: current G8 / G9 hardware, one node
+    per chassis; 4: 2U4N blocks, slots 1 to 4). On rack-aware clusters the blocks are
+    spread round-robin over three racks."""
+    per = max(1, est.features.nodes_per_block)
+    for c in est.clusters:
+        hosts = [h for h in est.hosts if h["cluster_uuid"] == c["uuid"]]
+        rack_aware = c["fault_domain"] == "RACK"
+        for b, start in enumerate(range(0, len(hosts), per)):
+            members = hosts[start:start + per]
+            first = members[0]
+            rack = 1 + b % 3 if rack_aware else None
+            block = {
+                "uuid": uid(est.seed, "block", first["block_serial"], first["name"]),
+                "cluster_uuid": c["uuid"], "cluster_name": c["name"],
+                "model_name": first["block_model"], "serial": first["block_serial"],
+                "rack_id": rack,
+                "rack_uuid": uid(est.seed, "rack", c["name"], rack) if rack else None,
+                "nodes": [{"uuid": h["uuid"], "position": slot}
+                          for slot, h in enumerate(members, start=1)],
+            }
+            est.blocks.append(block)
+            for slot, h in enumerate(members, start=1):
+                h["block_uuid"] = block["uuid"]
+                h["block_position"] = slot
+                # The nodes of one chassis share its serial.
+                h["block_serial"] = first["block_serial"]
+
+
+def _host_network(est: PcEstate) -> None:
+    """AHV: vs0 (active-backup, MTU 1,500) everywhere; vs1-storage (balance-tcp with LACP,
+    MTU 9,000) on clusters of 8 nodes or more; vs2-guest (balance-slb) on mid-size
+    clusters. ESXi: NIC names and link speed only, as the APIs report them."""
+    seed = est.seed
+    vs0, vs1 = est.vswitches[0], est.vswitches[1]
+    vs0.update(bond="ACTIVE_BACKUP", mtu=1500, bridge="br0", clusters=[])
+    vs1.update(bond="BALANCE_TCP", mtu=9000, bridge="br1", clusters=[])
+    vs2 = {"uuid": uid(seed, "vs", "vs2"), "name": "vs2-guest", "bond": "BALANCE_SLB",
+           "mtu": 1500, "bridge": "br2", "clusters": []}
+    ahv_index = 0
+    for c in est.clusters:
+        hosts = [h for h in est.hosts if h["cluster_uuid"] == c["uuid"]]
+        if c["hypervisor"] == "ESXi":
+            for h in hosts:
+                for k, gbps in enumerate((10, 10, 25, 25)):
+                    est.host_nics.append({
+                        "uuid": uid(seed, "hostnic", h["name"], k), "name": f"vmnic{k}",
+                        "host_uuid": h["uuid"], "cluster_uuid": None, "esxi": True,
+                        "speed_kbps": gbps * 1_000_000, "mac": _mac(seed, h["name"], k)})
+            continue
+        fast = c["nodes"] >= 8
+        single = c["nodes"] == 1
+        model = _NIC_MODELS["fast" if fast else "standard"]
+        nic_count = 2 if single else 4
+        second = None if single else vs1 if fast else vs2
+        lldp = est.features.lldp and ahv_index < 2
+        ports = ahv_index == 0
+        ahv_index += 1
+        members = {vs0["uuid"]: (vs0, ["eth0", "eth1"])}
+        if second is not None:
+            members[second["uuid"]] = (second, ["eth2", "eth3"])
+        for sw, uplinks in members.values():
+            sw["clusters"].append({"uuid": c["uuid"], "hosts": [
+                {"uuid": h["uuid"], "bridge": sw["bridge"], "uplinks": uplinks,
+                 "ip": h["hv_ip"] if sw is vs0 else None} for h in hosts]})
+        for h in hosts:
+            for k in range(nic_count):
+                nic_sw = vs0 if k < 2 else second
+                switch = "A" if k % 2 == 0 else "B"
+                est.host_nics.append({
+                    "uuid": uid(seed, "hostnic", h["name"], k), "name": f"eth{k}",
+                    "host_uuid": h["uuid"], "cluster_uuid": c["uuid"], "esxi": False,
+                    "model": model[0], "pci": model[1], "driver": model[2],
+                    "firmware": model[3], "speed_kbps": model[4] * 1_000_000,
+                    "capacity_mbps": model[4] * 1000,
+                    "mtu": nic_sw["mtu"] if nic_sw else 1500,
+                    "vswitch_uuid": nic_sw["uuid"] if nic_sw else None,
+                    "mac": _mac(seed, h["name"], k),
+                    "lldp": lldp,
+                    "switch_vendor": _SWITCH_MODEL if lldp else None,
+                    # Documentation-range MACs (RFC 7042) for the two leaf switches.
+                    "switch_mac": f"00:00:5e:00:53:{0x10 * (1 + c['index']) + (k % 2):02x}"
+                    if lldp else None,
+                    "switch_port": f"Ethernet{h['index']}/{1 + k // 2}"
+                    if lldp and ports else None,
+                    "switch_device": f"leaf-{c['name'].lower()}-{switch.lower()}"
+                    if lldp and ports else None,
+                })
+            for sw, uplinks in members.values():
+                refs = [uid(seed, "hostnic", h["name"], int(u[3:])) for u in uplinks]
+                est.uplink_bonds.append({
+                    "uuid": uid(seed, "bond", h["name"], sw["name"]),
+                    "name": f"{sw['bridge']}-up", "type": sw["bond"],
+                    "lacp": "NEGOTIATED" if sw["bond"] == "BALANCE_TCP" else "NIL",
+                    "host_uuid": h["uuid"], "cluster_uuid": c["uuid"],
+                    "vswitch_uuid": sw["uuid"], "vswitch_name": sw["name"], "nics": refs})
+    if vs2["clusters"]:
+        est.vswitches.append(vs2)
+
+
+def _mac(seed: str, host: str, k: int) -> str:
+    """A locally administered MAC (02:...), stable per host NIC."""
+    digest = uid(seed, "mac", host, k).replace("-", "")
+    return "02:" + ":".join(digest[i:i + 2] for i in range(0, 10, 2))
+
+
+def _external_storage(est: PcEstate) -> None:
+    for i, (index, provider) in enumerate(est.features.external_storage):
+        if index >= len(est.clusters):
+            continue
+        c = est.clusters[index]
+        prefix, tib = _PROVIDERS.get(provider, ("ext", 100))
+        name = f"{prefix}-{c['name'].lower()}"
+        array = {
+            "uuid": uid(est.seed, "extstorage", name), "name": name, "provider": provider,
+            "cluster_uuid": c["uuid"], "cluster_name": c["name"],
+            "endpoint": f"198.51.100.{40 + i}", "total": tib * 1024**4,
+            "free": int(tib * 1024**4 * 0.58), "health": "HEALTHY",
+            "pod": f"pod-{c['name'].lower()}" if prefix == "fa" else None,
+            "realm": "nutanix" if prefix == "fa" else None,
+            "pd": "pd-nutanix" if prefix == "pflex" else None,
+            "pool": "sp-ssd-01" if prefix == "pflex" else None,
+        }
+        est.external_storages.append(array)
+        ctr_name = f"{c['name'].lower()}-ext-{prefix}01"
+        # With the cluster's other containers, not at the end of the list.
+        last = max(i for i, ct in enumerate(est.containers)
+                   if ct["cluster_uuid"] == c["uuid"])
+        est.containers.insert(last + 1, {
+            "uuid": uid(est.seed, "container", c["name"], ctr_name), "name": ctr_name,
+            "cluster_uuid": c["uuid"], "cluster_name": c["name"], "rf": None,
+            "compression": False, "compression_delay": 0, "dedup": "NONE", "ec": "off",
+            "raw": array["total"], "max": array["total"],
+            "used": array["total"] - array["free"], "free": array["free"],
+            "external_storage_uuid": array["uuid"],
+        })
+
+
+def _pc_deployment(est: PcEstate) -> None:
+    f = est.features
+    vcpus, mem_gib, disk_gib = PC_SIZING.get(f.pc_size, PC_SIZING["SMALL"])
+    pcvms = [v for v in est.vms if "PCVM" in v["name"]]
+    for vm in pcvms:
+        est.pc_vms.append({"uuid": vm["uuid"], "name": vm["name"],
+                           "cluster_uuid": vm["cluster_uuid"],
+                           "container_uuid": vm["disks"][0]["container_uuid"],
+                           "vcpus": vcpus, "memory": mem_gib * GIB, "disk": disk_gib * GIB,
+                           "ip": vm["nics"][0]["ip"]})
+    enabled = {
+        "FLOW_NETWORK_SECURITY": bool(est.security_policies),
+        "FLOW_VIRTUAL_NETWORKING": f.fvn,
+        "NUTANIX_DISASTER_RECOVERY": bool(est.protection_policies),
+        "SELF_SERVICE": False,
+        "NUTANIX_MARKETPLACE": True,
+        "INTELLIGENT_OPERATIONS": f.ncm,
+        "NUTANIX_CLOUD_MANAGER": f.ncm,
+        "FLOW_CONTROLLER": f.fvn,
+    }
+    est.products = [{"uuid": uid(est.seed, "product", name), "name": name, "enabled": on}
+                    for name, on in enabled.items()]
+    est.registrations = [
+        {"uuid": c["uuid"], "name": c["name"], "type": "AOS", "version": c["aos"],
+         "address": c["external_ip"], "status": "CONNECTED"} for c in est.clusters]
+    for az in est.availability_zones:
+        if az["type"] == "PHYSICAL":
+            est.registrations.append({
+                "uuid": az["uuid"], "name": az["name"], "type": "DOMAIN_MANAGER",
+                "version": est.version, "address": None, "status": az["status"]})
 
 
 def build_pe_estate(

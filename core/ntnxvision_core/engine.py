@@ -27,6 +27,7 @@ from ntnxvision_core.collectors.element import ELEMENT_STEPS
 from ntnxvision_core.collectors.ndb import collect_ndb
 from ntnxvision_core.collectors.vcenter import enrich_from_vcenter
 from ntnxvision_core.compat import check_aos, check_prism_central
+from ntnxvision_core.designdata import resolve_design_data
 from ntnxvision_core.models import (
     ClusterScope,
     Environment,
@@ -288,8 +289,13 @@ def _run_area(
         return
     status, detail = classify(area.id, note)
     added = [item for f in area.fields for item in getattr(env, f)[before[f]:]]
-    api = api_override or _area_api(area, added, negotiated)
-    tracker.end(area.id, status, api=api, objects=len(added), detail=detail,
+    # The API that served the area's main objects decides (a hosts run on an older PC is
+    # "v3" even though its blocks came from Prism Element v2.0).
+    primary = getattr(env, area.fields[0])[before[area.fields[0]]:] if area.fields else []
+    api = api_override or _area_api(area, primary or added, negotiated)
+    # Objects counted are the area's main ones (hosts, not hosts + blocks + CVMs),
+    # else whatever it found (host networking below v4 lists NICs but no switches).
+    tracker.end(area.id, status, api=api, objects=len(primary or added), detail=detail,
                 clusters=len(env.clusters))
 
 
@@ -377,6 +383,8 @@ def combine_environments(envs: list[Environment]) -> Environment:
     ]
     defaults = {env.vcpu_ratio_default for env in envs}
     combined.vcpu_ratio_default = defaults.pop() if len(defaults) == 1 else None
+    # Another PC's clusters are now known: name the DR targets that pointed at them.
+    resolve_design_data(combined)
     return combined
 
 
@@ -538,6 +546,7 @@ def _resolve_cross_references(env: Environment) -> None:
                     env.warnings.append(f"Cluster '{cluster.name}': {aos_compat.warning}")
 
     _resolve_availability_zone_names(env)
+    resolve_design_data(env)
 
     # Roll up protected-VM count from protection policies' category matches is non-trivial;
     # approximate with VMs that carry any category (best-effort until v4 DR SDK).
@@ -643,6 +652,8 @@ def _resolve_availability_zone_names(env: Environment) -> None:
     for pp in env.protection_policies:
         pp.source_az = resolve(pp.source_az)
         pp.target_az = resolve(pp.target_az)
+        for loc in pp.locations:
+            loc.az_name = resolve(loc.az_ref)
     for rp in env.recovery_plans:
         rp.primary_location = resolve(rp.primary_location)
         rp.recovery_location = resolve(rp.recovery_location)

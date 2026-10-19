@@ -24,7 +24,15 @@ from __future__ import annotations
 
 from typing import Any
 
-from ntnxvision_core.synthetic.estate import GIB, MIB, PcEstate, PeEstate, uid
+from ntnxvision_core.synthetic.estate import (
+    GIB,
+    MIB,
+    PC_SIZING,
+    PcEstate,
+    PeEstate,
+    pc_vm_ips,
+    uid,
+)
 
 _R = {"$fv": "v4.r0"}
 
@@ -139,7 +147,15 @@ def cluster_v4(est: PcEstate, c: dict[str, Any]) -> dict[str, Any]:
                if c["hypervisor"] == "ESXi" and est.features.vcenter_address else {}),
         },
         "config": {
-            "clusterFunction": ["AOS"],
+            "clusterFunction": c.get("functions") or ["AOS"],
+            "clusterType": c.get("cluster_type", "HYPER_CONVERGED"),
+            **({"faultToleranceState": {
+                "domainAwarenessLevel": c["fault_domain"],
+                "currentMaxFaultTolerance": c["fault_tolerance"],
+                "desiredMaxFaultTolerance": c["fault_tolerance"],
+                "currentClusterFaultTolerance": f"CFT_{c['fault_tolerance']}N_OR_"
+                                                f"{c['fault_tolerance']}D",
+            }} if c.get("fault_domain") else {}),
             "hypervisorTypes": ["ESX" if c["hypervisor"] == "ESXi" else "AHV"],
             "clusterArch": c["arch"],
             "redundancyFactor": c["rf"],
@@ -156,14 +172,20 @@ def cluster_v4(est: PcEstate, c: dict[str, Any]) -> dict[str, Any]:
     })
 
 
+def _pc_vip(est: PcEstate) -> str | None:
+    """A scale-out PC's virtual IP (`pc_ip`); a single-VM PC has none."""
+    return est.pc_ip if est.features.pc_vm_count > 1 else None
+
+
 def pc_cluster_v4(est: PcEstate) -> dict[str, Any]:
+    ips = pc_vm_ips(est)
     return _v4("clustermgmt.v4.config.Cluster", {
         "extId": est.pc_uuid,
         "name": est.host.split(".")[0],
-        "nodes": {"numberOfNodes": 1,
-                  "nodeList": [{"controllerVmIp": ip4(est.pc_ip), "hostIp": {}}]},
+        "nodes": {"numberOfNodes": len(ips),
+                  "nodeList": [{"controllerVmIp": ip4(ip), "hostIp": {}} for ip in ips]},
         # A single-node PC has no cluster VIP — v4 renders that absence as `{}`.
-        "network": {"externalAddress": {}},
+        "network": {"externalAddress": ip4(_pc_vip(est))},
         "config": {
             "clusterFunction": ["PRISM_CENTRAL"],
             "buildInfo": {"version": est.version, "fullVersion": est.pc_build},
@@ -202,7 +224,11 @@ def cluster_v3(est: PcEstate, c: dict[str, Any]) -> dict[str, Any]:
             {"ip": h["hv_ip"], "type": "ESX" if h["hypervisor"] == "ESXi" else "AHV",
              "version": h["hv_version"]} for h in hosts]},
     }
-    return _v3("cluster", c["uuid"], c["name"], resources)
+    cats = c.get("categories") or {}
+    return _v3("cluster", c["uuid"], c["name"], resources,
+               metadata={"categories_mapping": cats,
+                         "categories": {k: v[0] for k, v in cats.items() if v}}
+               if cats else None)
 
 
 def pc_cluster_v3(est: PcEstate) -> dict[str, Any]:
@@ -227,25 +253,67 @@ def pc_gateway_v1(est: PcEstate) -> dict[str, Any]:
         "name": est.host.split(".")[0],
         "version": est.version,
         "fullVersion": est.pc_build,
-        "clusterExternalIPAddress": None,
-        "numNodes": 1,
-        "svmips": est.pc_ip,
+        "clusterExternalIPAddress": _pc_vip(est),
+        "numNodes": len(pc_vm_ips(est)),
+        "svmips": ",".join(pc_vm_ips(est)),
         "nccVersion": est.ncc,
         "isNSEnabled": False,
     }
 
 
 def domain_manager_v4(est: PcEstate) -> dict[str, Any]:
+    vcpus, mem_gib, disk_gib = PC_SIZING.get(est.features.pc_size, PC_SIZING["SMALL"])
     return _v4("prism.v4.management.DomainManager", {
         "extId": est.pc_uuid,
         "name": est.host.split(".")[0],
-        "config": {"resourceConfig": {"numVcpus": 6, "memorySizeBytes": 28 * GIB,
-                                      "dataDiskSizeBytes": 500 * GIB},
-                   "buildInfo": {"version": est.version}, "size": "SMALL"},
-        "nodeExtIds": [next(v["uuid"] for v in est.vms if "PCVM" in v["name"])],
-        "network": {"externalNetworks": [{"ipAddresses": [ip4(est.pc_ip)]}]},
+        "config": {"resourceConfig": {"numVcpus": vcpus, "memorySizeBytes": mem_gib * GIB,
+                                      "dataDiskSizeBytes": disk_gib * GIB},
+                   "buildInfo": {"version": est.version}, "size": est.features.pc_size},
+        "nodeExtIds": [v["uuid"] for v in est.vms if "PCVM" in v["name"]],
+        "hostingClusterExtId": est.clusters[0]["uuid"],
+        "network": {"externalNetworks": [{"ipAddresses": [ip4(ip) for ip in pc_vm_ips(est)]}],
+                    **({"externalAddress": ip4(_pc_vip(est))} if _pc_vip(est) else {}),
+                    "fqdn": est.host},
         "isRegisteredWithHostingCluster": True,
+        "shouldEnableHighAvailability": est.features.pc_vm_count > 1,
     })
+
+
+def pc_products_v4(p: dict[str, Any]) -> dict[str, Any]:
+    return _v4("prism.v4.management.Product", {
+        "extId": p["uuid"], "name": p["name"],
+        "enablementState": "ENABLED" if p["enabled"] else "DISABLED",
+        **({"serviceEnablementTime": "2025-11-30T14:03:10Z"} if p["enabled"] else {}),
+    })
+
+
+def registration_v4(r: dict[str, Any]) -> dict[str, Any]:
+    return _v4("prism.v4.management.Registration", {
+        "extId": r["uuid"], "remoteClusterExtId": r["uuid"],
+        "connectivityStatus": r["status"],
+        "remoteClusterDetails": {"name": r["name"], "clusterType": r["type"],
+                                 "clusterVersion": r["version"],
+                                 "externalAddress": ip4(r["address"]),
+                                 "nodeIpAddresses": []},
+    })
+
+
+def prism_central_v3(est: PcEstate) -> dict[str, Any]:
+    """GET /api/nutanix/v3/prism_central: the PC VMs, their hosting cluster and size."""
+    size = {"SMALL": "kSmall", "LARGE": "kLarge", "EXTRALARGE": "kXLarge"}.get(
+        est.features.pc_size, "kSmall")
+    return {"resources": {
+        "type": "PC", "version": est.version, "pc_size": size,
+        "is_registered_to_hosting_pe": True,
+        "cmsp_config": {"pc_domain_name": "msp.cluster.local"},
+        "pc_vm_list": [{
+            "vm_uuid": v["uuid"], "vm_name": v["name"], "power_state": "ON",
+            "status": "NORMAL", "num_sockets": v["vcpus"], "memory_size_bytes": v["memory"],
+            "data_disk_size_bytes": v["disk"], "container_uuid": v["container_uuid"],
+            "cluster_reference": {"kind": "cluster", "uuid": v["cluster_uuid"]},
+            "nic_list": [{"ip_list": [v["ip"]], "network_configuration": {}}],
+        } for v in est.pc_vms],
+    }}
 
 
 # ─── hosts ─────────────────────────────────────────────────────────────
@@ -276,6 +344,7 @@ def host_v4(h: dict[str, Any], num_vms: int) -> dict[str, Any]:
         "blockModel": h["block_model"],
         "nodeSerial": h["serial"],
         "ipmi": {"ip": ip4(h["ipmi_ip"]), "username": "ADMIN"},
+        **({"rackableUnitUuid": h["block_uuid"]} if h.get("block_uuid") else {}),
         "controllerVm": {"externalAddress": ip4(h["cvm_ip"]), "isInMaintenanceMode": False},
         "maintenanceState": h["maintenance"],
         # v4 pads a GPU-less host's list with an empty string.
@@ -329,13 +398,16 @@ def container_v4(ct: dict[str, Any]) -> dict[str, Any]:
         "name": ct["name"],
         "clusterName": ct["cluster_name"],
         "clusterExtId": ct["cluster_uuid"],
-        "replicationFactor": ct["rf"],
+        **({"replicationFactor": ct["rf"]} if ct["rf"] is not None else {}),
         "isCompressionEnabled": ct["compression"],
         "compressionDelaySecs": ct["compression_delay"],
         "onDiskDedup": ct["dedup"],
         "erasureCode": ct["ec"].upper(),
         "maxCapacityBytes": ct["raw"],
         "isEncrypted": False,
+        "isInternal": ct["name"] == "NutanixManagementShare",
+        **({"externalStorageExtId": ct["external_storage_uuid"]}
+           if ct.get("external_storage_uuid") else {}),
     })
 
 
@@ -343,7 +415,7 @@ _GROUP_ATTRS = {
     "container_name": lambda ct: ct["name"],
     "cluster_name": lambda ct: ct["cluster_name"],
     "cluster": lambda ct: ct["cluster_uuid"],
-    "replication_factor": lambda ct: str(ct["rf"]),
+    "replication_factor": lambda ct: None if ct["rf"] is None else str(ct["rf"]),
     "compression_enabled": lambda ct: "true" if ct["compression"] else "false",
     "compression_delay_in_secs": lambda ct: str(ct["compression_delay"]),
     "on_disk_dedup": lambda ct: ct["dedup"],
@@ -372,11 +444,23 @@ _CVM_ATTRS = {
 }
 
 
+_EXT_STORAGE_ATTRS = {
+    "name": lambda a: a["name"],
+    "provider_type": lambda a: a["provider"],
+    "cluster": lambda a: a["cluster_uuid"],
+    "end_point_address": lambda a: a["endpoint"],
+    "total_capacity_bytes": lambda a: str(a["total"]),
+    "free_capacity_bytes": lambda a: str(a["free"]),
+    "health": lambda a: a["health"],
+}
+
+
 def groups_response(
     entity_type: str, rows: list[dict[str, Any]], attrs: list[str], total: int,
 ) -> dict[str, Any]:
     getters = (_GROUP_ATTRS if entity_type == "storage_container"
-               else _HOST_ATTRS if entity_type == "host" else _CVM_ATTRS)
+               else _HOST_ATTRS if entity_type == "host"
+               else _EXT_STORAGE_ATTRS if entity_type == "external_storage" else _CVM_ATTRS)
     results = []
     for row in rows:
         data = []
@@ -455,8 +539,110 @@ def subnet_v4(s: dict[str, Any]) -> dict[str, Any]:
 
 
 def vswitch_v4(vs: dict[str, Any]) -> dict[str, Any]:
-    return _v4("networking.v4.config.VirtualSwitch",
-               {"extId": vs["uuid"], "name": vs["name"], "isDefault": vs["name"] == "vs0"})
+    return _v4("networking.v4.config.VirtualSwitch", {
+        "extId": vs["uuid"], "name": vs["name"], "isDefault": vs["name"] == "vs0",
+        **({"description": "Default Virtual Switch"} if vs["name"] == "vs0" else {}),
+        **({"bondMode": vs["bond"], "mtu": vs["mtu"]} if vs.get("bond") else {}),
+        "ownerType": "PE",
+        "clusters": [{"extId": c["uuid"], "hosts": [
+            {"extId": h["uuid"], "internalBridgeName": h["bridge"], "hostNics": h["uplinks"],
+             **({"ipAddress": {"ip": {"value": h["ip"]}, "prefixLength": 24}}
+                if h["ip"] else {})}
+            for h in c["hosts"]]} for c in vs.get("clusters") or []],
+    })
+
+
+def uplink_bond_v4(b: dict[str, Any]) -> dict[str, Any]:
+    return _v4("networking.v4.config.UplinkBond", {
+        "extId": b["uuid"], "name": b["name"], "type": b["type"], "lacpStatus": b["lacp"],
+        "hostReference": b["host_uuid"], "clusterReference": b["cluster_uuid"],
+        "hostNicReferences": b["nics"],
+        "virtualSwitchInfo": {"reference": b["vswitch_uuid"], "name": b["vswitch_name"]},
+    })
+
+
+def host_nic_v4(n: dict[str, Any]) -> dict[str, Any]:
+    """v4 host NIC. ESXi NICs carry only name and link speed, as on a real PC."""
+    if n["esxi"]:
+        return _v4("clustermgmt.v4.config.HostNic", {
+            "extId": n["uuid"], "name": n["name"], "nodeUuid": n["host_uuid"],
+            "macAddress": n["mac"], "linkSpeedInKbps": n["speed_kbps"]})
+    body: dict[str, Any] = {
+        "extId": n["uuid"], "name": n["name"], "nodeUuid": n["host_uuid"],
+        "clusterExtId": n["cluster_uuid"], "hostDescription": n["model"],
+        "pciModelId": n["pci"], "driverVersion": n["driver"],
+        "firmwareVersion": n["firmware"], "macAddress": n["mac"],
+        "linkSpeedInKbps": n["speed_kbps"], "linkCapacityInMbps": n["capacity_mbps"],
+        "interfaceStatus": "1", "mtuInBytes": n["mtu"],
+        "rxRingSizeInBytes": 4096, "txRingSizeInBytes": 4096,
+    }
+    if n["vswitch_uuid"]:
+        body["virtualSwitchExtId"] = n["vswitch_uuid"]
+    if n["lldp"]:
+        body.update(discoveryProtocol="LLDP", switchVendorInfo=n["switch_vendor"],
+                    switchMacAddress=n["switch_mac"])
+        if n["switch_port"]:
+            body.update(switchPortId=n["switch_port"], switchDeviceId=n["switch_device"])
+    return _v4("clustermgmt.v4.config.HostNic", body)
+
+
+def pe_host_nic_v2(n: dict[str, Any]) -> dict[str, Any]:
+    """Prism Element v2.0 host NIC: every switch field null, as on the lab."""
+    return {
+        "uuid": n["uuid"], "name": n["name"], "node_uuid": n["host_uuid"],
+        "mac_address": n["mac"], "mtu_in_bytes": n.get("mtu", 1500),
+        "link_speed_in_kbps": n["speed_kbps"], "discovery_protocol": None,
+        "switch_device_id": None, "switch_port_id": None, "switch_vendor_info": None,
+        "switch_mac_address": None, "switch_management_ip": None, "switch_vlan_id": None,
+    }
+
+
+def cvm_v4(est: PcEstate, cvm: dict[str, Any]) -> dict[str, Any]:
+    host = next(h for h in est.hosts if h["name"] == cvm["host_name"])
+    return _v4("clustermgmt.v4.config.Cvm", {
+        "extId": cvm["uuid"], "name": cvm["name"], "clusterExtId": host["cluster_uuid"],
+        "nodeExtId": host["uuid"], "numVcpus": cvm["vcpus"],
+        "memorySizeBytes": cvm["memory"], "ipAddress": ip4(cvm["ip"]),
+        "hypervisorType": "ESX" if cvm["hypervisor"] == "ESXi" else "AHV",
+    })
+
+
+def rackable_unit_v4(b: dict[str, Any]) -> dict[str, Any]:
+    return _v4("clustermgmt.v4.config.RackableUnit", {
+        "extId": b["uuid"], "id": 10, "model": "USELAYOUT", "modelName": b["model_name"],
+        "serial": b["serial"],
+        "nodes": [{"uuid": n["uuid"], "position": n["position"], "svmId": 2}
+                  for n in b["nodes"]],
+        **({"rack": {"uuid": b["rack_uuid"], "id": b["rack_id"]}} if b["rack_id"] else {}),
+    })
+
+
+def external_storage_v4(a: dict[str, Any]) -> dict[str, Any]:
+    if a["provider"] == "EVERPURE_FLASHARRAY":
+        config = {"$objectType": "clustermgmt.v4.config.EverpureFlashArrayConfig",
+                  "realmName": a["realm"], "podName": a["pod"], "podId": "1",
+                  "username": "pureuser"}
+    elif a["provider"] == "DELL_POWERFLEX":
+        config = {"$objectType": "clustermgmt.v4.config.DellPowerFlexConfig",
+                  "protectionDomainName": a["pd"], "storagePoolName": a["pool"],
+                  "systemId": "0a1b2c3d4e5f", "username": "admin"}
+    else:
+        config = {"$objectType": "clustermgmt.v4.config.DellPowerStoreConfig",
+                  "username": "admin"}
+    return _v4("clustermgmt.v4.config.ExternalStorage", {
+        "extId": a["uuid"], "name": a["name"], "providerType": a["provider"],
+        "config": config, "totalCapacityBytes": a["total"], "freeCapacityBytes": a["free"],
+        "endPointAddress": {"ipv4": {"value": a["endpoint"]}},
+        "clusterExtId": a["cluster_uuid"], "health": a["health"],
+    })
+
+
+def cluster_capability_v4(c: dict[str, Any]) -> dict[str, Any]:
+    return _v4("dataprotection.v4.config.DataProtectionClusterCapability", {
+        "extId": c["uuid"], "clusterExtId": c["uuid"],
+        "capabilities": [{"capabilityName": "SUPPORTS_NEAR_SYNC",
+                          "isSupported": bool(c.get("nearsync"))}],
+    })
 
 
 def vpc_v3(vpc: dict[str, Any]) -> dict[str, Any]:
@@ -720,20 +906,43 @@ def protection_policy_v4(est: PcEstate, p: dict[str, Any]) -> dict[str, Any]:
         "extId": p["uuid"],
         "name": p["name"],
         "replicationLocations": [
-            {"label": "a-source", "domainManagerExtId": p["source"]["url"], "isPrimary": True},
-            {"label": "b-target", "domainManagerExtId": p["target"]["url"]},
+            {"label": "a-source", "domainManagerExtId": p["source"]["url"], "isPrimary": True,
+             **_sub_location(p.get("source_cluster"))},
+            {"label": "b-target", "domainManagerExtId": p["target"]["url"],
+             **_sub_location(p.get("target_cluster"))},
         ],
-        "replicationConfigurations": [{
-            "sourceLocationLabel": "a-source",
-            "remoteLocationLabel": "b-target",
-            "schedule": {
+        "replicationConfigurations": [
+            {"sourceLocationLabel": src, "remoteLocationLabel": dst, "schedule": {
                 "recoveryPointType": "CRASH_CONSISTENT",
                 "recoveryPointObjectiveTimeSeconds": p["rpo"],
+                # A synchronous policy says so only through this timeout.
+                **({"syncReplicationAutoSuspendTimeoutSeconds": 10} if p["rpo"] == 0
+                   else {}),
                 "retention": {"$objectType": "datapolicies.v4.config.LinearRetention",
                               "local": p["local_retention"], "remote": p["remote_retention"]},
-            },
-        }],
+            }}
+            for src, dst in [("a-source", "b-target"),
+                             *([("b-target", "a-source")] if p.get("bidirectional") else [])]],
         "categoryIds": cat_ids,
+    })
+
+
+def _sub_location(cluster_uuid: str | None) -> dict[str, Any]:
+    if not cluster_uuid:
+        return {}
+    return {"replicationSubLocation": {
+        "$objectType": "datapolicies.v4.config.NutanixCluster",
+        "clusterExtIds": [cluster_uuid]}}
+
+
+def recovery_plan_v4(rp: dict[str, Any]) -> dict[str, Any]:
+    def side(url: str, cluster: str | None) -> dict[str, Any]:
+        return {"domainManagerExtId": url,
+                **({"clusters": [{"extId": cluster}]} if cluster else {})}
+    return _v4("datapolicies.v4.config.RecoveryPlan", {
+        "extId": rp["uuid"], "name": rp["name"],
+        "primaryLocation": side(rp["primary"], rp.get("primary_cluster")),
+        "recoveryLocation": side(rp["recovery"], rp.get("recovery_cluster")),
     })
 
 
@@ -742,19 +951,21 @@ def protection_rule_v3(p: dict[str, Any]) -> dict[str, Any]:
         "category_filter": {"type": "CATEGORIES_MATCH_ANY", "kind_list": ["vm"],
                             "params": p["categories"]},
         "ordered_availability_zone_list": [
-            {"availability_zone_url": p["source"]["url"]},
-            {"availability_zone_url": p["target"]["url"]},
+            {"availability_zone_url": p["source"]["url"],
+             **({"cluster_uuid": p["source_cluster"]} if p.get("source_cluster") else {})},
+            {"availability_zone_url": p["target"]["url"],
+             **({"cluster_uuid": p["target_cluster"]} if p.get("target_cluster") else {})},
         ],
         "availability_zone_connectivity_list": [{
-            "source_availability_zone_index": 0,
-            "destination_availability_zone_index": 1,
+            "source_availability_zone_index": src,
+            "destination_availability_zone_index": dst,
             "snapshot_schedule_list": [{
                 "recovery_point_objective_secs": p["rpo"],
                 "snapshot_type": "CRASH_CONSISTENT",
                 "local_snapshot_retention_policy": {"num_snapshots": p["local_retention"]},
                 "remote_snapshot_retention_policy": {"num_snapshots": p["remote_retention"]},
             }],
-        }],
+        } for src, dst in [(0, 1), *([(1, 0)] if p.get("bidirectional") else [])]],
     }
     return _v3("protection_rule", p["uuid"], p["name"], resources)
 
@@ -787,6 +998,7 @@ def availability_zone_v3(az: dict[str, Any]) -> dict[str, Any]:
     entity = _v3("availability_zone", az["uuid"], az["name"], {
         "availability_zone_type": az["type"], "management_url": az["url"],
         "region": az["region"], "display_name": az["name"],
+        "management_plane_type": "Xi" if az["type"] == "XI" else "PC",
     })
     entity["status"]["resources"] = {**entity["status"]["resources"],
                                      "connection_status": az["status"]}
@@ -1264,4 +1476,30 @@ def pe_port_group_v2(pg: dict[str, Any]) -> dict[str, Any]:
                            "ip_config": {"prefix_length": 0, "ipam_enabled": False}}
     if pg["vlan"]:
         out["vlan_id"] = pg["vlan"]
+    return out
+
+
+def pe_cluster_proxy_v2(c: dict[str, Any]) -> dict[str, Any]:
+    """v2.0 ``cluster`` of a registered cluster, as read through the PC proxy."""
+    domain = {"BLOCK": "RACKABLE_UNIT"}.get(c.get("fault_domain") or "NODE",
+                                            c.get("fault_domain") or "NODE")
+    return {
+        "uuid": c["uuid"], "name": c["name"], "version": c["aos"],
+        "fault_tolerance_domain_type": domain,
+        "cluster_redundancy_state": {"current_redundancy_factor": c["rf"],
+                                     "desired_redundancy_factor": c["rf"]},
+        "hypervisor_lldp_config": {"enable_lldp_tx": True},
+    }
+
+
+def pe_host_proxy_v2(h: dict[str, Any], num_vms: int) -> dict[str, Any]:
+    return {**pe_host_v2(h, num_vms), "rackable_unit_uuid": h.get("block_uuid"),
+            "position": {"ordinal": h.get("block_position", 1), "name": "",
+                         "physical_position": None}}
+
+
+def service_status_v3(enabled: bool) -> dict[str, Any]:
+    out: dict[str, Any] = {"service_enablement_status": "ENABLED" if enabled else "DISABLED"}
+    if enabled:
+        out["service_enablement_timestamp"] = "2025-11-30T14:03:10Z"
     return out
