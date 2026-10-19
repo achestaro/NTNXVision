@@ -1110,6 +1110,32 @@ def _flow(est: PcEstate) -> None:
             ("Any-IPv4", True, [("0.0.0.0", 0)], []),
         ]
     ]
+    _rule_peers(est, cat_id)
+
+
+def _rule_peers(est: PcEstate, cat_id: dict[tuple[str, str], str]) -> None:
+    """Who each application policy's allow rules name (the v4 detail and v3 allow
+    lists): any source first, then the corporate address group, then a category; out
+    to the SQL tier (sql service group), then the monitoring hosts over HTTPS."""
+    ag = {a["name"]: a["uuid"] for a in est.address_groups}
+    sg = {g["name"]: g["uuid"] for g in est.service_groups}
+    for p in est.security_policies:
+        own = p["groups"][0] if p["groups"] else None
+        other = ("App", "Web") if own != ("App", "Web") else ("App", "Billing")
+        peer_cat = [cat_id[other]] if other in cat_id else []
+        sql = ("App", "SQL") if own != ("App", "SQL") else ("App", "Billing")
+        p["in_peers"] = [
+            {"kind": "ALL"} if i == 0 else
+            {"kind": "AG", "ids": [ag["corp-networks"]], "names": ["corp-networks"]} if i == 1
+            else {"kind": "CAT", "ids": peer_cat, "labels": [f"{other[0]}:{other[1]}"],
+                  "services": [sg["HTTPS"]], "service_names": ["HTTPS"]}
+            for i in range(p["inbound"])]
+        p["out_peers"] = [
+            {"kind": "CAT", "ids": [cat_id[sql]] if sql in cat_id else [],
+             "labels": [f"{sql[0]}:{sql[1]}"], "services": [sg["sql"]],
+             "service_names": ["sql"]} if j == 0 else
+            {"kind": "AG", "ids": [ag["monitoring-hosts"]], "names": ["monitoring-hosts"]}
+            for j in range(p["outbound"])]
 
 
 def _nus(est: PcEstate) -> None:
