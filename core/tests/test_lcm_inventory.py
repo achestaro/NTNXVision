@@ -1,0 +1,433 @@
+"""The optional LCM inventory: the one non-read request, and everything around it.
+
+Covers routing (v4 only), the read-only guard and its narrow exception, the busy cases
+(an inventory to join, an upgrade to report), 403, failure, timeout, cancel, run
+metadata, the reports' provenance line, and that nothing happens unless asked.
+"""
+
+from __future__ import annotations
+
+import ast
+import threading
+import time
+from pathlib import Path
+from typing import Any
+
+import pytest
+import requests
+
+import ntnxvision_core
+import ntnxvision_core.sidecar as sc
+from ntnxvision_core.api import PrismCredentials, transport
+from ntnxvision_core.api.errors import NutanixApiError, ReadOnlyViolation
+from ntnxvision_core.cancel import CancelToken, RunCancelled
+from ntnxvision_core.engine import collect_environment, combine_environments
+from ntnxvision_core.lcm_inventory import (
+    InventoryOptions,
+    busy_sentence,
+    note_line,
+    provenance,
+    task_ref,
+)
+from ntnxvision_core.models import LcmInventoryRun, LcmInventoryTarget
+from ntnxvision_core.runinfo import RunTracker
+
+PW = {"username": "admin", "password": "demo"}
+FAST = InventoryOptions(poll_initial_s=0.02, poll_factor=1.5, poll_max_s=0.1)
+INVENTORY = "/api/lifecycle/v4.0/operations/$actions/inventory"
+
+
+def _collect(host: str, **kw: Any) -> Any:
+    return collect_environment(PrismCredentials(host=host, **PW), **kw)
+
+
+def _lcm(demo: Any) -> Any:
+    return demo.api.lcm
+
+
+def _by_name(env: Any) -> dict[str, LcmInventoryTarget]:
+    return {t.name: t for t in env.lcm_inventory.targets}
+
+
+# ─── the read-only guard ───────────────────────────────────────────────
+
+
+@pytest.mark.parametrize("method,url", [
+    ("GET", "https://pc.example.lab:9440/api/clustermgmt/v4.0/config/clusters"),
+    ("HEAD", "https://pc.example.lab:9440/"),
+    ("POST", "https://pc.example.lab:9440/api/nutanix/v3/vms/list"),
+    ("POST", "https://pc.example.lab:9440/api/nutanix/v3/groups"),
+    ("POST", "https://vc.example.lab/api/session"),
+    ("DELETE", "https://vc.example.lab/rest/com/vmware/cis/session"),
+])
+def test_guard_allows_reads(method: str, url: str) -> None:
+    transport.check_request(method, url)
+
+
+@pytest.mark.parametrize("method,url", [
+    ("POST", "https://pc.example.lab:9440/api/vmm/v4.0/ahv/config/vms"),
+    ("PUT", "https://pc.example.lab:9440/api/nutanix/v3/vms/abc"),
+    ("DELETE", "https://pc.example.lab:9440/api/nutanix/v3/vms/abc"),
+    ("PATCH", "https://pc.example.lab:9440/api/nutanix/v3/vms/list"),
+    ("POST", "https://pc.example.lab:9440/api/lifecycle/v4.0/operations/$actions/upgrade"),
+    ("POST", "https://pc.example.lab:9440/api/nutanix/v3/vms/list/extra"),
+    # Without the permit, the inventory is refused like any write.
+    ("POST", f"https://pc.example.lab:9440{INVENTORY}"),
+    ("POST", "https://pc.example.lab:9440/api/lifecycle/v4.0/operations/%24actions/inventory"),
+])
+def test_guard_refuses_everything_else(method: str, url: str) -> None:
+    with pytest.raises(ReadOnlyViolation):
+        transport.check_request(method, url)
+
+
+def test_permit_allows_only_the_inventory_and_only_in_its_context() -> None:
+    url = f"https://pc.example.lab:9440{INVENTORY}"
+    with transport.lcm_inventory_permit():
+        transport.check_request("POST", url)
+        transport.check_request("POST", url.replace("v4.0", "v4.2"))
+        with pytest.raises(ReadOnlyViolation):  # the permit is not a general write pass
+            transport.check_request("POST", url.replace("inventory", "upgrade"))
+        # Another thread (the collectors running alongside) does not inherit it.
+        seen: list[BaseException] = []
+
+        def other() -> None:
+            try:
+                transport.check_request("POST", url)
+            except ReadOnlyViolation as exc:
+                seen.append(exc)
+        t = threading.Thread(target=other)
+        t.start()
+        t.join()
+        assert len(seen) == 1
+    with pytest.raises(ReadOnlyViolation):
+        transport.check_request("POST", url)
+
+
+def test_guard_runs_before_anything_is_sent() -> None:
+    """The session refuses before the adapter is reached: nothing leaves the process."""
+    sent: list[str] = []
+
+    class Adapter(requests.adapters.HTTPAdapter):
+        def send(self, request: Any, **kw: Any) -> Any:  # pragma: no cover - must not run
+            sent.append(request.url)
+            raise AssertionError("sent")
+
+    session = transport.new_session()
+    session.mount("https://", Adapter())
+    with pytest.raises(ReadOnlyViolation):
+        session.post("https://pc.example.lab:9440/api/vmm/v4.0/ahv/config/vms", json={})
+    assert sent == []
+
+
+_PKG = Path(ntnxvision_core.__file__).parent
+#: Modules allowed to issue a non-GET request, and why.
+_NON_GET = {
+    "api/connection.py",      # v3 list / groups POSTs (reads), via post_json and _send
+    "api/vcenter_client.py",  # vSphere API session login / logout
+    "lcm_inventory.py",       # the LCM inventory, inside the permit
+}
+
+
+def _sources() -> list[tuple[str, ast.AST]]:
+    out = []
+    for path in sorted(_PKG.rglob("*.py")):
+        rel = path.relative_to(_PKG).as_posix()
+        if rel.startswith("synthetic/"):
+            continue  # the mock serves requests; it never sends any to a real system
+        out.append((rel, ast.parse(path.read_text(encoding="utf-8"))))
+    return out
+
+
+def test_only_the_inventory_module_enters_the_permit() -> None:
+    users = {rel for rel, tree in _sources() for node in ast.walk(tree)
+             if isinstance(node, ast.Name | ast.Attribute)
+             and (getattr(node, "id", None) or getattr(node, "attr", None))
+             == "lcm_inventory_permit"}
+    assert users == {"lcm_inventory.py"}
+
+
+def test_no_other_code_path_issues_a_non_get_request() -> None:
+    offenders = set()
+    for rel, tree in _sources():
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
+                name = node.func.attr
+                if name in ("post", "put", "patch", "delete") and rel not in _NON_GET \
+                        and "session" in ast.unparse(node.func.value):
+                    offenders.add(f"{rel}: {ast.unparse(node)[:60]}")
+                if name in ("_send", "request") and node.args and \
+                        isinstance(node.args[0], ast.Constant) and \
+                        str(node.args[0].value).upper() not in ("GET", "HEAD") and \
+                        rel not in _NON_GET:
+                    offenders.add(f"{rel}: {ast.unparse(node)[:60]}")
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) \
+                    and node.func.attr == "post_json" and rel not in _NON_GET:
+                url = ast.unparse(node.args[0]) if node.args else ""
+                if "/list" not in url and "groups" not in url:
+                    offenders.add(f"{rel}: {ast.unparse(node)[:60]}")
+    assert offenders == set()
+
+
+class _Recorder:
+    """Records every request that passes the guard during a run."""
+
+    def __init__(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        self.calls: list[tuple[str, str]] = []
+        real = transport.check_request
+
+        def check(method: str | None, url: str | None) -> None:
+            real(method, url)
+            from urllib.parse import unquote, urlsplit
+            self.calls.append(((method or "GET").upper(), unquote(urlsplit(url or "").path)))
+        monkeypatch.setattr(transport, "check_request", check)
+
+    def writes(self) -> list[tuple[str, str]]:
+        return [(m, p) for m, p in self.calls if m != "GET" and not p.endswith("/list")
+                and not p.endswith("/groups")]
+
+
+def test_without_the_option_a_run_only_reads(demo: Any, monkeypatch: pytest.MonkeyPatch) -> None:
+    rec = _Recorder(monkeypatch)
+    env = _collect("pc01.demo.local")
+    assert rec.calls and rec.writes() == []
+    assert env.lcm_inventory is None and "lcm_inventory" not in env.collection_notes
+    assert _lcm(demo).started == []
+
+
+def test_with_the_option_the_only_write_is_the_inventory(
+        demo: Any, monkeypatch: pytest.MonkeyPatch) -> None:
+    _lcm(demo).seconds = 0.2
+    rec = _Recorder(monkeypatch)
+    env = _collect("pc02.demo.local", lcm_inventory=FAST)
+    writes = rec.writes()
+    assert writes and {w for w in writes} == {("POST", INVENTORY)}
+    # One per target: Prism Central plus each cluster.
+    assert len(writes) == len(env.lcm_inventory.targets) == 1 + len(env.clusters)
+
+
+# ─── routing and outcomes ──────────────────────────────────────────────
+
+
+def test_success_joined_and_upgrade_on_pc01(demo: Any) -> None:
+    """pc01: PC and two clusters idle (inventory started), one cluster with an inventory
+    already running (joined), one with an upgrade running (skipped, details reported)."""
+    _lcm(demo).seconds = 0.2
+    events: list[dict[str, Any]] = []
+    tracker = RunTracker(events.append, run_id="r", host="pc01.demo.local")
+    env = _collect("pc01.demo.local", lcm_inventory=FAST, tracker=tracker)
+    inv = env.lcm_inventory
+    assert inv.requested and inv.api == "v4" and inv.duration_ms is not None
+    statuses = {t.name: (t.status, t.joined) for t in inv.targets}
+    assert statuses["Prism Central"] == ("succeeded", False)
+    joined = [t for t in inv.targets if t.joined]
+    assert len(joined) == 1 and joined[0].status == "succeeded" and joined[0].task_id
+    busy = [t for t in inv.targets if t.status == "skipped_busy"]
+    assert len(busy) == 1
+    b = busy[0].busy
+    assert b is not None and b.operation == "UPGRADE" and b.task_id
+    assert b.percent is not None and b.started_at
+    assert {(c.name, c.from_version, c.to_version) for c in b.components} >= {
+        ("AOS", "7.0", "7.3")}
+    assert busy[0].detail.startswith("upgrade in progress (AOS 7.0 to 7.3")
+    # Every target that ran has its own task, and the PC's own LCM is addressed too.
+    assert sum(1 for t in inv.targets if t.task_id and not t.joined and not t.busy) == \
+        len(inv.targets) - 2 == inv.started_count
+    # Inventoried clusters' entities carry the new inventory time; the busy one's do not.
+    stamps = {k: v for (h, k), v in _lcm(demo).inventoried.items() if h == "pc01.demo.local"}
+    assert busy[0].target_id not in stamps
+    for e in env.lcm_entities:
+        if e.cluster_uuid in stamps:
+            assert e.last_updated == stamps[e.cluster_uuid]
+    note = env.collection_notes["lcm_inventory"]
+    assert "joined running inventory, succeeded" in note
+    assert "skipped: upgrade in progress (AOS 7.0 to 7.3" in note
+    # Progress: typed events per change, and the LCM area's detail while it waits.
+    inv_events = [e for e in events if e["type"] == "lcm_inventory"]
+    assert inv_events and inv_events[-1]["inventory"]["targets"][0]["status"] == "succeeded"
+    details = [e["area"]["detail"] for e in events
+               if e["type"] == "area" and e["area"]["id"] == "lcm" and e["area"]["detail"]]
+    assert any("LCM inventory running on" in d and "%" in d for d in details)
+    started = next(e for e in events if e["type"] == "started")
+    assert started["typical_seconds"] == 240 + 600
+    # LCM ran last, after everything else.
+    assert started["areas"][-1]["id"] == "lcm"
+
+
+def test_below_v4_ga_nothing_is_sent(demo: Any, monkeypatch: pytest.MonkeyPatch) -> None:
+    rec = _Recorder(monkeypatch)
+    env = _collect("pc03.demo.local", lcm_inventory=FAST)
+    assert rec.writes() == [] and _lcm(demo).started == []
+    assert env.lcm_inventory.requested and not env.lcm_inventory.targets
+    assert "v4 lifecycle API is not served" in env.lcm_inventory.detail
+    assert env.collection_notes["lcm_inventory"].startswith("skipped: the v4 lifecycle API")
+
+
+def test_forbidden_is_a_note_not_a_failure(demo: Any) -> None:
+    _lcm(demo).seconds = 0.2
+    env = _collect("tiny.demo.local", lcm_inventory=FAST)
+    assert {t.status for t in env.lcm_inventory.targets} == {"forbidden"}
+    assert "Perform Inventory permission" in env.lcm_inventory.targets[0].detail
+    assert env.lcm_entities and env.collection_notes["lcm_entities"].startswith("ok")
+
+
+def test_status_forbidden(demo: Any) -> None:
+    _lcm(demo).script("pc02.demo.local", outcome={"*": "status_forbidden"})
+    env = _collect("pc02.demo.local", lcm_inventory=FAST)
+    assert {t.status for t in env.lcm_inventory.targets} == {"forbidden"}
+    assert _lcm(demo).started == []
+
+
+def test_failure_carries_lcm_message(demo: Any) -> None:
+    host = "pc02.demo.local"
+    _lcm(demo).script(host, outcome={"pc": "failed"}, seconds=0.1)
+    env = _collect(host, lcm_inventory=FAST)
+    t = _by_name(env)["Prism Central"]
+    assert t.status == "failed" and "precheck" in t.detail
+    assert all(x.status == "succeeded" for x in env.lcm_inventory.targets if x is not t)
+    assert "Prism Central: failed" in env.collection_notes["lcm_inventory"]
+
+
+def test_timeout_stops_waiting(demo: Any) -> None:
+    host = "pc02.demo.local"
+    _lcm(demo).script(host, outcome={"*": "stuck"}, seconds=0.5)
+    opts = InventoryOptions(timeout_s=0.4, poll_initial_s=0.05, poll_max_s=0.1)
+    t0 = time.monotonic()
+    env = _collect(host, lcm_inventory=opts)
+    assert time.monotonic() - t0 < 30
+    assert {t.status for t in env.lcm_inventory.targets} == {"timed_out"}
+    assert "keeps running on Prism Central" in env.lcm_inventory.targets[0].detail
+    assert env.lcm_entities  # collected anyway, with the values LCM had
+
+
+def test_cancel_stops_polling(demo: Any) -> None:
+    host = "pc02.demo.local"
+    _lcm(demo).script(host, outcome={"*": "stuck"}, seconds=60)
+    token = CancelToken()
+    threading.Timer(1.0, token.cancel).start()
+    with pytest.raises(RunCancelled):
+        _collect(host, lcm_inventory=InventoryOptions(poll_initial_s=0.05, poll_max_s=0.1),
+                 cancel=token)
+    hits = dict(demo.api.hits)
+    time.sleep(0.5)
+    polls = {k: v for k, v in demo.api.hits.items() if "config/tasks" in k[2]}
+    assert polls == {k: v for k, v in hits.items() if "config/tasks" in k[2]}
+
+
+def test_combined_runs_keep_every_pcs_targets(demo: Any) -> None:
+    _lcm(demo).seconds = 0.2
+    a = _collect("pc02.demo.local", lcm_inventory=FAST)
+    b = _collect("tiny.demo.local", lcm_inventory=FAST)
+    combined = combine_environments([a, b])
+    inv = combined.lcm_inventory
+    assert inv is not None and len(inv.targets) == len(a.lcm_inventory.targets) + \
+        len(b.lcm_inventory.targets)
+    assert {t.source_pc for t in inv.targets} == {"pc02.demo.local", "tiny.demo.local"}
+
+
+# ─── sidecar: parameters, run metadata, reports ────────────────────────
+
+
+def _run(data_dir: Path, host: str, name: str, **extra: Any) -> dict[str, Any]:
+    return sc._m_inventory(None, {"host": host, **PW, "port": 9440, "insecure": False,
+                                  "name": name, "formats": [],
+                                  "export_dir": str(data_dir / "exports"), **extra})
+
+
+@pytest.mark.parametrize("extra", [
+    {"lcm_inventory": "yes"}, {"lcm_inventory": 1},
+    {"lcm_inventory": True, "lcm_inventory_timeout_s": 5},
+    {"lcm_inventory": True, "lcm_inventory_timeout_s": True},
+])
+def test_sidecar_refuses_bad_options(demo: Any, data_dir: Path, extra: dict[str, Any]) -> None:
+    with pytest.raises(NutanixApiError):
+        _run(data_dir, "pc02.demo.local", "bad", **extra)
+    assert _lcm(demo).started == []
+
+
+def test_sidecar_records_the_inventory_on_the_snapshot(demo: Any, data_dir: Path) -> None:
+    _lcm(demo).seconds = 0.2
+    off = _run(data_dir, "pc02.demo.local", "lcm off")
+    assert off["lcm_inventory"] == {"requested": False}
+    on = _run(data_dir, "pc02.demo.local", "lcm on", lcm_inventory=True,
+              lcm_inventory_timeout_s=600, formats=["excel", "pdf", "word"])
+    inv = on["lcm_inventory"]
+    assert inv["requested"] and inv["timeout_s"] == 600
+    assert all(t["status"] == "succeeded" and t["task_id"] and t["duration_ms"] is not None
+               for t in inv["targets"])
+    assert on["collection_notes"]["lcm_inventory"].startswith("ok: Prism Central: succeeded")
+    detail = sc._m_get_snapshot(None, {"snapshot": on["snapshot_path"]})
+    assert detail["run"]["lcm_inventory"]["targets"] == inv["targets"]
+    # Reports: the provenance line says what was done, in all three formats.
+    n = len(inv["targets"])
+    line = f"an LCM inventory was run on {n} targets before collection"
+    _assert_reports_say(on["exports"], line, on["snapshot_path"])
+    off_files = sc._m_export(None, {"snapshot": off["snapshot_path"],
+                                    "formats": ["excel", "pdf", "word"],
+                                    "export_dir": str(data_dir / "off")})["paths"]
+    _assert_reports_say(off_files, "read-only inventory snapshot; no configuration was changed",
+                        off["snapshot_path"])
+
+
+def _assert_reports_say(paths: dict[str, str], text: str, snapshot: str) -> None:
+    """Word and Excel files as written; the PDF through the content both PDF and Word
+    render (fpdf2 compresses its text streams)."""
+    import re
+    import zipfile
+
+    from openpyxl import load_workbook
+
+    from ntnxvision_core.exporters import ExportOptions
+    from ntnxvision_core.exporters.content import build_report
+    from ntnxvision_core.store import SnapshotStore
+
+    with zipfile.ZipFile(paths["word"]) as z:
+        xml = " ".join(z.read(n).decode("utf-8", "replace") for n in z.namelist()
+                       if n.endswith(".xml"))
+    word = " ".join(re.sub(r"<[^>]+>", "", xml).split())
+    assert text in word
+    wb = load_workbook(paths["excel"])
+    cells = " ".join(str(c.value) for ws in wb.worksheets for row in ws.iter_rows()
+                     for c in row if c.value)
+    assert text in cells
+    env = SnapshotStore(Path(snapshot).parent).load(snapshot)
+    cover = build_report(env, ExportOptions.coerce(None), eyebrow="x").cover
+    assert cover.note is not None and text in cover.note
+    assert Path(paths["pdf"]).stat().st_size > 10_000
+
+
+def test_multi_pc_option_applies_to_every_target(demo: Any, data_dir: Path) -> None:
+    _lcm(demo).seconds = 0.2
+    res = sc._m_inventory_multi(None, {
+        "targets": [{"host": h, **PW, "port": 9440, "insecure": False, "name": h[:4]}
+                    for h in ("pc02.demo.local", "tiny.demo.local")],
+        "formats": [], "export_dir": str(data_dir / "x"), "combine": True,
+        "combined_name": "both", "lcm_inventory": True})
+    assert all(t["lcm_inventory"]["requested"] for t in res["targets"])
+    assert len(res["combined"]["lcm_inventory"]["targets"]) == sum(
+        len(t["lcm_inventory"]["targets"]) for t in res["targets"])
+
+
+# ─── wording ───────────────────────────────────────────────────────────
+
+
+def test_wording_has_no_em_dash_and_reads_well() -> None:
+    run = LcmInventoryRun(requested=True, targets=[
+        LcmInventoryTarget(kind="prism_central", name="Prism Central", status="succeeded",
+                           task_id="t1", duration_ms=125_000),
+        LcmInventoryTarget(name="C1", status="timed_out", task_id="t2",
+                           detail="Still running after 30 min"),
+    ])
+    assert note_line(run) == ("notes: Prism Central: succeeded in 2 min 5 s; C1: timed out "
+                              "(Still running after 30 min)")
+    assert provenance(run) == ("Generated from a read-only inventory snapshot; an LCM "
+                               "inventory was run on 2 targets before collection, no "
+                               "configuration was changed.")
+    assert provenance(None) == ("Generated from a read-only inventory snapshot; no "
+                                "configuration was changed.")
+    assert provenance(run, None, snapshots=2).startswith(
+        "Generated from read-only inventory snapshots; an LCM inventory was run on 2 targets")
+    from ntnxvision_core.models import LcmBusyOperation
+    assert busy_sentence(LcmBusyOperation(operation="PRECHECKS", percent=10)) == \
+        "LCM prechecks in progress (10%)"
+    assert "—" not in note_line(run) + provenance(run)
+    assert task_ref("abc") == "ZXJnb24=:abc" and task_ref("ZXJnb24=:abc") == "ZXJnb24=:abc"
