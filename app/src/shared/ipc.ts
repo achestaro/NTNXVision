@@ -1022,6 +1022,8 @@ export interface DiagramChange {
   kind: 'added' | 'removed' | 'changed';
   label: string;
   fields: string[];
+  /** [before, after] per changed field with a plain value. */
+  values?: Record<string, [unknown, unknown]>;
 }
 
 /** The collected data changed under the saved edits. */

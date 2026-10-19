@@ -369,10 +369,16 @@ class Change:
     kind: str  # added | removed | changed
     label: str
     fields: list[str] = field(default_factory=list)
+    #: [before, after] for each changed field holding a plain value (number, text).
+    values: dict[str, list[Any]] = field(default_factory=dict)
 
     def to_doc(self) -> dict[str, Any]:
         return {"id": self.id, "kind": self.kind, "label": self.label,
-                "fields": self.fields}
+                "fields": self.fields, "values": self.values}
+
+
+def _plain(v: Any) -> bool:
+    return v is None or isinstance(v, (int, float, str, bool))
 
 
 def diff(old: dict[str, Any], new: dict[str, Any], spec: EditSpec) -> list[Change]:
@@ -387,7 +393,9 @@ def diff(old: dict[str, Any], new: dict[str, Any], spec: EditSpec) -> list[Chang
         elif a[ident] != b[ident]:
             keys = sorted(k for k in set(a[ident]) | set(b[ident])
                           if a[ident].get(k) != b[ident].get(k))
-            out.append(Change(ident, "changed", _label_of(b[ident]), keys))
+            values = {k: [a[ident].get(k), b[ident].get(k)] for k in keys
+                      if _plain(a[ident].get(k)) and _plain(b[ident].get(k))}
+            out.append(Change(ident, "changed", _label_of(b[ident]), keys, values))
     return out
 
 
