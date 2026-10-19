@@ -7,6 +7,8 @@ import {
   AppSettings,
   CollectionRequest,
   CompareExportRequest,
+  DiagramCarryRequest,
+  DiagramOp,
   ExportRequest,
   FileFilter,
   IPC,
@@ -81,6 +83,15 @@ const api: NtnxApi = {
     ipcRenderer.invoke(IPC.inspectSnapshotFile, path, password),
   importSnapshotFile: (path: string, onConflict: ImportConflictChoice, password?: string) =>
     ipcRenderer.invoke(IPC.importSnapshotFile, path, onConflict, password),
+
+  listDiagrams: (path: string) => ipcRenderer.invoke(IPC.listDiagrams, path),
+  getDiagram: (path: string, type: string) => ipcRenderer.invoke(IPC.getDiagram, path, type),
+  layoutDiagram: (path: string, type: string, ops: DiagramOp[]) =>
+    ipcRenderer.invoke(IPC.layoutDiagram, path, type, ops),
+  saveDiagram: (path: string, type: string, ops: DiagramOp[]) =>
+    ipcRenderer.invoke(IPC.saveDiagram, path, type, ops),
+  resetDiagram: (path: string, type: string) => ipcRenderer.invoke(IPC.resetDiagram, path, type),
+  carryDiagrams: (req: DiagramCarryRequest) => ipcRenderer.invoke(IPC.carryDiagrams, req),
 
   revealPath: (path: string) => ipcRenderer.invoke(IPC.revealPath, path),
   openPath: (path: string) => ipcRenderer.invoke(IPC.openPath, path),
