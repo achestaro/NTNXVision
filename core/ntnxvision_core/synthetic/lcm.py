@@ -44,6 +44,7 @@ CATALOGUE_URL = "https://download.example.lab/lcm/2.0"
 DEFAULT_SECONDS = 6.0
 #: An upgrade found running lasts this many inventory durations (never ends in a run).
 _UPGRADE_FACTOR = 50
+_SEEDED_MIN_SECONDS = 2.0
 
 
 def _iso(ts: float) -> str:
@@ -123,6 +124,8 @@ class MockLcm:
             self._seeded.add(seed_key)
             for key, kind in conf["running"].items():
                 duration = self._seconds(conf) * (_UPGRADE_FACTOR if kind == "upgrade" else 1)
+                # At least 2 s, so a slow machine still finds it running when it looks.
+                duration = max(duration, _SEEDED_MIN_SECONDS)
                 # A joined inventory has been running a little while already.
                 # Both have been running a while: the inventory a third of its time.
                 self._new_task(host, key, kind, duration, "succeeded",
