@@ -38,14 +38,30 @@ lifecycle v4 OpenAPI specification and SDKs, see docs/ARCHITECTURE.md):
 * ``GET  /api/lifecycle/v4.0/resources/entities``: entities whose ``targetVersion``
   differs from ``entityVersion`` are the components an upgrade is moving.
 
-Below the v4 GA line (pc.2024.1 and pc.2024.2) the inventory is not attempted: the LCM
-collector reads entities only through the v4 lifecycle namespace, so an inventory there
-could not make any collected value fresher, and the pre-v4 LCM interfaces are internal
-RPCs. The run records why.
+Below the v4 GA line (pc.2024.1 and pc.2024.2) `LegacyLcmInventory` drives the same
+run through the interface the Prism UI uses there, Genesis RPC
+(``POST /PrismGateway/services/rest/v1/genesis``; the exact bodies and the guard's body
+check are in `api.transport`, next to `genesis_body`):
+
+* ``is_lcm_operation_in_progress`` (read): the root task of a running LCM operation;
+  its v3 task (``GET /api/nutanix/v3/tasks/<uuid>``) says whether it is an inventory
+  (joined) or something else (skipped as busy);
+* ``get_config`` (read): the LCM catalogue URL the inventory is given;
+* ``perform_inventory`` (the write, inside the permit, sent once: Genesis has no
+  idempotency key, so a 429 is not retried);
+* the returned root task is polled with ``GET /api/nutanix/v3/tasks/<uuid>``.
+
+Clusters are addressed through Prism Central's Prism Element proxy
+(``?proxyClusterUuid=<uuid>``), Prism Central's own LCM without it. These payloads are
+from general Nutanix knowledge and not yet verified on a live pc.2024.x. Below
+pc.2024.3 the LCM collector reads no entities (it is v4 only), so the legacy inventory
+refreshes what LCM shows in Prism, not a collected value; the run says so.
+Other versions without the v4 lifecycle API are not attempted; the run records why.
 """
 
 from __future__ import annotations
 
+import json
 import threading
 import time
 import uuid
@@ -55,7 +71,12 @@ from datetime import datetime, timezone
 from typing import Any
 
 from ntnxvision_core.api.errors import AuthenticationError, NutanixApiError
-from ntnxvision_core.api.transport import lcm_inventory_permit
+from ntnxvision_core.api.transport import (
+    GENESIS_INVENTORY_METHOD,
+    GENESIS_PATH,
+    genesis_body,
+    lcm_inventory_permit,
+)
 from ntnxvision_core.areas import LCM_INVENTORY_SECONDS
 from ntnxvision_core.cancel import CancelToken, RunCancelled
 from ntnxvision_core.models import (
@@ -72,6 +93,10 @@ ENTITIES_PATH = "lifecycle/v4.0/resources/entities"
 TASK_PATH = "prism/v4.0/config/tasks/{}"
 #: Task ids are "<base64 'ergon'>:<uuid>"; LCM's status reports the bare uuid.
 TASK_PREFIX = "ZXJnb24=:"
+#: The legacy interface's task reads (v3 tasks API on Prism Central).
+V3_TASK_PATH = "/api/nutanix/v3/tasks/{}"
+#: Prism Central versions without the v4 lifecycle API that the legacy driver serves.
+LEGACY_PC_VERSIONS = ("pc.2024.1", "pc.2024.2")
 
 DEFAULT_TIMEOUT_S = 1800
 MIN_TIMEOUT_S = 60
@@ -99,6 +124,21 @@ _CANT_CANCEL = ("NTNXVision stopped waiting; the LCM task keeps running on Prism
 
 #: Consecutive failed task reads before a target is given up as failed.
 _MAX_READ_ERRORS = 5
+
+
+class _Stopped(Exception):
+    """The engine stopped the inventory (the collection ended without waiting for it)."""
+
+
+_STOPPED = ("The collection ended before the inventory finished: " + _CANT_CANCEL)
+
+
+def legacy_supported(version: str | None) -> bool:
+    """True for pc.2024.1 / pc.2024.2 (any build): the legacy Genesis driver's range."""
+    v = (version or "").strip().lower()
+    if not v.startswith("pc."):
+        v = f"pc.{v}"
+    return any(v == base or v.startswith(base + ".") for base in LEGACY_PC_VERSIONS)
 
 
 @dataclass
@@ -138,8 +178,15 @@ class LcmInventory:
     collectors keep theirs). It reads every target's LCM status, starts or joins the
     inventories, then polls their tasks together with backoff until each finishes, the
     timeout passes, or the run is cancelled. `on_update` receives a copy of the state
-    after every change; `wait()` blocks the engine until the worker is done.
+    after every change; `wait()` blocks the engine until the worker is done. `stop()`
+    ends the polling early (the engine calls it when the run ends for any reason).
+
+    This class talks to the v4 lifecycle API; `LegacyLcmInventory` overrides the four
+    request hooks (`_read_status`, `_start_inventory`, `_read_task`, `_describe_busy`)
+    for the Genesis interface of pc.2024.1 / pc.2024.2.
     """
+
+    API = "v4"
 
     def __init__(
         self,
@@ -156,6 +203,7 @@ class LcmInventory:
         self.cancel = cancel
         self.on_update = on_update
         self._lock = threading.Lock()
+        self._stop = threading.Event()
         self._thread: threading.Thread | None = None
         #: Every registered cluster (selected or not): entities of none of them are
         #: Prism Central's own.
@@ -165,7 +213,7 @@ class LcmInventory:
         self._errors: dict[int, int] = {}
         self._entities: list[dict[str, Any]] | None = None
         self.run = LcmInventoryRun(
-            requested=True, api="v4", timeout_s=int(self.options.timeout_s),
+            requested=True, api=self.API, timeout_s=int(self.options.timeout_s),
             targets=[LcmInventoryTarget(kind="prism_central", name="Prism Central"),
                      *(LcmInventoryTarget(kind="cluster", target_id=cid, name=name or cid)
                        for cid, name in clusters)])
@@ -178,6 +226,12 @@ class LcmInventory:
         self._publish()
         self._thread = threading.Thread(target=self._work, name="lcm-inventory", daemon=True)
         self._thread.start()
+
+    def stop(self) -> None:
+        """Stop polling: open targets end as cancelled and the worker exits promptly.
+
+        A no-op once the worker is done. The LCM tasks themselves keep running."""
+        self._stop.set()
 
     def wait(self) -> LcmInventoryRun:
         """Block until every target is final; raises `RunCancelled` on cancel."""
@@ -199,6 +253,8 @@ class LcmInventory:
                 self._drive(conn)
         except RunCancelled:
             self._finish_open(CANCELLED, f"Run cancelled: {_CANT_CANCEL}")
+        except _Stopped:
+            self._finish_open(CANCELLED, _STOPPED)
         except Exception as exc:  # noqa: BLE001 — never fail the collection over this
             self._finish_open(UNAVAILABLE, f"LCM could not be reached: {exc}")
         finally:
@@ -229,22 +285,46 @@ class LcmInventory:
                     self._final(i, TIMED_OUT, f"Still running after {fmt_count(minutes)} "
                                               f"min: {_CANT_CANCEL}")
                 return
-            pause = min(interval, max(0.0, deadline - time.monotonic()))
-            if self.cancel is not None:
-                if self.cancel.wait(pause):
-                    raise RunCancelled("Run cancelled")
-            else:
-                time.sleep(pause)
+            self._pause(min(interval, max(0.0, deadline - time.monotonic())))
             interval = min(interval * self.options.poll_factor, self.options.poll_max_s)
             for i in active:
                 self._check_cancel()
                 self._poll(conn, i)
             self._publish()
 
+    def _pause(self, seconds: float) -> None:
+        """Sleep, waking early (and raising) on cancel or `stop()`."""
+        end = time.monotonic() + seconds
+        while True:
+            self._check_cancel()
+            left = end - time.monotonic()
+            if left <= 0:
+                return
+            if self._stop.wait(min(left, 0.1)):
+                raise _Stopped()
+
+    # ─── requests (v4 lifecycle; `LegacyLcmInventory` overrides these) ──
+
+    def _read_status(self, conn: Any, target: LcmInventoryTarget) -> tuple[str, str]:
+        """(operation type in upper case, its id) of the LCM operation in progress."""
+        status = (conn.v4_get(STATUS_PATH, headers=_cluster_header(target)).get("data")
+                  or {})
+        op = status.get("inProgressOperation") or {}
+        return (str(op.get("operationType") or "").upper(),
+                str(op.get("operationId") or "").strip())
+
+    def _task_ref(self, raw: str) -> str:
+        return task_ref(raw)
+
+    def _read_task(self, conn: Any, task_id: str) -> tuple[str, Any, str | None]:
+        """(status in upper case, progress percent, error text) of a task."""
+        task = conn.v4_get(TASK_PATH.format(task_id)).get("data") or {}
+        return (str(task.get("status") or "").upper(), task.get("progressPercentage"),
+                _task_error(task))
+
     def _begin(self, conn: Any, i: int, target: LcmInventoryTarget) -> None:
-        headers = _cluster_header(target)
         try:
-            status = (conn.v4_get(STATUS_PATH, headers=headers).get("data") or {})
+            kind, op_id = self._read_status(conn, target)
         except AuthenticationError:
             self._final(i, FORBIDDEN, "The account cannot read LCM status (needs the LCM "
                                       "View Status permission)")
@@ -252,13 +332,10 @@ class LcmInventory:
         except NutanixApiError as exc:
             self._final(i, UNAVAILABLE, f"LCM status could not be read: {_short(exc)}")
             return
-        op = status.get("inProgressOperation") or {}
-        kind = str(op.get("operationType") or "").upper()
-        op_id = str(op.get("operationId") or "").strip()
         if kind in _INVENTORY_OPS:
             with self._lock:
                 target.joined = True
-                target.task_id = task_ref(op_id) if op_id else None
+                target.task_id = self._task_ref(op_id) if op_id else None
                 target.status = RUNNING
                 target.started_at = _now()
                 self._clock[i] = time.monotonic()
@@ -308,23 +385,22 @@ class LcmInventory:
         target = self.run.targets[i]
         assert target.task_id is not None
         try:
-            task = conn.v4_get(TASK_PATH.format(target.task_id)).get("data") or {}
+            state, pct, error = self._read_task(conn, target.task_id)
         except NutanixApiError as exc:
             self._errors[i] = self._errors.get(i, 0) + 1
             if self._errors[i] >= _MAX_READ_ERRORS:
                 self._final(i, FAILED, f"The LCM task could not be read: {_short(exc)}")
             return
         self._errors[i] = 0
-        state = str(task.get("status") or "").upper()
-        pct = task.get("progressPercentage")
         with self._lock:
-            if isinstance(pct, (int, float)):
+            if isinstance(pct, (int, float)) and not isinstance(pct, bool):
                 target.percent = max(0, min(100, int(pct)))
         if state == "SUCCEEDED":
             self._final(i, SUCCEEDED, None, percent=100)
-        elif state in ("FAILED", "CANCELED", "CANCELLED"):
-            reason = _task_error(task) or ("The LCM task was cancelled on Prism Central"
-                                           if state.startswith("CANCEL") else "LCM failed")
+        elif state in ("FAILED", "CANCELED", "CANCELLED", "ABORTED"):
+            reason = error or ("The LCM task was cancelled on Prism Central"
+                               if state.startswith("CANCEL") or state == "ABORTED"
+                               else "LCM failed")
             self._final(i, FAILED, reason)
 
     # ─── busy targets ──────────────────────────────────────────────
@@ -386,10 +462,150 @@ class LcmInventory:
     def _check_cancel(self) -> None:
         if self.cancel is not None:
             self.cancel.check()
+        if self._stop.is_set():
+            raise _Stopped()
 
     def _publish(self) -> None:
         if self.on_update is not None:
             self.on_update(self.result())
+
+
+class LegacyLcmInventory(LcmInventory):
+    """The same run through LCM's Genesis RPC, for pc.2024.1 / pc.2024.2.
+
+    Statuses, busy detection, polling, timeout, cancel and notes are the base class's;
+    only the requests differ (see the module docstring and `api.transport`)."""
+
+    API = "genesis"
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        #: Each target's v3 root task as read during the status check (busy details).
+        self._busy_tasks: dict[str, dict[str, Any]] = {}
+
+    def _task_ref(self, raw: str) -> str:
+        return raw  # the v3 tasks API takes the bare uuid
+
+    def _genesis(self, conn: Any, target: LcmInventoryTarget, method: str,
+                 args: list[str] | None = None) -> Any:
+        """A read-only LCM framework RPC; returns its decoded ``.return`` value."""
+        resp = conn._send("POST", f"{conn.creds.base}{GENESIS_PATH}",
+                          params=_proxy_params(target), json=genesis_body(method, args))
+        return _genesis_return(conn._json_or_raise(resp))
+
+    def _v3_task(self, conn: Any, task_id: str) -> dict[str, Any]:
+        return conn.get_json(f"{conn.creds.base}{V3_TASK_PATH.format(task_id)}")
+
+    def _read_status(self, conn: Any, target: LcmInventoryTarget) -> tuple[str, str]:
+        running = self._genesis(conn, target, "is_lcm_operation_in_progress")
+        op_id = running.strip() if isinstance(running, str) else ""
+        if not op_id:
+            return "", ""
+        try:
+            task = self._v3_task(conn, op_id)
+        except NutanixApiError:
+            # Something runs but cannot be identified: never start on top of it.
+            return "OPERATION", op_id
+        self._busy_tasks[op_id] = task
+        words = " ".join(str(task.get(k) or "") for k in
+                         ("operation_type", "progress_message", "display_name")).lower()
+        if "inventory" in words:
+            return "INVENTORY", op_id
+        if "upgrade" in words or "update" in words:
+            return "UPGRADE", op_id
+        if "precheck" in words:
+            return "PRECHECKS", op_id
+        return "OPERATION", op_id
+
+    def _read_task(self, conn: Any, task_id: str) -> tuple[str, Any, str | None]:
+        task = self._v3_task(conn, task_id)
+        state = str(task.get("status") or "").upper()
+        error = _text(task.get("error_detail"))
+        if error:
+            error = " ".join(error.split()).rstrip(". ")[:300]
+        return state, task.get("percentage_complete"), error
+
+    def _describe_busy(self, conn: Any, target: LcmInventoryTarget, kind: str,
+                       op_id: str) -> LcmBusyOperation:
+        busy = LcmBusyOperation(operation=None if kind == "OPERATION" else kind or None,
+                                task_id=op_id or None)
+        task = self._busy_tasks.get(op_id) or {}
+        busy.description = _text(task.get("progress_message"))
+        pct = task.get("percentage_complete")
+        busy.percent = int(pct) if isinstance(pct, (int, float)) else None
+        busy.started_at = _text(task.get("start_time")) or _text(task.get("creation_time"))
+        return busy  # component versions come from the v4 entities, not served here
+
+    def _start_inventory(self, conn: Any, i: int, target: LcmInventoryTarget) -> None:
+        """Send the legacy LCM inventory RPC: the only non-read request on pc.2024.1/2."""
+        try:
+            config = self._genesis(conn, target, "get_config")
+        except AuthenticationError:
+            self._final(i, FORBIDDEN, "The account cannot read the LCM configuration")
+            return
+        except NutanixApiError as exc:
+            self._final(i, UNAVAILABLE, f"The LCM configuration could not be read: "
+                                        f"{_short(exc)}")
+            return
+        catalogue = _text(config.get("url")) if isinstance(config, dict) else None
+        if not catalogue:
+            self._final(i, UNAVAILABLE, "LCM did not report its catalogue URL, so no "
+                                        "inventory was started")
+            return
+        url = f"{conn.creds.base}{GENESIS_PATH}"
+        body = genesis_body(GENESIS_INVENTORY_METHOD, [catalogue])
+        with lcm_inventory_permit():
+            # Sent once: Genesis has no idempotency key, so a retried 429 could start a
+            # second inventory.
+            resp = conn._send("POST", url, params=_proxy_params(target), json=body,
+                              retry_429=False)
+        if resp.status_code in (401, 403):
+            self._final(i, FORBIDDEN, "The account lacks the LCM Perform Inventory "
+                                      "permission (Super Admin, Prism Admin or Cluster "
+                                      "Admin role)")
+            return
+        if resp.status_code >= 400:
+            self._final(i, FAILED, f"LCM refused the inventory: HTTP {resp.status_code}"
+                                   f"{_error_text(resp)}")
+            return
+        try:
+            task = _genesis_return(resp.json())
+        except (ValueError, NutanixApiError) as exc:
+            self._final(i, FAILED, f"LCM did not accept the inventory: {_short(exc)}")
+            return
+        task_id = task.strip() if isinstance(task, str) else ""
+        with self._lock:
+            target.status = RUNNING
+            target.task_id = task_id or None
+            target.started_at = _now()
+            target.percent = 0
+            target.detail = None
+            self._clock[i] = time.monotonic()
+        if not task_id:
+            self._final(i, FAILED, "LCM accepted the inventory but returned no task id")
+
+
+def _proxy_params(target: LcmInventoryTarget) -> dict[str, str]:
+    """Prism Central's proxy to a cluster's Prism Element; none for PC's own LCM."""
+    return {"proxyClusterUuid": target.target_id} if target.target_id else {}
+
+
+def _genesis_return(body: Any) -> Any:
+    """The ``.return`` of a Genesis answer ``{"value": "<JSON text>"}``.
+
+    Raises `NutanixApiError` for an ``.error`` answer or a body of another shape."""
+    value = body.get("value") if isinstance(body, dict) else None
+    if not isinstance(value, str):
+        raise NutanixApiError("Genesis answered without a value")
+    try:
+        decoded = json.loads(value)
+    except ValueError as exc:
+        raise NutanixApiError("Genesis answered with a value that is not JSON") from exc
+    if not isinstance(decoded, dict):
+        raise NutanixApiError("Genesis answered with an unexpected value")
+    if decoded.get(".error"):
+        raise NutanixApiError(f"LCM error: {str(decoded['.error'])[:200]}")
+    return decoded.get(".return")
 
 
 def _cluster_header(target: LcmInventoryTarget) -> dict[str, str]:
@@ -492,7 +708,8 @@ def note_line(run: LcmInventoryRun) -> str:
             text += f" ({t.detail})"
         parts.append(text)
     head = "ok" if all(t.status == SUCCEEDED for t in run.targets) else "notes"
-    return f"{head}: " + "; ".join(parts)
+    tail = f"; {LEGACY_NOTE}" if run.api == LegacyLcmInventory.API else ""
+    return f"{head}: " + "; ".join(parts) + tail
 
 
 def progress_line(run: LcmInventoryRun) -> str:
@@ -544,6 +761,12 @@ def provenance(*runs: LcmInventoryRun | None, snapshots: int = 1) -> str:
             "collection, no configuration was changed.")
 
 
+#: What a legacy (Genesis) inventory does and does not refresh, for notes and reports.
+LEGACY_NOTE = ("run through the legacy LCM interface of this Prism Central version; it "
+               "refreshes what LCM shows in Prism, LCM values are collected from "
+               "pc.2024.3 on")
+
+
 def report_sentence(run: LcmInventoryRun | None) -> str | None:
     """The Lifecycle chapter's sentence about the inventory, or None when not requested."""
     if run is None or not run.requested:
@@ -553,6 +776,12 @@ def report_sentence(run: LcmInventoryRun | None) -> str | None:
                 f"{run.detail or 'not available'}.")
     ok = sum(1 for t in run.targets if t.status == SUCCEEDED)
     total = len(run.targets)
+    if run.api == LegacyLcmInventory.API:
+        return (f"An LCM inventory was requested before this collection on Prism Central "
+                f"and {fmt_count(total - 1)} cluster{'s' if total - 1 != 1 else ''}; it "
+                f"completed on {fmt_count(ok)} of {fmt_count(total)} targets. It was "
+                f"{LEGACY_NOTE}. The inventory refreshes what LCM knows; it upgrades "
+                "nothing.")
     text = (f"An LCM inventory was requested before this collection on Prism Central and "
             f"{fmt_count(total - 1)} cluster{'s' if total - 1 != 1 else ''}; it completed on "
             f"{fmt_count(ok)} of {fmt_count(total)} targets, so the values below are fresh "

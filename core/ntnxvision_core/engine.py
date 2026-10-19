@@ -29,7 +29,13 @@ from ntnxvision_core.collectors.vcenter import enrich_from_vcenter
 from ntnxvision_core.compat import check_aos, check_prism_central
 from ntnxvision_core.designdata import resolve_design_data
 from ntnxvision_core.lcm_inventory import TYPICAL_SECONDS as LCM_INVENTORY_SECONDS
-from ntnxvision_core.lcm_inventory import InventoryOptions, LcmInventory, note_line
+from ntnxvision_core.lcm_inventory import (
+    InventoryOptions,
+    LcmInventory,
+    LegacyLcmInventory,
+    legacy_supported,
+    note_line,
+)
 from ntnxvision_core.models import (
     ClusterScope,
     Environment,
@@ -95,6 +101,8 @@ def collect_environment(
     else:
         run_areas = select_areas(areas, "prism_central")
     lcm_on = lcm_inventory is not None and any(a.id == "lcm" for a in run_areas)
+    #: Asked for, but the LCM area is not in the run: nothing is sent, the run says why.
+    lcm_unselected = lcm_inventory is not None and not lcm_on
     if lcm_on:
         # LCM waits for the inventory, so it runs last and everything else meanwhile.
         run_areas = [a for a in run_areas if a.id != "lcm"] + \
@@ -125,6 +133,8 @@ def collect_environment(
                           extra_seconds=LCM_INVENTORY_SECONDS if lcm_on else 0)
 
         inventory: LcmInventory | None = None
+        if lcm_unselected:
+            _lcm_inventory_not_run(env, tracker, LCM_NOT_SELECTED)
         if lcm_on:
             assert lcm_inventory is not None
             inventory = _start_lcm_inventory(creds, conn, scope, lcm_inventory, env, cancel,
@@ -147,6 +157,10 @@ def collect_environment(
                 tracker.cancel_pending()
             raise
         finally:
+            if inventory is not None:
+                # Whatever ended the run (cancel, or an error outside the collectors'
+                # isolation), the inventory worker must not keep polling on its own.
+                inventory.stop()
             # Read *after* the collectors run: v4 availability is negotiated lazily, on
             # the first call that asks for a feature area, so nothing is known at
             # connect time.
@@ -180,28 +194,45 @@ def _start_lcm_inventory(creds: PrismCredentials, conn: PrismConnection, scope: 
                          options: InventoryOptions, env: Environment,
                          cancel: CancelToken | None, tracker: RunTracker | None
                          ) -> LcmInventory | None:
-    """Start the LCM inventory in the background, or record why it cannot run."""
+    """Start the LCM inventory in the background, or record why it cannot run.
+
+    v4 lifecycle when served; else, on pc.2024.1 / pc.2024.2, the legacy Genesis driver
+    (`LegacyLcmInventory`); else nothing is sent and the run records why."""
+    driver: type[LcmInventory] = LcmInventory
     if not conn.v4_ready("lifecycle"):
-        env.lcm_inventory = LcmInventoryRun(
-            requested=True, detail=(
+        if not legacy_supported(conn.pc_version):
+            _lcm_inventory_not_run(env, tracker, (
                 "the v4 lifecycle API is not served by this Prism Central "
-                f"({conn.negotiated.get('lifecycle', 'unavailable')}); NTNXVision reads LCM "
-                "only through it, so an inventory could not refresh any collected value"))
-        env.collection_notes["lcm_inventory"] = note_line(env.lcm_inventory)
-        if tracker is not None:
-            tracker.lcm_inventory(env.lcm_inventory)
-        return None
+                f"({conn.negotiated.get('lifecycle', 'unavailable')}) and its version "
+                f"({pc_version(conn.pc_version) or 'unknown'}) has no supported legacy LCM "
+                "interface"))
+            return None
+        driver = LegacyLcmInventory
     clusters: list[tuple[str, str | None]] = []
     registered: set[str] = set()
     if scope is not None:
         registered = set(scope.registered)
         clusters = [(u, c.name) for u, c in scope.registered.items() if u in scope.selected]
-    inventory = LcmInventory(
+    inventory = driver(
         partial(PrismConnection, creds, cancel=cancel), clusters, options=options,
         cancel=cancel, registered=registered,
         on_update=tracker.lcm_inventory if tracker is not None else None)
     inventory.start()
     return inventory
+
+
+#: The note when the LCM inventory was asked for without the LCM area.
+LCM_NOT_SELECTED = ("LCM area not selected; the inventory runs only with the LCM firmware "
+                    "and software area")
+
+
+def _lcm_inventory_not_run(env: Environment, tracker: RunTracker | None,
+                           detail: str) -> None:
+    """Record an inventory that was asked for but not attempted (nothing was sent)."""
+    env.lcm_inventory = LcmInventoryRun(requested=True, detail=detail)
+    env.collection_notes["lcm_inventory"] = note_line(env.lcm_inventory)
+    if tracker is not None:
+        tracker.lcm_inventory(env.lcm_inventory)
 
 
 def _collect_after_inventory(inventory: LcmInventory, env: Environment,
@@ -449,7 +480,9 @@ def combine_environments(envs: list[Environment]) -> Environment:
             if env.lcm_inventory is not None and env.lcm_inventory.requested]
     if runs:
         combined.lcm_inventory = LcmInventoryRun(
-            requested=True, api="v4" if any(r.api for _, r in runs) else None,
+            requested=True,
+            api="v4" if any(r.api == "v4" for _, r in runs)
+            else next((r.api for _, r in runs if r.api), None),
             targets=[LcmInventoryTarget(**{**t.model_dump(), "source_pc": host})
                      for host, r in runs for t in r.targets],
             detail="; ".join(f"{host}: {r.detail}" for host, r in runs if r.detail) or None)

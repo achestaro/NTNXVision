@@ -247,6 +247,15 @@ class MockApi:
             status, payload = self.lcm.inventory(target.host, est, headers.get("x-cluster-id"),
                                                  headers.get("ntnx-request-id"))
             return status, payload, {}
+        if method == "POST" and path == "/PrismGateway/services/rest/v1/genesis":
+            # The legacy LCM interface (Genesis RPC); clusters through the PE proxy.
+            status, payload = self.lcm.genesis(target.host, est,
+                                               query.get("proxyClusterUuid"), body)
+            return status, payload, {}
+        m = re.fullmatch(r"/api/nutanix/v3/tasks/([0-9a-f-]+)", path)
+        if method == "GET" and m:
+            status, payload = self.lcm.v3_task(m.group(1), est)
+            return status, payload, {}
         if method == "GET" and path == "/PrismGateway/services/rest/v1/cluster":
             return 200, r.pc_gateway_v1(est), {}
         if method == "GET" and query.get("proxyClusterUuid") and \
