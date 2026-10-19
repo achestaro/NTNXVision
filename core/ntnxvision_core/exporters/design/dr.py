@@ -36,6 +36,9 @@ def build(b: Any, ch: Chapter, dtype: DiagramType) -> bool:
         return False
     figs = scene_figures(scenes)
     figs[0].summary = bullets
+    # The summary covers the whole figure; a part's caption says "(edited)" only when
+    # an edit touches what that part draws.
+    b.scope_edit_marks(dtype, model, drawn, figs, lambda sc: b.part_scope(model, sc))
     table = make_table(D.POLICY_HEADERS, D.policy_rows(b.env, model), "Protection policies")
     ch.add(dtype.section, *figs, table)
     b.design_figures[dtype.id] = figs

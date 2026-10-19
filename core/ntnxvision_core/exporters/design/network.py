@@ -34,6 +34,9 @@ def build(b: Any, ch: Chapter, dtype: DiagramType) -> bool:
         return False
     figs = scene_figures(scenes)
     figs[0].summary = bullets
+    # The summary covers every profile; a profile's caption says "(edited)" only when
+    # an edit touches that profile.
+    b.scope_edit_marks(dtype, model, drawn, figs, lambda sc: {sc.meta.get("group")})
     headers, rows = N.table(model)
     table = make_table(headers, rows, "Host network profiles")
     ch.add(dtype.section, *figs, table)
