@@ -17,6 +17,7 @@ the export dialog's section ids (`ExportOptions.sections`).
 
 from __future__ import annotations
 
+import importlib
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
@@ -24,6 +25,7 @@ from typing import Any
 from ntnxvision_core.capacity import target_label
 from ntnxvision_core.diagrams import TYPES, DiagramType, Refs
 from ntnxvision_core.diagrams import summary as design
+from ntnxvision_core.diagrams.estate import EstateRefs, estate_bullets, estate_from
 from ntnxvision_core.diagrams.facts import short_name
 from ntnxvision_core.diagrams.scene import Scene
 from ntnxvision_core.exporters import diagrams
@@ -821,6 +823,7 @@ class _Builder:
                   s.pc_config.node_count, s.summary.get("clusters"), s.summary.get("hosts"),
                   s.summary.get("vms")] for s in env.source_environments],
                 "Source Prism Centrals combined into this report") or Paragraph(""))
+            self.design_sections(ch)
             return ch
         cfg = env.pc_config
         ch = Chapter("prism_central", "Prism Central: Management & Sizing", "clusters_hosts")
@@ -842,6 +845,7 @@ class _Builder:
              ["PC VM(s)", ", ".join(cfg.pc_vm_names)],
              ["IP address(es)", ", ".join(cfg.ip_addresses)]],
             "Prism Central management-plane configuration") or Paragraph(""))
+        self.design_sections(ch)
         return ch
 
     def logical_design(self) -> Chapter:
@@ -896,16 +900,27 @@ class _Builder:
         as its own section. Returns whether any was added."""
         added = False
         for dtype in TYPES.values():
-            if dtype.chapter == ch.key and dtype.applies(self.env):
-                build: Callable[[Chapter, DiagramType], bool] = getattr(
-                    self, f"_design_{dtype.id}")
+            if dtype.embedded or dtype.chapter != ch.key or not dtype.applies(self.env):
+                continue
+            build: Callable[[Chapter, DiagramType], bool] | None = getattr(
+                self, f"_design_{dtype.id}", None)
+            if build is None:
+                # Each later type keeps its report section in `exporters.design.<id>`
+                # (imported here, at use, as it builds on this module's blocks).
+                module = importlib.import_module(f"ntnxvision_core.exporters.design.{dtype.id}")
+                added = module.build(self, ch, dtype) or added
+            else:
                 added = build(ch, dtype) or added
         return added
 
     def _design_conceptual(self, ch: Chapter, dtype: DiagramType) -> bool:
         """Solution Conceptual Overview: the A1 figure (in parts for a large estate),
         its design summary, the availability-zone table and, when the figure summarises
-        clusters, the clusters-per-AZ table that lists every one of them."""
+        clusters, the clusters-per-AZ table that lists every one of them.
+
+        When the overview needs parts and the estate map applies (A6, decision 7), the
+        section opens on the estate map (one tile per AZ) with the design summary and
+        the AZ table (which then names the figure drawing each AZ); the parts follow."""
         env = self.env
         model = dtype.build_model(env)
         drawn = self.figure_model(dtype, model)
@@ -918,15 +933,29 @@ class _Builder:
         page = dtype.page
         # The summary depends on the parts; lay out, summarise, then fit part 1 under it.
         scenes = dtype.layout(drawn, page)
+        estate_t = TYPES.get("estate")
+        with_map = (estate_t is not None and len(scenes) > 1 and not self.is_pe)
         bullets = summary(scenes)
-        scenes = dtype.layout(drawn, page, None,
-                              first_part_budget(bullets, len(scenes) > 1))
+        if not with_map:
+            scenes = dtype.layout(drawn, page, None,
+                                  first_part_budget(bullets, len(scenes) > 1))
         figs = [SceneFigure(sc, sc.caption, new_page=bool(sc.meta.get("own_page")))
                 for sc in scenes]
-        figs[0].summary = summary(scenes)
-        self.design_figures[dtype.id] = figs
+        estate_fig: SceneFigure | None = None
+        if with_map:
+            assert estate_t is not None
+            em = estate_from(drawn, [list(sc.meta.get("sites", [])) for sc in scenes])
+            lead = [*estate_bullets(em), *bullets[1:]][:design.MAX_BULLETS]
+            estate_fig = SceneFigure(estate_t.layout(em, page)[0], "")
+            estate_fig.caption = estate_fig.scene.caption
+            estate_fig.summary = lead
+        else:
+            figs[0].summary = summary(scenes)
+        self.design_figures[dtype.id] = [estate_fig, *figs] if estate_fig else figs
         az = None if self.is_pe else make_table(
-            design.AZ_HEADERS, design.az_rows(model), "Availability zones and Prism Central")
+            design.AZ_HEADERS + (["Drawn in"] if with_map else []),
+            [[*r, None] if with_map else r for r in design.az_rows(model)],
+            "Availability zones and Prism Central")
         clusters = None
         if any(sc.meta.get("summarised") for sc in scenes):
             rows, srcs = design.cluster_rows(model, scenes, [f"Figure {i}" for i in
@@ -934,17 +963,20 @@ class _Builder:
             clusters = make_table(design.CLUSTER_HEADERS, rows,
                                   "Clusters per availability zone",
                                   srcs if env.is_combined else None)
-        ch.add(dtype.section, *figs, az, clusters)
+        if estate_fig is not None:
+            ch.add(dtype.section, estate_fig, az, *figs, clusters)
+        else:
+            ch.add(dtype.section, *figs, az, clusters)
 
         def finalize() -> None:
             if not figs[0].label:  # the chapter is left out of this report
                 return
             labels = [f.label.rstrip(".") for f in figs]
-            if clusters is not None:
-                ref = clusters.label.rstrip(".")
+            ref = clusters.label.rstrip(".") if clusters is not None else None
+            if clusters is not None and ref is not None:
                 bullets = summary(scenes, ref)
-                again = dtype.layout(drawn, page, Refs(clusters_table=ref),
-                                     first_part_budget(bullets, len(scenes) > 1))
+                budget = None if with_map else first_part_budget(bullets, len(scenes) > 1)
+                again = dtype.layout(drawn, page, Refs(clusters_table=ref), budget)
                 if [sc.part for sc in again] == [sc.part for sc in scenes]:
                     for f, sc in zip(figs, again, strict=True):
                         f.scene = sc
@@ -954,15 +986,29 @@ class _Builder:
                 col = clusters.headers.index("In figure")
                 for row, new in zip(clusters.rows, rows, strict=True):
                     row[col] = new[-1]
-                figs[0].summary = summary(scenes, ref)
+                if not with_map:
+                    figs[0].summary = summary(scenes, ref)
+            if estate_fig is not None and estate_t is not None:
+                em = estate_from(drawn, [list(sc.meta.get("sites", [])) for sc in scenes])
+                estate_fig.scene = estate_t.layout(em, page, EstateRefs(tuple(labels)))[0]
+                estate_fig.caption = estate_fig.scene.caption
+                lead = [*estate_bullets(em), *summary(scenes, ref)[1:]]
+                estate_fig.summary = lead[:design.MAX_BULLETS]
+                if az is not None:
+                    drawn_in = {sid: f"{labels[i]} (part {i + 1})"
+                                for i, sc in enumerate(scenes)
+                                for sid in sc.meta.get("sites", [])}
+                    col = az.headers.index("Drawn in")
+                    for row, sid in zip(az.rows, [s.id for s in model.sites]
+                                        + [r.id for r in model.remotes], strict=True):
+                        row[col] = drawn_in.get(sid, "N/A")
             for i, f in enumerate(figs[:-1]):
                 nxt = figs[i + 1].scene
                 names = ", ".join(short_name(drawn.name_of(sid))
                                   for sid in nxt.meta.get("sites", []))
                 f.note = (f"Continued in {labels[i + 1]} (part {nxt.part[0]} of "
                           f"{nxt.part[1]}: {names}).")
-            if clusters is not None:
-                ref = clusters.label.rstrip(".")
+            if ref is not None:
                 for f in figs:
                     if f.scene.meta.get("summarised"):
                         extra = f"Clusters in a \"+N more\" card are listed in {ref}."
@@ -1008,6 +1054,7 @@ class _Builder:
             Figure(cap, "Storage container capacity: used and free"
                    + (f" (first {shown} of {total} containers)." if total > shown else "."))
             if cap else None)
+        self.design_sections(ch)
         self.capacity_section(ch)
         return ch
 
@@ -1230,13 +1277,17 @@ class _Builder:
                           "zones.")
 
             self.finalizers.append(name_figure)
-        ch.add("Protection Policies", make_table(
-            ["Policy", "RPO", "Replication", "Local Retention", "Remote Retention",
-             "Source AZ", "Target AZ"],
-            [[p.name, rpo_label(p.rpo_seconds), p.replication_type, p.local_retention,
-              p.remote_retention, p.source_az, p.target_az] for p in env.protection_policies],
-            "Protection policies", self.src(env.protection_policies),
-            prune=("Local Retention", "Remote Retention")))
+        # The Disaster Recovery Design section carries the policy table (source and
+        # target zone and cluster); without it, the plain table stands alone.
+        if not self.design_sections(ch):
+            ch.add("Protection Policies", make_table(
+                ["Policy", "RPO", "Replication", "Local Retention", "Remote Retention",
+                 "Source AZ", "Target AZ"],
+                [[p.name, rpo_label(p.rpo_seconds), p.replication_type, p.local_retention,
+                  p.remote_retention, p.source_az, p.target_az]
+                 for p in env.protection_policies],
+                "Protection policies", self.src(env.protection_policies),
+                prune=("Local Retention", "Remote Retention")))
         ch.add("Recovery Plans", make_table(
             ["Plan", "Stages", "Entities", "Primary", "Recovery"],
             [[r.name, r.stage_count, r.entities_count, r.primary_location, r.recovery_location]
