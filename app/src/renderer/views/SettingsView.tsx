@@ -274,7 +274,7 @@ export function SettingsView(): JSX.Element {
  */
 function SectionOrderSetting(): JSX.Element {
   const { settings, update } = useSettings();
-  const on = !!settings.customSectionOrder;
+  const on = settings.customSectionOrder === true;
   const order = normalizeSectionOrder(settings.sectionOrder);
   return (
     <div data-testid="section-order-setting">

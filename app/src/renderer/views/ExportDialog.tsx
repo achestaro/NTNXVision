@@ -125,9 +125,9 @@ function ExportDialog({
   // starts from Settings > Reports when its custom order is on.
   const [sectionsOpen, setSectionsOpen] = useState(false);
   const [included, setIncluded] = useState<Record<ReportSectionId, boolean>>(() => allSections(true));
-  const [customOrder, setCustomOrder] = useState(!!settings.customSectionOrder);
+  const [customOrder, setCustomOrder] = useState(settings.customSectionOrder === true);
   const [order, setOrder] = useState<ReportSectionId[]>(() =>
-    settings.customSectionOrder ? normalizeSectionOrder(settings.sectionOrder) : [...MOVABLE_SECTION_IDS],
+    settings.customSectionOrder === true ? normalizeSectionOrder(settings.sectionOrder) : [...MOVABLE_SECTION_IDS],
   );
   const [avail, setAvail] = useState<Availability | undefined>(undefined);
   const [template, setTemplate] = useState('standard');
@@ -164,7 +164,7 @@ function ExportDialog({
   ].join(' · ');
   const toggleCustomOrder = (v: boolean) => {
     setCustomOrder(v);
-    if (v && !orderChanged) setOrder(normalizeSectionOrder(settings.customSectionOrder ? settings.sectionOrder : undefined));
+    if (v && !orderChanged) setOrder(normalizeSectionOrder(settings.customSectionOrder === true ? settings.sectionOrder : undefined));
   };
   const chosen = FORMATS.filter((f) => fmt[f.id]).map((f) => f.id);
   const n = chosen.length;
@@ -202,10 +202,13 @@ function ExportDialog({
           formats: chosen,
           exportDir: dir || undefined,
           filePrefix: prefix,
-          // Every section with data picked = no filter (exactly the default report).
+          // Sent only when something is unticked. With every section that has data picked,
+          // omitting it gives the default report exactly, and a section that later gains
+          // data (a re-export of another snapshot, a newer catalogue) is never silently
+          // dropped by a list that predates it. Sections with no data are not in `picked`.
           chapters: allPicked ? undefined : picked,
           // Off here while the Settings order is on: null asks for the default order.
-          sectionOrder: customOrder ? order : settings.customSectionOrder ? null : undefined,
+          sectionOrder: customOrder ? order : settings.customSectionOrder === true ? null : undefined,
           word: fmt.word
             ? { template: template === 'custom' && templatePath ? templatePath : 'standard', preparedFor, author }
             : undefined,
