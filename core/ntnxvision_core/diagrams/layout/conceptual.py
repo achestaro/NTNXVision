@@ -241,12 +241,19 @@ def _gaps(plan: _Plan) -> list[float]:
 
 
 def _site_rows(s: Site) -> list[Row]:
+    if s.kind == "user":
+        return [Row(s.name, K.SIZE_SITE, True, K.INK, 2, 7.5),
+                Row(s.note or "Added by the author, not collected", K.SIZE_SMALL, False,
+                    K.INK_3, 2, gap_before=0.5)]
     cards = [c for c in s.cards if c.kind == "cluster"]
     nodes = sum(c.nodes or 0 for c in cards)
     what = "Availability zone" if s.kind == "pc" else "Prism Element"
-    return [Row(s.name, K.SIZE_SITE, True, K.INK, 2, 7.5),
+    rows = [Row(s.name, K.SIZE_SITE, True, K.INK, 2, 7.5),
             Row(f"{what}, {fmt.plural(len(cards), 'cluster')}, {fmt.plural(nodes, 'node')}",
                 K.SIZE_SMALL, False, K.INK_3, 2, gap_before=0.5)]
+    if s.note:  # a line the author added in the editor
+        rows.append(Row(s.note, K.SIZE_SMALL, False, K.INK_3, 2))
+    return rows
 
 
 def _pc_rows(s: Site, inner_w: float) -> list[Row]:
@@ -316,10 +323,24 @@ def _pill_rows(pills: list[tuple[str, float]], inner: float) -> list[list[tuple[
 
 def _title_row(c: Card, width: float) -> Row:
     """Two lines when the name fits in two down to the 6 pt floor, else three; never
-    ellipsised before that."""
+    ellipsised before that. A note reads as body text, up to four lines."""
+    if c.kind == "note":
+        return Row(c.name, K.SIZE_BODY, False, K.INK_2, 4, tx.MIN_SIZE)
     _, two = tx.fit(c.name, K.SIZE_CARD_TITLE, True, width, 2, tx.MIN_SIZE)
     lines = 2 if not two[-1].endswith(tx.ELLIPSIS) else 3
     return Row(c.name, K.SIZE_CARD_TITLE, True, K.INK, lines, tx.MIN_SIZE)
+
+
+#: Chip per editor role ("workload" draws none).
+_ROLE_CHIP = {"hosts_pc": "HOSTS PC", "mgmt": "MGMT", "dr_target": "DR TARGET"}
+
+
+def _role_chip(c: Card) -> str | None:
+    if c.kind != "cluster":
+        return None
+    if c.role is not None:
+        return _ROLE_CHIP.get(c.role)
+    return "HOSTS PC" if c.hosts_pc else None
 
 
 def _card_parts(c: Card, w: float) -> tuple[list[Row], list[Row], bool, float]:
@@ -336,8 +357,10 @@ def _card_parts(c: Card, w: float) -> tuple[list[Row], list[Row], bool, float]:
         return ([_title_row(c, title_w)],
                 [Row(c.note, K.SIZE_SMALL, False, K.INK_3, 2)] if c.note else [], inline,
                 title_w)
-    return ([_title_row(c, title_w)], [Row(fmt.card_body(c), K.SIZE_BODY, False, K.INK_2, 3)],
-            inline, title_w)
+    body = [Row(fmt.card_body(c), K.SIZE_BODY, False, K.INK_2, 3)]
+    if c.note:  # a note the author added to a collected cluster
+        body.append(Row(c.note, K.SIZE_SMALL, False, K.INK_3, 2))
+    return ([_title_row(c, title_w)], body, inline, title_w)
 
 
 def _strips(c: Card, w: float) -> list[list[tuple[str, str, float]]]:
@@ -415,13 +438,16 @@ class _Try:
 
 
 def _visible(s: Site, keep: int | None) -> tuple[list[Card], list[Card]]:
-    if keep is None or len(s.cards) <= keep + 1:
+    """(drawn, summarised) cards. Only collected clusters are summarised: what the
+    author added in the editor is always drawn."""
+    clusters = [c for c in s.cards if c.kind == "cluster"]
+    if keep is None or len(clusters) <= keep + 1:
         return list(s.cards), []
-    chosen = [c for c in s.cards if c.hosts_pc][:keep]
-    rest = sorted((c for c in s.cards if c not in chosen),
+    chosen = [c for c in clusters if c.hosts_pc][:keep]
+    rest = sorted((c for c in clusters if c not in chosen),
                   key=lambda c: (-(c.nodes or 0), s.cards.index(c)))
     chosen += rest[: keep - len(chosen)]
-    ids = {c.id for c in chosen}
+    ids = {c.id for c in chosen} | {c.id for c in s.cards if c.kind != "cluster"}
     return [c for c in s.cards if c.id in ids], [c for c in s.cards if c.id not in ids]
 
 
@@ -492,11 +518,18 @@ def _layout_part(model: ConceptualModel, plan: _Plan, page: Page, refs: Refs,
     used = {"more": False, "strip": False, "external": False, "user": False,
             "compute": False}
     for i, s in enumerate(sites):
-        cont = box(s.id, "container", x, top, site_w, _site_rows(s), K.SITE, pad_x=P,
+        user_site = s.kind == "user"
+        cont = box(s.id, "container", x, top, site_w, _site_rows(s),
+                   K.USER_SITE if user_site else K.SITE, pad_x=P,
                    pad_y=head_top - top, h=10, data=dict(s.data))
         sc.nodes.append(cont)
-        sc.nodes.append(chip(f"{s.id}:tag", "AZ" if s.kind == "pc" else "PRISM ELEMENT",
-                             x + 5.5, top, K.TAG, parent=s.id))
+        if user_site:
+            used["user"] = True
+            sc.nodes.append(chip(f"{s.id}:tag", "USER-ADDED", x + 5.5, top, K.TAG_USER,
+                                 parent=s.id))
+        else:
+            sc.nodes.append(chip(f"{s.id}:tag", "AZ" if s.kind == "pc" else "PRISM ELEMENT",
+                                 x + 5.5, top, K.TAG, parent=s.id))
         site_nodes[s.id] = cont
         if s.pc:
             pcn = box(s.pc.id, "box", x + P, pc_y, inner_w, _pc_rows(s, inner_w - 10), K.PC,
@@ -665,13 +698,15 @@ def _card(sc: Scene, s: Site, cd: Card, x: float, y: float, w: float, h: float,
     is_cluster = cd.kind == "cluster"
     mt, th = measure(title, title_w)
     mb, bh = measure(body, w - 10)
-    node = box(cd.id, "box", x, y, w, [], K.CLUSTER if is_cluster else K.USER, pad_x=5,
-               h=h, parent=s.id, data=dict(cd.data))
+    style = K.CLUSTER if is_cluster else K.NOTE if cd.kind == "note" else K.USER
+    node = box(cd.id, "box", x, y, w, [], style, pad_x=5, h=h, parent=s.id,
+               data=dict(cd.data))
     node.lines = (place_lines(mt, w, 5.0, "left", 5.0)
                   + place_lines(mb, w, 5.0 + th, "left", 5.0))
     sc.nodes.append(node)
-    if cd.hosts_pc:
-        sc.nodes.append(chip(f"{cd.id}:tag", "HOSTS PC", x + 5, y, K.TAG_ROLE, parent=cd.id))
+    role = _role_chip(cd)
+    if role:
+        sc.nodes.append(chip(f"{cd.id}:tag", role, x + 5, y, K.TAG_ROLE, parent=cd.id))
     if not is_cluster:
         used["user"] = True
         sc.nodes.append(chip(f"{cd.id}:tag", "USER-ADDED", x + 5, y, K.TAG_USER,

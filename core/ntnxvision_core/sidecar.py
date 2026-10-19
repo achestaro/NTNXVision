@@ -382,9 +382,15 @@ def _file_prefix(params: dict[str, Any]) -> str:
 
 def _write_reports(env: Any, name: str, formats: list[str], out_dir: Path,
                    options: dict[str, Any], tracker: RunTracker | CombinedTracker | None = None,
-                   prefix: str = "") -> tuple[list[dict[str, Any]], dict[str, str]]:
+                   prefix: str = "", snapshot: Path | None = None
+                   ) -> tuple[list[dict[str, Any]], dict[str, str]]:
     """Write each format as ``<prefix>-<name>-<YYYY-MM-DD>.<ext>`` (see exporters.naming),
-    never overwriting an existing file."""
+    never overwriting an existing file. The figures of a saved `snapshot` draw the
+    diagram edits saved on the Diagrams page."""
+    if snapshot is not None and any(f in ("pdf", "word") for f in formats):
+        from ntnxvision_core.diagrams import store as diagram_store
+
+        options = {**options, "diagram_models": diagram_store.edited_models(snapshot, env)}
     files: list[dict[str, Any]] = []
     errors: dict[str, str] = {}
     for fmt in formats:
@@ -796,7 +802,8 @@ def _m_export(_req_id: Any, params: dict[str, Any]) -> dict[str, Any]:
     name = params.get("name") or snapstore.snapshot_name(snap_path)
     formats = params.get("formats") or [params.get("format", "excel")]
     files, errors = _write_reports(env, name, list(formats), _export_dir_from(params),
-                                   _export_options(params), prefix=_file_prefix(params))
+                                   _export_options(params), prefix=_file_prefix(params),
+                                   snapshot=snap_path)
     if files:
         snapstore.record_exports(snap_path, files)
     paths = {f["format"]: f["path"] for f in files}
@@ -841,8 +848,9 @@ def _m_clear_snapshots(_req_id: Any, _params: dict[str, Any]) -> dict[str, Any]:
             deleted += 1
         except OSError:
             continue
-    for orphan in store.directory.glob(f"*{snapstore.META_SUFFIX}"):
-        orphan.unlink(missing_ok=True)
+    for suffix in (snapstore.META_SUFFIX, snapstore.DIAGRAMS_SUFFIX):
+        for orphan in store.directory.glob(f"*{suffix}"):
+            orphan.unlink(missing_ok=True)
     _cache.invalidate()
     return {"deleted": deleted}
 
@@ -992,6 +1000,119 @@ def _m_export_comparison(_req_id: Any, params: dict[str, Any]) -> dict[str, Any]
                             snapstore.snapshot_name(base_path), snapstore.snapshot_name(cur_path),
                             fmt, _export_dir_from(params), prefix=_file_prefix(params))
     return {"path": str(out)}
+
+
+# ─── diagrams (Diagrams page) ──────────────────────────────────────────
+
+
+def _diagram_type(params: dict[str, Any]) -> str:
+    raw = params.get("type")
+    if not isinstance(raw, str) or not raw:
+        raise NutanixApiError("A diagram type is required.")
+    return raw
+
+
+def _diagram_call(fn: Any) -> Any:
+    """Edit errors (unknown diagram, malformed edits) as API errors with their text."""
+    from ntnxvision_core.diagrams.edits import EditError
+
+    try:
+        return fn()
+    except EditError as exc:
+        raise NutanixApiError(str(exc)) from exc
+
+
+def _carry_candidate(snap_path: Path, env: Any) -> dict[str, Any] | None:
+    """The newest older snapshot of the same source with saved diagram edits, when this
+    one has none, with what carrying them forward would do."""
+    from ntnxvision_core.diagrams import store as diagram_store
+    from ntnxvision_core.overview import all_metas, collected_key
+
+    if diagram_store.load(snap_path):
+        return None
+    here = snapstore.read_meta(snap_path, _cache)
+    source, when = here.get("source"), collected_key(here.get("collected_at"))
+    if not source:
+        return None
+    # all_metas is newest first: the first older snapshot with edits wins.
+    older = [m for m in all_metas(_store().list_snapshots(), _cache)
+             if m.get("source") == source
+             and Path(str(m.get("path"))).resolve() != snap_path
+             and collected_key(m.get("collected_at")) <= when]
+    for meta in older:
+        src = Path(str(meta["path"]))
+        if not diagram_store.load(src):
+            continue
+        report = [r for r in diagram_store.carry_report(src, env) if r["edits"]]
+        if report:
+            return {"snapshot": snapstore.info_from_meta(meta), "diagrams": report}
+    return None
+
+
+def _m_list_diagrams(_req_id: Any, params: dict[str, Any]) -> dict[str, Any]:
+    from ntnxvision_core.diagrams import store as diagram_store
+
+    snap_path = _resolve_snapshot_path(params["snapshot"])
+    env = _cache.get(snap_path)
+    return {"snapshot": str(snap_path),
+            "diagrams": diagram_store.list_result(snap_path, env),
+            "carry": _carry_candidate(snap_path, env)}
+
+
+def _m_get_diagram(_req_id: Any, params: dict[str, Any]) -> dict[str, Any]:
+    from ntnxvision_core.diagrams import store as diagram_store
+
+    snap_path = _resolve_snapshot_path(params["snapshot"])
+    env = _cache.get(snap_path)
+    return _diagram_call(lambda: diagram_store.get_result(snap_path, env,
+                                                          _diagram_type(params)))
+
+
+def _m_layout_diagram(_req_id: Any, params: dict[str, Any]) -> dict[str, Any]:
+    from ntnxvision_core.diagrams import edits
+    from ntnxvision_core.diagrams import store as diagram_store
+
+    snap_path = _resolve_snapshot_path(params["snapshot"])
+    env = _cache.get(snap_path)
+    return _diagram_call(lambda: diagram_store.layout_result(
+        env, _diagram_type(params), edits.clean_ops(params.get("ops") or [])))
+
+
+def _m_save_diagram(_req_id: Any, params: dict[str, Any]) -> dict[str, Any]:
+    from ntnxvision_core.diagrams import store as diagram_store
+
+    snap_path = _resolve_snapshot_path(params["snapshot"])
+    env = _cache.get(snap_path)
+    return _diagram_call(lambda: diagram_store.save_result(
+        snap_path, env, _diagram_type(params), params.get("ops") or []))
+
+
+def _m_reset_diagram(_req_id: Any, params: dict[str, Any]) -> dict[str, Any]:
+    from ntnxvision_core.diagrams import store as diagram_store
+
+    snap_path = _resolve_snapshot_path(params["snapshot"])
+    env = _cache.get(snap_path)
+    return _diagram_call(lambda: diagram_store.reset_result(snap_path, env,
+                                                            _diagram_type(params)))
+
+
+def _m_carry_diagrams(_req_id: Any, params: dict[str, Any]) -> dict[str, Any]:
+    """Replay the edits of `from` on `to` (types: all edited ones, or `types`)."""
+    from ntnxvision_core.diagrams import store as diagram_store
+
+    src = _resolve_snapshot_path(params["from"])
+    dst = _resolve_snapshot_path(params["to"])
+    if src == dst:
+        raise NutanixApiError("Choose a different snapshot to carry the edits to.")
+    types = params.get("types")
+    if types is not None and not (isinstance(types, list)
+                                  and all(isinstance(t, str) for t in types)):
+        raise NutanixApiError("types must be a list of diagram types.")
+    meta = snapstore.read_meta(src, _cache)
+    info = {"name": meta.get("name"), "collected_at": meta.get("collected_at")}
+    report = _diagram_call(lambda: diagram_store.carry_forward(
+        src, info, dst, _cache.get(dst), types))
+    return {"diagrams": report}
 
 
 # ─── demo seeding ──────────────────────────────────────────────────────
@@ -1193,7 +1314,8 @@ def _m_send_email(_req_id: Any, params: dict[str, Any]) -> dict[str, Any]:
         snap_path = _resolve_snapshot_path(str(raw))
         env = _cache.get(snap_path)
         name = snapstore.snapshot_name(snap_path)
-        written, errs = _write_reports(env, name, formats, out_dir, options, prefix=prefix)
+        written, errs = _write_reports(env, name, formats, out_dir, options, prefix=prefix,
+                                       snapshot=snap_path)
         if written:
             snapstore.record_exports(snap_path, written)
         files.extend(written)
@@ -1259,4 +1381,10 @@ _METHODS = {
     "test_smtp": _m_test_smtp,
     "send_email": _m_send_email,
     "demo_seed": _m_demo_seed,
+    "list_diagrams": _m_list_diagrams,
+    "get_diagram": _m_get_diagram,
+    "layout_diagram": _m_layout_diagram,
+    "save_diagram": _m_save_diagram,
+    "reset_diagram": _m_reset_diagram,
+    "carry_diagrams": _m_carry_diagrams,
 }

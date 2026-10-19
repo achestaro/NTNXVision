@@ -805,6 +805,14 @@ class _Builder:
             "Registered clusters", self.src(env.clusters), prune=("vCenter",)))
         return ch
 
+    def figure_model(self, dtype: DiagramType, generated: Any) -> Any:
+        """The model a diagram figure draws: the author's saved edit (Diagrams page,
+        `ExportOptions.diagram_models`) when there is one, else `generated`. Tables and
+        design summaries always come from `generated`, so a user-added element never
+        reaches a table and a removed one is still listed there."""
+        edited = getattr(self.opts, "diagram_models", None) or {}
+        return edited.get(dtype.id, generated)
+
     def design_sections(self, ch: Chapter) -> bool:
         """The architecture diagrams registered for this chapter (`diagrams.TYPES`), each
         as its own section. Returns whether any was added."""
@@ -822,11 +830,12 @@ class _Builder:
         clusters, the clusters-per-AZ table that lists every one of them."""
         env = self.env
         model = dtype.build_model(env)
+        drawn = self.figure_model(dtype, model)
         page = dtype.page
         # The summary depends on the parts; lay out, summarise, then fit part 1 under it.
-        scenes = dtype.layout(model, page)
+        scenes = dtype.layout(drawn, page)
         bullets = design.conceptual_bullets(model, scenes)
-        scenes = dtype.layout(model, page, None, first_part_budget(bullets))
+        scenes = dtype.layout(drawn, page, None, first_part_budget(bullets))
         figs = [SceneFigure(sc, sc.caption) for sc in scenes]
         figs[0].summary = design.conceptual_bullets(model, scenes)
         self.design_figures[dtype.id] = figs
@@ -846,7 +855,7 @@ class _Builder:
             if clusters is not None:
                 ref = clusters.label.rstrip(".")
                 bullets = design.conceptual_bullets(model, scenes, ref)
-                again = dtype.layout(model, page, Refs(clusters_table=ref),
+                again = dtype.layout(drawn, page, Refs(clusters_table=ref),
                                      first_part_budget(bullets))
                 if [sc.part for sc in again] == [sc.part for sc in scenes]:
                     for f, sc in zip(figs, again, strict=True):
@@ -859,7 +868,7 @@ class _Builder:
                 figs[0].summary = design.conceptual_bullets(model, scenes, ref)
             for i, f in enumerate(figs[:-1]):
                 nxt = figs[i + 1].scene
-                names = ", ".join(short_name(model.name_of(sid))
+                names = ", ".join(short_name(drawn.name_of(sid))
                                   for sid in nxt.meta.get("sites", []))
                 f.note = (f"Continued in {labels[i + 1]} (part {nxt.part[0]} of "
                           f"{nxt.part[1]}: {names}).")
