@@ -113,6 +113,8 @@ class NetworkModel:
     #: AHV clusters with collected host networking.
     ahv_clusters: int = 0
     title: str = "Host network configuration"
+    #: Set when saved Diagrams-page edits were replayed on the model (captions say so).
+    edited: bool = False
 
 
 
@@ -146,7 +148,8 @@ def from_doc(d: dict[str, Any]) -> NetworkModel:
     return NetworkModel(profiles=[profile(p) for p in d.get("profiles", [])],
                         esxi=EsxiNote(**esxi) if esxi else None,
                         ahv_clusters=int(d.get("ahv_clusters", 0)),
-                        title=d.get("title", "Host network configuration"))
+                        title=d.get("title", "Host network configuration"),
+                        edited=bool(d.get("edited")))
 
 
 # ─── text helpers ──────────────────────────────────────────────────────

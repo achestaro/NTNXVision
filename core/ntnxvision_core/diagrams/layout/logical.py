@@ -41,6 +41,7 @@ from ..logical import (
 )
 from ..scene import Node, Scene, q
 from .conceptual import Budget, Page, Refs
+from .fit import place_first
 
 MX = 0.5
 TOP = 5.0
@@ -80,6 +81,10 @@ def _pills(labels: list[str]) -> list[tuple[str, float]]:
     return [(lab, q(tx.width(lab, K.SIZE_SMALL, True) + 7)) for lab in labels]
 
 
+#: Second line of a component the author added in the Diagrams editor.
+NOT_COLLECTED = "Added by the author, not collected"
+
+
 def _card(c: LCluster, x: float, y: float, w: float, parent: str, compact: bool = False,
           arrays: dict[str, str] | None = None) -> tuple[Node, list[Node], dict[str, Node]]:
     """(card, children, container chip per container id); the card's height follows
@@ -98,6 +103,16 @@ def _card(c: LCluster, x: float, y: float, w: float, parent: str, compact: bool 
                    K.MORE, pad_x=5, pad_y=5, align="left", parent=parent,
                    data={"clusters": str(c.summary)})
         return node, [], {}
+    if c.kind != "cluster":  # added in the Diagrams editor: a component or a note
+        rows = ([Row(c.name, SIZE_LINE, False, K.INK_2, 4, tx.MIN_SIZE)] if c.kind == "note"
+                else [Row(c.name, SIZE_TITLE, True, K.INK, 2, 6.5),
+                      Row(c.note or NOT_COLLECTED, SIZE_NOTE, False, K.INK_3, 3,
+                          gap_before=1.0)])
+        node = box(c.id, "box", x, y, w, rows, K.NOTE if c.kind == "note" else K.USER,
+                   pad_x=5, pad_y=5.5, align="left", parent=parent,
+                   data=dict(sorted(c.data.items())))
+        return node, [chip(f"{c.id}:tag", "USER-ADDED", x + 5, y, K.TAG_USER,
+                           parent=c.id)], {}
     pills = _pills(c.services)
     pills_w = sum(pw for _, pw in pills) + 2.5 * max(0, len(pills) - 1)
     inline = bool(pills) and pills_w <= inner * 0.45
@@ -106,6 +121,8 @@ def _card(c: LCluster, x: float, y: float, w: float, parent: str, compact: bool 
     body = [Row(headline(c), SIZE_LINE, False, K.INK_2, 2, gap_before=0.5)]
     if ft := fault_text(c):
         body.append(Row(ft, SIZE_NOTE, False, K.INK_3, 2))
+    if c.note:  # a line the author added to a collected cluster
+        body.append(Row(c.note, SIZE_NOTE, False, K.INK_3, 2))
     mb, bh = measure(body, inner)
     card = Node(id=c.id, kind="box", x=q(x), y=q(y), w=q(w), h=0, style=K.CLUSTER,
                 parent=parent, data=dict(sorted(c.data.items())))
@@ -277,7 +294,7 @@ def _array_rows(a: Array) -> list[Row]:
 
 
 def _caption(site: LSite, part: tuple[int, int], pods: list[str], drawn: list[LCluster],
-             arrays: bool) -> str:
+             arrays: bool, edited: bool = False) -> str:
     what = []
     if site.has_pods:
         what.append("PODs")
@@ -289,7 +306,8 @@ def _caption(site: LSite, part: tuple[int, int], pods: list[str], drawn: list[LC
     if arrays:
         what.append("external storage")
     body = ", ".join(what[:-1]) + (" and " if len(what) > 1 else "") + what[-1]
-    head = f"Logical cluster design, {short_name(site.name)}"
+    head = ("Logical cluster design" + (" (edited)" if edited else "")
+            + f", {short_name(site.name)}")
     if part[1] > 1:
         scope = (fmt.join_names([f"POD {p}" for p in pods]) if pods else
                  fmt.join_names([c.name for c in drawn]) if len(drawn) <= 3 else
@@ -416,6 +434,8 @@ def _layout_part(site: LSite, lines: list[list[_Seg]], width: float, cols: int, 
     _array_edges(sc, site, chips, arr_nodes)
 
     items = [("box", K.CLUSTER, "Cluster")]
+    if any(n.style is K.USER or n.style is K.NOTE for n in sc.nodes):
+        items.append(("box", K.USER, "Added by the author"))
     if pods_on:
         items.append(("box", K.POD, "POD (from a category)"))
     if used["dsf"]:
@@ -489,13 +509,14 @@ def _summarised(site: LSite, cols: int) -> LSite:
     count (decision 7), and one "+N more clusters" card for the rest."""
     keep_n = 2 * cols - 1
     every = site.clusters
-    if len(every) <= keep_n + 1:
+    collected = [c for c in every if c.kind == "cluster"]  # what the author added stays
+    if len(collected) <= keep_n + 1:
         return site
-    chosen = [c for c in every if c.hosts_pc][:keep_n]
-    rest = sorted((c for c in every if c not in chosen),
+    chosen = [c for c in collected if c.hosts_pc][:keep_n]
+    rest = sorted((c for c in collected if c not in chosen),
                   key=lambda c: (-(c.nodes or 0), every.index(c)))
     chosen += rest[:keep_n - len(chosen)]
-    ids = {c.id for c in chosen}
+    ids = {c.id for c in chosen} | {c.id for c in every if c.kind != "cluster"}
     hidden = [c for c in every if c.id not in ids]
     mix = Counter(c.hypervisor or "N/A" for c in hidden)
     more = LCluster(id=f"{site.id}:more", name="", summary=len(hidden),
@@ -522,8 +543,10 @@ MAX_PARTS = 2
 class _Site:
     """One site's layout at a given detail level, split into parts."""
 
-    def __init__(self, site: LSite, page: Page, first_budget: Budget | None) -> None:
+    def __init__(self, site: LSite, page: Page, first_budget: Budget | None,
+                 edited: bool = False) -> None:
         self.site, self.page, self.first_budget = site, page, first_budget
+        self.edited = edited
         self.width, self.cols = _cols(site, page)
         self.sid = f"logical-{site.name}"
 
@@ -580,7 +603,8 @@ class _Site:
             pods = list(dict.fromkeys(s.pod.name for line in part for s in line
                                       if s.pod.name))
             sc.caption = _caption(self.site, sc.part, pods, drawn,
-                                  any(a.cluster in drawn_ids for a in site.arrays))
+                                  any(a.cluster in drawn_ids for a in site.arrays),
+                                  self.edited)
             shown = {c.id for c in site.clusters}
             sc.meta["summarised"] = [c.id for c in self.site.clusters if c.id not in shown] \
                 if i == len(parts) - 1 else []
@@ -589,21 +613,35 @@ class _Site:
 
 
 def layout_site(site: LSite, page: Page | None = None, first_budget: Budget | None = None,
-                level: int | None = None) -> list[Scene]:
+                level: int | None = None, edited: bool = False) -> list[Scene]:
     """One site's parts at `level` (default: the least detail it needs): grid lines are
     added while the part fits its height budget (the first part also fits
     `first_budget`); a line that does not starts a part."""
-    s = _Site(site, page or Page(), first_budget)
-    return s.scenes(s.level() if level is None else level)
+    pg = page or Page()
+
+    def run(budget: Budget | None) -> list[Scene]:
+        s = _Site(site, pg, budget, edited)
+        return s.scenes(s.level() if level is None else level)
+
+    # Part 1 under the section's summary, else on a page of its own.
+    return place_first(run, first_budget)
 
 
 def layout(model: LogicalModel, page: Page | None = None, refs: Refs | None = None,
-           first_budget: Budget | None = None) -> list[Scene]:
+           first_budget: Budget | None = None, *, site: str | None = None,
+           level: int | None = None) -> list[Scene]:
     """Scenes for every site, in model order, at ONE detail level for the estate (the
     least detail any of its sites needs), so like AZs are drawn alike. Each site opens
-    its own report section, so each site's first part fits `first_budget`."""
+    its own report section, so each site's first part fits `first_budget`.
+
+    With `site`, only that site's parts (at `level`, default its own): the report lays
+    out one section per availability zone."""
     page = page or Page()
-    sites = [_Site(s, page, first_budget) for s in model.sites]
+    if site is not None:
+        one = next((s for s in model.sites if s.id == site), None)
+        return [] if one is None else layout_site(one, page, first_budget, level,
+                                                  model.edited)
+    sites = [_Site(s, page, first_budget, model.edited) for s in model.sites]
     level = max((s.level() for s in sites), default=FULL)
     return [sc for s in sites for sc in s.scenes(level)]
 

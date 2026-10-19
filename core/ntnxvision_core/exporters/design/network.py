@@ -15,8 +15,9 @@ from ntnxvision_core.exporters.content import (
     Chapter,
     SceneFigure,
     continued_notes,
-    first_part_budget,
+    fit_layout,
     make_table,
+    scene_figures,
 )
 
 
@@ -24,9 +25,14 @@ def build(b: Any, ch: Chapter, dtype: DiagramType) -> bool:
     model = dtype.build_model(b.env)
     if not model.profiles:
         return False
-    bullets = N.bullets(model)
-    scenes = dtype.layout(model, dtype.page, None, first_part_budget(bullets))
-    figs = [SceneFigure(sc, sc.caption) for sc in scenes]
+    # The figures draw the saved edit (Diagrams page); summary and table the data.
+    drawn = b.figure_model(dtype, model)
+    note = b.edit_disclosure(dtype, model, drawn)
+    bullets = [*N.bullets(model), *([note] if note else [])]
+    scenes = fit_layout(lambda budget: dtype.layout(drawn, dtype.page, None, budget), bullets)
+    if not scenes:
+        return False
+    figs = scene_figures(scenes)
     figs[0].summary = bullets
     headers, rows = N.table(model)
     table = make_table(headers, rows, "Host network profiles")
@@ -36,8 +42,8 @@ def build(b: Any, ch: Chapter, dtype: DiagramType) -> bool:
         if table is None:
             return
         ref = table.label.rstrip(".")
-        drawn = {sc.meta.get("profile") for sc in scenes}
-        rest = [p.letter for p in model.profiles if p.letter not in drawn]
+        shown = {sc.meta.get("profile") for sc in scenes}
+        rest = [p.letter for p in model.profiles if p.letter not in shown]
         if rest:
             others = (f"Profile {rest[0]} is" if len(rest) == 1
                       else f"Profiles {rest[0]} to {rest[-1]} are")
