@@ -39,7 +39,8 @@ class ExternalArray:
 class Card:
     id: str
     name: str
-    #: "cluster" (collected) or "user" (added in the Diagrams editor).
+    #: "cluster" (collected), "user" (a component added in the Diagrams editor) or
+    #: "note" (a free-text note added in the editor).
     kind: str = "cluster"
     hypervisor: str | None = None  # "AHV" / "ESXi" / "AHV, ESXi"
     nodes: int | None = None
@@ -56,6 +57,9 @@ class Card:
     compute_only: bool = False
     external: list[ExternalArray] = field(default_factory=list)
     note: str | None = None
+    #: Role set in the Diagrams editor: "workload" (no chip), "hosts_pc", "mgmt" or
+    #: "dr_target". None: from the data (HOSTS PC when the cluster runs Prism Central).
+    role: str | None = None
     data: dict[str, str] = field(default_factory=dict)
 
 
@@ -87,10 +91,12 @@ class Site:
 
     id: str
     name: str
-    kind: str = "pc"  # pc | pe
+    kind: str = "pc"  # pc | pe | user (an availability zone added in the editor)
     pc: PcBlock | None = None
     cards: list[Card] = field(default_factory=list)
     data: dict[str, str] = field(default_factory=dict)
+    #: Second header line of a user-added zone.
+    note: str | None = None
 
 
 @dataclass
@@ -182,7 +188,8 @@ def from_doc(d: dict[str, Any]) -> ConceptualModel:
         return Site(id=s["id"], name=s["name"], kind=s.get("kind", "pc"),
                     pc=PcBlock(**{**pc, "services": [Service(**v) for v in pc["services"]]})
                     if pc else None,
-                    cards=[card(c) for c in s.get("cards", [])], data=dict(s.get("data", {})))
+                    cards=[card(c) for c in s.get("cards", [])], data=dict(s.get("data", {})),
+                    note=s.get("note"))
 
     return ConceptualModel(
         sites=[site(s) for s in d.get("sites", [])],

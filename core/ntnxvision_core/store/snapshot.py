@@ -34,6 +34,8 @@ from ntnxvision_core.store.names import max_stem_for, safe_name, unique_name
 
 SNAP_SUFFIX = ".ntnxsnap.json"
 META_SUFFIX = ".ntnxmeta.json"
+#: Saved Diagrams-page edits (`diagrams.store`); renamed and deleted with the snapshot.
+DIAGRAMS_SUFFIX = ".ntnxdiagrams.json"
 
 
 class SnapshotStore:
@@ -98,6 +100,10 @@ def snapshot_name(path: Path) -> str:
 
 def meta_path(path: Path) -> Path:
     return path.with_name(snapshot_name(path) + META_SUFFIX)
+
+
+def diagrams_path(path: Path) -> Path:
+    return path.with_name(snapshot_name(path) + DIAGRAMS_SUFFIX)
 
 
 def kind_of(env: Environment) -> str:
@@ -243,7 +249,11 @@ def rename(path: Path, new_name: str) -> Path:
     if target.exists() and target != path:
         raise FileExistsError(new_name)
     old_meta = meta_path(path)
+    old_diagrams = diagrams_path(path)
     path.rename(target)
+    if old_diagrams.exists():
+        with contextlib.suppress(OSError):
+            old_diagrams.rename(diagrams_path(target))
     if old_meta.exists():
         new_meta = meta_path(target)
         old_meta.rename(new_meta)
@@ -261,6 +271,8 @@ def delete(path: Path) -> None:
     path.unlink()
     with contextlib.suppress(FileNotFoundError):
         meta_path(path).unlink()
+    with contextlib.suppress(FileNotFoundError):
+        diagrams_path(path).unlink()
 
 
 # ─── in-memory cache ───────────────────────────────────────────────────
