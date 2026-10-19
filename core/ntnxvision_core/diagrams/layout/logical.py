@@ -156,6 +156,8 @@ def _card(c: LCluster, x: float, y: float, w: float, parent: str, compact: bool 
         if g.maintenance:
             rows.append(Row(f"{fmt.plural(g.maintenance, 'node')} in maintenance", SIZE_NOTE,
                             False, K.INK_3, 1))
+        if g.note:
+            rows.append(Row(g.note, SIZE_NOTE, False, K.INK_3, 2))
     if len(c.groups) > 2:
         rows.append(Row(f"+{fmt.plural(len(c.groups) - 2, 'more node type')}, listed in "
                         "the hosts table", SIZE_NOTE, False, K.INK_3, 2))
