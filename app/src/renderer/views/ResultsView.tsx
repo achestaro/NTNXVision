@@ -10,6 +10,7 @@ import type {
   ExportFormat,
   Figure,
   InventoryResult,
+  LcmInventoryInfo,
   MultiTargetResult,
   ReportFile,
   SnapshotDetail,
@@ -42,12 +43,28 @@ import { basename, dirname, errorMessage, fmtBytes, fmtClock, fmtCount, fmtDurat
 import { useExportDialog } from './ExportDialog';
 import { useEmailDialog } from './EmailDialog';
 import { ImportedBadge, provenanceLine, useSnapshotTransfer } from './SnapshotTransfer';
+import { LcmInventoryPanel } from './LcmInventory';
 
 const FORMAT_META: Record<ExportFormat, { label: string; icon: typeof FileXlsIcon; create: string }> = {
   excel: { label: 'Excel', icon: FileXlsIcon, create: 'Create workbook' },
   word: { label: 'Word ADD', icon: FileDocIcon, create: 'Create Word ADD' },
   pdf: { label: 'PDF report', icon: FilePdfIcon, create: 'Create PDF' },
 };
+
+/**
+ * The run's LCM inventory, when it asked for one: the result's own (a single target or a
+ * combined run, whose targets name their Prism Central), else every target's of a
+ * multi-PC run that was not combined.
+ */
+function lcmInventoryOf(r: InventoryResult, targets: MultiTargetResult[]): LcmInventoryInfo | null {
+  if (r.lcm_inventory?.requested) return r.lcm_inventory;
+  const each = targets.filter((t): t is Extract<MultiTargetResult, { success: true }> => t.success && !!t.lcm_inventory?.requested);
+  if (each.length < 2) return null;
+  return {
+    requested: true,
+    targets: each.flatMap((t) => (t.lcm_inventory?.targets ?? []).map((x) => ({ ...x, source_pc: x.source_pc ?? t.host }))),
+  };
+}
 
 function resultPath(r: RunResult): string | null {
   return r.result?.snapshot_path ?? r.multiResult?.combined?.snapshot_path ?? null;
@@ -73,6 +90,7 @@ function fromSnapshot(d: SnapshotDetail): RunResult {
     api_routing: d.run?.api_routing,
     compat: d.run?.compat ?? null,
     scope: d.run?.scope ?? d.scope ?? null,
+    lcm_inventory: d.run?.lcm_inventory ?? null,
   };
   return { multi: false, result, multiResult: null, label: d.source ?? d.name, mode: d.source_type };
 }
@@ -182,6 +200,7 @@ function ResultsBody({
   const reportDir = reports[0] ? dirname(reports[0].path) : null;
   const figures = r.figures?.length ? r.figures : fallbackFigures(r);
   const exportErrors = Object.entries(r.export_errors ?? {});
+  const lcmInventory = lcmInventoryOf(r, multiTargets);
 
   return (
     <>
@@ -289,6 +308,12 @@ function ResultsBody({
               </div>
             )}
           </Panel>
+
+          {lcmInventory && (
+            <div className="span-all">
+              <LcmInventoryPanel inventory={lcmInventory} live={false} />
+            </div>
+          )}
 
           {r.api_routing && r.api_routing.length > 0 && (
             <Panel className="span-all" aria-labelledby="api">

@@ -21,6 +21,7 @@ import {
 import { useRouter } from '../lib/router';
 import { runCounts, useRun } from '../lib/run';
 import { NA, fmtClock, fmtCount, fmtDuration, plural } from '../lib/format';
+import { LcmInventoryPanel } from './LcmInventory';
 
 export function CollectingView(): JSX.Element {
   const { navigate } = useRouter();
@@ -157,6 +158,16 @@ export function CollectingView(): JSX.Element {
         </Panel>
       ))}
 
+      {run.targets.map((t) =>
+        t.lcmInventory?.requested ? (
+          <LcmInventoryPanel
+            key={`lcm-${t.index}`}
+            inventory={run.multi ? { ...t.lcmInventory, targets: (t.lcmInventory.targets ?? []).map((x) => ({ ...x, source_pc: t.host })) } : t.lcmInventory}
+            live={isRunning}
+          />
+        ) : null,
+      )}
+
       <Callout>
         One area failing never stops the run: its note lands in the report. You can leave this screen; progress stays in the top bar and you get a
         notification when it finishes.
@@ -166,7 +177,11 @@ export function CollectingView(): JSX.Element {
         open={confirmCancel}
         onClose={() => setConfirmCancel(false)}
         title={`Cancel the collection of ${run.label}?`}
-        body="The run stops after the current area. Nothing is saved: no snapshot and no reports. Areas collected so far are discarded."
+        body={
+          run.lcmInventory
+            ? 'The run stops after the current area. Nothing is saved: no snapshot and no reports. Areas collected so far are discarded. LCM inventory tasks already started keep running on Prism Central; they can’t be cancelled from NTNXVision.'
+            : 'The run stops after the current area. Nothing is saved: no snapshot and no reports. Areas collected so far are discarded.'
+        }
         confirmLabel="Cancel run"
         cancelLabel="Keep running"
         destructive

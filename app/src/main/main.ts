@@ -558,6 +558,8 @@ ipc.handle(IPC.startCollection, async (_e, raw: CollectionRequest) => {
     vcpu_ratio: vcpuRatio(),
     vcpu_ratio_overrides: overrides,
     section_order: sectionOrder(),
+    // The one non-read action: only when the user switched it on for this run.
+    lcm_inventory: req.mode === 'prism_central' && req.lcmInventory === true,
   });
   legacyRuns.set(id, runId);
   promise
@@ -604,6 +606,7 @@ ipc.handle(IPC.startMultiCollection, async (_e, raw: MultiCollectionRequest) => 
     combined_name: req.combinedName,
     vcpu_ratio: vcpuRatio(),
     section_order: sectionOrder(),
+    lcm_inventory: req.lcmInventory === true,
   });
   legacyRuns.set(id, runId);
   promise

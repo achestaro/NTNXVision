@@ -8,6 +8,7 @@ import type {
   ConnectionMode,
   ExportFormat,
   InventoryResult,
+  LcmInventoryInfo,
   MultiCollectionRequest,
   MultiInventoryResult,
   RunFinishedEvent,
@@ -24,6 +25,8 @@ export interface RunTarget {
   areas: AreaProgress[];
   objectsTotal: number;
   clusters: number | null;
+  /** The LCM inventory's live state, when the run asked for one. */
+  lcmInventory?: LcmInventoryInfo | null;
 }
 
 export interface RunState {
@@ -42,6 +45,8 @@ export interface RunState {
   phase: string | null;
   cancelRequested: boolean;
   error: string | null;
+  /** The run asked for an LCM inventory first ("Run LCM inventory first"). */
+  lcmInventory?: boolean;
 }
 
 export interface RunResult {
@@ -100,6 +105,10 @@ function applyEvent(run: RunState, e: RunProgressEvent): RunState {
       clusters: e.clusters ?? t.clusters,
     };
     return { ...run, status: 'running', targets, phase: null };
+  }
+  if (e.type === 'lcm_inventory') {
+    targets[ix] = { ...t, lcmInventory: e.inventory };
+    return { ...run, targets };
   }
   return { ...run, phase: e.label };
 }
@@ -234,6 +243,7 @@ export function RunProvider({ children }: { children: React.ReactNode }): JSX.El
           phase: null,
           cancelRequested: false,
           error: null,
+          lcmInventory: req.lcmInventory === true,
         },
         () => window.ntnx.startCollection(req),
       ),
@@ -258,6 +268,7 @@ export function RunProvider({ children }: { children: React.ReactNode }): JSX.El
           phase: null,
           cancelRequested: false,
           error: null,
+          lcmInventory: req.lcmInventory === true,
         },
         () => window.ntnx.startMultiCollection(req),
       ),
