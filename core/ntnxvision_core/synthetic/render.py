@@ -1313,11 +1313,11 @@ def report_instance_v3(r: dict[str, Any]) -> dict[str, Any]:
                                      "generation_end_time": r["last_run"]}}}
 
 
-def lcm_entity_v4(e: dict[str, Any], updated: str | None = None,
-                  upgrading: bool = False) -> dict[str, Any]:
-    """An LCM entity. `updated` replaces lastUpdatedTime (a fresh inventory); with
-    `upgrading` an upgrade is in progress on its cluster, so targetVersion names the
-    newest version on offer."""
+def lcm_entity_v4(e: dict[str, Any], upgrading: bool = False) -> dict[str, Any]:
+    """An LCM entity. With `upgrading` an upgrade is in progress on its cluster, so
+    targetVersion names the newest version on offer. lastUpdatedTime is when the entity
+    last changed, not when it was last inventoried (as on a live PC), so an inventory
+    leaves it alone."""
     target = e["version"]
     if upgrading and e["available"] and e["model"] in ("AOS", "AHV hypervisor"):
         target = max(e["available"], key=lambda x: x[1])[0]
@@ -1329,7 +1329,7 @@ def lcm_entity_v4(e: dict[str, Any], updated: str | None = None,
         "availableVersions": [{"version": v, "isEnabled": True, "order": o,
                                "status": "RECOMMENDED" if o == max(x[1] for x in e["available"])
                                else "AVAILABLE"} for v, o in e["available"]],
-        "clusterExtId": e["cluster_uuid"], "lastUpdatedTime": updated or e["updated"],
+        "clusterExtId": e["cluster_uuid"], "lastUpdatedTime": e["updated"],
         "hardwareFamily": "",
     })
 
