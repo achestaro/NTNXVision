@@ -10,7 +10,6 @@ from __future__ import annotations
 from typing import Any
 
 from ntnxvision_core.diagrams import segments as N1
-from ntnxvision_core.diagrams.layout.segments import layout_site
 from ntnxvision_core.exporters.content import Chapter, make_table
 from ntnxvision_core.exporters.design.peraz import PerAz
 from ntnxvision_core.exporters.design.peraz import build as build_per_az
@@ -27,4 +26,4 @@ def build(b: Any, ch: Chapter, dtype: Any) -> bool:
 
     return build_per_az(b, ch, dtype, PerAz(
         sites=lambda m: [s for s in m.sites if s.clusters], bullets=N1.bullets,
-        layout_site=layout_site, tables=tables))
+        tables=tables))

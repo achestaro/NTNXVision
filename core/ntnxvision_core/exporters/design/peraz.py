@@ -30,8 +30,6 @@ class PerAz:
     #: The AZs of a model (sites with something to draw).
     sites: Callable[[Any], list[Any]]
     bullets: Callable[[Any], list[str]]
-    #: (site, page, refs, first_budget) -> scenes
-    layout_site: Callable[..., list[Any]]
     #: (site) -> tables of the AZ (None entries skipped); the first is the one the
     #: figure's "+N more" text points at.
     tables: Callable[[Any], list[Table | None]]
@@ -52,12 +50,13 @@ def build(b: Any, ch: Chapter, dtype: Any, spec: PerAz) -> bool:
         bullets = spec.bullets(site)
         if edit_note:
             bullets = [*bullets[:4], edit_note]
-        dsite = drawn_sites.get(site.id, site)
-        scenes = spec.layout_site(dsite, dtype.page, None, first_part_budget(bullets))
-        parts = len(scenes) > 1
-        if parts:
-            scenes = spec.layout_site(dsite, dtype.page, None,
-                                      first_part_budget(bullets, True))
+        # The drawn (edited) model itself is laid out, one AZ at a time.
+        src = drawn if site.id in drawn_sites else model
+        scenes = dtype.layout(src, dtype.page, None, first_part_budget(bullets),
+                              site=site.id)
+        if len(scenes) > 1:
+            scenes = dtype.layout(src, dtype.page, None, first_part_budget(bullets, True),
+                                  site=site.id)
         figs = [SceneFigure(sc, sc.caption) for sc in scenes]
         if figs:
             figs[0].summary = bullets
@@ -65,8 +64,8 @@ def build(b: Any, ch: Chapter, dtype: Any, spec: PerAz) -> bool:
         title = f"{dtype.section}: {site.name}" if many else dtype.section
         ch.add(title, *figs, *tables)
         b.design_figures.setdefault(dtype.id, []).extend(figs)
-        b.finalizers.append(lambda figs=figs, tables=tables, dsite=dsite, bullets=bullets:
-                            _finalize(dtype, spec, figs, tables, dsite, bullets))
+        b.finalizers.append(lambda figs=figs, tables=tables, src=src, sid=site.id,
+                            bullets=bullets: _finalize(dtype, figs, tables, src, sid, bullets))
     rest = sites[MAX_AZ_FIGURES:]
     if rest:
         tables = [t for s in rest for t in spec.tables(s) if t is not None]
@@ -77,14 +76,14 @@ def build(b: Any, ch: Chapter, dtype: Any, spec: PerAz) -> bool:
     return True
 
 
-def _finalize(dtype: Any, spec: PerAz, figs: list[SceneFigure], tables: list[Table],
-              site: Any, bullets: list[str]) -> None:
+def _finalize(dtype: Any, figs: list[SceneFigure], tables: list[Table], model: Any,
+              site: str, bullets: list[str]) -> None:
     """Point the figure's "+N more" text at the numbered table, chain the parts."""
     if tables and figs:
         ref = tables[0].label.rstrip(".")
         scenes = [f.scene for f in figs]
-        again = spec.layout_site(site, dtype.page, Refs(clusters_table=ref),
-                                 first_part_budget(bullets, len(scenes) > 1))
+        again = dtype.layout(model, dtype.page, Refs(clusters_table=ref),
+                             first_part_budget(bullets, len(scenes) > 1), site=site)
         if [sc.part for sc in again] == [sc.part for sc in scenes]:
             for f, sc in zip(figs, again, strict=True):
                 f.scene = sc

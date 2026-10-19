@@ -386,12 +386,17 @@ def layout_site(site: SSite, page: Page | None = None, refs: Refs | None = None,
 
 
 def layout(model: SegmentsModel, page: Page | None = None, refs: Refs | None = None,
-           first_budget: Budget | None = None) -> list[Scene]:
-    """Every AZ's scenes (the first `MAX_AZ_FIGURES` AZs), in model order."""
+           first_budget: Budget | None = None, site: str | None = None) -> list[Scene]:
+    """Every AZ's scenes (the first `MAX_AZ_FIGURES` AZs) in model order, or only the
+    AZ whose id is `site` (a report section per AZ)."""
     out: list[Scene] = []
-    for i, site in enumerate(model.sites[:MAX_AZ_FIGURES]):
-        if site.clusters:
-            out.extend(layout_site(site, page, refs, first_budget if i == 0 else None))
+    if site is not None:
+        one = next((s for s in model.sites if s.id == site), None)
+        return layout_site(one, page, refs, first_budget) if one is not None and \
+            (one.clusters) else []
+    for i, s in enumerate(model.sites[:MAX_AZ_FIGURES]):
+        if s.clusters:
+            out.extend(layout_site(s, page, refs, first_budget if i == 0 else None))
     return out
 
 

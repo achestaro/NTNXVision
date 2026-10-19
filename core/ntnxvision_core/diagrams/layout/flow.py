@@ -120,9 +120,10 @@ def _card(sc: Scene, p: FPolicy, x: float, y: float, w: float, h: float, parent:
     sc.nodes.append(g)
     if p.type == "APPLICATION" or user:
         left, right = x + 6, x + w - 6
-        sc.edges.append(edge(f"{cid}:in", "", g.id, [(left, mid), (g.x - 1, mid)],
+        # Arrows inside the card, not glued: their tails stand for the peers.
+        sc.edges.append(edge(f"{cid}:in", "", "", [(left, mid), (g.x - 1, mid)],
                              K.RULE_IN, data={"kind": "inbound"}))
-        sc.edges.append(edge(f"{cid}:out", g.id, "", [(g.x + g.w + 1, mid), (right, mid)],
+        sc.edges.append(edge(f"{cid}:out", "", "", [(g.x + g.w + 1, mid), (right, mid)],
                              K.RULE_IN, data={"kind": "outbound"}))
         lw, rw = g.x - left - 2, right - g.x - g.w - 2
         if user:
@@ -283,11 +284,17 @@ def layout_site(site: FSite, page: Page | None = None, refs: Refs | None = None,
 
 
 def layout(model: FlowModel, page: Page | None = None, refs: Refs | None = None,
-           first_budget: Budget | None = None) -> list[Scene]:
+           first_budget: Budget | None = None, site: str | None = None) -> list[Scene]:
+    """Every AZ's scenes (the first `MAX_AZ_FIGURES` AZs) in model order, or only the
+    AZ whose id is `site` (a report section per AZ)."""
     out: list[Scene] = []
-    for i, site in enumerate(model.sites[:MAX_AZ_FIGURES]):
-        if site.lanes:
-            out.extend(layout_site(site, page, refs, first_budget if i == 0 else None))
+    if site is not None:
+        one = next((s for s in model.sites if s.id == site), None)
+        return layout_site(one, page, refs, first_budget) if one is not None and \
+            (one.lanes) else []
+    for i, s in enumerate(model.sites[:MAX_AZ_FIGURES]):
+        if s.lanes:
+            out.extend(layout_site(s, page, refs, first_budget if i == 0 else None))
     return out
 
 
