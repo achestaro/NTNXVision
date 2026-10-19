@@ -1,7 +1,10 @@
 """HTTP session factory shared by the Prism Central, Prism Element and NDB clients.
 
 Every connection class builds its `requests.Session` here, which gives one place to
-change how requests leave the process. Normally that is nothing at all — a plain
+change how requests leave the process. It is also where the **read-only guard** lives
+(`check_request`): every request any client sends is checked against a short allowlist
+of methods and paths before it leaves the process, so a collector that tried to write
+would fail closed instead of changing a customer system. Normally that is nothing at all — a plain
 session. In demo mode (see `ntnxvision_core.synthetic.demo`) a router is installed that
 sends requests for the synthetic demo hostnames to the local mock Nutanix server, so the
 *real* connection, collector and engine code runs end to end with no lab.
@@ -9,11 +12,13 @@ sends requests for the synthetic demo hostnames to the local mock Nutanix server
 
 from __future__ import annotations
 
+import contextvars
 import ipaddress
 import re
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from typing import Any
-from urllib.parse import urlsplit
+from urllib.parse import unquote, urlsplit
 
 import requests
 
@@ -22,6 +27,7 @@ from ntnxvision_core.api.errors import (
     CertificateNotTrusted,
     InvalidHost,
     NutanixApiError,
+    ReadOnlyViolation,
     RedirectBlocked,
 )
 
@@ -151,9 +157,72 @@ def require_pin(host: str, insecure: bool, pinned: str | None) -> str | None:
     return digest
 
 
+# ─── read-only guard ───────────────────────────────────────────────────
+
+#: Requests that use a non-GET method but change nothing. Matched on the URL path.
+#:
+#: * Prism Central v3 lists (``POST .../<kind>/list``) and the groups query API are
+#:   reads that Nutanix models as POST;
+#: * the vSphere Automation API session login (POST) and logout (DELETE), which create
+#:   and end only the tool's own API session.
+_READ_ONLY_REQUESTS: tuple[tuple[str, re.Pattern[str]], ...] = (
+    ("POST", re.compile(r"/api/nutanix/v3/[a-z_]+/list")),
+    ("POST", re.compile(r"/api/nutanix/v3/groups")),
+    ("POST", re.compile(r"/api/session")),
+    ("DELETE", re.compile(r"/api/session")),
+    ("POST", re.compile(r"/rest/com/vmware/cis/session")),
+    ("DELETE", re.compile(r"/rest/com/vmware/cis/session")),
+)
+
+#: The one request NTNXVision may send that starts work on a Nutanix system: an LCM
+#: inventory (v4 lifecycle). It is allowed only inside `lcm_inventory_permit()`, which
+#: only `ntnxvision_core.lcm_inventory` enters, and only when the user switched the
+#: option on for that run.
+LCM_INVENTORY_REQUEST = (
+    "POST", re.compile(r"/api/lifecycle/v4\.\d+/operations/\$actions/inventory"))
+
+_permit: contextvars.ContextVar[bool] = contextvars.ContextVar("lcm_inventory_permit",
+                                                               default=False)
+
+
+@contextmanager
+def lcm_inventory_permit() -> Iterator[None]:
+    """Allow the LCM inventory request for the duration of the block, in this context.
+
+    A context variable, not a global: the permit does not leak to other threads (the
+    collectors running alongside the inventory), and it ends with the block.
+    """
+    token = _permit.set(True)
+    try:
+        yield
+    finally:
+        _permit.reset(token)
+
+
+def check_request(method: str | None, url: str | None) -> None:
+    """Refuse a request that is not known to be read-only, before it is sent.
+
+    GET and HEAD always pass. Anything else must match `_READ_ONLY_REQUESTS`, or be the
+    LCM inventory request inside `lcm_inventory_permit()`. Raises `ReadOnlyViolation`.
+    """
+    verb = (method or "GET").upper()
+    if verb in ("GET", "HEAD"):
+        return
+    path = unquote(urlsplit(url or "").path)
+    for allowed, pattern in _READ_ONLY_REQUESTS:
+        if verb == allowed and pattern.fullmatch(path):
+            return
+    if _permit.get() and verb == LCM_INVENTORY_REQUEST[0] \
+            and LCM_INVENTORY_REQUEST[1].fullmatch(path):
+        return
+    raise ReadOnlyViolation(
+        f"Refused {verb} {path}: NTNXVision only reads from the systems it inventories.")
+
+
 class GuardedSession(BoundedSession):
     """The one session type every API client uses.
 
+    * Every request passes the read-only guard (`check_request`) before it is sent.
     * Responses are size-capped (`BoundedSession`).
     * Redirects are never followed (``allow_redirects`` is forced off) and a 3xx answer is
       an error: a redirect to another host would carry the Authorization or vCenter
@@ -174,6 +243,7 @@ class GuardedSession(BoundedSession):
              **kwargs: Any
              ) -> requests.Response:
         kwargs["allow_redirects"] = False
+        check_request(request.method, request.url)
         host = urlsplit(request.url or "").hostname or "the server"
         try:
             resp = super().send(request, **kwargs)
