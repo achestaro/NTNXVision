@@ -44,7 +44,7 @@ export function LcmInventoryToggle({
         <div className="hint">
           {disabled && reason
             ? reason
-            : 'Starts an LCM inventory task on Prism Central and on each selected cluster, then collects the fresh LCM values. It can take several minutes and upgrades nothing. Targets already running an LCM upgrade are skipped and reported.'}
+            : 'Starts an LCM inventory task on Prism Central and on each selected cluster, then collects the fresh LCM values. It can take several minutes and upgrades nothing. Targets already running an LCM upgrade are skipped and reported. On pc.2024.1 and pc.2024.2 it uses the legacy LCM interface; those versions show no LCM values in the reports.'}
         </div>
       </div>
     </div>
@@ -147,7 +147,10 @@ export function LcmInventoryPanel({ inventory, live }: { inventory: LcmInventory
       {live && targets.some((t) => t.status === 'running' || t.status === 'pending') && (
         <div style={{ padding: '0 16px 16px' }}>
           <Callout>
-            LCM is collected after the inventory finishes, so the values are fresh. Cancelling the run stops NTNXVision from waiting; LCM inventory tasks
+            {inventory.api === 'genesis'
+              ? 'This Prism Central uses the legacy LCM interface: the inventory refreshes what LCM shows in Prism, and LCM values are collected from pc.2024.3 on.'
+              : 'LCM is collected after the inventory finishes, so the values are fresh.'}{' '}
+            Cancelling the run stops NTNXVision from waiting; LCM inventory tasks
             already started keep running on Prism Central and can't be cancelled from here.
           </Callout>
         </div>

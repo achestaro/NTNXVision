@@ -394,7 +394,8 @@ export interface LcmInventoryTargetInfo {
 export interface LcmInventoryInfo {
   /** False: the run did not ask for one (the default). */
   requested: boolean;
-  api?: 'v4' | null;
+  /** 'v4' lifecycle API, or 'genesis' (the legacy LCM interface of pc.2024.1 / pc.2024.2). */
+  api?: 'v4' | 'genesis' | null;
   timeout_s?: number | null;
   started_at?: string | null;
   finished_at?: string | null;
