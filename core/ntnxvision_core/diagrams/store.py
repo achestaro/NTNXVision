@@ -215,15 +215,22 @@ def _now() -> str:
 # ─── models ────────────────────────────────────────────────────────────
 
 
+def editable() -> list[DiagramType]:
+    """The types the Diagrams page edits: every registered type except those drawn
+    inside another's section (the estate map is built from the conceptual overview)."""
+    return [t for t in TYPES.values() if not t.embedded]
+
+
 def applicable(env: Any) -> list[DiagramType]:
-    """The registered types this snapshot can draw, in registry order."""
-    return [t for t in TYPES.values() if t.applies(env)]
+    """The editable types this snapshot can draw, in registry order."""
+    return [t for t in editable() if t.applies(env)]
 
 
 def dtype(type_id: str) -> DiagramType:
-    if type_id not in TYPES:
+    t = TYPES.get(type_id)
+    if t is None or t.embedded:
         raise E.EditError(f"Unknown diagram: {type_id}")
-    return TYPES[type_id]
+    return t
 
 
 def generated(env: Any, type_id: str) -> dict[str, Any]:
@@ -240,7 +247,7 @@ def edited_models(snapshot: Path | None, env: Any) -> dict[str, Any]:
     out: dict[str, Any] = {}
     for type_id, entry in load(snapshot).items():
         t = TYPES.get(type_id)
-        if t is None:
+        if t is None or t.embedded:
             continue
         try:
             if not t.applies(env):
@@ -402,7 +409,7 @@ def carry_report(src: Path, dst_env: Any, types: list[str] | None = None
     out = []
     for type_id, entry in load(src).items():
         t = TYPES.get(type_id)
-        if t is None or (types is not None and type_id not in types) or \
+        if t is None or t.embedded or (types is not None and type_id not in types) or \
                 not t.applies(dst_env):
             continue
         gen = generated(dst_env, type_id)

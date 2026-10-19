@@ -456,7 +456,10 @@ def test_sidecar_operations_and_word_export(demo: Any, data_dir: Path,
         "host": "pc01.demo.local", "username": "admin", "password": "demo", "port": 9440,
         "insecure": False, "name": "pc01-week1", "formats": []})["snapshot_path"]
     listed = sc._m_list_diagrams(None, {"snapshot": snap})
-    assert [d["type"] for d in listed["diagrams"]] == ["conceptual"]
+    # Every editable type this snapshot draws; the estate map (drawn from the
+    # conceptual overview) is not edited on its own.
+    assert [d["type"] for d in listed["diagrams"]] == ["conceptual", "logical", "management",
+                                                       "network", "dr"]
     assert listed["carry"] is None
     got = sc._m_get_diagram(None, {"snapshot": snap, "type": "conceptual"})
     assert not got["edited"] and got["palette"] and got["scenes"]
