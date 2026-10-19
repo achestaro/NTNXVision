@@ -1007,15 +1007,21 @@ def _deoverlap(xs: list[float], w: float, gap: float, lo: float, hi: float) -> l
 def _caption(sites: list[Site], part: tuple[int, int]) -> str:
     cards = [c for s in sites for c in s.cards if c.kind == "cluster"]
     nodes = sum(c.nodes or 0 for c in cards)
+    collected = [s for s in sites if s.kind != "user"]
+    added = len(sites) - len(collected)
+    # Zones added in the Diagrams editor are named as such, never counted as collected.
+    extra = f", plus {fmt.plural(added, 'user-added zone')}" if added and collected else ""
     if part[1] > 1:
         names = fmt.join_names([short_name(s.name) for s in sites])
-        return (f"Solution conceptual overview, part {part[0]} of {part[1]}: {names} "
-                f"({fmt.plural(len(cards), 'cluster')}, {fmt.plural(nodes, 'node')}).")
+        what = (f"{fmt.plural(len(cards), 'cluster')}, {fmt.plural(nodes, 'node')}{extra}"
+                if collected else "added by the author, not collected")
+        return f"Solution conceptual overview, part {part[0]} of {part[1]}: {names} ({what})."
     if sites and sites[0].kind == "pe":
         return (f"Solution conceptual overview: Prism Element {sites[0].name}, "
-                f"{fmt.plural(len(cards), 'cluster')}, {fmt.plural(nodes, 'node')}.")
-    return (f"Solution conceptual overview: {fmt.plural(len(sites), 'availability zone')}, "
-            f"{fmt.plural(len(cards), 'cluster')}, {fmt.plural(nodes, 'node')}.")
+                f"{fmt.plural(len(cards), 'cluster')}, {fmt.plural(nodes, 'node')}{extra}.")
+    return (f"Solution conceptual overview: "
+            f"{fmt.plural(len(collected), 'availability zone')}, "
+            f"{fmt.plural(len(cards), 'cluster')}, {fmt.plural(nodes, 'node')}{extra}.")
 
 
 def _best(model: ConceptualModel, sites: list[Site], parts: list[list[Site]], page: Page,
