@@ -26,6 +26,7 @@ from typing import Any
 from ntnxvision_core.capacity import target_label
 from ntnxvision_core.diagrams import TYPES, DiagramType, Refs
 from ntnxvision_core.diagrams import summary as design
+from ntnxvision_core.diagrams.estate import MIN_PARTS as ESTATE_MIN_PARTS
 from ntnxvision_core.diagrams.estate import EstateRefs, estate_bullets, estate_from
 from ntnxvision_core.diagrams.facts import short_name
 from ntnxvision_core.diagrams.scene import Scene
@@ -974,7 +975,8 @@ class _Builder:
         # The summary depends on the parts; lay out, summarise, then fit part 1 under it.
         scenes = dtype.layout(drawn, page)
         estate_t = TYPES.get("estate")
-        with_map = (estate_t is not None and len(scenes) > 1 and not self.is_pe)
+        with_map = (estate_t is not None and len(scenes) >= ESTATE_MIN_PARTS
+                    and not self.is_pe)
         bullets = summary(scenes)
         if not with_map:
             scenes = dtype.layout(drawn, page, None,
