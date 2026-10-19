@@ -1140,6 +1140,38 @@ export type ExportSection =
   | 'licensing_lcm'
   | 'collection_notes';
 
+/**
+ * One report section (a chapter of the PDF and Word reports, and the Excel object sheets
+ * that belong to it). Catalogue, labels and default order: shared/reportSections.ts
+ * (mirrors core exporters/sections.py). 'executive_summary' is always first and
+ * 'appendix' always last; the others can be reordered.
+ */
+export type ReportSectionId =
+  | 'executive_summary'
+  | 'licensing'
+  | 'assumptions'
+  | 'prism_central'
+  | 'logical_design'
+  | 'physical_design'
+  | 'workloads'
+  | 'catalog'
+  | 'nus'
+  | 'networking'
+  | 'data_protection'
+  | 'security'
+  | 'ndb'
+  | 'identity'
+  | 'automation'
+  | 'health'
+  | 'lcm'
+  | 'appendix';
+
+/** Whether a snapshot has content for each report section (Export dialog). */
+export interface ReportSectionsResult {
+  /** Every section, in the default document order. */
+  sections: { id: ReportSectionId; available: boolean; hint: string | null }[];
+}
+
 export interface ExportRequest {
   snapshotPath: string;
   formats: ExportFormat[];
@@ -1152,6 +1184,18 @@ export interface ExportRequest {
   filePrefix?: string;
   /** Sections included in PDF and Word; omitted = all. */
   sections?: ExportSection[];
+  /**
+   * Report sections to include (PDF, Word and the Excel object sheets); omitted = all.
+   * Applied together with `sections`.
+   */
+  chapters?: ReportSectionId[];
+  /**
+   * Order of the movable report sections for this export. Unknown ids are ignored and
+   * missing ones appended in default order. Omitted = the Settings order (sectionOrder,
+   * when customSectionOrder is on), else the default; null = the default order even when
+   * the setting is on.
+   */
+  sectionOrder?: ReportSectionId[] | null;
   word?: {
     /** 'standard' or an absolute path to a customer .dotx. */
     template: string;
@@ -1496,6 +1540,14 @@ export interface AppSettings {
   vcpuRatio?: number;
   /** Open NTNXVision (in the tray / menu bar) when you sign in, so schedules run. */
   startAtLogin?: boolean;
+  /**
+   * Settings > Reports "Custom section order": when on, `sectionOrder` is the order of
+   * the report sections in every export (Export dialog default, Email, New collection,
+   * Multiple PCs and schedules). Off (unset) = the default document order.
+   */
+  customSectionOrder?: boolean;
+  /** The custom order of the movable report sections (kept while the switch is off). */
+  sectionOrder?: ReportSectionId[];
 }
 
 /** The vCPU:pCPU target used when the setting is unset (matches capacity.py). */
@@ -1548,6 +1600,7 @@ export const IPC = {
   compareSnapshots: 'core:compareSnapshots',
   exportComparison: 'core:exportComparison',
   exportSnapshot: 'core:exportSnapshot',
+  getReportSections: 'core:getReportSections',
   renameSnapshot: 'core:renameSnapshot',
   deleteSnapshot: 'core:deleteSnapshot',
   clearSnapshots: 'core:clearSnapshots',
@@ -1633,6 +1686,8 @@ export interface NtnxApi {
   compareSnapshots(baseline: string, current: string): Promise<CompareResult>;
   exportComparison(req: CompareExportRequest): Promise<{ path: string }>;
   exportSnapshot(req: ExportRequest): Promise<ExportResult>;
+  /** Which report sections have content in a snapshot (sidecar `report_sections`). */
+  getReportSections(snapshotPath: string): Promise<ReportSectionsResult>;
   renameSnapshot(snapshotPath: string, newName: string): Promise<{ path: string; name: string }>;
   deleteSnapshot(snapshotPath: string): Promise<{ deleted: boolean }>;
   clearSnapshots(): Promise<{ deleted: number }>;

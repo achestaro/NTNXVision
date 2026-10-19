@@ -37,6 +37,7 @@ import { cleanOverrides, endpointTls, TARGETS_TAMPERED_MESSAGE } from './targets
 import type { StoredTarget } from './targets';
 import * as store from './store';
 import { wordTemplateFor } from './security';
+import { defaultSectionOrder } from '../shared/reportSections';
 import { bool, obj, optStr, optStrArray, str, strArray } from './validate';
 import { APP_ICON_PNG, MAC_TEMPLATE_PNG } from './trayIcons';
 
@@ -457,6 +458,7 @@ export class Scheduler {
         export_dir: settings.exportDir,
         file_prefix: settings.filePrefix ?? '',
         vcpu_ratio: settings.vcpuRatio,
+        section_order: defaultSectionOrder(settings),
       });
     } catch (err) {
       return FAILED('email', `Email failed: ${errMsg(err)}`, snapshotNames);
@@ -510,6 +512,7 @@ export class Scheduler {
         export_dir: settings.exportDir,
         file_prefix: req.filePrefix !== undefined ? req.filePrefix : settings.filePrefix ?? '',
         vcpu_ratio: settings.vcpuRatio,
+        section_order: defaultSectionOrder(settings),
       });
     });
 
