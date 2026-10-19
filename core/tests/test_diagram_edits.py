@@ -475,6 +475,9 @@ def test_sidecar_operations_and_word_export(demo: Any, data_dir: Path,
     snap2 = sc._m_inventory(None, {
         "host": "pc01.demo.local", "username": "admin", "password": "demo", "port": 9440,
         "insecure": False, "name": "pc01-week2", "formats": []})["snapshot_path"]
+    # Every edit applies, so the collection carried them already; reset to try by hand.
+    assert ST.load(Path(snap2))["conceptual"]["carried_from"]["auto"]
+    sc._m_reset_diagram(None, {"snapshot": snap2, "type": "conceptual"})
     offer = sc._m_list_diagrams(None, {"snapshot": snap2})["carry"]
     assert offer is not None and offer["snapshot"]["name"] == "pc01-week1"
     assert offer["diagrams"][0]["applies"] == 1
@@ -525,8 +528,9 @@ def test_edited_figure_keeps_collected_counts_and_discloses_the_edit(env: Enviro
     note = figs[0].summary[-1]
     assert note.startswith("Figure edited on the Diagrams page: ")
     assert f"1 cluster ({deleted['name']}, {deleted['nodes']} nodes) not drawn" in note
-    assert "1 user-added item" in note and "1 renamed (" in note
-    assert "shown as SQL tier" in note and note.endswith("Counts are as collected.")
+    assert "1 user-added item" in note
+    assert ' renamed to "SQL tier"' in note and "(" not in note.split("renamed to")[0][-3:]
+    assert note.endswith("Counts are as collected.")
     # The caption keeps the collected numbers and says the figure is edited.
     assert figs[0].caption.startswith("Solution conceptual overview (edited): ")
     assert plain[0].caption.split(": ", 1)[1] == figs[0].caption.split(": ", 1)[1]
