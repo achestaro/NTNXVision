@@ -72,7 +72,11 @@ def test_multi3_sync_inside_a_zone_nearsync_across_and_remote(
 def test_enterprise_one_way_pairs_and_outside_targets(design_envs: dict[str, Environment]
                                                       ) -> None:
     m = D.dr_model(design_envs["enterprise"])
-    assert (m.policies, m.recovery_plans) == (8, 2)
+    assert (m.policies, m.recovery_plans) == (8, 3)
+    # The Metro policy's recovery plan names a witness.
+    assert [(p.count, p.witness) for p in m.plans if p.witness] == [(1, True)]
+    assert "a witness arbitrates the Metro recovery plans between en-pc01 and en-pc02" in \
+        D.bullets(m)[1]
     tier0 = _flow(m, "NYC-PROD-01", "CHI-PROD-01")
     assert [(r.type, r.rpo_seconds) for r in tier0.repl] == [("Sync", 0)]
     assert {r.name: r.kind for r in m.remotes} == {"dr-apac": "pc", "Xi-EU-West": "xi"}
