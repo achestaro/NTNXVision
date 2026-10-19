@@ -110,8 +110,7 @@ def _seg_nodes(s: Segment, x: float, y: float, w: float, h: float, level: int
         if vms:
             out.append(label_right(f"{s.id}:vms", vms, right, y + h - 9.5, 8.0, s.id))
     else:
-        detail = segment_detail(s) if s.kind != "portgroup" else (vms or "")
-        text = f"{s.name} · {detail}" if detail else s.name
+        text = compact_text(s, w - 8 - vw - 4 - rw - 4)
         mt, _ = measure([Row(text, K.SIZE_SMALL, False, K.INK, 1)], w - 8 - vw - 4 - rw - 4)
         node.lines = place_lines(mt, w, (h - tx.line_height(K.SIZE_SMALL)) / 2, "left",
                                  4 + vw + 4)
@@ -123,6 +122,25 @@ def _seg_nodes(s: Segment, x: float, y: float, w: float, h: float, level: int
     if s.external:
         node.data["external"] = "true"
     return out
+
+
+def compact_text(s: Segment, max_w: float) -> str:
+    """A compact row's text after the VLAN chip: ``prefix · name`` (a port group: its VM
+    count, a planned segment: its range text). The gateway is left out, and only the
+    name is shortened, so the prefix is never clipped."""
+    if s.kind == "portgroup":
+        lead = vms_text(s.vms)
+    elif s.kind == "user":
+        lead = s.prefix_text
+    else:
+        lead = s.prefix or "IP range N/A"
+    if not lead:
+        return tx.ellipsize(s.name, K.SIZE_SMALL, False, max_w)
+    head = f"{lead} · "
+    room = max_w - tx.width(head, K.SIZE_SMALL, False)
+    if room < tx.width("ab" + tx.ELLIPSIS, K.SIZE_SMALL, False):
+        return tx.ellipsize(lead, K.SIZE_SMALL, False, max_w)
+    return head + tx.ellipsize(s.name, K.SIZE_SMALL, False, room)
 
 
 def _pill_style(s: Segment) -> tuple[Style, str, str]:
@@ -401,4 +419,4 @@ def layout(model: SegmentsModel, page: Page | None = None, refs: Refs | None = N
     return mark_edited(out, model.edited)
 
 
-__all__ = ["PG_SWITCH", "layout", "layout_site"]
+__all__ = ["PG_SWITCH", "compact_text", "layout", "layout_site"]
