@@ -18,6 +18,7 @@ the export dialog's section ids (`ExportOptions.sections`).
 from __future__ import annotations
 
 import importlib
+import logging
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
@@ -55,6 +56,7 @@ from ntnxvision_core.models import Environment
 from ntnxvision_core.numfmt import NA, PLAIN_HEADERS, fmt_count, fmt_ratio
 from ntnxvision_core.versions import pc_version
 
+_log = logging.getLogger(__name__)
 GIB = 1024**3
 TIB = GIB * 1024
 #: Diagrams drawn per chapter before the rest are summarised in a sentence.
@@ -280,6 +282,8 @@ class Report:
     scope: str  # e.g. "pc01.demo.local" for the page header
     prepared_for: str = ""
     author: str = ""
+    #: Problems met while building (an architecture figure that could not be drawn).
+    warnings: list[str] = field(default_factory=list)
 
     def outline(self) -> list[tuple[int, str]]:
         out: list[tuple[int, str]] = []
@@ -490,6 +494,8 @@ class _Builder:
         #: The chapters that made it into the report, in their final order (set before
         #: the finalizers run), so cross references name only chapters that are there.
         self.chapters: list[Chapter] = []
+        #: Figures that could not be built (see `design_sections`), for the run.
+        self.warnings: list[str] = []
 
     def chapter(self, key: str) -> Chapter | None:
         """The included chapter `key` (numbered), or None when it is left out. Only
@@ -900,18 +906,39 @@ class _Builder:
         as its own section. Returns whether any was added."""
         added = False
         for dtype in TYPES.values():
-            if dtype.embedded or dtype.chapter != ch.key or not dtype.applies(self.env):
+            if dtype.embedded or dtype.chapter != ch.key:
                 continue
-            build: Callable[[Chapter, DiagramType], bool] | None = getattr(
-                self, f"_design_{dtype.id}", None)
-            if build is None:
-                # Each later type keeps its report section in `exporters.design.<id>`
-                # (imported here, at use, as it builds on this module's blocks).
-                module = importlib.import_module(f"ntnxvision_core.exporters.design.{dtype.id}")
-                added = module.build(self, ch, dtype) or added
-            else:
-                added = build(ch, dtype) or added
+            # One figure that cannot be built never costs the report: its section says
+            # so, the run gets a warning, and the other sections carry on.
+            sections, finalizers = len(ch.sections), len(self.finalizers)
+            try:
+                if not dtype.applies(self.env):
+                    continue
+                build: Callable[[Chapter, DiagramType], bool] | None = getattr(
+                    self, f"_design_{dtype.id}", None)
+                if build is None:
+                    # Each later type keeps its report section in `exporters.design.<id>`
+                    # (imported here, at use, as it builds on this module's blocks).
+                    module = importlib.import_module(
+                        f"ntnxvision_core.exporters.design.{dtype.id}")
+                    added = module.build(self, ch, dtype) or added
+                else:
+                    added = build(ch, dtype) or added
+            except Exception as exc:  # noqa: BLE001 - isolate one figure's failure
+                del ch.sections[sections:]
+                del self.finalizers[finalizers:]
+                self.design_failed(ch, dtype.section, dtype.title, exc)
         return added
+
+    def design_failed(self, ch: Chapter, section: str, title: str, exc: BaseException
+                      ) -> None:
+        """The note a figure that could not be built leaves, and the run warning."""
+        _log.warning("Architecture figure %r not drawn: %s", title, exc, exc_info=exc)
+        self.warnings.append(f"Figure not drawn: {title} ({type(exc).__name__}: {exc})")
+        ch.add(section, Paragraph(
+            f"Figure not drawn: the {title[0].lower() + title[1:]} could not be built from "
+            "this snapshot. The tables in this report still list the collected data.",
+            "note"))
 
     def _design_conceptual(self, ch: Chapter, dtype: DiagramType) -> bool:
         """Solution Conceptual Overview: the A1 figure (in parts for a large estate),
@@ -1532,7 +1559,11 @@ def build_report(env: Environment, opts: Any, eyebrow: str) -> Report:
     _number(chapters)
     b.chapters = chapters
     for finalize in b.finalizers:
-        finalize()
+        try:
+            finalize()
+        except Exception as exc:  # noqa: BLE001 - cross references are best effort
+            _log.warning("Report cross reference not resolved: %s", exc, exc_info=exc)
+            b.warnings.append(f"Cross reference not resolved ({type(exc).__name__}: {exc})")
     if env.is_combined:
         scope = f"{fmt_count(len(env.source_environments))} Prism Centrals (combined)"
     else:
@@ -1548,6 +1579,7 @@ def build_report(env: Environment, opts: Any, eyebrow: str) -> Report:
         scope=scope,
         prepared_for=opts.prepared_for,
         author=opts.author,
+        warnings=b.warnings,
     )
 
 
