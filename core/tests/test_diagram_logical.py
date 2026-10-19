@@ -411,3 +411,19 @@ def test_a_failing_figure_leaves_a_note_and_the_report_goes_on(
                for b in s.blocks)
     assert export_environment(env, "word", tmp_path, "r").stat().st_size > 0
     assert export_environment(env, "pdf", tmp_path, "r").stat().st_size > 0
+
+
+@pytest.mark.parametrize("name", ["enterprise", "xlarge", "multi3"])
+def test_per_az_figures_cut_the_estate_the_same_way(design_envs: dict[str, Any],
+                                                    name: str) -> None:
+    """Conceptual, management and DR parts come from one rule (layout/parts.py); the
+    logical design lists its AZs in the overview's order."""
+    env = design_envs[name]
+    cuts = {}
+    for tid in ("conceptual", "management", "dr"):
+        t = TYPES[tid]
+        if t.applies(env):
+            cuts[tid] = [sc.meta["sites"] for sc in t.layout(t.build_model(env), t.page)]
+    assert len({json.dumps(c) for c in cuts.values()}) == 1, cuts
+    order = [s.id for s in conceptual_model(env).sites]
+    assert [s.id for s in L.logical_model(env).sites] == order

@@ -22,7 +22,7 @@ from ntnxvision_core.models import Environment
 from ntnxvision_core.versions import short_version
 
 from . import fmt
-from .facts import _sites, hypervisor_label, pc_size_label, short_name
+from .facts import _sites, conceptual_model, hypervisor_label, pc_size_label, short_name
 
 GIB = 1024**3
 #: The category key that groups clusters into PODs.
@@ -277,7 +277,9 @@ def logical_model(env: Environment) -> LogicalModel:
         sites.append(LSite(id=info.id, name=info.host, kind="pe" if is_pe else "pc",
                            pods=pod_list, arrays=arrays, pc_vms=n_pcvms,
                            data={"name": info.host}))
-    sites.sort(key=lambda s: (s.name.lower(), s.id))
+    # The AZ order every per-AZ figure shares: the overview's (paired AZs together).
+    order = {s.id: i for i, s in enumerate(conceptual_model(env).sites)}
+    sites.sort(key=lambda s: (order.get(s.id, len(order)), s.name.lower(), s.id))
     return LogicalModel(sites=sites)
 
 
