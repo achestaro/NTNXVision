@@ -189,6 +189,96 @@ def test_cross_reference_dropped_without_logical_design(
     assert _dp_xref(rep) is None
 
 
+def _summary_text(rep: Report) -> str:
+    """Every paragraph and bullet of the Executive Summary, joined."""
+    from ntnxvision_core.exporters.content import Bullets
+
+    (es,) = [c for c in rep.chapters if c.key == "executive_summary"]
+    out: list[str] = []
+    for b in es.blocks:
+        if isinstance(b, Paragraph):
+            out.append(b.text)
+        elif isinstance(b, Bullets):
+            out.extend(b.items)
+    return "\n".join(out)
+
+
+def _sunset_env(env: Environment) -> Any:
+    """`env` with at least one v3-sunset area, so the appendix reference is written."""
+    from ntnxvision_core.exporters import content as C
+
+    class _B(C._Builder):
+        def __init__(self, e: Environment, o: Any) -> None:
+            super().__init__(e, o)
+            self.sunset = self.sunset or ["Flow"]
+    return _B
+
+
+def test_summary_names_only_included_chapters(estates: dict[str, Environment],
+                                              monkeypatch: pytest.MonkeyPatch) -> None:
+    from ntnxvision_core.exporters import content as C
+
+    env = estates["pc01"]
+    monkeypatch.setattr(C, "_Builder", _sunset_env(env))
+    every = frozenset(S.DEFAULT_ORDER)
+    full = _summary_text(build_report(env, ExportOptions(), "x"))
+    assert ("omitted; Licensing & Feature Usage and Assumptions & Constraints record "
+            "why.") in full
+    assert "(see Appendix A)." in full
+    assert "\x00" not in full
+
+    no_lic = _summary_text(build_report(
+        env, ExportOptions(chapters=every - {"licensing"}), "x"))
+    assert "omitted; Assumptions & Constraints records why." in no_lic
+    assert "Licensing" not in no_lic
+
+    no_assume = _summary_text(build_report(
+        env, ExportOptions(chapters=every - {"assumptions"}), "x"))
+    assert "omitted; Licensing & Feature Usage records why." in no_assume
+
+    bare = _summary_text(build_report(env, ExportOptions(
+        chapters=every - {"licensing", "assumptions", "appendix"}), "x"))
+    assert "environment are omitted." in bare
+    assert "record why" not in bare and "records why" not in bare
+    assert "Appendix" not in bare and "\x00" not in bare
+    assert "retires in Q4 2026" in bare and "after the sunset." in bare
+
+
+def test_summary_references_follow_reordering(estates: dict[str, Environment],
+                                              monkeypatch: pytest.MonkeyPatch) -> None:
+    from ntnxvision_core.exporters import content as C
+
+    env = estates["pc01"]
+    monkeypatch.setattr(C, "_Builder", _sunset_env(env))
+    order = ("assumptions", "networking", "licensing")
+    rep = build_report(env, ExportOptions(section_order=order), "x")
+    keys = [c.key for c in rep.chapters]
+    assert keys.index("assumptions") < keys.index("licensing")
+    text = _summary_text(rep)
+    # Named in the report's order, and the appendix keeps its real letter.
+    assert "omitted; Assumptions & Constraints and Licensing & Feature Usage record why." \
+        in text
+    (app,) = [c for c in rep.chapters if c.key == "appendix"]
+    assert f"(see Appendix {app.number})." in text
+
+
+def test_excel_capacity_pointer_follows_selection(estates: dict[str, Environment],
+                                                  tmp_path: Path) -> None:
+    from openpyxl import load_workbook
+
+    env = estates["pc01"]
+
+    def overview(name: str, opts: Any) -> str:
+        wb = load_workbook(export_environment(env, "excel", tmp_path, name, opts))
+        return "\n".join(str(c.value) for row in wb["Overview"].iter_rows() for c in row
+                         if c.value is not None)
+
+    assert "see the Capacity sheet" in overview("a", None)
+    without = overview("b", {"chapters": [s for s in S.DEFAULT_ORDER
+                                          if s != "physical_design"]})
+    assert "Capacity sheet" not in without and "(cluster capacity figures)" in without
+
+
 # ─── availability ─────────────────────────────────────────────────────────
 
 

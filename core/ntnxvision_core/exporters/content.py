@@ -9,8 +9,10 @@ Structure: a `Report` has a `Cover` and a list of `Chapter`s; a chapter has lead
 and `Section`s; blocks are paragraphs, bullet lists, tables, figures, figure rows and a
 figure strip. Optional chapters (anything gated behind a licensed or deployed feature) are
 left out when the environment has no data for them; Licensing & Feature Usage and
-Assumptions & Constraints say why. Each chapter belongs to one of the export dialog's
-section ids (`ExportOptions.sections`).
+Assumptions & Constraints say why. Cross references to other chapters are written in
+finalizers, after the chapters are selected, ordered and numbered: they name only the
+chapters the report includes, with their real numbers. Each chapter belongs to one of
+the export dialog's section ids (`ExportOptions.sections`).
 """
 
 from __future__ import annotations
@@ -476,6 +478,14 @@ class _Builder:
         #: The figures (parts) of each diagram type, for cross references from other
         #: chapters.
         self.design_figures: dict[str, list[SceneFigure]] = {}
+        #: The chapters that made it into the report, in their final order (set before
+        #: the finalizers run), so cross references name only chapters that are there.
+        self.chapters: list[Chapter] = []
+
+    def chapter(self, key: str) -> Chapter | None:
+        """The included chapter `key` (numbered), or None when it is left out. Only
+        meaningful in a finalizer."""
+        return next((c for c in self.chapters if c.key == key), None)
 
     # ─ helpers ─
     def src(self, objs: list[Any]) -> list[str] | None:
@@ -610,16 +620,33 @@ class _Builder:
                 "its scope and are not covered here."
             ))
         else:
-            ch.blocks.append(Paragraph(
+            intro = Paragraph(
                 "Each section documents the as-built configuration discovered during "
                 "inventory collection. Sections for features not present in this "
-                "environment are omitted; Licensing & Feature Usage and Assumptions & "
-                "Constraints record why."
-            ))
+                "environment are omitted.")
+            ch.blocks.append(intro)
+
+            def name_why(p: Paragraph = intro) -> None:
+                # Only the chapters this report includes, in their report order.
+                why = [c.title for c in self.chapters
+                       if c.key in ("licensing", "assumptions")]
+                if why:
+                    p.text = (f"{p.text.removesuffix('.')}; {' and '.join(why)} "
+                              f"record{'s' if len(why) == 1 else ''} why.")
+
+            self.finalizers.append(name_why)
         strip = [StripItem(f["label"], fmt_count(f["value"]), f.get("qualifier"),
                            f.get("qualifier_tone")) for f in self.figures]
         ch.blocks.append(FigureStrip(strip[:6]))
-        ch.blocks.append(Bullets(self.highlights(), intro="Key findings"))
+        findings = Bullets(self.highlights(), intro="Key findings")
+        ch.blocks.append(findings)
+        if self.sunset:
+            def name_appendix(b: Bullets = findings) -> None:
+                appendix = self.chapter("appendix")
+                ref = f" (see Appendix {appendix.number})" if appendix else ""
+                b.items = [i.replace(_APPENDIX_REF, ref) for i in b.items]
+
+            self.finalizers.append(name_appendix)
         return ch
 
     def highlights(self) -> list[str]:
@@ -641,7 +668,7 @@ class _Builder:
                 f"{plural(len(self.sunset), 'area')} still "
                 f"{'uses a v3 API' if len(self.sunset) == 1 else 'use v3 APIs'} that Nutanix "
                 f"retires in Q4 2026 ({', '.join(self.sunset)}) and will stop collecting "
-                "after the sunset (see Appendix A)."
+                f"after the sunset{_APPENDIX_REF}."
             )
         cap = sum(c.max_capacity_bytes or 0 for c in env.storage_containers)
         used = sum(c.used_bytes or 0 for c in env.storage_containers)
@@ -900,6 +927,8 @@ class _Builder:
         ch.add(dtype.section, *figs, az, clusters)
 
         def finalize() -> None:
+            if not figs[0].label:  # the chapter is left out of this report
+                return
             labels = [f.label.rstrip(".") for f in figs]
             if clusters is not None:
                 ref = clusters.label.rstrip(".")
@@ -1393,6 +1422,9 @@ def _fig(d: Diagram | None, caption: str) -> Figure | None:
     return Figure(d, caption) if d else None
 
 
+#: Stands in for "(see Appendix A)" until numbering (`_Builder.executive_summary`).
+_APPENDIX_REF = "\x00appendix-ref\x00"
+
 #: Chapter builders in document order.
 _ORDER: tuple[str, ...] = (
     "executive_summary", "licensing", "assumptions", "prism_central", "logical_design",
@@ -1420,6 +1452,7 @@ def build_report(env: Environment, opts: Any, eyebrow: str) -> Report:
         pos = report_sections.rank(requested)
         chapters.sort(key=lambda c: pos.get(c.key, len(pos)))
     _number(chapters)
+    b.chapters = chapters
     for finalize in b.finalizers:
         finalize()
     if env.is_combined:
