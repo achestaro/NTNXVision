@@ -1,7 +1,7 @@
 {
  "caption": "Logical cluster design, sm-pc01.demo.local: nodes, CVMs and containers.",
  "edges": [],
- "height": 201.73,
+ "height": 214.71,
  "id": "logical-sm-pc01.demo.local",
  "meta": {
   "drawn": [
@@ -10,14 +10,15 @@
   ],
   "group": "site:sm-pc01.demo.local",
   "group_name": "sm-pc01.demo.local",
-  "pods": []
+  "pods": [],
+  "summarised": []
  },
  "nodes": [
   {
    "data": {
     "name": "sm-pc01.demo.local"
    },
-   "h": 175.73,
+   "h": 188.71,
    "id": "site:sm-pc01.demo.local",
    "kind": "container",
    "lines": [
@@ -86,7 +87,7 @@
     "name": "BRANCH-PRD-01",
     "prism_central": "sm-pc01.demo.local"
    },
-   "h": 131.03,
+   "h": 144.01,
    "id": "cluster:0ca0388a-8411-5a32-a54a-f18b3163a417",
    "kind": "box",
    "lines": [
@@ -282,8 +283,8 @@
      "bold": false,
      "color": "#0A7283",
      "size": 6.0,
-     "text": "ctr-images · RF2 · dedup",
-     "width": 65.74,
+     "text": "branch-prd-01-ctr-images · RF2 · dedup",
+     "width": 107.21,
      "x": 3.0
     }
    ],
@@ -295,7 +296,7 @@
     "stroke": "#0A7283",
     "stroke_w": 0.45
    },
-   "w": 76.69,
+   "w": 120.64,
    "x": 11.5,
    "y": 144.77
   },
@@ -312,8 +313,8 @@
      "bold": false,
      "color": "#0A7283",
      "size": 6.0,
-     "text": "ctr-prod · RF2 · compression",
-     "width": 76.45,
+     "text": "branch-prd-01-ctr-prod · RF2 · compression",
+     "width": 117.92,
      "x": 3.0
     }
    ],
@@ -325,9 +326,9 @@
     "stroke": "#0A7283",
     "stroke_w": 0.45
    },
-   "w": 88.04,
-   "x": 91.19,
-   "y": 144.77
+   "w": 131.99,
+   "x": 11.5,
+   "y": 157.75
   },
   {
    "data": {
@@ -342,8 +343,8 @@
      "bold": false,
      "color": "#0A7283",
      "size": 6.0,
-     "text": "default-container · RF2 · compression",
-     "width": 100.79,
+     "text": "branch-prd-01-default-container · RF2 · compression",
+     "width": 142.25,
      "x": 3.0
     }
    ],
@@ -355,9 +356,9 @@
     "stroke": "#0A7283",
     "stroke_w": 0.45
    },
-   "w": 113.84,
+   "w": 157.79,
    "x": 11.5,
-   "y": 157.75
+   "y": 170.73
   },
   {
    "data": {
@@ -365,7 +366,7 @@
     "name": "BRANCH-VDI-01",
     "prism_central": "sm-pc01.demo.local"
    },
-   "h": 131.03,
+   "h": 144.01,
    "id": "cluster:8996917a-a180-5d7e-83b7-4e276021ce55",
    "kind": "box",
    "lines": [
@@ -505,8 +506,8 @@
      "bold": false,
      "color": "#0A7283",
      "size": 6.0,
-     "text": "ctr-images · RF2 · dedup",
-     "width": 65.74,
+     "text": "branch-vdi-01-ctr-images · RF2 · dedup",
+     "width": 106.15,
      "x": 3.0
     }
    ],
@@ -518,7 +519,7 @@
     "stroke": "#0A7283",
     "stroke_w": 0.45
    },
-   "w": 76.69,
+   "w": 119.51,
    "x": 249.0,
    "y": 130.63
   },
@@ -535,8 +536,8 @@
      "bold": false,
      "color": "#0A7283",
      "size": 6.0,
-     "text": "ctr-prod · RF2 · compression",
-     "width": 76.45,
+     "text": "branch-vdi-01-ctr-prod · RF2 · compression",
+     "width": 116.86,
      "x": 3.0
     }
    ],
@@ -548,9 +549,9 @@
     "stroke": "#0A7283",
     "stroke_w": 0.45
    },
-   "w": 88.04,
-   "x": 328.69,
-   "y": 130.63
+   "w": 130.87,
+   "x": 249.0,
+   "y": 143.61
   },
   {
    "data": {
@@ -565,8 +566,8 @@
      "bold": false,
      "color": "#0A7283",
      "size": 6.0,
-     "text": "default-container · RF2 · compression",
-     "width": 100.79,
+     "text": "branch-vdi-01-default-container · RF2 · compression",
+     "width": 141.19,
      "x": 3.0
     }
    ],
@@ -578,9 +579,9 @@
     "stroke": "#0A7283",
     "stroke_w": 0.45
    },
-   "w": 113.84,
+   "w": 156.66,
    "x": 249.0,
-   "y": 143.61
+   "y": 156.59
   },
   {
    "data": {},
@@ -598,7 +599,7 @@
    },
    "w": 17,
    "x": 0.5,
-   "y": 191.23
+   "y": 204.21
   },
   {
    "data": {},
@@ -626,7 +627,7 @@
    },
    "w": 21.52,
    "x": 21.5,
-   "y": 189.73
+   "y": 202.71
   },
   {
    "data": {},
@@ -644,7 +645,7 @@
    },
    "w": 17,
    "x": 57.02,
-   "y": 191.23
+   "y": 204.21
   },
   {
    "data": {},
@@ -672,7 +673,7 @@
    },
    "w": 41.28,
    "x": 78.02,
-   "y": 189.73
+   "y": 202.71
   }
  ],
  "part": [

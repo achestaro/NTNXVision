@@ -1,7 +1,7 @@
 {
  "caption": "Logical cluster design, md-pc01.demo.local: nodes, CVMs and containers.",
  "edges": [],
- "height": 326.62,
+ "height": 339.6,
  "id": "logical-md-pc01.demo.local",
  "meta": {
   "drawn": [
@@ -11,14 +11,15 @@
   ],
   "group": "site:md-pc01.demo.local",
   "group_name": "md-pc01.demo.local",
-  "pods": []
+  "pods": [],
+  "summarised": []
  },
  "nodes": [
   {
    "data": {
     "name": "md-pc01.demo.local"
    },
-   "h": 300.62,
+   "h": 313.6,
    "id": "site:md-pc01.demo.local",
    "kind": "container",
    "lines": [
@@ -87,7 +88,7 @@
     "name": "PROD-E01",
     "prism_central": "md-pc01.demo.local"
    },
-   "h": 131.03,
+   "h": 144.01,
    "id": "cluster:86088e1b-cdfc-5113-a735-aeb9ef1962c3",
    "kind": "box",
    "lines": [
@@ -311,8 +312,8 @@
      "bold": false,
      "color": "#0A7283",
      "size": 6.0,
-     "text": "ctr-images · RF3 · dedup",
-     "width": 65.65,
+     "text": "prod-e01-ctr-images · RF3 · dedup",
+     "width": 92.83,
      "x": 3.0
     }
    ],
@@ -324,7 +325,7 @@
     "stroke": "#0A7283",
     "stroke_w": 0.45
    },
-   "w": 76.59,
+   "w": 105.4,
    "x": 11.5,
    "y": 144.77
   },
@@ -341,8 +342,8 @@
      "bold": false,
      "color": "#0A7283",
      "size": 6.0,
-     "text": "ctr-prod · RF3 · compression, EC-X",
-     "width": 93.26,
+     "text": "prod-e01-ctr-prod · RF3 · compression, EC-X",
+     "width": 120.44,
      "x": 3.0
     }
    ],
@@ -354,9 +355,9 @@
     "stroke": "#0A7283",
     "stroke_w": 0.45
    },
-   "w": 105.86,
-   "x": 91.09,
-   "y": 144.77
+   "w": 134.66,
+   "x": 11.5,
+   "y": 157.75
   },
   {
    "data": {
@@ -371,8 +372,8 @@
      "bold": false,
      "color": "#0A7283",
      "size": 6.0,
-     "text": "default-container · RF3 · compression",
-     "width": 100.7,
+     "text": "prod-e01-default-container · RF3 · compression",
+     "width": 127.87,
      "x": 3.0
     }
    ],
@@ -384,9 +385,9 @@
     "stroke": "#0A7283",
     "stroke_w": 0.45
    },
-   "w": 113.74,
+   "w": 142.54,
    "x": 11.5,
-   "y": 157.75
+   "y": 170.73
   },
   {
    "data": {
@@ -394,7 +395,7 @@
     "name": "PROD-E02",
     "prism_central": "md-pc01.demo.local"
    },
-   "h": 131.03,
+   "h": 144.01,
    "id": "cluster:b05a4233-4013-58ed-a8b7-794ab3a4f5f8",
    "kind": "box",
    "lines": [
@@ -562,8 +563,8 @@
      "bold": false,
      "color": "#0A7283",
      "size": 6.0,
-     "text": "ctr-images · RF2 · dedup",
-     "width": 65.74,
+     "text": "prod-e02-ctr-images · RF2 · dedup",
+     "width": 93.79,
      "x": 3.0
     }
    ],
@@ -575,7 +576,7 @@
     "stroke": "#0A7283",
     "stroke_w": 0.45
    },
-   "w": 76.69,
+   "w": 106.42,
    "x": 249.0,
    "y": 130.63
   },
@@ -592,8 +593,8 @@
      "bold": false,
      "color": "#0A7283",
      "size": 6.0,
-     "text": "ctr-prod · RF2 · compression, EC-X",
-     "width": 93.35,
+     "text": "prod-e02-ctr-prod · RF2 · compression, EC-X",
+     "width": 121.4,
      "x": 3.0
     }
    ],
@@ -605,9 +606,9 @@
     "stroke": "#0A7283",
     "stroke_w": 0.45
    },
-   "w": 105.96,
-   "x": 328.69,
-   "y": 130.63
+   "w": 135.69,
+   "x": 249.0,
+   "y": 143.61
   },
   {
    "data": {
@@ -622,8 +623,8 @@
      "bold": false,
      "color": "#0A7283",
      "size": 6.0,
-     "text": "default-container · RF2 · compression",
-     "width": 100.79,
+     "text": "prod-e02-default-container · RF2 · compression",
+     "width": 128.84,
      "x": 3.0
     }
    ],
@@ -635,9 +636,9 @@
     "stroke": "#0A7283",
     "stroke_w": 0.45
    },
-   "w": 113.84,
+   "w": 143.57,
    "x": 249.0,
-   "y": 143.61
+   "y": 156.59
   },
   {
    "data": {
@@ -687,7 +688,7 @@
    },
    "w": 229.5,
    "x": 6.5,
-   "y": 181.23
+   "y": 194.21
   },
   {
    "data": {},
@@ -742,7 +743,7 @@
    },
    "w": 219.5,
    "x": 11.5,
-   "y": 215.98
+   "y": 228.96
   },
   {
    "data": {},
@@ -770,7 +771,7 @@
    },
    "w": 219.5,
    "x": 11.5,
-   "y": 260.48
+   "y": 273.46
   },
   {
    "data": {
@@ -785,8 +786,8 @@
      "bold": false,
      "color": "#0A7283",
      "size": 6.0,
-     "text": "ctr-images · RF2 · dedup",
-     "width": 65.74,
+     "text": "vdi-e01-ctr-images · RF2 · dedup",
+     "width": 88.37,
      "x": 3.0
     }
    ],
@@ -798,9 +799,9 @@
     "stroke": "#0A7283",
     "stroke_w": 0.45
    },
-   "w": 76.69,
+   "w": 100.68,
    "x": 11.5,
-   "y": 269.66
+   "y": 282.64
   },
   {
    "data": {
@@ -815,8 +816,8 @@
      "bold": false,
      "color": "#0A7283",
      "size": 6.0,
-     "text": "ctr-prod · RF2 · compression",
-     "width": 76.45,
+     "text": "vdi-e01-ctr-prod · RF2 · compression",
+     "width": 99.08,
      "x": 3.0
     }
    ],
@@ -828,9 +829,9 @@
     "stroke": "#0A7283",
     "stroke_w": 0.45
    },
-   "w": 88.04,
-   "x": 91.19,
-   "y": 269.66
+   "w": 112.03,
+   "x": 115.18,
+   "y": 282.64
   },
   {
    "data": {
@@ -845,8 +846,8 @@
      "bold": false,
      "color": "#0A7283",
      "size": 6.0,
-     "text": "default-container · RF2 · compression",
-     "width": 100.79,
+     "text": "vdi-e01-default-container · RF2 · compression",
+     "width": 123.42,
      "x": 3.0
     }
    ],
@@ -858,9 +859,9 @@
     "stroke": "#0A7283",
     "stroke_w": 0.45
    },
-   "w": 113.84,
+   "w": 137.83,
    "x": 11.5,
-   "y": 282.64
+   "y": 295.62
   },
   {
    "data": {},
@@ -878,7 +879,7 @@
    },
    "w": 17,
    "x": 0.5,
-   "y": 316.12
+   "y": 329.1
   },
   {
    "data": {},
@@ -906,7 +907,7 @@
    },
    "w": 21.52,
    "x": 21.5,
-   "y": 314.62
+   "y": 327.6
   },
   {
    "data": {},
@@ -924,7 +925,7 @@
    },
    "w": 17,
    "x": 57.02,
-   "y": 316.12
+   "y": 329.1
   },
   {
    "data": {},
@@ -952,7 +953,7 @@
    },
    "w": 41.28,
    "x": 78.02,
-   "y": 314.62
+   "y": 327.6
   }
  ],
  "part": [
@@ -967,7 +968,7 @@
 {
  "caption": "Logical cluster design, md-pc02.demo.local: nodes, CVMs and containers.",
  "edges": [],
- "height": 326.62,
+ "height": 352.58,
  "id": "logical-md-pc02.demo.local",
  "meta": {
   "drawn": [
@@ -977,14 +978,15 @@
   ],
   "group": "site:md-pc02.demo.local",
   "group_name": "md-pc02.demo.local",
-  "pods": []
+  "pods": [],
+  "summarised": []
  },
  "nodes": [
   {
    "data": {
     "name": "md-pc02.demo.local"
    },
-   "h": 300.62,
+   "h": 326.58,
    "id": "site:md-pc02.demo.local",
    "kind": "container",
    "lines": [
@@ -1053,7 +1055,7 @@
     "name": "PROD-W01",
     "prism_central": "md-pc02.demo.local"
    },
-   "h": 131.03,
+   "h": 144.01,
    "id": "cluster:8db1379a-d206-57cc-87c6-3ff054625b9a",
    "kind": "box",
    "lines": [
@@ -1277,8 +1279,8 @@
      "bold": false,
      "color": "#0A7283",
      "size": 6.0,
-     "text": "ctr-images · RF3 · dedup",
-     "width": 65.65,
+     "text": "prod-w01-ctr-images · RF3 · dedup",
+     "width": 94.25,
      "x": 3.0
     }
    ],
@@ -1290,7 +1292,7 @@
     "stroke": "#0A7283",
     "stroke_w": 0.45
    },
-   "w": 76.59,
+   "w": 106.91,
    "x": 11.5,
    "y": 144.77
   },
@@ -1307,8 +1309,8 @@
      "bold": false,
      "color": "#0A7283",
      "size": 6.0,
-     "text": "ctr-prod · RF3 · compression, EC-X",
-     "width": 93.26,
+     "text": "prod-w01-ctr-prod · RF3 · compression, EC-X",
+     "width": 121.87,
      "x": 3.0
     }
    ],
@@ -1320,9 +1322,9 @@
     "stroke": "#0A7283",
     "stroke_w": 0.45
    },
-   "w": 105.86,
-   "x": 91.09,
-   "y": 144.77
+   "w": 136.18,
+   "x": 11.5,
+   "y": 157.75
   },
   {
    "data": {
@@ -1337,8 +1339,8 @@
      "bold": false,
      "color": "#0A7283",
      "size": 6.0,
-     "text": "default-container · RF3 · compression",
-     "width": 100.7,
+     "text": "prod-w01-default-container · RF3 · compression",
+     "width": 129.3,
      "x": 3.0
     }
    ],
@@ -1350,9 +1352,9 @@
     "stroke": "#0A7283",
     "stroke_w": 0.45
    },
-   "w": 113.74,
+   "w": 144.06,
    "x": 11.5,
-   "y": 157.75
+   "y": 170.73
   },
   {
    "data": {
@@ -1360,7 +1362,7 @@
     "name": "DR-W01",
     "prism_central": "md-pc02.demo.local"
    },
-   "h": 131.03,
+   "h": 144.01,
    "id": "cluster:6ce6d622-1b20-52a3-98e8-31ed2e9a383a",
    "kind": "box",
    "lines": [
@@ -1500,8 +1502,8 @@
      "bold": false,
      "color": "#0A7283",
      "size": 6.0,
-     "text": "ctr-images · RF2 · dedup",
-     "width": 65.74,
+     "text": "dr-w01-ctr-images · RF2 · dedup",
+     "width": 87.32,
      "x": 3.0
     }
    ],
@@ -1513,7 +1515,7 @@
     "stroke": "#0A7283",
     "stroke_w": 0.45
    },
-   "w": 76.69,
+   "w": 99.56,
    "x": 249.0,
    "y": 130.63
   },
@@ -1530,8 +1532,8 @@
      "bold": false,
      "color": "#0A7283",
      "size": 6.0,
-     "text": "ctr-prod · RF2 · compression",
-     "width": 76.45,
+     "text": "dr-w01-ctr-prod · RF2 · compression",
+     "width": 98.03,
      "x": 3.0
     }
    ],
@@ -1543,8 +1545,8 @@
     "stroke": "#0A7283",
     "stroke_w": 0.45
    },
-   "w": 88.04,
-   "x": 328.69,
+   "w": 110.91,
+   "x": 351.56,
    "y": 130.63
   },
   {
@@ -1560,8 +1562,8 @@
      "bold": false,
      "color": "#0A7283",
      "size": 6.0,
-     "text": "default-container · RF2 · compression",
-     "width": 100.79,
+     "text": "dr-w01-default-container · RF2 · compression",
+     "width": 122.36,
      "x": 3.0
     }
    ],
@@ -1573,7 +1575,7 @@
     "stroke": "#0A7283",
     "stroke_w": 0.45
    },
-   "w": 113.84,
+   "w": 136.71,
    "x": 249.0,
    "y": 143.61
   },
@@ -1583,7 +1585,7 @@
     "name": "ESX-W01",
     "prism_central": "md-pc02.demo.local"
    },
-   "h": 116.89,
+   "h": 129.87,
    "id": "cluster:92c840d4-7d8a-5dce-b2c2-1e5e3e93e652",
    "kind": "box",
    "lines": [
@@ -1625,7 +1627,7 @@
    },
    "w": 229.5,
    "x": 6.5,
-   "y": 181.23
+   "y": 194.21
   },
   {
    "data": {},
@@ -1680,7 +1682,7 @@
    },
    "w": 219.5,
    "x": 11.5,
-   "y": 215.98
+   "y": 228.96
   },
   {
    "data": {},
@@ -1708,7 +1710,7 @@
    },
    "w": 219.5,
    "x": 11.5,
-   "y": 260.48
+   "y": 273.46
   },
   {
    "data": {
@@ -1723,8 +1725,8 @@
      "bold": false,
      "color": "#0A7283",
      "size": 6.0,
-     "text": "ctr-images · RF2 · dedup",
-     "width": 65.74,
+     "text": "esx-w01-ctr-images · RF2 · dedup",
+     "width": 90.7,
      "x": 3.0
     }
    ],
@@ -1736,9 +1738,9 @@
     "stroke": "#0A7283",
     "stroke_w": 0.45
    },
-   "w": 76.69,
+   "w": 103.14,
    "x": 11.5,
-   "y": 269.66
+   "y": 282.64
   },
   {
    "data": {
@@ -1753,8 +1755,8 @@
      "bold": false,
      "color": "#0A7283",
      "size": 6.0,
-     "text": "ctr-prod · RF2 · compression",
-     "width": 76.45,
+     "text": "esx-w01-ctr-prod · RF2 · compression",
+     "width": 101.41,
      "x": 3.0
     }
    ],
@@ -1766,9 +1768,9 @@
     "stroke": "#0A7283",
     "stroke_w": 0.45
    },
-   "w": 88.04,
-   "x": 91.19,
-   "y": 269.66
+   "w": 114.49,
+   "x": 11.5,
+   "y": 295.62
   },
   {
    "data": {
@@ -1783,8 +1785,8 @@
      "bold": false,
      "color": "#0A7283",
      "size": 6.0,
-     "text": "default-container · RF2 · compression",
-     "width": 100.79,
+     "text": "esx-w01-default-container · RF2 · compression",
+     "width": 125.74,
      "x": 3.0
     }
    ],
@@ -1796,9 +1798,9 @@
     "stroke": "#0A7283",
     "stroke_w": 0.45
    },
-   "w": 113.84,
+   "w": 140.29,
    "x": 11.5,
-   "y": 282.64
+   "y": 308.6
   },
   {
    "data": {},
@@ -1816,7 +1818,7 @@
    },
    "w": 17,
    "x": 0.5,
-   "y": 316.12
+   "y": 342.08
   },
   {
    "data": {},
@@ -1844,7 +1846,7 @@
    },
    "w": 21.52,
    "x": 21.5,
-   "y": 314.62
+   "y": 340.58
   },
   {
    "data": {},
@@ -1862,7 +1864,7 @@
    },
    "w": 17,
    "x": 57.02,
-   "y": 316.12
+   "y": 342.08
   },
   {
    "data": {},
@@ -1890,7 +1892,7 @@
    },
    "w": 41.28,
    "x": 78.02,
-   "y": 314.62
+   "y": 340.58
   }
  ],
  "part": [

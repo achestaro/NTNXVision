@@ -387,9 +387,10 @@ def _strips(c: Card, w: float) -> list[list[tuple[str, str, float]]]:
     if st:
         items.append(("dsf", st, q(tx.width(st, K.SIZE_SMALL) + 7)))
     for xa in c.external:
-        label = f"{xa.product.split()[-1]}, {fmt.plural(xa.containers, 'ctr', 'ctr')}"
-        items.append((xa.id, label.replace(" ", fmt.NBSP), q(tx.width(label, K.SIZE_SMALL,
-                                                                        True) + 7)))
+        # The product as named (decision 5), never shortened; the array's own name is
+        # in the shape data and drawn in full in the logical cluster design.
+        label = xa.product
+        items.append((xa.id, label, q(tx.width(label, K.SIZE_SMALL, True) + 7)))
     if not items:
         return []
     if sum(iw for _, _, iw in items) + PILL_GAP * (len(items) - 1) <= sw:

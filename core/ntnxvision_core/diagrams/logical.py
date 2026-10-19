@@ -85,6 +85,9 @@ class LCluster:
     services: list[str] = field(default_factory=list)
     containers: list[Container] = field(default_factory=list)
     data: dict[str, str] = field(default_factory=dict)
+    #: A "+N more clusters" card standing for this many clusters (layout only; its
+    #: `nodes` and `hypervisor` are their totals and mix).
+    summary: int = 0
 
 
 @dataclass
@@ -411,22 +414,14 @@ def blocks_text(c: LCluster) -> str | None:
     return ", ".join(parts)
 
 
-def chip_name(ct: Container, cluster: str) -> str:
-    """A container's name inside its cluster's card: a leading copy of the cluster's
-    own name is dropped ("prod-a-ctr-images" on PROD-A reads "ctr-images"); the table
-    and the shape data keep the full name."""
-    prefix = cluster.lower() + "-"
-    if ct.name.lower().startswith(prefix) and len(ct.name) > len(prefix):
-        return ct.name[len(prefix):]
-    return ct.name
-
-
-def container_flags(ct: Container, cluster: str | None = None) -> str:
+def container_flags(ct: Container, array: str | None = None) -> str:
+    """A container chip: its name, then RF and data reduction on DSF, or the array it
+    lives on ("on Pure FlashArray fa-01") when external."""
     flags = [f for f, on in (("compression", ct.compression), ("dedup", ct.dedup),
                              ("EC-X", ct.ecx)) if on]
-    parts = [chip_name(ct, cluster) if cluster else ct.name]
+    parts = [ct.name]
     if ct.array:
-        parts.append("external")
+        parts.append(f"on {array}" if array else "external")
     else:
         if ct.rf:
             parts.append(f"RF{ct.rf}")

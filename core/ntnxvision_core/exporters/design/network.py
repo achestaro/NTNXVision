@@ -14,6 +14,7 @@ from ntnxvision_core.diagrams import network as N
 from ntnxvision_core.exporters.content import (
     Chapter,
     SceneFigure,
+    continued_notes,
     first_part_budget,
     make_table,
 )
@@ -41,10 +42,12 @@ def build(b: Any, ch: Chapter, dtype: DiagramType) -> bool:
             others = (f"Profile {rest[0]} is" if len(rest) == 1
                       else f"Profiles {rest[0]} to {rest[-1]} are")
             figs[-1].note = f"{others} listed in {ref}."
+        # Parts of one profile chain; separate profiles do not.
+        by_profile: dict[Any, list[SceneFigure]] = {}
         for f in figs:
-            if f.scene.part[1] > 1 and f.scene.part[0] < f.scene.part[1]:
-                nxt = figs[figs.index(f) + 1]
-                f.note = (f"Continued in {nxt.label.rstrip('.')}. {f.note}").strip()
+            by_profile.setdefault(f.scene.meta.get("profile"), []).append(f)
+        for group in by_profile.values():
+            continued_notes(group)
 
     b.finalizers.append(finalize)
     return True

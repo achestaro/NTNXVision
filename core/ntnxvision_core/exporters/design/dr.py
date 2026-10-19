@@ -15,6 +15,7 @@ from ntnxvision_core.diagrams.facts import short_name
 from ntnxvision_core.exporters.content import (
     Chapter,
     SceneFigure,
+    continued_notes,
     first_part_budget,
     make_table,
 )
@@ -32,15 +33,7 @@ def build(b: Any, ch: Chapter, dtype: DiagramType) -> bool:
     figs[0].summary = bullets
     table = make_table(D.POLICY_HEADERS, D.policy_rows(b.env, model), "Protection policies")
     ch.add(dtype.section, *figs, table)
-    b.design_figures[dtype.id] = figs[0]
-
-    def finalize() -> None:
-        for i, f in enumerate(figs[:-1]):
-            nxt = figs[i + 1].scene
-            names = ", ".join(short_name(model.name_of(sid))
-                              for sid in nxt.meta.get("sites", []))
-            f.note = (f"Continued in {figs[i + 1].label.rstrip('.')} (part {nxt.part[0]} "
-                      f"of {nxt.part[1]}: {names}).")
-
-    b.finalizers.append(finalize)
+    b.design_figures[dtype.id] = figs
+    b.finalizers.append(lambda: continued_notes(figs, lambda sc: ", ".join(
+        short_name(model.name_of(sid)) for sid in sc.meta.get("sites", []))))
     return True
