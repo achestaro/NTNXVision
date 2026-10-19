@@ -35,6 +35,9 @@ from ntnxvision_core.runinfo import RunTracker
 PW = {"username": "admin", "password": "demo"}
 FAST = InventoryOptions(poll_initial_s=0.02, poll_factor=1.5, poll_max_s=0.1)
 INVENTORY = "/api/lifecycle/v4.0/operations/$actions/inventory"
+GENESIS = "/PrismGateway/services/rest/v1/genesis"
+GENESIS_URL = f"https://pc.example.lab:9440{GENESIS}"
+CATALOGUE = "https://download.example.lab/lcm/2.0"
 
 
 def _collect(host: str, **kw: Any) -> Any:
@@ -103,6 +106,97 @@ def test_permit_allows_only_the_inventory_and_only_in_its_context() -> None:
         transport.check_request("POST", url)
 
 
+def _rpc(**kw: Any) -> str:
+    """A Genesis body; keyword overrides go into the value JSON (None drops a key)."""
+    import json
+    value: dict[str, Any] = {".oid": "LifeCycleManager", ".method": "lcm_framework_rpc",
+                             ".kwargs": {"method_class": "LcmFramework",
+                                         "method": "perform_inventory",
+                                         "args": [CATALOGUE]}}
+    for k, v in kw.items():
+        if k.startswith("kw_"):
+            if v is None:
+                value[".kwargs"].pop(k[3:], None)
+            else:
+                value[".kwargs"][k[3:]] = v
+        elif v is None:
+            value.pop(k.replace("_", "."), None)
+        else:
+            value[k.replace("_", ".")] = v
+    return json.dumps({"value": json.dumps(value)})
+
+
+def test_genesis_bodies_are_built_as_checked() -> None:
+    body = transport.genesis_body("perform_inventory", [CATALOGUE])
+    import json
+    assert transport.genesis_rpc(json.dumps(body)) == "perform_inventory"
+    assert transport.genesis_rpc(json.dumps(body).encode()) == "perform_inventory"
+    assert json.loads(body["value"]) == {
+        ".oid": "LifeCycleManager", ".method": "lcm_framework_rpc",
+        ".kwargs": {"method_class": "LcmFramework", "method": "perform_inventory",
+                    "args": [CATALOGUE]}}
+    for read in ("get_config", "is_lcm_operation_in_progress"):
+        assert transport.genesis_rpc(json.dumps(transport.genesis_body(read))) == read
+
+
+def test_legacy_inventory_passes_only_inside_the_permit() -> None:
+    with transport.lcm_inventory_permit():
+        transport.check_request("POST", GENESIS_URL, _rpc())
+        transport.check_request("POST", GENESIS_URL, _rpc().encode())
+        transport.check_request("POST", f"{GENESIS_URL}?proxyClusterUuid="
+                                "0005f0a1-aaaa-bbbb-cccc-000000000001", _rpc())
+    with pytest.raises(ReadOnlyViolation):
+        transport.check_request("POST", GENESIS_URL, _rpc())
+
+
+def test_legacy_reads_pass_without_the_permit() -> None:
+    import json
+    for read in ("get_config", "is_lcm_operation_in_progress"):
+        transport.check_request("POST", GENESIS_URL,
+                                json.dumps(transport.genesis_body(read)))
+        transport.check_request("POST", GENESIS_URL, _rpc(kw_method=read, kw_args=[]))
+
+
+@pytest.mark.parametrize("body", [
+    _rpc(_oid="ClusterManager"),
+    _rpc(_method="cluster_rpc"),
+    _rpc(kw_method_class="LcmUpgrade"),
+    _rpc(kw_method="perform_update"),
+    _rpc(kw_method="perform_upgrade"),
+    _rpc(kw_method="set_config"),
+    _rpc(kw_method="get_config", kw_args=["x"]),          # a read with arguments
+    _rpc(kw_args=[CATALOGUE, CATALOGUE]),                 # two arguments
+    _rpc(kw_args=[]),                                     # no catalogue
+    _rpc(kw_args=["file:///etc/passwd"]),                 # not a catalogue URL
+    _rpc(kw_args=[{"url": CATALOGUE}]),
+    _rpc(kw_args=None),
+    _rpc(kw_extra=1),                                     # extra kwargs key
+    _rpc(_extra=1),                                       # extra key in the value
+    _rpc(_kwargs=None, kwargs={"method_class": "LcmFramework",
+                               "method": "perform_inventory", "args": [CATALOGUE]}),
+    '{"value": "x", "other": 1}',
+    '{"value": {"not": "a string"}}',
+    "value=%7B%7D",                                       # form encoded
+    "not json",
+    "",
+    None,
+])
+def test_genesis_refuses_every_other_body(body: Any) -> None:
+    with transport.lcm_inventory_permit(), pytest.raises(ReadOnlyViolation):
+        transport.check_request("POST", GENESIS_URL, body)
+
+
+@pytest.mark.parametrize("url", [
+    f"{GENESIS_URL}?proxyClusterUuid=abc&x=1",
+    f"{GENESIS_URL}?other=1",
+    f"{GENESIS_URL}/extra",
+    "https://pc.example.lab:9440/PrismGateway/services/rest/v2.0/genesis",
+])
+def test_genesis_refuses_other_urls(url: str) -> None:
+    with transport.lcm_inventory_permit(), pytest.raises(ReadOnlyViolation):
+        transport.check_request("POST", url, _rpc())
+
+
 def test_guard_runs_before_anything_is_sent() -> None:
     """The session refuses before the adapter is reached: nothing leaves the process."""
     sent: list[str] = []
@@ -146,6 +240,39 @@ def test_only_the_inventory_module_enters_the_permit() -> None:
     assert users == {"lcm_inventory.py"}
 
 
+def test_the_permit_wraps_exactly_the_two_inventory_requests() -> None:
+    """lcm_inventory.py: one permit block per driver (v4, Genesis), each in its
+    `_start_inventory` and around exactly one `_send`; the Genesis one names the
+    inventory method. No other module builds the inventory RPC."""
+    tree = dict(_sources())["lcm_inventory.py"]
+    blocks: list[tuple[str, ast.With]] = []
+    for fn in ast.walk(tree):
+        if isinstance(fn, ast.ClassDef):
+            for item in fn.body:
+                if isinstance(item, ast.FunctionDef):
+                    for node in ast.walk(item):
+                        if isinstance(node, ast.With) and any(
+                                "lcm_inventory_permit" in ast.unparse(w.context_expr)
+                                for w in node.items):
+                            blocks.append((f"{fn.name}.{item.name}", node))
+    assert sorted(name for name, _ in blocks) == [
+        "LcmInventory._start_inventory", "LegacyLcmInventory._start_inventory"]
+    for name, block in blocks:
+        sends = [n for n in ast.walk(block) if isinstance(n, ast.Call)
+                 and isinstance(n.func, ast.Attribute) and n.func.attr == "_send"]
+        assert len(sends) == 1, name
+        if name.startswith("Legacy"):
+            assert "retry_429=False" in ast.unparse(sends[0])
+    legacy = next(fn for fn in ast.walk(tree) if isinstance(fn, ast.FunctionDef)
+                  and fn.name == "_start_inventory"
+                  and "GENESIS_INVENTORY_METHOD" in ast.unparse(fn))
+    assert "genesis_body(GENESIS_INVENTORY_METHOD" in ast.unparse(legacy)
+    users = {rel for rel, tree in _sources() if rel != "api/transport.py"
+             and ("GENESIS_INVENTORY_METHOD" in ast.unparse(tree)
+                  or "perform_inventory" in ast.unparse(tree))}
+    assert users == {"lcm_inventory.py"}
+
+
 def test_no_other_code_path_issues_a_non_get_request() -> None:
     offenders = set()
     for rel, tree in _sources():
@@ -173,17 +300,28 @@ class _Recorder:
 
     def __init__(self, monkeypatch: pytest.MonkeyPatch) -> None:
         self.calls: list[tuple[str, str]] = []
+        #: Genesis RPCs that passed: (path with query, LCM framework method).
+        self.genesis: list[tuple[str, str | None]] = []
         real = transport.check_request
 
-        def check(method: str | None, url: str | None) -> None:
-            real(method, url)
+        def check(method: str | None, url: str | None, body: Any = None) -> None:
+            real(method, url, body)
             from urllib.parse import unquote, urlsplit
-            self.calls.append(((method or "GET").upper(), unquote(urlsplit(url or "").path)))
+            parts = urlsplit(url or "")
+            path = unquote(parts.path)
+            self.calls.append(((method or "GET").upper(), path))
+            if path == GENESIS:
+                self.genesis.append((f"{path}?{parts.query}" if parts.query else path,
+                                     transport.genesis_rpc(body)))
         monkeypatch.setattr(transport, "check_request", check)
 
     def writes(self) -> list[tuple[str, str]]:
-        return [(m, p) for m, p in self.calls if m != "GET" and not p.endswith("/list")
-                and not p.endswith("/groups")]
+        """Non-read requests; a Genesis RPC is one unless it is a known read method."""
+        reads = transport.GENESIS_READ_METHODS
+        out = [(m, p) for m, p in self.calls if m != "GET" and not p.endswith("/list")
+               and not p.endswith("/groups") and p != GENESIS]
+        out += [("POST", p) for p, rpc in self.genesis if rpc not in reads]
+        return out
 
 
 def test_without_the_option_a_run_only_reads(demo: Any, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -252,13 +390,121 @@ def test_success_joined_and_upgrade_on_pc01(demo: Any) -> None:
     assert started["areas"][-1]["id"] == "lcm"
 
 
-def test_below_v4_ga_nothing_is_sent(demo: Any, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_below_v4_ga_uses_the_legacy_inventory(demo: Any,
+                                               monkeypatch: pytest.MonkeyPatch) -> None:
+    """pc03 (pc.2024.1): the inventory goes through Genesis; the only writes are the
+    perform_inventory RPCs, one per target, each with the exact body."""
+    _lcm(demo).seconds = 0.2
     rec = _Recorder(monkeypatch)
     env = _collect("pc03.demo.local", lcm_inventory=FAST)
-    assert rec.writes() == [] and _lcm(demo).started == []
+    inv = env.lcm_inventory
+    assert inv.requested and inv.api == "genesis" and inv.targets
+    assert {t.status for t in inv.targets} == {"succeeded"}
+    assert all(t.task_id and ":" not in t.task_id for t in inv.targets)
+    writes = rec.writes()
+    assert {w[1].split("?")[0] for w in writes} == {GENESIS}
+    assert len(writes) == len(inv.targets) == 1 + len(env.clusters) == len(_lcm(demo).started)
+    # PC's own LCM without the proxy; every cluster through it, once.
+    inv_paths = sorted(p for p, rpc in rec.genesis if rpc == "perform_inventory")
+    assert inv_paths.count(GENESIS) == 1
+    assert sorted(p.split("proxyClusterUuid=")[1] for p in inv_paths if "?" in p) == \
+        sorted(c.uuid for c in env.clusters)
+    # Status and config were read before each inventory; no v4 lifecycle request was made.
+    methods = [rpc for _, rpc in rec.genesis]
+    assert methods.count("is_lcm_operation_in_progress") == len(inv.targets)
+    assert methods.count("get_config") == len(inv.targets)
+    assert not any("lifecycle/v4" in p for _, p in rec.calls if _ != "GET")
+    note = env.collection_notes["lcm_inventory"]
+    assert note.startswith("ok: Prism Central: succeeded") and "legacy LCM interface" in note
+    assert "—" not in note
+
+
+def test_legacy_busy_joined_and_upgrade(demo: Any) -> None:
+    host = "pc03.demo.local"
+    probe = _collect(host)  # cluster uuids
+    first, *rest = [c.uuid for c in probe.clusters]
+    running = {"pc": "inventory", first: "upgrade"}
+    _lcm(demo).script(host, running=running, seconds=0.3)
+    env = _collect(host, lcm_inventory=FAST)
+    t = {x.target_id or "pc": x for x in env.lcm_inventory.targets}
+    assert t["pc"].joined and t["pc"].status == "succeeded"
+    assert t[first].status == "skipped_busy" and t[first].busy is not None
+    assert t[first].busy.operation == "UPGRADE" and t[first].busy.task_id
+    assert t[first].detail.startswith("upgrade in progress (Upgrade root task")
+    assert (host, first) not in _lcm(demo).started and (host, "pc") not in _lcm(demo).started
+    assert all(t[c].status == "succeeded" for c in rest)
+
+
+@pytest.mark.parametrize("outcome,status,text", [
+    ("forbidden", "forbidden", "Perform Inventory permission"),
+    ("status_forbidden", "forbidden", "LCM View Status"),
+    ("failed", "failed", "precheck"),
+])
+def test_legacy_outcomes(demo: Any, outcome: str, status: str, text: str) -> None:
+    host = "pc03.demo.local"
+    _lcm(demo).script(host, outcome={"*": outcome}, seconds=0.1)
+    env = _collect(host, lcm_inventory=FAST)
+    targets = env.lcm_inventory.targets
+    assert {x.status for x in targets} == {status}
+    assert text in targets[0].detail and "\n" not in targets[0].detail
+    if outcome != "failed":
+        assert _lcm(demo).started == []
+
+
+def test_unsupported_version_sends_nothing(demo: Any, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Neither v4 lifecycle nor a legacy version (pc.2023.4): nothing is attempted."""
+    rec = _Recorder(monkeypatch)
+    env = _collect("legacy-pc.demo.local", lcm_inventory=FAST)
+    assert rec.writes() == [] and rec.genesis == [] and _lcm(demo).started == []
     assert env.lcm_inventory.requested and not env.lcm_inventory.targets
-    assert "v4 lifecycle API is not served" in env.lcm_inventory.detail
+    assert "no supported legacy LCM interface" in env.lcm_inventory.detail
     assert env.collection_notes["lcm_inventory"].startswith("skipped: the v4 lifecycle API")
+
+
+def test_lcm_area_not_selected_is_a_note(demo: Any, monkeypatch: pytest.MonkeyPatch) -> None:
+    rec = _Recorder(monkeypatch)
+    env = _collect("pc02.demo.local", lcm_inventory=FAST, areas=["clusters"])
+    assert rec.writes() == [] and rec.genesis == [] and _lcm(demo).started == []
+    assert env.lcm_inventory.requested and not env.lcm_inventory.targets
+    assert env.lcm_inventory.detail.startswith("LCM area not selected")
+    assert env.collection_notes["lcm_inventory"].startswith("skipped: LCM area not selected")
+
+
+def test_an_error_outside_the_collectors_stops_the_polling(
+        demo: Any, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Not a cancel: the run fails some other way; the worker must not poll on."""
+    import ntnxvision_core.engine as engine
+
+    host = "pc02.demo.local"
+    _lcm(demo).script(host, outcome={"*": "stuck"}, seconds=60)
+    made: list[Any] = []
+    real_cls = engine.LcmInventory
+
+    class Spy(real_cls):  # type: ignore[misc, valid-type]
+        def __init__(self, *a: Any, **kw: Any) -> None:
+            super().__init__(*a, **kw)
+            made.append(self)
+    monkeypatch.setattr(engine, "LcmInventory", Spy)
+    real_run_area = engine._run_area
+    calls = {"n": 0}
+
+    def failing(*a: Any, **kw: Any) -> Any:
+        calls["n"] += 1
+        if calls["n"] == 2:
+            time.sleep(0.3)  # let the inventory start polling
+            raise RuntimeError("boom")
+        return real_run_area(*a, **kw)
+    monkeypatch.setattr(engine, "_run_area", failing)
+    with pytest.raises(RuntimeError):
+        _collect(host, lcm_inventory=InventoryOptions(poll_initial_s=0.05, poll_max_s=0.1))
+    assert made
+    worker = made[0]._thread
+    assert worker is not None
+    worker.join(5.0)
+    assert not worker.is_alive()
+    assert {t.status for t in made[0].result().targets} == {"cancelled"}
+    assert "collection ended before the inventory finished" in \
+        made[0].result().targets[0].detail
 
 
 def test_forbidden_is_a_note_not_a_failure(demo: Any) -> None:

@@ -17,10 +17,19 @@ estates) and can be replaced per host with `MockLcm.script(host, ...)` (the test
   ``stuck`` (the task never finishes, for timeouts).
 
 The action requires ``NTNX-Request-Id`` and is idempotent on it, as Nutanix documents.
+
+The legacy interface (pc.2024.1 / pc.2024.2, `genesis` and `v3_task`) shares the same
+operations: ``POST /PrismGateway/services/rest/v1/genesis`` answers the LCM framework
+RPCs ``is_lcm_operation_in_progress``, ``get_config`` and ``perform_inventory`` (clusters
+through ``?proxyClusterUuid=``), and ``GET /api/nutanix/v3/tasks/<uuid>`` reports the
+tasks. A body of any other shape is an RPC error, so a payload drift fails the tests.
+The same outcomes apply (``forbidden``: 403 on the inventory; ``status_forbidden``: 403
+on every RPC).
 """
 
 from __future__ import annotations
 
+import json
 import threading
 import time
 import uuid
@@ -30,6 +39,8 @@ from typing import Any
 from ntnxvision_core.synthetic import render as r
 
 TASK_PREFIX = "ZXJnb24=:"
+#: The catalogue URL the mock LCM reports in its configuration.
+CATALOGUE_URL = "https://download.example.lab/lcm/2.0"
 DEFAULT_SECONDS = 6.0
 #: An upgrade found running lasts this many inventory durations (never ends in a run).
 _UPGRADE_FACTOR = 50
@@ -55,6 +66,8 @@ class MockLcm:
         self.inventoried: dict[tuple[str, str], str] = {}
         #: Every inventory POST accepted: (host, target key).
         self.started: list[tuple[str, str]] = []
+        #: Every Genesis RPC answered: (host, target key, method).
+        self.genesis_calls: list[tuple[str, str, str]] = []
 
     def reset(self) -> None:
         with self._lock:
@@ -65,6 +78,7 @@ class MockLcm:
             self._requests.clear()
             self.inventoried.clear()
             self.started.clear()
+            self.genesis_calls.clear()
 
     def script(self, host: str, *, running: dict[str, str] | None = None,
                outcome: dict[str, str] | None = None, seconds: float | None = None) -> None:
@@ -221,6 +235,89 @@ class MockLcm:
                            "synthetic cluster failed an LCM precheck.",
                 "severity": "ERROR", "code": "LIF-20002"}]
         return 200, r.v4_single(data)
+
+
+    # ─── the legacy interface (Genesis RPC + v3 tasks) ─────────────
+
+    def genesis(self, host: str, est: Any, cluster: str | None,
+                body: Any) -> tuple[int, Any]:
+        key = cluster or "pc"
+        if cluster and cluster not in {c["uuid"] for c in est.clusters}:
+            return 500, _genesis_error(f"Unknown cluster {cluster}")
+        rpc = _decode_rpc(body)
+        if rpc is None:
+            return 500, _genesis_error("Malformed RPC")
+        method, args = rpc
+        with self._lock:
+            conf = self._seed(host, est)
+            outcome = self._outcome(conf, key)
+            self.genesis_calls.append((host, key, method))
+            if outcome == "status_forbidden":
+                return 403, _forbidden()
+            if method == "is_lcm_operation_in_progress":
+                run = self._running(host, key)
+                return 200, _genesis_value(run[0] if run else None)
+            if method == "get_config":
+                return 200, _genesis_value({"url": CATALOGUE_URL, "version": "2.6.0.1",
+                                            "auto_update_enabled": False})
+            if method != "perform_inventory" or args != [CATALOGUE_URL]:
+                return 500, _genesis_error(f"Unexpected RPC {method}")
+            if outcome == "forbidden":
+                return 403, _forbidden()
+            if self._running(host, key) is not None:
+                return 200, {"value": json.dumps(
+                    {".error": "Another LCM operation is in progress"})}
+            task_id = self._new_task(host, key, "inventory", self._seconds(conf), outcome)
+            self.started.append((host, key))
+        return 200, _genesis_value(task_id)
+
+    def v3_task(self, task_id: str, est: Any) -> tuple[int, Any]:
+        with self._lock:
+            task = self._tasks.get(task_id)
+            if task is None:
+                return 404, {"state": "ERROR", "code": 404,
+                             "message_list": [{"message": f"Task {task_id} not found"}]}
+            state, pct = self._state(task)
+        data: dict[str, Any] = {
+            "uuid": task_id, "status": state, "percentage_complete": pct,
+            "operation_type": "kLcmRootTask",
+            "progress_message": ("Inventory root task" if task["kind"] == "inventory"
+                                 else "Upgrade root task"),
+            "start_time": _iso(task["started"]), "creation_time": _iso(task["started"]),
+            "cluster_reference": {"kind": "cluster",
+                                  "uuid": est.pc_uuid if task["key"] == "pc" else task["key"]},
+        }
+        if state != "RUNNING":
+            data["completion_time"] = _iso(task["started"] + task["duration"])
+        if state == "FAILED":
+            data["error_detail"] = ("Failed to perform the precheck test_example_check: "
+                                    "the synthetic cluster failed an LCM precheck.\n.")
+        return 200, data
+
+
+def _decode_rpc(body: Any) -> tuple[str, list[Any] | None] | None:
+    """(method, args) of an LCM framework RPC body, or None for any other shape."""
+    if not isinstance(body, dict) or set(body) != {"value"}:
+        return None
+    try:
+        rpc = json.loads(body["value"])
+    except (TypeError, ValueError):
+        return None
+    if not isinstance(rpc, dict) or rpc.get(".oid") != "LifeCycleManager" or \
+            rpc.get(".method") != "lcm_framework_rpc":
+        return None
+    kwargs = rpc.get(".kwargs")
+    if not isinstance(kwargs, dict) or kwargs.get("method_class") != "LcmFramework":
+        return None
+    return str(kwargs.get("method")), kwargs.get("args")
+
+
+def _genesis_value(value: Any) -> dict[str, str]:
+    return {"value": json.dumps({".return": value})}
+
+
+def _genesis_error(message: str) -> dict[str, Any]:
+    return {"error": message}
 
 
 def _error(code: str, message: str) -> dict[str, Any]:
