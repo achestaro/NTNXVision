@@ -593,7 +593,19 @@ def test_word_tables_never_orphan_their_header(env: Environment, tmp_path: Path)
             w = table._tbl.tblPr.find(qn("w:tblW"))
             if w is not None and w.get(qn("w:type")) == "dxa":
                 assert int(w.get(qn("w:w"))) <= text_w + 1 or s_ is not sec
-    assert "w:noBreakHyphen" not in doc.element.xml
+    xml = doc.element.xml
+    assert "w:noBreakHyphen" not in xml and "‑" not in xml
+    # Every run keeps its spaces: a w:t that starts or ends with a space is preserved,
+    # and each design-summary bullet reads in the document exactly as written.
+    for t in doc.element.body.iter(qn("w:t")):
+        if t.text and t.text != t.text.strip():
+            assert t.get("{http://www.w3.org/XML/1998/namespace}space") == "preserve", t.text
+    texts = [p.text for p in doc.paragraphs] + [
+        p.text for tb in doc.tables for r in tb.rows for c in r.cells for p in c.paragraphs]
+    models = {"conceptual": _edited(env, _ops(env))}
+    figs = _figures(env, models)
+    for item in figs[0].summary:
+        assert any(item in t for t in texts), item
 
 
 def test_empty_user_zone_is_only_its_header(env: Environment) -> None:

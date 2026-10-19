@@ -22,7 +22,6 @@ template keeps its own styles: only direct table and cover formatting is applied
 from __future__ import annotations
 
 import io
-import re
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -381,7 +380,7 @@ class WordExporter:
                 if isinstance(value, Status):
                     glyph = p.add_run(f"{GLYPH} ")
                     _run(glyph, 8.5, RGBColor.from_string(T.STATUS_HEX[value.tone]))
-                _run(_nb_run(p, text), 8.5, _INK_3 if text == NA else _INK)
+                _run(p.add_run(text), 8.5, _INK_3 if text == NA else _INK)
         self._tables += 1
         spacer = doc.add_paragraph()
         spacer.paragraph_format.space_after = Pt(6)
@@ -428,7 +427,7 @@ class WordExporter:
             marker = _run(b.add_run(GLYPH), 5.5, _IRIS)
             _rfonts(marker._r, "Arial")
             b.add_run("\t")
-            text = _run(_nb_run(b, T.clean(item)), 9.5, _INK)
+            text = _run(b.add_run(T.clean(item)), 9.5, _INK)
             _rfonts(text._r, T.OFFICE_FONT)
 
     def _scene_figure(self, doc: DocumentObject, f: SceneFigure) -> None:
@@ -481,12 +480,12 @@ class WordExporter:
             cap.paragraph_format.keep_with_next = True
             note = doc.add_paragraph()
             note.paragraph_format.space_after = Pt(10)
-            _run(_nb_run(note, T.clean(f.note)), 8, _INK_3)
+            _run(note.add_run(T.clean(f.note)), 8, _INK_3)
 
     @staticmethod
     def _figure_caption(cap: Any, f: Figure | SceneFigure) -> None:
         cap.paragraph_format.space_after = Pt(10)
-        _run(_nb_run(cap, T.clean(f.title)), None, _INK_3, italic=True)
+        _run(cap.add_run(T.clean(f.title)), None, _INK_3, italic=True)
 
     def _figure_row(self, doc: DocumentObject, row: FigureRow) -> None:
         if not row.figures:
@@ -572,10 +571,12 @@ def _column_widths(t: Table, width: int) -> list[float]:
         extra = glyph if any(isinstance(r[i], Status) for r in t.rows[:250]) else 0
         widest = max((len(x) for x in texts), default=0)
         natural.append(min(max(widest, len(header) * 0.9), 60) * per_char + pad + extra)
-        # Never narrower than the longest word (a name, a date, a status), so the table
-        # wraps between words instead of breaking "CRITICAL" across two lines.
+        # Never narrower than the longest word (a name, a hostname, a date, a status), so
+        # the table wraps between words instead of breaking "CRITICAL" or
+        # "md-pc01.demo.local" across two lines. Plain ASCII hyphens everywhere: copy,
+        # paste and Find work on the text, and Word renders it without gaps.
         longest = max((len(w) for x in [*texts, header] for w in x.split(" ")), default=4)
-        minimum.append(min(longest, 18) * per_char + pad + extra)
+        minimum.append(min(longest, 24) * per_char + pad + extra)
     total = sum(natural)
     if total <= width:
         return natural if total < width * 0.62 else [w * width / total for w in natural]
@@ -708,31 +709,6 @@ def _lang(style: Any, tag: str) -> None:
     lang = OxmlElement("w:lang")
     lang.set(qn("w:val"), tag)
     r_pr.append(lang)
-
-
-#: A hyphenated token this short (``Table 5-2``, ``X-Play``, ``en-pc02``,
-#: ``md-pc01.demo.local``) never breaks at its hyphen; longer ones (cluster names) may.
-_NB_TOKEN_MAX = 24
-_TOKEN = re.compile(r"\S+")
-_INNER_HYPHEN = re.compile(r"\w-\w")
-
-
-def _nb_hyphens(text: str) -> str:
-    """`text` with the hyphens of short hyphenated tokens as U+2011 markers."""
-    def keep(m: re.Match[str]) -> str:
-        tok = m.group(0)
-        if len(tok) <= _NB_TOKEN_MAX and _INNER_HYPHEN.search(tok):
-            return tok.replace("-", "\u2011")
-        return tok
-    return _TOKEN.sub(keep, text)
-
-
-def _nb_run(paragraph: Any, text: str) -> Any:
-    """A run with `text`, its short hyphenated tokens joined by the non-breaking hyphen
-    character (U+2011, which Calibri and Figtree carry), so "Table 5-2" or "en-pc02"
-    never split at a line end. A literal character rather than ``w:noBreakHyphen``:
-    Word measured that element too narrow in table cells and squeezed the next words."""
-    return paragraph.add_run(_nb_hyphens(text))
 
 
 def _body_height(doc: DocumentObject) -> int:
