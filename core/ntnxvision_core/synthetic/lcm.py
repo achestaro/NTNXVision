@@ -68,6 +68,8 @@ class MockLcm:
         self.started: list[tuple[str, str]] = []
         #: Every Genesis RPC answered: (host, target key, method).
         self.genesis_calls: list[tuple[str, str, str]] = []
+        #: The catalogue URL ``get_config`` reports (tests may change it).
+        self.catalogue = CATALOGUE_URL
 
     def reset(self) -> None:
         with self._lock:
@@ -79,6 +81,7 @@ class MockLcm:
             self.inventoried.clear()
             self.started.clear()
             self.genesis_calls.clear()
+            self.catalogue = CATALOGUE_URL
 
     def script(self, host: str, *, running: dict[str, str] | None = None,
                outcome: dict[str, str] | None = None, seconds: float | None = None) -> None:
@@ -258,9 +261,9 @@ class MockLcm:
                 run = self._running(host, key)
                 return 200, _genesis_value(run[0] if run else None)
             if method == "get_config":
-                return 200, _genesis_value({"url": CATALOGUE_URL, "version": "2.6.0.1",
+                return 200, _genesis_value({"url": self.catalogue, "version": "2.6.0.1",
                                             "auto_update_enabled": False})
-            if method != "perform_inventory" or args != [CATALOGUE_URL]:
+            if method != "perform_inventory" or args != [self.catalogue]:
                 return 500, _genesis_error(f"Unexpected RPC {method}")
             if outcome == "forbidden":
                 return 403, _forbidden()

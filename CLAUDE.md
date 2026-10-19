@@ -223,8 +223,10 @@ rule rather than assuming v4 is always available.
   checked) pass, anything else is refused before it is sent. The **one exception** is the
   opt-in LCM inventory, in one of two forms: `POST /api/lifecycle/v4.x/operations/$actions/inventory`
   (v4), or on pc.2024.1 / pc.2024.2 `POST /PrismGateway/services/rest/v1/genesis` whose
-  body is checked to be exactly the LCM framework `perform_inventory` RPC (Genesis is a
-  generic RPC endpoint, so its path alone admits nothing). Either is allowed only inside
+  body is checked to be exactly the LCM framework `perform_inventory` RPC, naming the
+  catalogue URL that LCM's own `get_config` reply gave (Genesis is a generic RPC
+  endpoint, so its path alone admits nothing; raw path, strict UTF-8 JSON, no duplicate
+  keys). Either is allowed only inside
   `transport.lcm_inventory_permit()`, entered only by `lcm_inventory.py`, only when the
   user switched "Run LCM inventory first" on for that run (never by default, never from
   schedules). It refreshes LCM's view and upgrades nothing; it is never started on a

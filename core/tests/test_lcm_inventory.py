@@ -8,6 +8,8 @@ metadata, the reports' provenance line, and that nothing happens unless asked.
 from __future__ import annotations
 
 import ast
+import io
+import json
 import threading
 import time
 from pathlib import Path
@@ -126,6 +128,11 @@ def _rpc(**kw: Any) -> str:
     return json.dumps({"value": json.dumps(value)})
 
 
+def _dup_value(first: str, second: str) -> str:
+    """An outer body naming "value" twice."""
+    return f'{{"value": {json.dumps(first)}, "value": {json.dumps(second)}}}'
+
+
 def test_genesis_bodies_are_built_as_checked() -> None:
     body = transport.genesis_body("perform_inventory", [CATALOGUE])
     import json
@@ -139,14 +146,77 @@ def test_genesis_bodies_are_built_as_checked() -> None:
         assert transport.genesis_rpc(json.dumps(transport.genesis_body(read))) == read
 
 
+CLUSTER = "0005f0a1-aaaa-bbbb-cccc-000000000001"
+
+
+def _config_reply(url: str = CATALOGUE) -> bytes:
+    import json
+    return json.dumps({"value": json.dumps({".return": {"url": url}})}).encode()
+
+
+def _in_fresh_context(fn: Any) -> Any:
+    """Run `fn` in a copy of the current context, so recorded catalogues do not leak."""
+    import contextvars
+    return contextvars.copy_context().run(fn)
+
+
 def test_legacy_inventory_passes_only_inside_the_permit() -> None:
-    with transport.lcm_inventory_permit():
-        transport.check_request("POST", GENESIS_URL, _rpc())
-        transport.check_request("POST", GENESIS_URL, _rpc().encode())
-        transport.check_request("POST", f"{GENESIS_URL}?proxyClusterUuid="
-                                "0005f0a1-aaaa-bbbb-cccc-000000000001", _rpc())
-    with pytest.raises(ReadOnlyViolation):
-        transport.check_request("POST", GENESIS_URL, _rpc())
+    def body() -> None:
+        proxied = f"{GENESIS_URL}?proxyClusterUuid={CLUSTER}"
+        # Before LCM reported its catalogue, even the permit does not admit it.
+        with transport.lcm_inventory_permit(), pytest.raises(ReadOnlyViolation):
+            transport.check_request("POST", GENESIS_URL, _rpc())
+        transport._remember_catalogue(GENESIS_URL, _config_reply())
+        with transport.lcm_inventory_permit():
+            transport.check_request("POST", GENESIS_URL, _rpc())
+            transport.check_request("POST", GENESIS_URL, _rpc().encode())
+            # Another LCM (the cluster through the proxy, another host) has not reported.
+            for url in (proxied, "https://pc2.example.lab:9440" + GENESIS):
+                with pytest.raises(ReadOnlyViolation):
+                    transport.check_request("POST", url, _rpc())
+        transport._remember_catalogue(proxied, _config_reply())
+        with transport.lcm_inventory_permit():
+            transport.check_request("POST", proxied, _rpc())
+        with pytest.raises(ReadOnlyViolation):
+            transport.check_request("POST", GENESIS_URL, _rpc())
+    _in_fresh_context(body)
+
+
+def test_legacy_inventory_is_bound_to_the_reported_catalogue() -> None:
+    def body() -> None:
+        transport._remember_catalogue(GENESIS_URL, _config_reply())
+        with transport.lcm_inventory_permit():
+            for other in ("https://download.example.lab/lcm/2.1", "http://198.51.100.9/x"):
+                with pytest.raises(ReadOnlyViolation):
+                    transport.check_request("POST", GENESIS_URL, _rpc(kw_args=[other]))
+            # The binding is per context: another thread has none.
+            seen: list[BaseException] = []
+
+            def other_thread() -> None:
+                try:
+                    with transport.lcm_inventory_permit():
+                        transport.check_request("POST", GENESIS_URL, _rpc())
+                except ReadOnlyViolation as exc:
+                    seen.append(exc)
+            t = threading.Thread(target=other_thread)
+            t.start()
+            t.join()
+            assert len(seen) == 1
+    _in_fresh_context(body)
+
+
+@pytest.mark.parametrize("reply", [
+    _config_reply('https://download.example.lab/"x'),     # not a valid catalogue
+    _config_reply("file:///etc/passwd"),
+    b'{"value": "{\\".return\\": {\\"url\\": \\"https://a/1\\", \\"url\\": \\"https://a/2\\"}}"}',
+    b'{"value": "x", "value": "y"}',
+    b"\xff\xfe",
+])
+def test_bad_config_replies_record_nothing(reply: bytes) -> None:
+    def body() -> None:
+        transport._remember_catalogue(GENESIS_URL, reply)
+        assert not transport._catalogues.get()
+    _in_fresh_context(body)
 
 
 def test_legacy_reads_pass_without_the_permit() -> None:
@@ -175,6 +245,44 @@ def test_legacy_reads_pass_without_the_permit() -> None:
     _rpc(_kwargs=None, kwargs={"method_class": "LcmFramework",
                                "method": "perform_inventory", "args": [CATALOGUE]}),
     '{"value": "x", "other": 1}',
+    # duplicate keys at every level (parsers disagree on which one wins)
+    _dup_value(json.dumps({".oid": "X"}), json.loads(_rpc())["value"]),
+    _dup_value(json.loads(_rpc())["value"], json.dumps({".oid": "X"})),
+    json.dumps({"value": '{".oid": "LifeCycleManager", ".oid": "LifeCycleManager", '
+                         '".method": "lcm_framework_rpc", ".kwargs": {"method_class": '
+                         '"LcmFramework", "method": "get_config"}}'}),
+    json.dumps({"value": '{".oid": "LifeCycleManager", ".method": "lcm_framework_rpc", '
+                         '".kwargs": {"method_class": "LcmFramework", "method": '
+                         '"stop_service", "method": "get_config"}}'}),
+    json.dumps({"value": '{".oid": "LifeCycleManager", ".method": "lcm_framework_rpc", '
+                         '".kwargs": {"method_class": "LcmFramework", "method": '
+                         '"get_config", "method": "perform_update"}}'}),
+    json.dumps({"value": '{".oid": "LifeCycleManager", ".method": "lcm_framework_rpc", '
+                         '".kwargs": {"method_class": "LcmFramework", "method": '
+                         '"perform_inventory", "args": [{"u": 1, "u": 2}]}}'}),
+    json.dumps({"value": '{".oid": NaN}'}),
+    "[]",
+    # encodings and body types other than str / strict UTF-8 bytes
+    _rpc(kw_method="get_config", kw_args=None).encode("utf-16"),
+    _rpc(kw_method="get_config", kw_args=None).encode("utf-32"),
+    bytearray(_rpc(kw_method="get_config", kw_args=None).encode()),
+    memoryview(_rpc(kw_method="get_config", kw_args=None).encode()),
+    "\ufeff" + _rpc(kw_method="get_config", kw_args=None),
+    b"\xef\xbb\xbf" + _rpc(kw_method="get_config", kw_args=None).encode(),
+    io.BytesIO(_rpc(kw_method="get_config", kw_args=None).encode()),
+    (x for x in [_rpc(kw_method="get_config", kw_args=None).encode()]),
+    json.dumps({"value": '{".oid": "LifeCycleManager", ".method": "lcm_framework_rpc", '
+                         '".kwargs": {"method_class": "LcmFramework", "method": '
+                         '"get_config", "args": null}}'}),     # args: null on a read
+    # catalogue URLs: printable ASCII only, no quotes or backslashes
+    _rpc(kw_args=["https://x/y z"]),
+    _rpc(kw_args=["https://x/\u00e9"]),
+    _rpc(kw_args=["https://x/\x00y"]),
+    _rpc(kw_args=["https://x/a\\b"]),
+    _rpc(kw_args=['https://x/a"b']),
+    _rpc(kw_args=["https://x/a'b"]),
+    _rpc(kw_args=["HTTPS://x/"]),
+    _rpc(kw_args=["https://" + "a" * 501]),
     '{"value": {"not": "a string"}}',
     "value=%7B%7D",                                       # form encoded
     "not json",
@@ -188,13 +296,65 @@ def test_genesis_refuses_every_other_body(body: Any) -> None:
 
 @pytest.mark.parametrize("url", [
     f"{GENESIS_URL}?proxyClusterUuid=abc&x=1",
+    f"{GENESIS_URL}?proxyClusterUuid=abc-123",            # not a uuid
+    f"{GENESIS_URL}?proxyClusterUuid={CLUSTER}%0a",
     f"{GENESIS_URL}?other=1",
+    f"{GENESIS_URL}?",
+    f"{GENESIS_URL}#x",
     f"{GENESIS_URL}/extra",
+    f"{GENESIS_URL};x=1",
+    f"{GENESIS_URL}/",
+    "https://pc.example.lab:9440//PrismGateway/services/rest/v1/genesis",
+    "https://pc.example.lab:9440/PrismGateway/services/rest/v1/gen%65sis",
+    "https://pc.example.lab:9440/PrismGateway/services/rest/v1%2Fgenesis",
+    "https://pc.example.lab:9440/PrismGateway/services/rest/v1/Genesis",
     "https://pc.example.lab:9440/PrismGateway/services/rest/v2.0/genesis",
 ])
 def test_genesis_refuses_other_urls(url: str) -> None:
     with transport.lcm_inventory_permit(), pytest.raises(ReadOnlyViolation):
         transport.check_request("POST", url, _rpc())
+
+
+@pytest.mark.parametrize("method,body", [("GET", None), ("HEAD", None), ("GET", _rpc()),
+                                         ("post", _rpc(kw_method="perform_update"))])
+def test_genesis_is_never_reached_another_way(method: str, body: Any) -> None:
+    with pytest.raises(ReadOnlyViolation):
+        transport.check_request(method, GENESIS_URL, body)
+
+
+def test_a_read_carries_no_body() -> None:
+    with pytest.raises(ReadOnlyViolation):
+        transport.check_request("GET", "https://pc.example.lab:9440/api/nutanix/v3/vms",
+                                b'{"x": 1}')
+
+
+def test_streamed_bodies_are_refused_not_crashed() -> None:
+    prepared = requests.Request("POST", GENESIS_URL, data=iter([b"x"])).prepare()
+    with pytest.raises(ReadOnlyViolation):
+        transport.check_request("POST", GENESIS_URL, prepared.body)
+
+
+def test_task_ids_must_be_uuids(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A status reply naming a non-uuid task: busy, unidentified; no task URL is built."""
+    from ntnxvision_core.lcm_inventory import LegacyLcmInventory
+
+    inv = LegacyLcmInventory(lambda: None, [])
+    asked: list[str] = []
+
+    class Conn:
+        class creds:  # noqa: N801
+            base = "https://pc.example.lab:9440"
+
+        def get_json(self, url: str, **kw: Any) -> dict[str, Any]:
+            asked.append(url)
+            return {}
+
+    for bad in ("../../vms/abc", "abc?x=1", "0005f0a1-aaaa-bbbb-cccc-00000000000g"):
+        monkeypatch.setattr(inv, "_genesis", lambda *a, _b=bad, **k: _b)
+        assert inv._read_status(Conn(), inv.run.targets[0])[0] == "OPERATION"
+        with pytest.raises(NutanixApiError):
+            inv._v3_task(Conn(), bad)
+    assert asked == []
 
 
 def test_guard_runs_before_anything_is_sent() -> None:
@@ -449,6 +609,15 @@ def test_legacy_outcomes(demo: Any, outcome: str, status: str, text: str) -> Non
     assert text in targets[0].detail and "\n" not in targets[0].detail
     if outcome != "failed":
         assert _lcm(demo).started == []
+
+
+def test_legacy_unconfirmed_catalogue_is_refused_per_target(demo: Any) -> None:
+    """LCM reports a catalogue the guard does not accept: no inventory is sent."""
+    _lcm(demo).catalogue = "https://download.example.lab/lcm/2.0 x"
+    env = _collect("pc03.demo.local", lcm_inventory=FAST)
+    assert {t.status for t in env.lcm_inventory.targets} == {"failed"}
+    assert "refused before it was sent" in env.lcm_inventory.targets[0].detail
+    assert _lcm(demo).started == []
 
 
 def test_unsupported_version_sends_nothing(demo: Any, monkeypatch: pytest.MonkeyPatch) -> None:

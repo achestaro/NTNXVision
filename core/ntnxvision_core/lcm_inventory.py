@@ -70,10 +70,11 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any
 
-from ntnxvision_core.api.errors import AuthenticationError, NutanixApiError
+from ntnxvision_core.api.errors import AuthenticationError, NutanixApiError, ReadOnlyViolation
 from ntnxvision_core.api.transport import (
     GENESIS_INVENTORY_METHOD,
     GENESIS_PATH,
+    UUID_RE,
     genesis_body,
     lcm_inventory_permit,
 )
@@ -494,6 +495,9 @@ class LegacyLcmInventory(LcmInventory):
         return _genesis_return(conn._json_or_raise(resp))
 
     def _v3_task(self, conn: Any, task_id: str) -> dict[str, Any]:
+        """A v3 task; an id that is not a plain uuid is never put into a URL."""
+        if not UUID_RE.fullmatch(task_id):
+            raise NutanixApiError(f"Not a task uuid: {task_id[:80]!r}")
         return conn.get_json(f"{conn.creds.base}{V3_TASK_PATH.format(task_id)}")
 
     def _read_status(self, conn: Any, target: LcmInventoryTarget) -> tuple[str, str]:
@@ -501,6 +505,9 @@ class LegacyLcmInventory(LcmInventory):
         op_id = running.strip() if isinstance(running, str) else ""
         if not op_id:
             return "", ""
+        if not UUID_RE.fullmatch(op_id):
+            # Something runs but its task cannot be read safely: never start on top of it.
+            return "OPERATION", op_id[:80]
         try:
             task = self._v3_task(conn, op_id)
         except NutanixApiError:
@@ -554,11 +561,18 @@ class LegacyLcmInventory(LcmInventory):
             return
         url = f"{conn.creds.base}{GENESIS_PATH}"
         body = genesis_body(GENESIS_INVENTORY_METHOD, [catalogue])
-        with lcm_inventory_permit():
-            # Sent once: Genesis has no idempotency key, so a retried 429 could start a
-            # second inventory.
-            resp = conn._send("POST", url, params=_proxy_params(target), json=body,
-                              retry_429=False)
+        try:
+            with lcm_inventory_permit():
+                # Sent once: Genesis has no idempotency key, so a retried 429 could start
+                # a second inventory.
+                resp = conn._send("POST", url, params=_proxy_params(target), json=body,
+                                  retry_429=False)
+        except ReadOnlyViolation:
+            # The guard binds the inventory to the catalogue URL LCM's own get_config
+            # reply gave; anything else is refused before it is sent, for this target.
+            self._final(i, FAILED, "The inventory request was refused before it was sent: "
+                                   "LCM's catalogue URL could not be confirmed")
+            return
         if resp.status_code in (401, 403):
             self._final(i, FORBIDDEN, "The account lacks the LCM Perform Inventory "
                                       "permission (Super Admin, Prism Admin or Cluster "
@@ -574,6 +588,10 @@ class LegacyLcmInventory(LcmInventory):
             self._final(i, FAILED, f"LCM did not accept the inventory: {_short(exc)}")
             return
         task_id = task.strip() if isinstance(task, str) else ""
+        if task_id and not UUID_RE.fullmatch(task_id):
+            self._final(i, FAILED, "LCM accepted the inventory but returned a task id that "
+                                   "is not a uuid, so it cannot be followed")
+            return
         with self._lock:
             target.status = RUNNING
             target.task_id = task_id or None
