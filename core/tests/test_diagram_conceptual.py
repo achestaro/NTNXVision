@@ -443,9 +443,10 @@ def test_word_report_contains_the_figure(estates: dict[str, Environment],
     assert beside
     # The DR chapter names the figures that draw replication.
     assert "Figures 5-1 to 5-2 (Solution Conceptual Overview" in text
-    # Short hyphenated tokens never break at their hyphen in Word.
+    # Short hyphenated tokens never break at their hyphen in Word: the literal
+    # non-breaking hyphen (Calibri has it; w:noBreakHyphen squeezed text in cells).
     xml = doc.element.xml
-    assert "w:noBreakHyphen" in xml
+    assert "‑" in xml and "w:noBreakHyphen" not in xml
     assert "2 AHV" in text or "3 AHV" in text
 
 

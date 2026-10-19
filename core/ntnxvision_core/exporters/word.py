@@ -60,6 +60,8 @@ from ntnxvision_core.numfmt import NA
 GLYPH = "■"
 #: The narrowest design-summary column beside a figure (pt).
 SUMMARY_MIN_W = 170.0
+#: Tables with at most this many rows keep together on one page.
+SMALL_TABLE = 15
 
 _INK = RGBColor.from_string(T.INK)
 _INK_2 = RGBColor.from_string(T.INK_2)
@@ -352,21 +354,27 @@ class WordExporter:
 
         header = table.rows[0]
         _repeat_header(header)
+        # Never a header alone at a page foot: it keeps with the first row, and a small
+        # table (up to SMALL_TABLE rows) keeps all its rows on one page.
+        small = len(t.rows) <= SMALL_TABLE
         for cell, text, align in zip(header.cells, t.headers, t.align, strict=True):
             _shade(cell, T.HEADER_FILL)
             _cell_border(cell, "bottom", T.IRIS, size=8)
             p = cell.paragraphs[0]
             p.paragraph_format.space_after = Pt(0)
+            p.paragraph_format.keep_with_next = True
             p.alignment = WD_ALIGN_PARAGRAPH.RIGHT if align == "R" else WD_ALIGN_PARAGRAPH.LEFT
             _run(p.add_run(text), 8.5, _INK_2, bold=True)
 
-        for row in t.rows:
+        for ri, row in enumerate(t.rows):
             tr = table.add_row()
             _cant_split(tr)
             for cell, value, head, align in zip(tr.cells, row, t.headers, t.align,
                                                 strict=True):
                 p = cell.paragraphs[0]
                 p.paragraph_format.space_after = Pt(0)
+                if small and ri < len(t.rows) - 1:
+                    p.paragraph_format.keep_with_next = True
                 p.alignment = (WD_ALIGN_PARAGRAPH.RIGHT if align == "R"
                                else WD_ALIGN_PARAGRAPH.LEFT)
                 text = cell_text(value, head)
@@ -449,8 +457,9 @@ class WordExporter:
                 if len(f.summary) > 3 and text_w >= int(Inches(8)):
                     half = (len(f.summary) + 1) // 2
                     table = doc.add_table(rows=1, cols=2)
-                    _fixed_layout(table, [text_w / 2, text_w / 2])
-                    _cell_margins(table, top=0, bottom=0, left=0, right=140)
+                    # Within the text width, with Word's normal cell margins.
+                    _fixed_layout(table, [text_w // 2, text_w - text_w // 2])
+                    _cell_margins(table, top=0, bottom=0, left=108, right=108)
                     for cell, items in zip(table.rows[0].cells,
                                            (f.summary[:half], f.summary[half:]), strict=True):
                         cell._tc.remove(cell.paragraphs[0]._p)
@@ -719,18 +728,11 @@ def _nb_hyphens(text: str) -> str:
 
 
 def _nb_run(paragraph: Any, text: str) -> Any:
-    """A run with `text`, its short hyphenated tokens joined by Word's non-breaking
-    hyphen (``w:noBreakHyphen``), so "Table 5-2" or "en-pc02" never split at a line end."""
-    run = paragraph.add_run()
-    for i, part in enumerate(_nb_hyphens(text).split("\u2011")):
-        if i:
-            run._r.append(OxmlElement("w:noBreakHyphen"))
-        if part:
-            t = OxmlElement("w:t")
-            t.set(qn("xml:space"), "preserve")
-            t.text = part
-            run._r.append(t)
-    return run
+    """A run with `text`, its short hyphenated tokens joined by the non-breaking hyphen
+    character (U+2011, which Calibri and Figtree carry), so "Table 5-2" or "en-pc02"
+    never split at a line end. A literal character rather than ``w:noBreakHyphen``:
+    Word measured that element too narrow in table cells and squeezed the next words."""
+    return paragraph.add_run(_nb_hyphens(text))
 
 
 def _body_height(doc: DocumentObject) -> int:

@@ -559,6 +559,43 @@ def test_user_cards_never_split_paired_azs(enterprise: Environment) -> None:
     assert not any("where they fit" in s for f in figs for s in f.summary)
 
 
+def test_word_tables_never_orphan_their_header(env: Environment, tmp_path: Path) -> None:
+    from docx import Document
+    from docx.oxml.ns import qn
+
+    from ntnxvision_core.exporters import export_environment
+    from ntnxvision_core.exporters.word import SMALL_TABLE
+
+    path = export_environment(env, "word", tmp_path, "medium",
+                              {"diagram_models": {"conceptual": _edited(env, _ops(env))}})
+    doc = Document(str(path))
+    sec = doc.sections[0]
+    checked = 0
+    for table in doc.tables:
+        rows = table.rows
+        tr_pr = rows[0]._tr.trPr
+        if tr_pr is None or tr_pr.find(qn("w:tblHeader")) is None:
+            continue
+        checked += 1
+        assert tr_pr.find(qn("w:cantSplit")) is not None
+        assert all(p.paragraph_format.keep_with_next for c in rows[0].cells
+                   for p in c.paragraphs)
+        if len(rows) - 1 <= SMALL_TABLE:
+            for r in rows[1:-1]:
+                assert all(p.paragraph_format.keep_with_next for c in r.cells
+                           for p in c.paragraphs)
+    assert checked
+    # No table is wider than the text (two-column summaries included), and no run uses
+    # w:noBreakHyphen (Word squeezed the following words in table cells).
+    for s_ in doc.sections:
+        text_w = (s_.page_width - s_.left_margin - s_.right_margin) / 635
+        for table in doc.tables:
+            w = table._tbl.tblPr.find(qn("w:tblW"))
+            if w is not None and w.get(qn("w:type")) == "dxa":
+                assert int(w.get(qn("w:w"))) <= text_w + 1 or s_ is not sec
+    assert "w:noBreakHyphen" not in doc.element.xml
+
+
 def test_empty_user_zone_is_only_its_header(env: Environment) -> None:
     [scene] = _scenes(env, [{"op": "add", "parent": None, "field": "sites", "index": 99,
                              "element": {"id": "user:az", "palette": "az", "name": "Colo"}}])
