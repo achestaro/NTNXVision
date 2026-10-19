@@ -56,6 +56,7 @@ from ntnxvision_core.models.environment import (
     Role,
     ScopeCluster,
     SecurityPolicy,
+    SecurityRule,
     ServiceGroup,
     SourcedObject,
     SourceEnvironment,
@@ -109,6 +110,7 @@ __all__ = [
     "Alert",
     # Flow
     "SecurityPolicy",
+    "SecurityRule",
     "Category",
     "ServiceGroup",
     "AddressGroup",

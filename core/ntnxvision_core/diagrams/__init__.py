@@ -111,6 +111,11 @@ TYPES: dict[str, DiagramType] = {
         slug="data-protection"),
 }
 
+# Network and security figures (N1 to N3), registered from their own module.
+from .netdesigns import TYPES as _NET_TYPES  # noqa: E402
+
+TYPES.update(_NET_TYPES)
+
 
 def model_envelope(type_id: str, model: Any) -> dict[str, Any]:
     """A model of any registered type in the common envelope."""

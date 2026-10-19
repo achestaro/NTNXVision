@@ -3,6 +3,7 @@ labels and the legend. Box heights always come from measured text, never the rev
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 
 from . import text as tx
@@ -180,3 +181,32 @@ def legend(scene: Scene, items: list[tuple[str, Style, str]], x: float, y: float
             i += 1
         cy += row_h
     return q(cy - y)
+
+
+
+#: A row hung on a trunk: (height, draw(x, y, w) -> nodes, the row node first).
+TrunkRow = tuple[float, Callable[[float, float, float], list[Node]]]
+
+
+def trunk_list(sc: Scene, bar: str, top: float, x: float, w: float, rows: list[TrunkRow],
+               *, gap: float = 3.5, indent: float = 11.0, style: Style = K.NET_LINK) -> float:
+    """Hang `rows` under a bar on one vertical trunk with a stub to each row, the way a
+    switch carries its segments (N1) and a VPC its overlay subnets (N2), so the two
+    read alike. The trunk runs at `x + 4.5` down from `top` (the bar's bottom edge);
+    rows start at `x + indent`, `w - indent` wide, 5 pt under the bar. Returns the y
+    under the last row (gap included)."""
+    trunk = q(x + 4.5)
+    sx, sw = q(x + indent), q(w - indent)
+    cy = q(top + 5)
+    last = top
+    for h, draw in rows:
+        nodes = draw(sx, cy, sw)
+        sc.nodes.extend(nodes)
+        rid = nodes[0].id
+        mid = q(cy + h / 2)
+        sc.edges.append(edge(f"{bar}->{rid}", bar, rid, [(trunk, last), (trunk, mid),
+                                                         (sx, mid)], style,
+                             arrow_end=False, data={"kind": "trunk"}))
+        last = mid
+        cy = q(cy + h + gap)
+    return cy
