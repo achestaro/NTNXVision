@@ -423,13 +423,14 @@ def versions(values: list[str], limit: int = 3) -> str | None:
 def rpo_label(seconds: int | None) -> str | None:
     if seconds is None:
         return None
+    # A no-break space binds the number to its unit, so a table never wraps "1 / min".
     if seconds < 60:
-        return f"{seconds} s"
+        return f"{seconds}\u00a0s"
     if seconds < 3600:
-        return f"{seconds // 60} min"
+        return f"{seconds // 60}\u00a0min"
     if seconds < 86400:
-        return f"{seconds // 3600} h"
-    return f"{seconds // 86400} d"
+        return f"{seconds // 3600}\u00a0h"
+    return f"{seconds // 86400}\u00a0d"
 
 
 def deployment(cfg: Any) -> str | None:

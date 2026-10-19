@@ -1063,11 +1063,12 @@ def speed_label(mbps: Any) -> str | None:
     if not mbps:
         return None
     value = int(mbps)
+    # A no-break space binds the number to its unit ("10 GbE" never wraps).
     if value >= 1000 and value % 1000 == 0:
-        return f"{value // 1000:,} GbE"
+        return f"{value // 1000:,}\u00a0GbE"
     if value >= 1000:
-        return f"{value / 1000:,.1f} GbE"
-    return f"{value:,} Mb/s"
+        return f"{value / 1000:,.1f}\u00a0GbE"
+    return f"{value:,}\u00a0Mb/s"
 
 
 def _vs_bridges(s: Any, _c: Ctx) -> str:

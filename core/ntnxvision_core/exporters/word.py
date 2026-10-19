@@ -372,8 +372,8 @@ class WordExporter:
         for ri, row in enumerate(t.rows):
             tr = table.add_row()
             _cant_split(tr)
-            for cell, value, head, align in zip(tr.cells, row, t.headers, t.align,
-                                                strict=True):
+            for ci, (cell, value, head, align) in enumerate(zip(tr.cells, row, t.headers,
+                                                                t.align, strict=True)):
                 p = cell.paragraphs[0]
                 p.paragraph_format.space_after = Pt(0)
                 if small and ri < len(t.rows) - 1:
@@ -385,7 +385,13 @@ class WordExporter:
                     glyph = p.add_run(f"{GLYPH} ")
                     _run(glyph, size, RGBColor.from_string(T.STATUS_HEX[value.tone]))
                 shown = wordcols.host_breaks(text) if cols.break_hosts else text
-                _run(p.add_run(shown), size, _INK_3 if text == NA else _INK)
+                # An identifier list too long for its column breaks after an item (an
+                # explicit line break), never inside a name at its hyphen.
+                lines = wordcols.list_lines(shown, cols.widths[ci] - CELL_PAD_PT, size)
+                for li, line in enumerate(lines):
+                    run = _run(p.add_run(line), size, _INK_3 if text == NA else _INK)
+                    if li < len(lines) - 1:
+                        run.add_break()
         self._tables += 1
         spacer = doc.add_paragraph()
         spacer.paragraph_format.space_after = Pt(6)
