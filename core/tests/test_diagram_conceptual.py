@@ -443,10 +443,10 @@ def test_word_report_contains_the_figure(estates: dict[str, Environment],
     assert beside
     # The DR chapter names the figures that draw replication.
     assert "Figures 5-1 to 5-2 (Solution Conceptual Overview" in text
-    # Short hyphenated tokens never break at their hyphen in Word: the literal
-    # non-breaking hyphen (Calibri has it; w:noBreakHyphen squeezed text in cells).
+    # Plain ASCII hyphens: Word rendered both U+2011 and w:noBreakHyphen with gaps or
+    # squeezed text, and they broke copy, paste and Find on host and cluster names.
     xml = doc.element.xml
-    assert "‑" in xml and "w:noBreakHyphen" not in xml
+    assert "\u2011" not in xml and "w:noBreakHyphen" not in xml
     assert "2 AHV" in text or "3 AHV" in text
 
 
