@@ -991,6 +991,22 @@ class _Builder:
             return [*out, edit_note] if edit_note else out
 
         page = dtype.page
+
+        def estate_summary(ref: str | None = None) -> list[str]:
+            """The estate map's lead, then the overview's bullets; the edit disclosure
+            always stays (the others are cut to the bullet limit)."""
+            rest = design.conceptual_bullets(model, scenes, ref)[1:]
+            keep = design.MAX_BULLETS - (1 if edit_note else 0)
+            out = [*collected_lead(), *rest][:keep]
+            return [*out, edit_note] if edit_note else out
+
+        def collected_lead() -> list[str]:
+            """The estate map's lead bullet, as collected (like every summary bullet):
+            the generated zones in the parts the figure draws them in."""
+            ids = {s.id for s in model.sites}
+            return estate_bullets(estate_from(model, [
+                [i for i in sc.meta.get("sites", []) if i in ids] for sc in scenes]))
+
         # The summary depends on the parts; lay out, summarise, then fit part 1 under it.
         scenes = dtype.layout(drawn, page)
         estate_t = TYPES.get("estate")
@@ -1006,8 +1022,8 @@ class _Builder:
         if with_map:
             assert estate_t is not None
             em = self.figure_model(estate_t, estate_from(
-                drawn, [list(sc.meta.get("sites", [])) for sc in scenes]))
-            lead = [*estate_bullets(em), *bullets[1:]][:design.MAX_BULLETS]
+                drawn, [list(sc.meta.get("sites", [])) for sc in scenes], model))
+            lead = estate_summary()
             estate_fig = SceneFigure(estate_t.layout(em, page)[0], "")
             estate_fig.caption = estate_fig.scene.caption
             estate_fig.summary = lead
@@ -1053,11 +1069,10 @@ class _Builder:
                     figs[0].summary = summary(scenes, ref)
             if estate_fig is not None and estate_t is not None:
                 em = self.figure_model(estate_t, estate_from(
-                    drawn, [list(sc.meta.get("sites", [])) for sc in scenes]))
+                    drawn, [list(sc.meta.get("sites", [])) for sc in scenes], model))
                 estate_fig.scene = estate_t.layout(em, page, EstateRefs(tuple(labels)))[0]
                 estate_fig.caption = estate_fig.scene.caption
-                lead = [*estate_bullets(em), *summary(scenes, ref)[1:]]
-                estate_fig.summary = lead[:design.MAX_BULLETS]
+                estate_fig.summary = estate_summary(ref)
                 estate_fig.new_page = not fits_first([estate_fig.scene],
                                                      first_part_budget(estate_fig.summary))
                 if az is not None:

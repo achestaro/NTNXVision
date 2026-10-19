@@ -82,11 +82,17 @@ def _ranked(c: Counter[str]) -> list[list[Any]]:
     return [[k, v] for k, v in sorted(c.items(), key=lambda kv: (-kv[1], kv[0]))]
 
 
-def estate_from(cm: ConceptualModel, parts: list[list[str]]) -> EstateModel:
-    """The estate map of `cm`, drawn in `parts` (site ids per conceptual part)."""
+def estate_from(cm: ConceptualModel, parts: list[list[str]],
+                collected: ConceptualModel | None = None) -> EstateModel:
+    """The estate map of `cm`, drawn in `parts` (site ids per conceptual part). With
+    `collected` (the generated model of an edited `cm`), each zone's counts and
+    hypervisor mix stay as collected: a cluster removed from the overview in the
+    Diagrams editor still counts, as it does in the overview's zone header."""
+    as_collected = {s.id: s for s in (collected.sites if collected else [])}
     tiles = []
     for s in cm.sites:
-        cards = [c for c in s.cards if c.kind == "cluster"]
+        src = as_collected.get(s.id, s)
+        cards = [c for c in src.cards if c.kind == "cluster"]
         nodes: Counter[str] = Counter()
         clusters: Counter[str] = Counter()
         for c in cards:
