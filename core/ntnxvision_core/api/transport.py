@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import contextvars
 import ipaddress
+import json
 import re
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
@@ -159,12 +160,17 @@ def require_pin(host: str, insecure: bool, pinned: str | None) -> str | None:
 
 # ─── read-only guard ───────────────────────────────────────────────────
 
-#: Requests that use a non-GET method but change nothing. Matched on the URL path.
+#: Requests that use a non-GET method but change nothing. Matched on the URL path only,
+#: on any host: the patterns are not tied to the host a client was built for.
 #:
 #: * Prism Central v3 lists (``POST .../<kind>/list``) and the groups query API are
 #:   reads that Nutanix models as POST;
 #: * the vSphere Automation API session login (POST) and logout (DELETE), which create
-#:   and end only the tool's own API session.
+#:   and end only the tool's own API session. ``/api/session`` is a generic path: it
+#:   matches on *any* host (Prism Central included), so a POST or DELETE there is never
+#:   refused by this guard. That is acceptable because neither Nutanix API serves a
+#:   ``/api/session`` endpoint that changes anything, but it is a path match, not a
+#:   vCenter-only rule.
 _READ_ONLY_REQUESTS: tuple[tuple[str, re.Pattern[str]], ...] = (
     ("POST", re.compile(r"/api/nutanix/v3/[a-z_]+/list")),
     ("POST", re.compile(r"/api/nutanix/v3/groups")),
@@ -175,11 +181,91 @@ _READ_ONLY_REQUESTS: tuple[tuple[str, re.Pattern[str]], ...] = (
 )
 
 #: The one request NTNXVision may send that starts work on a Nutanix system: an LCM
-#: inventory (v4 lifecycle). It is allowed only inside `lcm_inventory_permit()`, which
-#: only `ntnxvision_core.lcm_inventory` enters, and only when the user switched the
-#: option on for that run.
+#: inventory, in one of two forms. Either is allowed only inside
+#: `lcm_inventory_permit()`, which only `ntnxvision_core.lcm_inventory` enters, and only
+#: when the user switched the option on for that run.
+#:
+#: * v4 lifecycle (pc.2024.3 and later): the inventory action, matched on its path.
 LCM_INVENTORY_REQUEST = (
     "POST", re.compile(r"/api/lifecycle/v4\.\d+/operations/\$actions/inventory"))
+
+# ─── the legacy LCM interface (Genesis RPC, pc.2024.1 / pc.2024.2) ──────
+#
+# Below the v4 lifecycle API the Prism UI drives LCM through Genesis, a *generic* RPC
+# endpoint: ``POST /PrismGateway/services/rest/v1/genesis`` with a JSON body
+# ``{"value": "<JSON text>"}`` naming an object, a method and its arguments. A path
+# allowlist would admit every Genesis RPC (including ones that change a cluster), so the
+# guard decodes the body and admits only the exact calls below. Every detail of that
+# shape lives here, in one place; `ntnxvision_core.lcm_inventory` builds its bodies with
+# `genesis_body()` so what is sent is what is checked.
+#
+# Shape from general Nutanix knowledge (the Prism UI's LCM page and public scripts), not
+# yet verified against a live pc.2024.1 / pc.2024.2. See docs/ARCHITECTURE.md.
+
+GENESIS_PATH = "/PrismGateway/services/rest/v1/genesis"
+GENESIS_OID = "LifeCycleManager"
+GENESIS_METHOD = "lcm_framework_rpc"
+#: The key that carries the RPC's arguments inside the value JSON.
+GENESIS_KWARGS = ".kwargs"
+GENESIS_CLASS = "LcmFramework"
+#: Read-only LCM framework methods (no arguments): the LCM configuration (its catalogue
+#: URL) and the root task of an LCM operation in progress, if any.
+GENESIS_READ_METHODS = frozenset({"get_config", "is_lcm_operation_in_progress"})
+#: The inventory: one argument, the catalogue URL LCM is configured with.
+GENESIS_INVENTORY_METHOD = "perform_inventory"
+#: The one query parameter a Genesis call may carry: Prism Central's proxy to a
+#: registered cluster's Prism Element (a cluster uuid).
+_PROXY_QUERY = re.compile(r"proxyClusterUuid=[0-9A-Fa-f-]{1,64}")
+
+
+def genesis_body(method: str, args: list[str] | None = None) -> dict[str, str]:
+    """The JSON body of an LCM framework Genesis RPC (see the shape above)."""
+    kwargs: dict[str, Any] = {"method_class": GENESIS_CLASS, "method": method}
+    if args is not None:
+        kwargs["args"] = list(args)
+    return {"value": json.dumps({".oid": GENESIS_OID, ".method": GENESIS_METHOD,
+                                 GENESIS_KWARGS: kwargs})}
+
+
+def genesis_rpc(body: bytes | str | None) -> str | None:
+    """The LCM framework method a Genesis body calls, if it is exactly one we know.
+
+    Returns a method of `GENESIS_READ_METHODS` (no ``args``, or an empty list) or
+    `GENESIS_INVENTORY_METHOD` (``args`` exactly one http(s) URL), else None: anything
+    that is not JSON, has another key at any level, another object, RPC, class or
+    method, or other arguments.
+    """
+    if body is None:
+        return None
+    try:
+        outer = json.loads(body.decode("utf-8") if isinstance(body, bytes) else body)
+        if not isinstance(outer, dict) or set(outer) != {"value"} or \
+                not isinstance(outer["value"], str):
+            return None
+        rpc = json.loads(outer["value"])
+    except (UnicodeDecodeError, ValueError):
+        return None
+    if not isinstance(rpc, dict) or set(rpc) != {".oid", ".method", GENESIS_KWARGS}:
+        return None
+    if rpc[".oid"] != GENESIS_OID or rpc[".method"] != GENESIS_METHOD:
+        return None
+    kwargs = rpc[GENESIS_KWARGS]
+    if not isinstance(kwargs, dict) or kwargs.get("method_class") != GENESIS_CLASS:
+        return None
+    method = kwargs.get("method")
+    keys = set(kwargs)
+    if method in GENESIS_READ_METHODS:
+        if keys == {"method_class", "method"} or \
+                (keys == {"method_class", "method", "args"} and kwargs["args"] == []):
+            return str(method)
+        return None
+    if method == GENESIS_INVENTORY_METHOD and keys == {"method_class", "method", "args"}:
+        args = kwargs["args"]
+        if isinstance(args, list) and len(args) == 1 and isinstance(args[0], str) and \
+                re.fullmatch(r"https?://[^\s\"']{1,500}", args[0]):
+            return GENESIS_INVENTORY_METHOD
+    return None
+
 
 _permit: contextvars.ContextVar[bool] = contextvars.ContextVar("lcm_inventory_permit",
                                                                default=False)
@@ -199,19 +285,33 @@ def lcm_inventory_permit() -> Iterator[None]:
         _permit.reset(token)
 
 
-def check_request(method: str | None, url: str | None) -> None:
+def check_request(method: str | None, url: str | None,
+                  body: bytes | str | None = None) -> None:
     """Refuse a request that is not known to be read-only, before it is sent.
 
-    GET and HEAD always pass. Anything else must match `_READ_ONLY_REQUESTS`, or be the
-    LCM inventory request inside `lcm_inventory_permit()`. Raises `ReadOnlyViolation`.
+    GET and HEAD always pass. Anything else must match `_READ_ONLY_REQUESTS`, be a
+    read-only LCM Genesis RPC (body checked, `genesis_rpc`), or be the LCM inventory
+    (v4 path, or the Genesis ``perform_inventory`` body) inside `lcm_inventory_permit()`.
+    Raises `ReadOnlyViolation`.
     """
     verb = (method or "GET").upper()
     if verb in ("GET", "HEAD"):
         return
-    path = unquote(urlsplit(url or "").path)
+    parts = urlsplit(url or "")
+    path = unquote(parts.path)
     for allowed, pattern in _READ_ONLY_REQUESTS:
         if verb == allowed and pattern.fullmatch(path):
             return
+    if verb == "POST" and path == GENESIS_PATH and \
+            (not parts.query or _PROXY_QUERY.fullmatch(parts.query)):
+        rpc = genesis_rpc(body)
+        if rpc in GENESIS_READ_METHODS:
+            return
+        if rpc == GENESIS_INVENTORY_METHOD and _permit.get():
+            return
+        raise ReadOnlyViolation(
+            f"Refused {verb} {path}: only the LCM status reads and, when asked for, the "
+            "LCM inventory may be sent through Genesis.")
     if _permit.get() and verb == LCM_INVENTORY_REQUEST[0] \
             and LCM_INVENTORY_REQUEST[1].fullmatch(path):
         return
@@ -243,7 +343,7 @@ class GuardedSession(BoundedSession):
              **kwargs: Any
              ) -> requests.Response:
         kwargs["allow_redirects"] = False
-        check_request(request.method, request.url)
+        check_request(request.method, request.url, request.body)
         host = urlsplit(request.url or "").hostname or "the server"
         try:
             resp = super().send(request, **kwargs)

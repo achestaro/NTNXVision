@@ -146,7 +146,8 @@ class PrismConnection:
     def post_json(self, url: str, body: dict[str, Any]) -> dict[str, Any]:
         return self._json_or_raise(self._send("POST", url, json=body))
 
-    def _send(self, method: str, url: str, **kwargs: Any) -> requests.Response:
+    def _send(self, method: str, url: str, *, retry_429: bool = True,
+              **kwargs: Any) -> requests.Response:
         """One request, retried with backoff while Prism Central answers HTTP 429.
 
         Every v4 namespace is rate limited per Prism Central (the lab PC advertises
@@ -157,13 +158,16 @@ class PrismConnection:
         only the alerts collector retried and Flow failed outright. The wait honours
         ``Retry-After`` / ``X-Api-Ratelimit-Refresh-Period-Seconds`` when present, else
         grows linearly. The cancel token is checked before every attempt.
+
+        ``retry_429=False`` sends once: for a request that is not idempotent (the legacy
+        LCM inventory has no request id), a 429 is returned rather than repeated.
         """
         resp: requests.Response | None = None
         for attempt in range(RATE_LIMIT_RETRIES + 1):
             if self.cancel is not None:
                 self.cancel.check()
             resp = self.session.request(method, url, timeout=self.timeout, **kwargs)
-            if resp.status_code != 429 or attempt == RATE_LIMIT_RETRIES:
+            if resp.status_code != 429 or attempt == RATE_LIMIT_RETRIES or not retry_429:
                 return resp
             self.throttled += 1
             time.sleep(self._rate_limit_wait(resp, attempt))
