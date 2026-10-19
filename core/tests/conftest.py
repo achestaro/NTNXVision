@@ -49,6 +49,33 @@ def _demo_state() -> Iterator[Any]:
     demo.disable()
 
 
+#: Estates the architecture-diagram tests share: the scenario estates (small, medium,
+#: enterprise, xlarge) and demo PCs carrying the design data (blocks, CVMs, virtual
+#: switches with LACP, LLDP or not, ESXi, a FlashArray, a PowerFlex, Sync and NearSync).
+DESIGN_DEMO_HOSTS = ("pc01", "pc02", "pc03", "large1", "large2", "large3")
+
+
+@pytest.fixture(scope="session")
+def design_envs(_demo_state: Any) -> dict[str, Any]:
+    """Every design estate, collected once per session through the mock API with the
+    real collectors: scenario names, demo short names, and ``multi3`` (pc01 to pc03
+    combined)."""
+    from ntnxvision_core.api import PrismCredentials
+    from ntnxvision_core.engine import collect_environment, combine_environments
+    from ntnxvision_core.synthetic import demo as demo_mode
+    from ntnxvision_core.synthetic.scenarios import SCENARIOS, collect_scenario
+
+    demo_mode.reset()
+    out: dict[str, Any] = {name: collect_scenario(name) for name in SCENARIOS}
+    demo_mode.reset()
+    for host in DESIGN_DEMO_HOSTS:
+        out[host] = collect_environment(PrismCredentials(
+            host=f"{host}.demo.local", username="admin", password="demo"))
+    out["multi3"] = combine_environments([out["pc01"], out["pc02"], out["pc03"]])
+    demo_mode.reset()
+    return out
+
+
 @pytest.fixture
 def demo(_demo_state: Any, monkeypatch: pytest.MonkeyPatch) -> Any:
     """Demo routing on, every synthetic system at epoch 0, alert pacing shortened."""

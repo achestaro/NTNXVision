@@ -71,3 +71,25 @@ LEGEND_REPL = REPL_NEARSYNC
 REF = Style(fill=WHITE, stroke=IRIS, stroke_w=0.75, dash=(2.6, 1.9), radius=4.5)
 #: AZ pairing whose connection is reported down.
 PAIRING_DOWN = Style(stroke=RULE_STRONG, stroke_w=0.75, dash=(1.5, 2.0))
+
+# ─── logical cluster design (A2) ───────────────────────────────────────
+POD_FILL = "#F3F4F6"
+POD = Style(fill=POD_FILL, stroke=RULE, stroke_w=0.7, radius=4.5)
+TAG_POD = Style(fill=INK_2, radius=1.9)
+#: The NODES box inside a cluster card.
+NODES_BOX = Style(fill=SURFACE, stroke=RULE_2, stroke_w=0.6, radius=2.25)
+#: "Runs Prism Central" strip.
+ROLE_STRIP = Style(fill=IRIS_TINT, radius=1.5)
+#: "+N more" container chip.
+MORE_CHIP = Style(fill=WHITE, stroke=RULE, stroke_w=0.45, radius=1.5)
+#: "EXTERNAL STORAGE" chip on an array box: white with a teal outline (teal text).
+TAG_EXTERNAL = Style(fill=WHITE, stroke=LIVE, stroke_w=0.6, radius=1.9)
+#: A container to the array it lives on.
+ARRAY_LINK = Style(stroke=LIVE, stroke_w=0.9)
+
+# ─── estate map (A6) ───────────────────────────────────────────────────
+#: ESXi share of an AZ's nodes (the hypervisor bar; AHV is iris).
+ESXI = "#B38C15"
+#: A part of the conceptual overview: a dashed frame around its AZ tiles.
+FRAME = Style(stroke=RULE_STRONG, stroke_w=0.75, dash=(3.0, 2.5), radius=5.25)
+

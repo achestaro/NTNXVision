@@ -513,9 +513,14 @@ def test_pdf_keeps_heading_summary_and_figure_on_one_page(
         monkeypatch.setattr(pdf_mod.PdfExporter, "_summary_block", summary)
         monkeypatch.setattr(pdf_mod, "draw_scene", draw)
         pdf_mod.PdfExporter().export(estates[name], tmp_path / f"{name}.pdf")
-        pages = dict(events)
-        head = next(p for k, p in events if k.endswith("Solution Conceptual Overview"))
-        assert pages["summary"] == pages["figure:1"] == head, name
+        # Other architecture sections draw too: look at the events after this heading.
+        at = next(i for i, (k, _) in enumerate(events)
+                  if k.endswith("Solution Conceptual Overview"))
+        head = events[at][1]
+        after = events[at + 1:]
+        first_summary = next(p for k, p in after if k == "summary")
+        first_figure = next(p for k, p in after if k.startswith("figure:"))
+        assert first_summary == first_figure == head, name
         monkeypatch.undo()
 
 
@@ -534,8 +539,9 @@ def test_pdf_report_draws_the_figure_as_vectors(estates: dict[str, Environment],
     monkeypatch.setattr(pdf_mod, "draw_scene", spy)
     out = pdf_mod.PdfExporter().export(estates["medium"], tmp_path / "r.pdf")
     assert out.stat().st_size > 20_000
-    assert drawn == ["Solution conceptual overview: 2 availability zones, 6 clusters, "
-                     "33 nodes."]
+    # The other architecture figures draw too; the overview is drawn once, first.
+    assert [c for c in drawn if c.startswith("Solution conceptual")] == [
+        "Solution conceptual overview: 2 availability zones, 6 clusters, 33 nodes."]
 
 
 def test_pdf_drawing_uses_real_embedded_text(estates: dict[str, Environment]) -> None:

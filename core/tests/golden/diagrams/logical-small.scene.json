@@ -1,0 +1,686 @@
+{
+ "caption": "Logical cluster design, sm-pc01.demo.local: nodes, CVMs and containers.",
+ "edges": [],
+ "height": 201.73,
+ "id": "logical-sm-pc01.demo.local",
+ "meta": {
+  "drawn": [
+   "cluster:0ca0388a-8411-5a32-a54a-f18b3163a417",
+   "cluster:8996917a-a180-5d7e-83b7-4e276021ce55"
+  ],
+  "group": "site:sm-pc01.demo.local",
+  "group_name": "sm-pc01.demo.local",
+  "pods": []
+ },
+ "nodes": [
+  {
+   "data": {
+    "name": "sm-pc01.demo.local"
+   },
+   "h": 175.73,
+   "id": "site:sm-pc01.demo.local",
+   "kind": "container",
+   "lines": [
+    {
+     "baseline": 17.41,
+     "bold": true,
+     "color": "#0F1A24",
+     "size": 9.0,
+     "text": "sm-pc01.demo.local",
+     "width": 82.06,
+     "x": 6.0
+    },
+    {
+     "baseline": 26.46,
+     "bold": false,
+     "color": "#5B6976",
+     "size": 6.0,
+     "text": "Availability zone, 2 clusters, 7 nodes",
+     "width": 96.31,
+     "x": 6.0
+    }
+   ],
+   "parent": null,
+   "style": {
+    "dash": null,
+    "fill": "#FAFBFB",
+    "radius": 5.25,
+    "stroke": "#C9D0D6",
+    "stroke_w": 0.75
+   },
+   "w": 479.0,
+   "x": 0.5,
+   "y": 5.0
+  },
+  {
+   "data": {},
+   "h": 9.0,
+   "id": "site:sm-pc01.demo.local:tag",
+   "kind": "tag",
+   "lines": [
+    {
+     "baseline": 6.6,
+     "bold": true,
+     "color": "#FFFFFF",
+     "size": 6.0,
+     "text": "AZ",
+     "width": 8.0,
+     "x": 3.74
+    }
+   ],
+   "parent": "site:sm-pc01.demo.local",
+   "style": {
+    "dash": null,
+    "fill": "#5B3FD9",
+    "radius": 1.9,
+    "stroke": null,
+    "stroke_w": 0.75
+   },
+   "w": 15.48,
+   "x": 6.0,
+   "y": 0.5
+  },
+  {
+   "data": {
+    "cluster_uuid": "0ca0388a-8411-5a32-a54a-f18b3163a417",
+    "name": "BRANCH-PRD-01",
+    "prism_central": "sm-pc01.demo.local"
+   },
+   "h": 131.03,
+   "id": "cluster:0ca0388a-8411-5a32-a54a-f18b3163a417",
+   "kind": "box",
+   "lines": [
+    {
+     "baseline": 12.92,
+     "bold": true,
+     "color": "#0F1A24",
+     "size": 8.0,
+     "text": "BRANCH-PRD-01",
+     "width": 64.06,
+     "x": 5.0
+    },
+    {
+     "baseline": 21.77,
+     "bold": false,
+     "color": "#3E4C59",
+     "size": 6.6,
+     "text": "AHV, AOS 7.0.1, 4 nodes, RF2",
+     "width": 87.07,
+     "x": 5.0
+    },
+    {
+     "baseline": 29.93,
+     "bold": false,
+     "color": "#5B6976",
+     "size": 6.3,
+     "text": "Fault domain: node, tolerates 1 failure",
+     "width": 104.95,
+     "x": 5.0
+    }
+   ],
+   "parent": "site:sm-pc01.demo.local",
+   "style": {
+    "dash": null,
+    "fill": "#FFFFFF",
+    "radius": 3.4,
+    "stroke": "#5B3FD9",
+    "stroke_w": 0.7
+   },
+   "w": 229.5,
+   "x": 6.5,
+   "y": 42.2
+  },
+  {
+   "data": {},
+   "h": 9.0,
+   "id": "cluster:0ca0388a-8411-5a32-a54a-f18b3163a417:tag",
+   "kind": "tag",
+   "lines": [
+    {
+     "baseline": 6.6,
+     "bold": true,
+     "color": "#FFFFFF",
+     "size": 6.0,
+     "text": "HOSTS PC",
+     "width": 29.3,
+     "x": 4.38
+    }
+   ],
+   "parent": "cluster:0ca0388a-8411-5a32-a54a-f18b3163a417",
+   "style": {
+    "dash": null,
+    "fill": "#0F1A24",
+    "radius": 1.9,
+    "stroke": null,
+    "stroke_w": 0.75
+   },
+   "w": 38.06,
+   "x": 11.5,
+   "y": 37.7
+  },
+  {
+   "data": {},
+   "h": 40.5,
+   "id": "cluster:0ca0388a-8411-5a32-a54a-f18b3163a417:nodes",
+   "kind": "box",
+   "lines": [
+    {
+     "baseline": 8.94,
+     "bold": true,
+     "color": "#5B6976",
+     "size": 6.0,
+     "text": "NODES",
+     "width": 20.71,
+     "x": 4.0
+    },
+    {
+     "baseline": 18.41,
+     "bold": true,
+     "color": "#0F1A24",
+     "size": 6.8,
+     "text": "4 x NX-3170-G8",
+     "width": 50.31,
+     "x": 4.0
+    },
+    {
+     "baseline": 26.62,
+     "bold": false,
+     "color": "#3E4C59",
+     "size": 6.3,
+     "text": "2 x Xeon Gold 6342, 48 cores, 512 to 1,024 GiB",
+     "width": 132.07,
+     "x": 4.0
+    },
+    {
+     "baseline": 35.68,
+     "bold": false,
+     "color": "#3E4C59",
+     "size": 6.3,
+     "text": "CVM: 12 vCPU, 48 GiB on each node",
+     "width": 103.12,
+     "x": 4.0
+    }
+   ],
+   "parent": "cluster:0ca0388a-8411-5a32-a54a-f18b3163a417",
+   "style": {
+    "dash": null,
+    "fill": "#FAFBFB",
+    "radius": 2.25,
+    "stroke": "#DEE3E7",
+    "stroke_w": 0.6
+   },
+   "w": 219.5,
+   "x": 11.5,
+   "y": 76.95
+  },
+  {
+   "data": {},
+   "h": 11.14,
+   "id": "cluster:0ca0388a-8411-5a32-a54a-f18b3163a417:role",
+   "kind": "strip",
+   "lines": [
+    {
+     "baseline": 7.74,
+     "bold": true,
+     "color": "#5B3FD9",
+     "size": 6.2,
+     "text": "Runs Prism Central: 1 PCVM, Small",
+     "width": 96.87,
+     "x": 4.0
+    }
+   ],
+   "parent": "cluster:0ca0388a-8411-5a32-a54a-f18b3163a417",
+   "style": {
+    "dash": null,
+    "fill": "#EAE8F8",
+    "radius": 1.5,
+    "stroke": null,
+    "stroke_w": 0.75
+   },
+   "w": 219.5,
+   "x": 11.5,
+   "y": 120.45
+  },
+  {
+   "data": {},
+   "h": 7.68,
+   "id": "cluster:0ca0388a-8411-5a32-a54a-f18b3163a417:ctr-label",
+   "kind": "label",
+   "lines": [
+    {
+     "baseline": 5.94,
+     "bold": true,
+     "color": "#5B6976",
+     "size": 6.0,
+     "text": "CONTAINERS (USER)",
+     "width": 59.8,
+     "x": 0.0
+    }
+   ],
+   "parent": null,
+   "style": {
+    "dash": null,
+    "fill": null,
+    "radius": 0.0,
+    "stroke": null,
+    "stroke_w": 0.75
+   },
+   "w": 219.5,
+   "x": 11.5,
+   "y": 135.59
+  },
+  {
+   "data": {
+    "name": "branch-prd-01-ctr-images"
+   },
+   "h": 10.48,
+   "id": "cluster:0ca0388a-8411-5a32-a54a-f18b3163a417:ctr:f8142403-4936-5c06-8b1f-7850efeb3849",
+   "kind": "strip",
+   "lines": [
+    {
+     "baseline": 7.34,
+     "bold": false,
+     "color": "#0A7283",
+     "size": 6.0,
+     "text": "ctr-images · RF2 · dedup",
+     "width": 65.74,
+     "x": 3.0
+    }
+   ],
+   "parent": "cluster:0ca0388a-8411-5a32-a54a-f18b3163a417",
+   "style": {
+    "dash": null,
+    "fill": "#E7F3F5",
+    "radius": 1.5,
+    "stroke": "#0A7283",
+    "stroke_w": 0.45
+   },
+   "w": 76.69,
+   "x": 11.5,
+   "y": 144.77
+  },
+  {
+   "data": {
+    "name": "branch-prd-01-ctr-prod"
+   },
+   "h": 10.48,
+   "id": "cluster:0ca0388a-8411-5a32-a54a-f18b3163a417:ctr:b42b3f2d-5034-5c52-8908-4f4bbc4ab0c4",
+   "kind": "strip",
+   "lines": [
+    {
+     "baseline": 7.34,
+     "bold": false,
+     "color": "#0A7283",
+     "size": 6.0,
+     "text": "ctr-prod · RF2 · compression",
+     "width": 76.45,
+     "x": 3.0
+    }
+   ],
+   "parent": "cluster:0ca0388a-8411-5a32-a54a-f18b3163a417",
+   "style": {
+    "dash": null,
+    "fill": "#E7F3F5",
+    "radius": 1.5,
+    "stroke": "#0A7283",
+    "stroke_w": 0.45
+   },
+   "w": 88.04,
+   "x": 91.19,
+   "y": 144.77
+  },
+  {
+   "data": {
+    "name": "branch-prd-01-default-container"
+   },
+   "h": 10.48,
+   "id": "cluster:0ca0388a-8411-5a32-a54a-f18b3163a417:ctr:0f387708-19ea-5cb7-92a9-662c484c8bc0",
+   "kind": "strip",
+   "lines": [
+    {
+     "baseline": 7.34,
+     "bold": false,
+     "color": "#0A7283",
+     "size": 6.0,
+     "text": "default-container · RF2 · compression",
+     "width": 100.79,
+     "x": 3.0
+    }
+   ],
+   "parent": "cluster:0ca0388a-8411-5a32-a54a-f18b3163a417",
+   "style": {
+    "dash": null,
+    "fill": "#E7F3F5",
+    "radius": 1.5,
+    "stroke": "#0A7283",
+    "stroke_w": 0.45
+   },
+   "w": 113.84,
+   "x": 11.5,
+   "y": 157.75
+  },
+  {
+   "data": {
+    "cluster_uuid": "8996917a-a180-5d7e-83b7-4e276021ce55",
+    "name": "BRANCH-VDI-01",
+    "prism_central": "sm-pc01.demo.local"
+   },
+   "h": 131.03,
+   "id": "cluster:8996917a-a180-5d7e-83b7-4e276021ce55",
+   "kind": "box",
+   "lines": [
+    {
+     "baseline": 12.92,
+     "bold": true,
+     "color": "#0F1A24",
+     "size": 8.0,
+     "text": "BRANCH-VDI-01",
+     "width": 62.15,
+     "x": 5.0
+    },
+    {
+     "baseline": 21.77,
+     "bold": false,
+     "color": "#3E4C59",
+     "size": 6.6,
+     "text": "AHV, AOS 7.0.1, 3 nodes, RF2",
+     "width": 86.57,
+     "x": 5.0
+    },
+    {
+     "baseline": 29.93,
+     "bold": false,
+     "color": "#5B6976",
+     "size": 6.3,
+     "text": "Fault domain: node, tolerates 1 failure",
+     "width": 104.95,
+     "x": 5.0
+    }
+   ],
+   "parent": "site:sm-pc01.demo.local",
+   "style": {
+    "dash": null,
+    "fill": "#FFFFFF",
+    "radius": 3.4,
+    "stroke": "#5B3FD9",
+    "stroke_w": 0.7
+   },
+   "w": 229.5,
+   "x": 244.0,
+   "y": 42.2
+  },
+  {
+   "data": {},
+   "h": 40.5,
+   "id": "cluster:8996917a-a180-5d7e-83b7-4e276021ce55:nodes",
+   "kind": "box",
+   "lines": [
+    {
+     "baseline": 8.94,
+     "bold": true,
+     "color": "#5B6976",
+     "size": 6.0,
+     "text": "NODES",
+     "width": 20.71,
+     "x": 4.0
+    },
+    {
+     "baseline": 18.41,
+     "bold": true,
+     "color": "#0F1A24",
+     "size": 6.8,
+     "text": "3 x HPE DX360 Gen10 Plus",
+     "width": 82.35,
+     "x": 4.0
+    },
+    {
+     "baseline": 26.62,
+     "bold": false,
+     "color": "#3E4C59",
+     "size": 6.3,
+     "text": "2 x Xeon Gold 6338, 64 cores, 512 to 1,024 GiB",
+     "width": 131.63,
+     "x": 4.0
+    },
+    {
+     "baseline": 35.68,
+     "bold": false,
+     "color": "#3E4C59",
+     "size": 6.3,
+     "text": "CVM: 12 vCPU, 48 GiB on each node",
+     "width": 103.12,
+     "x": 4.0
+    }
+   ],
+   "parent": "cluster:8996917a-a180-5d7e-83b7-4e276021ce55",
+   "style": {
+    "dash": null,
+    "fill": "#FAFBFB",
+    "radius": 2.25,
+    "stroke": "#DEE3E7",
+    "stroke_w": 0.6
+   },
+   "w": 219.5,
+   "x": 249.0,
+   "y": 76.95
+  },
+  {
+   "data": {},
+   "h": 7.68,
+   "id": "cluster:8996917a-a180-5d7e-83b7-4e276021ce55:ctr-label",
+   "kind": "label",
+   "lines": [
+    {
+     "baseline": 5.94,
+     "bold": true,
+     "color": "#5B6976",
+     "size": 6.0,
+     "text": "CONTAINERS (USER)",
+     "width": 59.8,
+     "x": 0.0
+    }
+   ],
+   "parent": null,
+   "style": {
+    "dash": null,
+    "fill": null,
+    "radius": 0.0,
+    "stroke": null,
+    "stroke_w": 0.75
+   },
+   "w": 219.5,
+   "x": 249.0,
+   "y": 121.45
+  },
+  {
+   "data": {
+    "name": "branch-vdi-01-ctr-images"
+   },
+   "h": 10.48,
+   "id": "cluster:8996917a-a180-5d7e-83b7-4e276021ce55:ctr:9af77111-bf0f-532b-92bf-e7ac0d1bf523",
+   "kind": "strip",
+   "lines": [
+    {
+     "baseline": 7.34,
+     "bold": false,
+     "color": "#0A7283",
+     "size": 6.0,
+     "text": "ctr-images · RF2 · dedup",
+     "width": 65.74,
+     "x": 3.0
+    }
+   ],
+   "parent": "cluster:8996917a-a180-5d7e-83b7-4e276021ce55",
+   "style": {
+    "dash": null,
+    "fill": "#E7F3F5",
+    "radius": 1.5,
+    "stroke": "#0A7283",
+    "stroke_w": 0.45
+   },
+   "w": 76.69,
+   "x": 249.0,
+   "y": 130.63
+  },
+  {
+   "data": {
+    "name": "branch-vdi-01-ctr-prod"
+   },
+   "h": 10.48,
+   "id": "cluster:8996917a-a180-5d7e-83b7-4e276021ce55:ctr:f7664c52-d149-5168-b5f2-7ff856485b51",
+   "kind": "strip",
+   "lines": [
+    {
+     "baseline": 7.34,
+     "bold": false,
+     "color": "#0A7283",
+     "size": 6.0,
+     "text": "ctr-prod · RF2 · compression",
+     "width": 76.45,
+     "x": 3.0
+    }
+   ],
+   "parent": "cluster:8996917a-a180-5d7e-83b7-4e276021ce55",
+   "style": {
+    "dash": null,
+    "fill": "#E7F3F5",
+    "radius": 1.5,
+    "stroke": "#0A7283",
+    "stroke_w": 0.45
+   },
+   "w": 88.04,
+   "x": 328.69,
+   "y": 130.63
+  },
+  {
+   "data": {
+    "name": "branch-vdi-01-default-container"
+   },
+   "h": 10.48,
+   "id": "cluster:8996917a-a180-5d7e-83b7-4e276021ce55:ctr:b7b9dd16-68b4-58cf-9f13-3d5a44821501",
+   "kind": "strip",
+   "lines": [
+    {
+     "baseline": 7.34,
+     "bold": false,
+     "color": "#0A7283",
+     "size": 6.0,
+     "text": "default-container · RF2 · compression",
+     "width": 100.79,
+     "x": 3.0
+    }
+   ],
+   "parent": "cluster:8996917a-a180-5d7e-83b7-4e276021ce55",
+   "style": {
+    "dash": null,
+    "fill": "#E7F3F5",
+    "radius": 1.5,
+    "stroke": "#0A7283",
+    "stroke_w": 0.45
+   },
+   "w": 113.84,
+   "x": 249.0,
+   "y": 143.61
+  },
+  {
+   "data": {},
+   "h": 7.5,
+   "id": "legend:0",
+   "kind": "swatch",
+   "lines": [],
+   "parent": null,
+   "style": {
+    "dash": null,
+    "fill": "#FFFFFF",
+    "radius": 3.4,
+    "stroke": "#5B3FD9",
+    "stroke_w": 0.7
+   },
+   "w": 17,
+   "x": 0.5,
+   "y": 191.23
+  },
+  {
+   "data": {},
+   "h": 10.5,
+   "id": "legend:0:label",
+   "kind": "label",
+   "lines": [
+    {
+     "baseline": 7.35,
+     "bold": false,
+     "color": "#3E4C59",
+     "size": 6.0,
+     "text": "Cluster",
+     "width": 19.36,
+     "x": 0.0
+    }
+   ],
+   "parent": null,
+   "style": {
+    "dash": null,
+    "fill": null,
+    "radius": 0.0,
+    "stroke": null,
+    "stroke_w": 0.75
+   },
+   "w": 21.52,
+   "x": 21.5,
+   "y": 189.73
+  },
+  {
+   "data": {},
+   "h": 7.5,
+   "id": "legend:1",
+   "kind": "swatch",
+   "lines": [],
+   "parent": null,
+   "style": {
+    "dash": null,
+    "fill": "#E7F3F5",
+    "radius": 1.5,
+    "stroke": "#0A7283",
+    "stroke_w": 0.45
+   },
+   "w": 17,
+   "x": 57.02,
+   "y": 191.23
+  },
+  {
+   "data": {},
+   "h": 10.5,
+   "id": "legend:1:label",
+   "kind": "label",
+   "lines": [
+    {
+     "baseline": 7.35,
+     "bold": false,
+     "color": "#3E4C59",
+     "size": 6.0,
+     "text": "DSF container",
+     "width": 38.0,
+     "x": 0.0
+    }
+   ],
+   "parent": null,
+   "style": {
+    "dash": null,
+    "fill": null,
+    "radius": 0.0,
+    "stroke": null,
+    "stroke_w": 0.75
+   },
+   "w": 41.28,
+   "x": 78.02,
+   "y": 189.73
+  }
+ ],
+ "part": [
+  1,
+  1
+ ],
+ "schema": "ntnxvision.diagram.scene/1",
+ "title": "Logical cluster design",
+ "type": "logical",
+ "width": 480.0
+}
