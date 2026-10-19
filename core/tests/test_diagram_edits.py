@@ -249,9 +249,16 @@ def test_store_round_trip(snap: Path, env: Environment) -> None:
     assert result["edited"] and result["stale"] is None and result["problems"] == []
     listing = ST.list_result(snap, env)
     assert listing[0]["edited"] and listing[0]["edits"] == 5 and not listing[0]["stale"]
-    # Saving no edits, or resetting, removes the entry and the file.
-    ST.reset_result(snap, env, "conceptual")
+    # Saving no edits removes the entry (and the file when nothing else is in it).
+    ST.save_result(snap, env, "conceptual", [])
     assert not path.exists() and ST.load(snap) == {}
+    # Resetting removes the edits and leaves a reset marker (a reset is final).
+    ST.save_result(snap, env, "conceptual", _ops(env))
+    ST.reset_result(snap, env, "conceptual")
+    assert ST.load(snap) == {} and ST.markers(snap) == {"reset": ["conceptual"]}
+    # Edits saved after a reset come first again; the marker stays.
+    ST.save_result(snap, env, "conceptual", _ops(env)[:1])
+    assert ST.load(snap) and ST.markers(snap)["reset"] == ["conceptual"]
 
 
 def test_unreadable_file_reads_as_no_edits(snap: Path, env: Environment) -> None:
@@ -851,9 +858,70 @@ def test_not_applied_warning_is_not_repeated(demo: Any, data_dir: Path) -> None:
     sc._advance_demo("pc01.demo.local")
     second = _collect(data_dir, "week2")
     assert sum("were not applied" in w for w in second["warnings"]) == 1
+    s2 = Path(second["snapshot_path"])
+    assert ST.markers(s2)["carry_failed_from"]["name"] == "week1"
     sc._advance_demo("pc01.demo.local")
     third = _collect(data_dir, "week3")
     assert not any("were not applied" in w for w in third["warnings"])
+    # The chain still leads to week1: recorded again, and offered on the Diagrams page.
+    s3 = Path(third["snapshot_path"])
+    assert ST.markers(s3)["carry_failed_from"]["name"] == "week1"
+    offer = sc._m_list_diagrams(None, {"snapshot": str(s3)})["carry"]
+    assert offer is not None and offer["snapshot"]["name"] == "week1"
+
+
+def test_a_failed_carry_is_retried_by_the_next_collection(demo: Any, data_dir: Path,
+                                                          monkeypatch: pytest.MonkeyPatch
+                                                          ) -> None:
+    """S2's carry fails (the store could not write): S3 walks past S2 to S1 and
+    applies its edits again, instead of losing them for good."""
+    first = _collect(data_dir, "week1")
+    _add_backup(first["snapshot_path"])
+    real = ST.carry_forward
+
+    def boom(*_a: Any, **_k: Any) -> Any:
+        raise OSError("disk full")
+
+    monkeypatch.setattr(ST, "carry_forward", boom)
+    sc._advance_demo("pc01.demo.local")
+    second = _collect(data_dir, "week2")
+    s2 = Path(second["snapshot_path"])
+    assert ST.load(s2) == {} and ST.markers(s2)["carry_failed_from"]["name"] == "week1"
+    assert any("could not be saved" in w for w in second["warnings"])
+    monkeypatch.setattr(ST, "carry_forward", real)
+    sc._advance_demo("pc01.demo.local")
+    third = _collect(data_dir, "week3")
+    entry = ST.load(Path(third["snapshot_path"]))["conceptual"]
+    assert entry["carried_from"]["auto"] and entry["carried_from"]["name"] == "week1"
+    assert third["diagram_carry"]["from"] == "week1"
+
+
+def test_combined_snapshots_match_on_their_prism_centrals() -> None:
+    a = {"kind": "combined", "source": "2 Prism Centrals", "sources": ["pc02", "pc01"]}
+    b = {"kind": "combined", "source": "2 Prism Centrals", "sources": ["pc01", "pc02"]}
+    c = {"kind": "combined", "source": "2 Prism Centrals", "sources": ["pc02", "pc03"]}
+    assert sc._source_key(a) == sc._source_key(b) == "combined:pc01,pc02"
+    assert sc._source_key(a) != sc._source_key(c)
+    assert sc._source_key({"kind": "pc", "source": "pc01"}) == "pc:pc01"
+    assert sc._source_key({"kind": "pe", "source": "pc01"}) != "pc:pc01"
+    assert sc._source_key({"kind": "combined", "sources": []}) is None
+
+
+def test_carried_from_shows_the_source_snapshots_current_name(demo: Any,
+                                                             data_dir: Path) -> None:
+    first = _collect(data_dir, "week1")
+    _add_backup(first["snapshot_path"])
+    sc._advance_demo("pc01.demo.local")
+    second = _collect(data_dir, "week2")
+    s2 = second["snapshot_path"]
+    sc._m_rename_snapshot(None, {"snapshot": first["snapshot_path"], "new_name": "baseline"})
+    got = sc._m_get_diagram(None, {"snapshot": s2, "type": "conceptual"})
+    assert got["carried_from"]["name"] == "baseline"
+    assert sc._carried_names(Path(s2)) == {"conceptual": "baseline"}
+    # Gone altogether: the stored name.
+    sc._m_delete_snapshot(None, {"snapshot": str(Path(first["snapshot_path"]).with_name(
+        "baseline.ntnxsnap.json"))})
+    assert sc._carried_names(Path(s2)) == {"conceptual": "week1"}
 
 
 def test_auto_carried_figure_says_where_its_edits_came_from(demo: Any, data_dir: Path,
