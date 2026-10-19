@@ -1,18 +1,35 @@
-"""Scene -> SVG with live text (the editable asset).
+"""Scene -> SVG, in two text modes.
 
-Real ``<text>`` elements in ``font-family: Figtree`` with Office-safe fallbacks; every
-position, size and colour comes from the scene, so the file is byte-stable. Each shape is
-a ``<g>`` carrying the scene id, and semantic data is kept in ``data-*`` attributes and a
-``<title>`` (full names that a box had to ellipsise stay readable there).
+* ``live`` (the editable asset): real ``<text>`` elements in ``font-family: Figtree``
+  with Office-safe fallbacks. Each shape is a ``<g>`` carrying the scene id; semantic
+  data is kept in ``data-*`` attributes and a ``<title>`` (full names that a box had to
+  ellipsise stay readable there).
+* ``outline`` (the copy embedded in the Word report): every glyph is an inline
+  ``<path>`` drawn from the bundled Figtree, placed by the same advance widths the
+  layout measured, so the figure looks identical with no font installed. Paths are
+  inline, never ``<use>``: Office's SVG support is the weakest consumer.
+
+Every position, size and colour comes from the scene and every number is printed by
+`num`, so both modes are byte-stable.
 """
 
 from __future__ import annotations
 
+from functools import lru_cache
 from xml.sax.saxutils import escape, quoteattr
 
+from fontTools.pens.svgPathPen import SVGPathPen  # type: ignore[import-untyped]
+from fontTools.pens.transformPen import TransformPen  # type: ignore[import-untyped]
+from fontTools.ttLib import TTFont  # type: ignore[import-untyped]
+
+from ntnxvision_core.exporters import theme as T
+
+from .. import text as tx
 from ..scene import Edge, EdgeLabel, Node, Scene, Style, TextLine, draw_order, num
 
 FONT_STACK = "Figtree, Calibri, 'Segoe UI', Arial, sans-serif"
+#: Glyph outlines are kept in a 1,000-unit em and scaled to the text size.
+_EM = 1000.0
 
 
 def _dash(st: Style) -> str:
@@ -29,9 +46,48 @@ def _rect(x: float, y: float, w: float, h: float, st: Style) -> str:
     return out + "/>"
 
 
-def _text(lines: list[TextLine], ox: float, oy: float) -> str:
+@lru_cache(maxsize=2)
+def _font(bold: bool) -> TTFont:
+    return TTFont(str(T.FIGTREE_SEMIBOLD if bold else T.FIGTREE))
+
+
+@lru_cache(maxsize=4096)
+def glyph_path(bold: bool, ch: str) -> str:
+    """The outline of `ch` as SVG path data in a 1,000-unit em, baseline at y 0 (y down);
+    "" for spaces and characters the font has no outline for."""
+    if ch.isspace():
+        return ""
+    f = _font(bold)
+    name = f.getBestCmap().get(ord(ch))
+    if name is None:
+        return ""
+    gs = f.getGlyphSet()
+    pen = SVGPathPen(gs, ntos=num)
+    s = _EM / f["head"].unitsPerEm
+    gs[name].draw(TransformPen(pen, (s, 0, 0, -s, 0, 0)))
+    return str(pen.getCommands())
+
+
+def _outline(t: TextLine, x: float, y: float) -> str:
+    m = tx.metrics(t.bold)
+    k = t.size / _EM
+    parts = []
+    cx = x
+    for ch in t.text:
+        d = glyph_path(t.bold, ch)
+        if d:
+            parts.append(f'<path transform="translate({num(cx)} {num(y)}) scale({k:.6f})" '
+                         f'd="{d}"/>')
+        cx += m.advances.get(ord(ch), m.default_adv) * t.size / m.upm
+    return f'<g fill="{t.color}">{"".join(parts)}</g>' if parts else ""
+
+
+def _text(lines: list[TextLine], ox: float, oy: float, mode: str = "live") -> str:
     out = []
     for t in lines:
+        if mode == "outline":
+            out.append(_outline(t, ox + t.x, oy + t.baseline))
+            continue
         weight = ' font-weight="600"' if t.bold else ""
         out.append(f'<text x="{num(ox + t.x)}" y="{num(oy + t.baseline)}" '
                    f'font-size="{num(t.size)}"{weight} fill="{t.color}">'
@@ -39,12 +95,19 @@ def _text(lines: list[TextLine], ox: float, oy: float) -> str:
     return "".join(out)
 
 
-def _node(n: Node) -> str:
-    attrs = "".join(f" data-{k.replace('_', '-')}={quoteattr(v)}" for k, v in n.data.items())
+def _node(n: Node, mode: str) -> str:
+    names = {"data-kind"}
+    attrs = ""
+    for k, v in n.data.items():
+        # The node kind owns data-kind; a data key spelled like an existing one is dropped.
+        name = f"data-{k.replace('_', '-')}"
+        if name not in names:
+            names.add(name)
+            attrs += f" {name}={quoteattr(v)}"
     title = f"<title>{escape(n.data.get('name') or n.text)}</title>" if n.lines else ""
     shape = "" if n.kind == "label" else _rect(n.x, n.y, n.w, n.h, n.style)
     return (f'<g id={quoteattr(n.id)} data-kind="{n.kind}"{attrs}>{title}{shape}'
-            f"{_text(n.lines, n.x, n.y)}</g>")
+            f"{_text(n.lines, n.x, n.y, mode)}</g>")
 
 
 def arrow_points(p0: tuple[float, float], p1: tuple[float, float], width: float
@@ -92,24 +155,30 @@ def _edge(e: Edge) -> str:
            + "".join(out) + "</g>"
 
 
-def _label(e: Edge, lab: EdgeLabel) -> str:
+def _label(e: Edge, lab: EdgeLabel, mode: str) -> str:
     bg = (f'<rect x="{num(lab.x)}" y="{num(lab.y)}" width="{num(lab.w)}" '
           f'height="{num(lab.h)}" rx="1.5" fill="#FFFFFF"/>' if lab.background else "")
-    return f"<g>{bg}{_text(lab.lines, lab.x, lab.y)}</g>"
+    return f"<g>{bg}{_text(lab.lines, lab.x, lab.y, mode)}</g>"
 
 
-def render_svg(sc: Scene) -> bytes:
+def render_svg(sc: Scene, mode: str = "live") -> bytes:
+    """The scene as SVG: ``mode`` "live" (real text, the editable asset) or "outline"
+    (glyph paths, for embedding where the font may be missing)."""
+    if mode not in ("live", "outline"):
+        raise ValueError(f"Unknown SVG text mode: {mode!r}")
     body: list[str] = []
     for kind, item in draw_order(sc):
         if kind == "node":
-            body.append(_node(item))
+            body.append(_node(item, mode))
         elif kind == "edge":
             body.append(_edge(item))
         else:
-            body.append(_label(*item))
+            edge, lab = item
+            body.append(_label(edge, lab, mode))
+    font = f' font-family="{FONT_STACK}"' if mode == "live" else ""
     svg = (f'<svg xmlns="http://www.w3.org/2000/svg" version="1.1" '
            f'width="{num(sc.width)}pt" height="{num(sc.height)}pt" '
-           f'viewBox="0 0 {num(sc.width)} {num(sc.height)}" font-family="{FONT_STACK}">'
+           f'viewBox="0 0 {num(sc.width)} {num(sc.height)}"{font}>'
            f"<title>{escape(sc.caption or sc.title)}</title>"
            f'<rect width="{num(sc.width)}" height="{num(sc.height)}" fill="#FFFFFF"/>'
            + "".join(body) + "</svg>\n")

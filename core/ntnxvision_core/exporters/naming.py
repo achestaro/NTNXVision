@@ -96,5 +96,25 @@ def report_path(directory: str | Path, snapshot_name: str, ext: str,
     return unique_report_path(folder, stem, ext)
 
 
-__all__ = ["PREFIX_MAX", "export_date", "report_path", "report_stem", "sanitize_prefix",
-           "unique_report_path"]
+#: The editable diagrams bundle is ``<report stem>_diagrams.zip``.
+DIAGRAMS_SUFFIX = "_diagrams"
+
+
+def diagrams_stem(directory: str | Path, snapshot_name: str, prefix: str | None = None,
+                  on: date | None = None) -> str:
+    """The report stem for a diagrams bundle: ``<stem>_diagrams.zip`` does not exist yet
+    (``-2``, ``-3``, ... is added to the stem, as for the other reports)."""
+    folder = Path(directory)
+    room = _max_stem_for(folder, "zip") - len(DIAGRAMS_SUFFIX)
+    stem = report_stem(snapshot_name, prefix, on, max_len=max(_MIN_STEM, room))
+    suffix = f"{DIAGRAMS_SUFFIX}.zip".casefold()
+    try:
+        taken = [p.name[: -len(suffix)] for p in folder.iterdir()
+                 if p.name.casefold().endswith(suffix)]
+    except OSError:
+        taken = []
+    return unique_name(stem, taken, max_len=_MAX_STEM + _SUFFIX_ROOM)
+
+
+__all__ = ["DIAGRAMS_SUFFIX", "PREFIX_MAX", "diagrams_stem", "export_date", "report_path",
+           "report_stem", "sanitize_prefix", "unique_report_path"]
