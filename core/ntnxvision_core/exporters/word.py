@@ -22,6 +22,7 @@ template keeps its own styles: only direct table and cover formatting is applied
 from __future__ import annotations
 
 import io
+import zipfile
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -38,6 +39,7 @@ from docx.shared import Emu, Inches, Pt, RGBColor
 
 from ntnxvision_core.diagrams.render.png import render_png
 from ntnxvision_core.diagrams.render.svg import render_svg
+from ntnxvision_core.diagrams.render.vsdx import ZIP_TIME
 from ntnxvision_core.exporters import theme as T
 from ntnxvision_core.exporters import wordcols
 from ntnxvision_core.exporters.content import (
@@ -102,7 +104,9 @@ class WordExporter:
 
         out = Path(path)
         out.parent.mkdir(parents=True, exist_ok=True)
-        doc.save(str(out))
+        buf = io.BytesIO()
+        doc.save(buf)
+        out.write_bytes(stable_zip(buf.getvalue()))
         self.section_count = len(report.chapters)
         self.table_count = self._tables
         return out
@@ -175,7 +179,9 @@ class WordExporter:
                           f"collected {T.collected_label(env)}.{lcm_sentence(env)}")
         props.keywords = report.keywords
         props.language = "en-US"
-        props.created = props.modified = datetime.now()
+        # The snapshot's collection time, so one snapshot gives one document's bytes.
+        stamp = T.parse_datetime(env.collected_at) or datetime(2000, 1, 1)
+        props.created = props.modified = stamp
         props.revision = 1
 
     # ─── cover & contents ──────────────────────────────────────────
@@ -446,7 +452,7 @@ class WordExporter:
     def _scene_figure(self, doc: DocumentObject, f: SceneFigure) -> None:
         text_w = _text_width(doc)
         width = min(text_w, int(Pt(f.scene.width)))
-        png = render_png(f.scene, dpi=220)
+        png = render_png(f.scene, dpi=220, palette=True)
         svg = render_svg(f.scene, mode="outline")
         if f.summary_beside:
             # Decision 3: beside the figure when it is 480 pt or narrower.
@@ -953,3 +959,18 @@ def load_template(template: str) -> DocumentObject:
 
 
 __all__ = ["WordExporter", "load_template"]
+
+
+def stable_zip(data: bytes) -> bytes:
+    """Rewrite an OOXML package with fixed entry times (python-docx stamps the current
+    time), in its original entry order and compression, so equal content gives equal
+    bytes."""
+    src = zipfile.ZipFile(io.BytesIO(data))
+    out = io.BytesIO()
+    with zipfile.ZipFile(out, "w") as z:
+        for info in src.infolist():
+            zi = zipfile.ZipInfo(info.filename, ZIP_TIME)
+            zi.compress_type = zipfile.ZIP_DEFLATED
+            zi.external_attr = 0o644 << 16
+            z.writestr(zi, src.read(info.filename))
+    return out.getvalue()
