@@ -58,6 +58,7 @@ def demo(_demo_state: Any, monkeypatch: pytest.MonkeyPatch) -> Any:
     demo_mode.reset()
     monkeypatch.setenv("NTNXVISION_DEMO", "1")
     monkeypatch.setattr(alerts, "_V4_BACKOFF", 0.05)
+    _demo_state.api.lcm.seconds = 0.2  # mock LCM inventories finish fast in tests
     return _demo_state
 
 
