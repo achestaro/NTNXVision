@@ -27,7 +27,7 @@ from .render.svg import render_svg
 from .render.vsdx import ZIP_TIME, render_vsdx
 from .scene import Scene
 
-#: The .vsdx font (see `bundle`); the live SVG and draw.io keep the Figtree stack.
+#: The .vsdx font (see `bundle`); draw.io names it first too, the live SVG keeps Figtree.
 VSDX_FONT = "Calibri"
 
 #: Short tab names per diagram type (falls back to the type's title).
