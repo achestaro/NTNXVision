@@ -27,6 +27,9 @@ from .render.svg import render_svg
 from .render.vsdx import ZIP_TIME, render_vsdx
 from .scene import Scene
 
+#: The .vsdx font (see `bundle`); the live SVG and draw.io keep the Figtree stack.
+VSDX_FONT = "Calibri"
+
 #: Short tab names per diagram type (falls back to the type's title).
 TAB_NAMES = {"conceptual": "Conceptual", "logical": "Logical", "management": "Management",
              "network": "Network", "dr": "Data protection", "estate": "Estate map"}
@@ -90,7 +93,10 @@ def bundle_bytes(scenes: list[Scene], stem: str, created: str | None = None) -> 
         raise ValueError("No architecture diagrams apply to this snapshot")
     names = [tab_name(sc) for sc in scenes]
     files: list[tuple[str, bytes]] = [
-        (f"{stem}.vsdx", render_vsdx(scenes, names, title=stem, created=created)),
+        # Calibri: the font Visio has on every Windows machine; the layout keeps a
+        # width reserve for it (text.SAFETY), so text measured in Figtree still fits.
+        (f"{stem}.vsdx", render_vsdx(scenes, names, title=stem, created=created,
+                                     font=VSDX_FONT)),
         (f"{stem}.drawio", render_drawio(scenes, names)),
     ]
     files += [(f"svg/{file_stem(i, sc)}.svg", render_svg(sc))

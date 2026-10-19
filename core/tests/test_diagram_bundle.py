@@ -17,7 +17,7 @@ from typing import Any
 import pytest
 
 import ntnxvision_core.sidecar as sc
-from ntnxvision_core.diagrams import conceptual_scenes
+from ntnxvision_core.diagrams import TYPES, conceptual_scenes
 from ntnxvision_core.diagrams.bundle import (
     bundle_bytes,
     file_stem,
@@ -44,15 +44,10 @@ EM_DASH = chr(0x2014)
 
 
 def _container_of(sc_: Scene, node_id: str) -> str | None:
+    """The group holding a node: its parent (every node with members is a group)."""
     by_id = {n.id: n for n in sc_.nodes}
-    seen = {node_id}
     p = by_id[node_id].parent
-    while p and p in by_id and p not in seen:
-        if by_id[p].kind == "container":
-            return p
-        seen.add(p)
-        p = by_id[p].parent
-    return None
+    return p if p in by_id else None
 
 
 # ─── Visio ─────────────────────────────────────────────────────────────
@@ -92,7 +87,7 @@ def check_vsdx(data: bytes, scenes: list[Scene]) -> None:
         assert len(ids) == len(set(ids)), f"page {i}: duplicate shape ids"
         for con in root.iter(f"{V}Connect"):
             assert con.get("FromSheet") in ids and con.get("ToSheet") in ids
-        by_name = {s.get("NameU"): s for s in shapes}
+        by_name = {s.get("Name"): s for s in shapes}
         for n in sc_.nodes:
             assert n.id in by_name, f"page {i}: {n.id} missing"
             parent = _container_of(sc_, n.id)
@@ -100,7 +95,7 @@ def check_vsdx(data: bytes, scenes: list[Scene]) -> None:
                 continue
             group = by_name[parent]
             assert group.get("Type") == "Group"
-            members = {s.get("NameU") for s in group.iter(f"{V}Shape")}
+            members = {s.get("Name") for s in group.iter(f"{V}Shape")}
             assert n.id in members, f"page {i}: {n.id} not inside group {parent}"
         glued = [e for e in sc_.edges if e.src and e.dst]
         assert len(list(root.iter(f"{V}Connect"))) == 2 * len(glued)
@@ -301,3 +296,42 @@ def test_sidecar_export_writes_the_bundle_next_to_the_reports(demo: Any,
     assert again["diagrams"] is None
     detail = sc._m_get_snapshot(None, {"snapshot": run["snapshot_path"]})
     assert {e["format"] for e in detail["exports"]} == {"pdf"}
+
+
+CARLITO = Path("/Applications/LibreOffice.app/Contents/Resources/fonts/truetype")
+
+
+@pytest.mark.skipif(not (CARLITO / "Carlito-Regular.ttf").exists(),
+                    reason="Carlito (Calibri's metric twin) is not installed")
+def test_calibri_fits_the_width_reserve(design_envs: dict[str, Any]) -> None:
+    """The .vsdx names Calibri: every drawn line, measured in Carlito (metrically
+    identical to Calibri), stays within the layout's width reserve (text.SAFETY)."""
+    from fontTools.ttLib import TTFont
+
+    from ntnxvision_core.diagrams import text as tx
+
+    def measure(path: Path) -> Any:
+        f = TTFont(str(path))
+        cmap, hm, upm = f.getBestCmap(), f["hmtx"].metrics, f["head"].unitsPerEm
+        return lambda s, size: sum(hm[cmap[ord(c)]][0] if ord(c) in cmap
+                                   else hm[".notdef"][0] for c in s) * size / upm
+
+    regular = measure(CARLITO / "Carlito-Regular.ttf")
+    bold = measure(CARLITO / "Carlito-Bold.ttf")
+    env = design_envs["multi3"]
+    for t in TYPES.values():
+        if not t.applies(env):
+            continue
+        for sc_ in t.layout(t.build_model(env), t.page):
+            for n in sc_.nodes:
+                for ln in n.lines:
+                    w = (bold if ln.bold else regular)(ln.text, ln.size)
+                    assert w <= ln.width * tx.SAFETY + 0.05, (ln.text, w, ln.width)
+
+
+def test_live_svg_anchors_centred_text_and_pins_its_width(design_envs: dict[str, Any]
+                                                          ) -> None:
+    sc_ = TYPES["conceptual"].layout(TYPES["conceptual"].build_model(design_envs["small"]))[0]
+    svg = render_svg(sc_).decode()
+    assert 'text-anchor="middle"' in svg
+    assert svg.count("<text ") == svg.count('lengthAdjust="spacingAndGlyphs"')
