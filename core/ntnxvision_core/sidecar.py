@@ -1109,7 +1109,9 @@ def _m_carry_diagrams(_req_id: Any, params: dict[str, Any]) -> dict[str, Any]:
                                   and all(isinstance(t, str) for t in types)):
         raise NutanixApiError("types must be a list of diagram types.")
     meta = snapstore.read_meta(src, _cache)
-    info = {"name": meta.get("name"), "collected_at": meta.get("collected_at")}
+    # Who the edits came from: Compare uses it as the baseline of "what changed".
+    info = {"name": meta.get("name"), "collected_at": meta.get("collected_at"),
+            "snapshot_id": meta.get("snapshot_id")}
     report = _diagram_call(lambda: diagram_store.carry_forward(
         src, info, dst, _cache.get(dst), types))
     return {"diagrams": report}

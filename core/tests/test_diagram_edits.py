@@ -440,6 +440,8 @@ def test_sidecar_operations_and_word_export(demo: Any, data_dir: Path,
     sc._m_carry_diagrams(None, {"from": snap, "to": snap2})
     after = sc._m_get_diagram(None, {"snapshot": snap2, "type": "conceptual"})
     assert after["edited"] and after["carried_from"]["name"] == "pc01-week1"
+    # Compare's baseline: the snapshot the edits came from, by its stable id.
+    assert after["carried_from"]["snapshot_id"] == offer["snapshot"]["snapshot_id"]
     assert sc._m_list_diagrams(None, {"snapshot": snap2})["carry"] is None
     reset = sc._m_reset_diagram(None, {"snapshot": snap2, "type": "conceptual"})
     assert not reset["edited"]

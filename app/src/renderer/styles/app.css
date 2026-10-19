@@ -2385,10 +2385,9 @@ h1 .imported-badge {
   stroke-width: 1.5;
 }
 .dg-mark {
-  fill: none;
-  stroke: var(--warn);
-  stroke-width: 1.6;
-  stroke-dasharray: 3 2;
+  fill: rgb(153 88 0 / 0.06);
+  stroke: #995800;
+  stroke-width: 1.4;
 }
 .dg-drop {
   fill: var(--accent);

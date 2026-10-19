@@ -369,7 +369,8 @@ export function SceneCanvas(props: CanvasProps): JSX.Element {
         {[...marked].map((id) => {
           const n = byId.get(id);
           return n ? (
-            <rect key={`mark:${id}`} className="dg-mark" x={n.x - pad} y={n.y - pad} width={n.w + 2 * pad} height={n.h + 2 * pad} rx={4} pointerEvents="none" />
+            // On the element's own border (never outside it), so it cannot cover a neighbour's chip.
+            <rect key={`mark:${id}`} className="dg-mark" x={n.x + 0.6} y={n.y + 0.6} width={n.w - 1.2} height={n.h - 1.2} rx={n.style.radius} pointerEvents="none" />
           ) : null;
         })}
         {sel && !dragged && (
