@@ -66,24 +66,24 @@
        "bold": false,
        "color": "#5B3FD9",
        "size": 6.0,
-       "text": "AZ pairing, connected",
-       "width": 59.52,
-       "x": 3.78
+       "text": "AZ pairing",
+       "width": 27.68,
+       "x": 2.83
       }
      ],
-     "w": 67.09,
-     "x": 107.0,
-     "y": 212.4
+     "w": 33.34,
+     "x": 224.83,
+     "y": 47.52
     }
    ],
    "points": [
     [
-     104.5,
-     194.4
+     209.0,
+     58.7
     ],
     [
-     104.5,
-     224.08
+     274.0,
+     58.7
     ]
    ],
    "src": "site:sm-pc01.demo.local",
@@ -108,11 +108,11 @@
    "points": [
     [
      99.5,
-     288.17
+     219.65
     ],
     [
      116.5,
-     288.17
+     219.65
     ]
    ],
    "src": "",
@@ -137,11 +137,11 @@
    "points": [
     [
      164.84,
-     288.17
+     219.65
     ],
     [
      181.84,
-     288.17
+     219.65
     ]
    ],
    "src": "",
@@ -154,7 +154,7 @@
    }
   }
  ],
- "height": 294.92,
+ "height": 226.4,
  "id": "management",
  "meta": {
   "drawn": [
@@ -492,36 +492,36 @@
     "availability_zone": "dr-colo",
     "name": "dr-colo"
    },
-   "h": 38.84,
+   "h": 40.84,
    "id": "az:dr-colo",
    "kind": "box",
    "lines": [
     {
-     "baseline": 14.22,
+     "baseline": 15.22,
      "bold": true,
      "color": "#0F1A24",
      "size": 7.8,
      "text": "dr-colo",
      "width": 25.79,
-     "x": 67.1
+     "x": 53.1
     },
     {
-     "baseline": 22.92,
+     "baseline": 23.92,
      "bold": false,
      "color": "#3E4C59",
      "size": 6.0,
-     "text": "Prism Central, physical AZ, us-east · not in this",
-     "width": 123.97,
-     "x": 18.02
+     "text": "Prism Central, physical AZ, us-east · not in",
+     "width": 112.69,
+     "x": 9.66
     },
     {
-     "baseline": 30.6,
+     "baseline": 31.6,
      "bold": false,
      "color": "#3E4C59",
      "size": 6.0,
-     "text": "inventory",
-     "width": 25.42,
-     "x": 67.29
+     "text": "this inventory",
+     "width": 36.7,
+     "x": 47.65
     }
    ],
    "parent": null,
@@ -535,9 +535,9 @@
     "stroke": "#8E99A4",
     "stroke_w": 0.75
    },
-   "w": 160.0,
-   "x": 24.5,
-   "y": 224.08
+   "w": 132.0,
+   "x": 274.5,
+   "y": 38.7
   },
   {
    "data": {},
@@ -564,8 +564,8 @@
     "stroke_w": 0.75
    },
    "w": 42.62,
-   "x": 30.0,
-   "y": 219.58
+   "x": 280.0,
+   "y": 34.2
   },
   {
    "data": {},
@@ -583,7 +583,7 @@
    },
    "w": 17,
    "x": 0.5,
-   "y": 273.42
+   "y": 204.9
   },
   {
    "data": {},
@@ -611,7 +611,7 @@
    },
    "w": 66.13,
    "x": 21.5,
-   "y": 271.92
+   "y": 203.4
   },
   {
    "data": {},
@@ -629,7 +629,7 @@
    },
    "w": 17,
    "x": 101.63,
-   "y": 273.42
+   "y": 204.9
   },
   {
    "data": {},
@@ -657,7 +657,7 @@
    },
    "w": 62.68,
    "x": 122.63,
-   "y": 271.92
+   "y": 203.4
   },
   {
    "data": {},
@@ -678,7 +678,7 @@
    },
    "w": 17,
    "x": 0.5,
-   "y": 284.42
+   "y": 215.9
   },
   {
    "data": {},
@@ -706,7 +706,7 @@
    },
    "w": 64.0,
    "x": 21.5,
-   "y": 282.92
+   "y": 214.4
   },
   {
    "data": {},
@@ -734,7 +734,7 @@
    },
    "w": 30.34,
    "x": 120.5,
-   "y": 282.92
+   "y": 214.4
   },
   {
    "data": {},
@@ -762,7 +762,7 @@
    },
    "w": 23.85,
    "x": 185.84,
-   "y": 282.92
+   "y": 214.4
   }
  ],
  "part": [
@@ -772,5 +772,5 @@
  "schema": "ntnxvision.diagram.scene/1",
  "title": "Management plane design",
  "type": "management",
- "width": 210.19
+ "width": 407.0
 }
