@@ -28,6 +28,7 @@
     "smoke": "npx electron . --smoke",
     "screenshots": "npm run build:renderer && node scripts/screenshot.mjs",
     "e2e": "npm run build && node scripts/e2e-demo.mjs",
+    "readme:shots": "npm run build && node scripts/readme-shots.mjs",
     "test": "npm run build:main && node --test tests/",
     "notices": "node ../scripts/generate-third-party-notices.mjs",
     "notices:check": "node ../scripts/generate-third-party-notices.mjs --check",
