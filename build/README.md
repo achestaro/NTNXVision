@@ -141,8 +141,10 @@ signing secrets and always build unsigned.
 environment `release`; under Deployment branches and tags add a **tag** rule `v*`; optionally
 add Required reviewers so each release build needs an approval; move the seven secrets above
 into it and delete any repository-level copies (a repository secret of the same name would
-still reach every run). Until the environment exists, the first tag run creates it with no
-secrets and fails at the "signing secret is missing" check.
+still reach every run). Until certificates are added, tag builds are unsigned: each platform
+signs only when all of its secrets are present, builds unsigned with a warning when none
+are, and fails on a partial set. The draft release then opens with an "Unsigned build"
+section that explains how to open the apps.
 
 Getting the Apple credentials (Apple Developer Program, $99/yr):
 1. Create a **Developer ID Application** certificate and export it from Keychain Access as a
