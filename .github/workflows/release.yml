@@ -11,8 +11,9 @@ name: Release
 #
 # Security model: the workflow token is read-only by default; only the `release` job (tags
 # only) gets contents: write. Signing secrets live in the `release` Environment (restricted
-# to v* tags) and are exposed only to tag builds, never to pull requests or manual runs, and
-# a tag build fails if any signing secret is missing. Every action is
+# to v* tags) and are exposed only to tag builds, never to pull requests or manual runs. A tag
+# build signs when every signing secret for its platform is present, builds unsigned (and
+# the release says so) when none is, and fails when only some are (a misconfiguration). Every action is
 # pinned by commit SHA (Dependabot keeps them current). Python build deps are installed from
 # the hash-locked core/requirements-build.lock with --require-hashes.
 
@@ -258,8 +259,8 @@ jobs:
 
       # Signing secrets are exposed only to tag runs (environment `release`), never to pull
       # requests or manual runs (a PR or dispatched branch can change the scripts that run
-      # here). Tag builds must be signed: they fail when any secret is absent. PR and manual
-      # test builds are always unsigned.
+      # here). Tag builds sign when all of their platform's secrets are present, stay unsigned
+      # when none are, and fail on a partial set. PR and manual test builds are always unsigned.
       - name: Build (macOS)
         if: runner.os == 'macOS'
         env:
@@ -273,12 +274,16 @@ jobs:
           REQUIRE_SIGNING: ${{ startsWith(github.ref, 'refs/tags/') && 'true' || 'false' }}
         run: |
           if [ "$REQUIRE_SIGNING" = "true" ]; then
+            set_count=0
             for v in SEC_CSC_LINK SEC_CSC_KEY_PASSWORD SEC_APPLE_ID SEC_APPLE_APP_SPECIFIC_PASSWORD SEC_APPLE_TEAM_ID; do
-              if [ -z "${!v}" ]; then
-                echo "::error::Release builds must be signed and notarized: the secret behind $v is missing."
-                exit 1
-              fi
+              [ -n "${!v}" ] && set_count=$((set_count + 1))
             done
+            if [ "$set_count" -eq 0 ]; then
+              echo "::warning::No macOS signing secrets: this release build is unsigned and not notarized."
+            elif [ "$set_count" -ne 5 ]; then
+              echo "::error::Only some macOS signing secrets are set ($set_count of 5): add all of them or none."
+              exit 1
+            fi
           fi
           # Sign only with an explicitly provided certificate, never a runner keychain identity.
           export CSC_IDENTITY_AUTO_DISCOVERY=false
@@ -302,11 +307,12 @@ jobs:
           REQUIRE_SIGNING: ${{ startsWith(github.ref, 'refs/tags/') && 'true' || 'false' }}
         run: |
           if ($env:REQUIRE_SIGNING -eq 'true') {
-            foreach ($v in 'SEC_WIN_CSC_LINK', 'SEC_WIN_CSC_KEY_PASSWORD') {
-              if (-not [Environment]::GetEnvironmentVariable($v)) {
-                Write-Host "::error::Release builds must be signed: the secret behind $v is missing."
-                exit 1
-              }
+            $setCount = @('SEC_WIN_CSC_LINK', 'SEC_WIN_CSC_KEY_PASSWORD' | Where-Object { [Environment]::GetEnvironmentVariable($_) }).Count
+            if ($setCount -eq 0) {
+              Write-Host "::warning::No Windows signing secrets: this release build is unsigned."
+            } elseif ($setCount -ne 2) {
+              Write-Host "::error::Only some Windows signing secrets are set ($setCount of 2): add both or none."
+              exit 1
             }
           }
           $env:CSC_IDENTITY_AUTO_DISCOVERY = 'false'
@@ -383,6 +389,8 @@ jobs:
     if: startsWith(github.ref, 'refs/tags/')
     needs: build
     runs-on: ubuntu-latest
+    # Attached only to read whether signing secrets exist, so the release can say so.
+    environment: release
     permissions:
       contents: write       # create the draft release
       id-token: write       # sign the provenance attestation
@@ -405,12 +413,33 @@ jobs:
             dist-release/*.msi
             dist-release/*.dmg
             dist-release/*.zip
+      - name: Signing note
+        env:
+          MAC_SIGNED: ${{ secrets.MAC_CSC_LINK != '' && secrets.APPLE_ID != '' }}
+          WIN_SIGNED: ${{ secrets.WIN_CSC_LINK != '' }}
+        run: |
+          {
+            if [ "$MAC_SIGNED" = "true" ] && [ "$WIN_SIGNED" = "true" ]; then
+              echo "Installers are code-signed (Windows) and signed and notarized (macOS)."
+            else
+              echo "## Unsigned build"
+              echo
+              echo "These installers are not code-signed yet, so the first launch shows a warning."
+              echo
+              echo "- **macOS**: after copying NTNXVision to Applications, run \`xattr -cr /Applications/NTNXVision.app\` once, then open it."
+              echo "- **Windows**: if SmartScreen says \"Windows protected your PC\", choose **More info**, then **Run anyway**."
+              echo
+              echo "Check a download against \`SHA256SUMS\` and the build provenance attestation (\`gh attestation verify <file> -R ${GITHUB_REPOSITORY}\`)."
+            fi
+          } > release-notes.md
+          cat release-notes.md
       - name: Attach to draft release
         uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2.6.2
         with:
           tag_name: ${{ github.ref_name }}
           name: NTNXVision ${{ github.ref_name }}
           draft: true
+          body_path: release-notes.md
           generate_release_notes: true
           fail_on_unmatched_files: true
           files: |
