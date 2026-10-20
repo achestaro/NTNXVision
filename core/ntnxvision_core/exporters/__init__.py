@@ -66,6 +66,8 @@ class ExportOptions:
     chapters: frozenset[str] | None = None
     #: Custom chapter order (`sections.order`); None = the default document order.
     section_order: tuple[str, ...] | None = None
+    #: How the editable diagrams bundle is written: one "zip" or a "folder".
+    diagrams_package: str = "zip"
 
     def includes(self, section: str) -> bool:
         return self.sections is None or section in self.sections
@@ -92,6 +94,8 @@ class ExportOptions:
             chapters=_str_set(value.get("chapters")),
             section_order=tuple(str(s) for s in order) if isinstance(
                 order := value.get("section_order"), list) else None,
+            diagrams_package="folder" if value.get("diagrams_package") == "folder"
+            else "zip",
         )
 
 
@@ -123,8 +127,11 @@ def export_environment(
         from ntnxvision_core.diagrams.bundle import write_bundle
         from ntnxvision_core.exporters.naming import DIAGRAMS_SUFFIX
 
-        bundle = Path(directory) / f"{name}{DIAGRAMS_SUFFIX}.zip"
-        summary = write_bundle(env, ExportOptions.coerce(options), bundle)
+        opts = ExportOptions.coerce(options)
+        folder = opts.diagrams_package == "folder"
+        bundle = Path(directory) / (f"{name}{DIAGRAMS_SUFFIX}" if folder
+                                    else f"{name}{DIAGRAMS_SUFFIX}.zip")
+        summary = write_bundle(env, opts, bundle, "folder" if folder else "zip")
         return (bundle, summary) if with_detail else bundle
     ext = _EXTENSIONS.get(fmt)
     if ext is None:

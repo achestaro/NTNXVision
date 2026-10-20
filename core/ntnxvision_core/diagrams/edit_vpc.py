@@ -52,8 +52,11 @@ SPEC = EditSpec(
                    kind_of=lambda e: "External network" if e.get("kind") == "user"
                    else "External subnet"),
         Collection("vpcs", "VPC", sublabel="note",
-                   kind_of=lambda v: "Note" if v.get("kind") == "note" else "VPC"),
-        Collection("overlays", "Overlay subnet", sublabel="note"),
+                   kind_of=lambda v: "Note" if v.get("kind") == "note" else "VPC",
+                   cross="user", cross_reason="A collected VPC stays in the availability "
+                   "zone that manages it."),
+        Collection("overlays", "Overlay subnet", sublabel="note", cross="user",
+                   cross_reason="A collected overlay subnet stays in its VPC."),
     ),
     palette=(
         PaletteItem("overlay", "Overlay subnet", "overlays",

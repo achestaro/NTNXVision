@@ -49,7 +49,9 @@ SPEC = EditSpec(
         Collection("lanes", "Policy lane", label=None, delete=False,
                    title_of=lambda x: LANE_TITLES.get(str(x.get("type")), "Policies")
                    .capitalize()),
-        Collection("policies", "Security policy", sublabel="note", kind_of=_kind),
+        Collection("policies", "Security policy", sublabel="note", kind_of=_kind,
+                   cross="user", cross_reason="A collected policy stays in the lane of "
+                   "its type."),
     ),
     palette=(
         PaletteItem("policy", "Planned policy", "policies",

@@ -70,7 +70,9 @@ SPEC = EditSpec(
     collections=(
         Collection("sites", "Availability zone", sublabel="note", kind_of=_site_kind),
         Collection("cards", "Cluster", sublabel="note", roles=ROLES, kind_of=_card_kind,
-                   has_role=lambda c: c.get("kind") == "cluster"),
+                   has_role=lambda c: c.get("kind") == "cluster", cross="user",
+                   cross_reason="A collected cluster stays in the availability zone that "
+                   "manages it."),
         Collection("remotes", "Remote availability zone"),
         Collection("links", "Link", label=None, reorder=False, title_of=_link_title),
     ),
@@ -78,6 +80,10 @@ SPEC = EditSpec(
         PaletteItem("cluster", "Cluster", "cards",
                     {"name": "New cluster", "kind": "user", "note": _NOT_COLLECTED},
                     parents=("sites",), hint="A cluster that is not in this snapshot."),
+        PaletteItem("pc", "Prism Central", "cards",
+                    {"name": "Prism Central", "kind": "user",
+                     "note": "Management plane, not collected"},
+                    parents=("sites",), hint="A Prism Central the snapshot does not hold."),
         PaletteItem("az", "AZ", "sites",
                     {"name": "New availability zone", "kind": "user", "cards": [],
                      "note": _NOT_COLLECTED},
