@@ -34,7 +34,7 @@ dependencies = [
     "openpyxl>=3.1,<4",      # Excel export
     "fpdf2>=2.7,<3",         # PDF export — pure Python, no native GTK/Pango deps
     "python-docx>=1.1,<2",   # Word Architecture Design Document
-    "pillow>=10.1,<13",      # diagram and chart rasters (also required by fpdf2)
+    "pillow>=10.1,<14",      # diagram and chart rasters (also required by fpdf2)
     "fonttools>=4.40,<5",    # diagram text measurement from the bundled fonts (fpdf2 uses it too)
     "cryptography>=48.0.1,<51",  # build lock: 50.x, 48.0.1 on macOS x86_64 (no newer wheel); optional password encryption of .ntnxsnap files (AES-256-GCM, scrypt)
 ]
