@@ -135,8 +135,22 @@ let asking = false;
 /** Windows is logging off or shutting down: never hold it up with a prompt. */
 let sessionEnding = false;
 
+/**
+ * e2e only (unpackaged, NTNXVISION_E2E): the discard prompt is never a native dialog, which
+ * an automated run cannot answer. Each prompt is counted with what it was about, and
+ * answered from `answer` ('discard' unless a step sets 'keep'), so a test asserts that the
+ * guard was raised and closing never hangs the run.
+ */
+const e2eDiscard = { prompts: 0, last: '', answer: 'discard' as 'discard' | 'keep' };
+if (e2e) (globalThis as unknown as { __ntnxE2eDiscard: typeof e2eDiscard }).__ntnxE2eDiscard = e2eDiscard;
+
 async function confirmDiscard(win: BrowserWindow): Promise<boolean> {
   const what = unsavedWork?.what || 'A diagram';
+  if (e2e) {
+    e2eDiscard.prompts += 1;
+    e2eDiscard.last = what;
+    return e2eDiscard.answer === 'discard';
+  }
   if (!win.isVisible()) win.show(); // e.g. hidden in the tray when Quit was chosen
   const r = await dialog.showMessageBox(win, {
     type: 'warning',

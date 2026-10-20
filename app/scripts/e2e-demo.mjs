@@ -1059,6 +1059,110 @@ try {
     await page.locator('[data-el^="user:"]', { hasText: 'USER-ADDED' }).waitFor();
   });
 
+  // Diagrams editor v2: connectors (tool, ports, keyboard, inspector), generated
+  // connector edits, drag into another container (and a refusal), the full-window editor.
+  const conns = () => page.locator('[data-conn^="user:"]').count();
+  await run('diagrams-connector-add', async () => {
+    const before = await conns();
+    // Nothing selected: the tool asks for the start, then the end.
+    await page.locator('.dg-sheet svg').click({ position: { x: 3, y: 3 } });
+    await page.getByRole('toolbar', { name: 'Add to diagram' }).getByRole('button', { name: 'Connector', exact: true }).click();
+    await page.getByTestId('dg-connect-status').getByText('Pick the start element').waitFor();
+    await page.locator('[data-el^="user:"]', { hasText: 'Backup appliance' }).click();
+    await page.getByTestId('dg-connect-status').getByText('pick the end element').waitFor();
+    await el('cluster:').first().click();
+    await page.waitForFunction((n) => document.querySelectorAll('[data-conn^="user:"]').length === n + 1, before, { timeout: 15_000 });
+    const ins = page.getByTestId('dg-connector-inspector');
+    await ins.waitFor();
+    const label = ins.getByLabel('Label', { exact: true });
+    await label.fill('E2E backup link');
+    await label.press('Enter');
+    await page.locator('.dg-sheet svg text', { hasText: 'E2E backup link' }).waitFor({ timeout: 15_000 });
+    // A connector can be drawn from a port of the selected element, too.
+    await el('cluster:').nth(1).click();
+    const port = page.locator('[data-port="bottom"]');
+    const p0 = await port.boundingBox();
+    const t = await el('cluster:').first().boundingBox();
+    await page.mouse.move(p0.x + p0.width / 2, p0.y + p0.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(t.x + t.width / 2, t.y + t.height / 2, { steps: 8 });
+    await page.getByText(/^Connect to /).waitFor();
+    await page.mouse.up();
+    await page.waitForFunction((n) => document.querySelectorAll('[data-conn^="user:"]').length === n + 2, before, { timeout: 15_000 });
+  });
+
+  await run('diagrams-connector-keyboard', async () => {
+    const before = await conns();
+    // C on a focused element starts a connector; Tab to another and Enter ends it.
+    await el('cluster:').nth(1).focus();
+    await page.keyboard.press('c');
+    await page.getByTestId('dg-connect-status').getByText('pick the end element').waitFor();
+    await page.locator('[data-el^="user:"]', { hasText: 'Backup appliance' }).focus();
+    await page.keyboard.press('Enter');
+    await page.waitForFunction((n) => document.querySelectorAll('[data-conn^="user:"]').length === n + 1, before, { timeout: 15_000 });
+    // Reconnect from the inspector (the keyboard path for the end handles).
+    const ins = page.getByTestId('dg-connector-inspector');
+    await ins.waitFor();
+    const to = ins.locator('#dg-conn-b');
+    const options = await to.locator('option').allInnerTexts();
+    const current = await to.inputValue();
+    const values = await to.locator('option').evaluateAll((os) => os.map((o) => o.value));
+    const next = values.find((v) => v !== current && v.startsWith('cluster:'));
+    if (!next) throw new Error(`no other end to reconnect to: ${options.join(' | ')}`);
+    await to.selectOption(next);
+    await page.waitForFunction((v) => document.querySelector('#dg-conn-b')?.value === v, next, { timeout: 15_000 });
+    // Delete it with the keyboard from its line.
+    const id = await page.locator('[data-conn^="user:"][aria-pressed="true"]').getAttribute('data-conn');
+    await page.locator(`[data-conn="${id}"]`).focus();
+    await page.keyboard.press('Delete');
+    await page.waitForFunction((n) => document.querySelectorAll('[data-conn^="user:"]').length === n, before, { timeout: 15_000 });
+  });
+
+  await run('diagrams-generated-connector', async () => {
+    const gen = page.locator('[data-conn]:not([data-conn^="user:"])').first();
+    if (!(await gen.count())) return; // a figure without generated connectors
+    await gen.focus();
+    const ins = page.getByTestId('dg-connector-inspector');
+    await ins.getByText('Collected', { exact: true }).waitFor();
+    await ins.getByRole('button', { name: 'Move the lane on 6 pt' }).click();
+    await ins.locator('#dg-side-a').selectOption('bottom');
+    await page.waitForFunction(() => document.querySelector('#dg-side-a')?.value === 'bottom', null, { timeout: 15_000 });
+  });
+
+  await run('diagrams-drag-across', async () => {
+    // A user-added card moves into another availability zone; a collected one is refused.
+    await page.getByRole('toolbar', { name: 'Add to diagram' }).getByRole('button', { name: 'AZ', exact: true }).click();
+    const zone = page.locator('[data-el^="user:"]', { hasText: 'New availability zone' });
+    await zone.waitFor({ timeout: 15_000 });
+    const card = page.locator('[data-el^="user:"]', { hasText: 'Backup appliance' });
+    const a = await card.boundingBox();
+    const z = await zone.boundingBox();
+    await page.mouse.move(a.x + a.width / 2, a.y + a.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(z.x + z.width / 2, z.y + z.height - 6, { steps: 10 });
+    await page.getByText(/^Drop to move Backup appliance to position 1 of 1 in New availability zone/).waitFor();
+    await page.mouse.up();
+    // Alone in the new zone: the inspector's Container select names it.
+    await card.click();
+    await page.waitForFunction(() => document.querySelector('#dg-in-parent')?.value?.startsWith('user:'), null, { timeout: 15_000 });
+    const c = await el('cluster:').first().boundingBox();
+    const z2 = await zone.boundingBox();
+    await page.mouse.move(c.x + c.width / 2, c.y + c.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(z2.x + z2.width / 2, z2.y + z2.height / 2, { steps: 10 });
+    await page.getByText(/^Can’t move here: A collected cluster stays in the availability zone/).waitFor();
+    await page.mouse.up();
+  });
+
+  await run('diagrams-expand', async () => {
+    await page.locator('.dg-canvas .phead').click({ position: { x: 5, y: 5 } });
+    await page.keyboard.press('ControlOrMeta+Shift+f');
+    await page.locator('.dg-expanded').waitFor();
+    await uxShot('diagrams-expanded');
+    await page.keyboard.press('Escape');
+    await page.waitForFunction(() => !document.querySelector('.dg-expanded'), null, { timeout: 5_000 });
+  });
+
   await run('diagrams-delete-undo-redo', async () => {
     const before = await el('cluster:').count();
     await el('cluster:').last().click();
@@ -1069,6 +1173,25 @@ try {
     await page.waitForFunction((n) => document.querySelectorAll('[data-el^="cluster:"]').length === n, before, { timeout: 15_000 });
     await page.keyboard.press('ControlOrMeta+Shift+z');
     await page.waitForFunction((n) => document.querySelectorAll('[data-el^="cluster:"]').length === n - 1, before, { timeout: 15_000 });
+  });
+
+  await run('diagrams-close-guard', async () => {
+    // Closing the window with unsaved edits raises the discard guard (answered by the e2e
+    // hook, never a native dialog): "Keep editing" keeps the window and the edits.
+    await app.evaluate(() => {
+      globalThis.__ntnxE2eDiscard.answer = 'keep';
+    });
+    const before = await app.evaluate(() => globalThis.__ntnxE2eDiscard.prompts);
+    await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.close());
+    await page.waitForTimeout(500);
+    const after = await app.evaluate(() => ({ n: globalThis.__ntnxE2eDiscard.prompts, what: globalThis.__ntnxE2eDiscard.last }));
+    await app.evaluate(() => {
+      globalThis.__ntnxE2eDiscard.answer = 'discard';
+    });
+    if (after.n !== before + 1) throw new Error('closing with unsaved edits did not ask first');
+    if (!/Solution conceptual overview/.test(after.what)) throw new Error(`the guard named ${after.what}`);
+    await page.locator('.dg-sheet svg').waitFor();
+    await page.getByText(/unsaved change/).first().waitFor();
   });
 
   await run('diagrams-dirty-guard', async () => {
@@ -1095,8 +1218,46 @@ try {
     if (![...ed.media].some((h) => !gen.media.has(h))) throw new Error('the edited Word export has the same figures as the generated one');
     // The user-added element is in the figure only, never in the document's text or tables.
     if (ed.mentions) throw new Error('"Backup appliance" leaked into the Word text or tables');
+    // The connector edits are disclosed in the figure's design summary.
+    if (!docxFacts(edited, 'connector added by the author').mentions && !docxFacts(edited, 'connectors added by the author').mentions) {
+      throw new Error('the user-added connector is not disclosed in the Word design summary');
+    }
     editedDocx = edited;
     await page.screenshot({ path: join(uxDir, 'diagrams-saved.png'), fullPage: true });
+  });
+
+  await run('diagrams-export-preview-and-folder', async () => {
+    await page.getByRole('button', { name: /Solution conceptual overview/ }).first().click();
+    await page.getByRole('button', { name: 'Export…', exact: true }).click();
+    const dialog = page.getByRole('dialog');
+    const preview = dialog.getByTestId('export-preview');
+    await preview.getByText(/_diagrams\.zip$/).first().waitFor({ timeout: 60_000 });
+    await preview.getByText('png/').waitFor();
+    await preview.getByRole('button', { name: /svg\// }).click();
+    await preview.getByText('Edited').first().waitFor();
+    await dialog.getByRole('button', { name: 'Folder', exact: true }).click();
+    await preview.getByText(/Folder,/).waitFor({ timeout: 30_000 });
+    const name = (await preview.locator('h3').innerText()).trim();
+    if (!name.endsWith('_diagrams')) throw new Error(`folder package named ${name}`);
+    await uxShot('export-dialog-preview');
+    await dialog.getByText('Word ADD', { exact: true }).first().click(); // PDF only
+    await dialog.getByRole('button', { name: /^Export 2 files/ }).click();
+    let folder = '';
+    for (let i = 0; i < 240 && !folder; i++) {
+      await page.waitForTimeout(500);
+      if ((await readdir(exportDir)).includes(name)) folder = join(exportDir, name);
+    }
+    if (!folder) throw new Error(`no ${name} folder written`);
+    const inside = await readdir(join(folder, 'png'));
+    if (!inside.some((f) => f.endsWith('.png'))) throw new Error('the folder has no PNGs');
+  });
+
+  await run('diagrams-download-svg', async () => {
+    const before = new Set(await readdir(exportDir));
+    await page.getByRole('group', { name: 'Download this diagram' }).getByRole('button', { name: 'SVG', exact: true }).click();
+    await page.getByText(/^Saved .*_solution-conceptual-overview.*\.svg/).first().waitFor({ timeout: 60_000 });
+    const added = (await readdir(exportDir)).filter((f) => !before.has(f));
+    if (!added.some((f) => f.endsWith('.svg'))) throw new Error(`no SVG written: ${added.join(', ')}`);
   });
 
   // A per-AZ network figure (Network Segment Design): rename a segment in place, save,
@@ -1390,7 +1551,17 @@ if (errors.length) {
   failed = true;
   console.log(errors.join('\n'));
 }
-if (!keepOpen) await app.close();
+if (!keepOpen) {
+  // Never leave a window behind: drop any unsaved state first (a failed step can stop
+  // mid-edit), close with a deadline, then make sure the process is gone.
+  await page.evaluate(() => window.ntnx.setUnsavedChanges({ dirty: false })).catch(() => {});
+  await Promise.race([app.close().catch(() => {}), new Promise((r) => setTimeout(r, 20_000))]);
+  try {
+    app.process().kill('SIGKILL');
+  } catch {
+    /* already gone */
+  }
+}
 console.log(failed ? 'e2e FAILED' : `e2e passed → ${outDir}`);
 void exported;
 process.exit(failed ? 1 : 0);
