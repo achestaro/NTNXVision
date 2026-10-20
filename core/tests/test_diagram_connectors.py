@@ -544,3 +544,34 @@ def test_sidecar_layout_returns_connectors(demo: Any, data_dir: Path) -> None:
     json.dumps(lay)  # JSON-safe for the IPC
     edges = [e for s in lay["scenes"] for e in s["edges"] if e["id"] == "user:k"]
     assert edges and edges[0]["data"]["origin"] == "user"
+
+
+def test_editable_assets_carry_connector_edits(design_envs: dict[str, Any]) -> None:
+    """The .vsdx keeps glue and groups and the .drawio its ends with connector edits."""
+    import io
+    import xml.etree.ElementTree as ET
+
+    from ntnxvision_core.diagrams.bundle import tab_name
+    from ntnxvision_core.diagrams.render.drawio import render_drawio
+    from ntnxvision_core.diagrams.render.vsdx import render_vsdx
+
+    from .test_diagram_bundle import check_vsdx
+
+    env = design_envs["medium"]
+    t = TYPES["dr"]
+    boxes = _boxes(env, "dr")
+    c = _conns(env, "dr")[0]
+    ops = E.clean_ops([
+        {"op": "connect", "id": "user:a", "a": boxes[0]["id"], "b": boxes[-1]["id"],
+         "label": "Backup path"},
+        {"op": "edge", "id": c["id"], "ends": c["ends"], "field": "a_side", "value": "top"},
+    ])
+    model = t.from_doc(E.apply_ops(ST.generated(env, "dr"), ops, t.edit_spec).payload)
+    scenes = t.layout(model, t.page)
+    check_vsdx(render_vsdx(scenes, [tab_name(s) for s in scenes]), scenes)
+    drawio = render_drawio(scenes, [tab_name(s) for s in scenes]).decode()
+    root = ET.fromstring(drawio)
+    cells = [x for x in root.iter("mxCell") if x.get("edge") == "1"]
+    assert any(x.get("source") and x.get("target") for x in cells)
+    assert "Backup path" in drawio
+    assert io.BytesIO(render_svg(scenes[0])).getvalue().count(b'id="user:a"') == 1
