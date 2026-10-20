@@ -938,26 +938,40 @@ def _m_get_snapshot(_req_id: Any, params: dict[str, Any]) -> dict[str, Any]:
         "is_combined": meta.get("kind") == "combined",
         "sources": meta.get("sources") or [],
         "collection_notes": stats.get("notes") or {},
-        "export_estimates": _estimates(summary, meta.get("kind")),
+        "export_estimates": _estimates(summary, meta.get("kind"), meta.get("exports") or []),
         "run": run,
-        "exports": [{k: v for k, v in f.items() if k != "run"}
+        "exports": [{k: v for k, v in f.items() if k not in _SEND_FIELDS}
                     for f in meta.get("exports") or []],
     }
 
 
-def _estimates(summary: dict[str, Any], kind: Any) -> dict[str, Any]:
-    """Rough sizes for the export dialog's format cards (calibrated on synthetic runs)."""
+def _estimates(summary: dict[str, Any], kind: Any,
+               exports: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+    """Sizes for the export and email dialogs' format cards.
+
+    A format this snapshot was already exported to uses the latest real file size
+    (`measured: true`); otherwise a model calibrated on the synthetic estates (pc01 to
+    pc03, large1 to large3: within about 25 % of the real files)."""
     rows = sum(int(v or 0) for k, v in summary.items() if k != "source_environments")
     sheets = 4 + sum(1 for k, v in summary.items()
                      if v and k not in ("source_environments", "system_vms"))
     vms = int(summary.get("vms") or 0)
     # The PDF and the ADD carry no per-VM table, so VMs barely move their length.
     doc_rows = max(0, rows - vms)
-    return {
-        "excel": {"bytes": 12_000 + rows * 190, "detail": f"{sheets:,} sheets"},
-        "pdf": {"bytes": 650_000 + doc_rows * 1_100, "detail": f"≈ {10 + doc_rows // 30:,} pages"},
-        "word": {"bytes": 800_000 + doc_rows * 900, "detail": f"≈ {16 + doc_rows // 25:,} pages"},
+    out: dict[str, Any] = {
+        "excel": {"bytes": 15_000 + rows * 92, "detail": f"{sheets:,} sheets",
+                  "measured": False},
+        "pdf": {"bytes": 200_000 + doc_rows * 140, "detail": f"≈ {10 + doc_rows // 30:,} pages",
+                "measured": False},
+        "word": {"bytes": min(1_600_000, 700_000 + doc_rows * 800),
+                 "detail": f"≈ {16 + doc_rows // 25:,} pages", "measured": False},
     }
+    for entry in reversed(exports or []):
+        fmt = entry.get("format")
+        size = entry.get("size_bytes")
+        if fmt in out and not out[fmt]["measured"] and isinstance(size, int) and size > 0:
+            out[fmt] = {**out[fmt], "bytes": size, "measured": True}
+    return out
 
 
 def _m_report_sections(_req_id: Any, params: dict[str, Any]) -> dict[str, Any]:
@@ -1546,12 +1560,87 @@ def _summary_line(summary: dict[str, Any]) -> str:
     return ", ".join(parts)
 
 
+def _send_key(params: dict[str, Any], snap_path: Path) -> str:
+    """What decides an emailed report's content, as a short hash: the export options, the
+    file prefix, the snapshot file and its saved diagram edits. A later send with the same
+    key reuses the copy an earlier send saved in the export folder."""
+    import hashlib
+
+    def stamp(path: Path) -> list[Any]:
+        try:
+            st = path.stat()
+        except OSError:
+            return [None, None]
+        return [st.st_mtime_ns, st.st_size]
+
+    key = json.dumps({"options": _export_options(params), "prefix": _file_prefix(params),
+                      "snapshot": [str(snap_path), *stamp(snap_path)],
+                      "diagrams": stamp(snapstore.diagrams_path(snap_path))},
+                     sort_keys=True, default=str)
+    return hashlib.sha256(key.encode()).hexdigest()[:32]
+
+
+#: Export-history fields only send_email reads (not part of a ReportFile).
+_SEND_FIELDS = ("email_key", "sent_as", "run")
+
+
+def _keep_sent_reports(written: list[dict[str, Any]], out_dir: Path, snap_path: Path,
+                       key: str) -> list[dict[str, Any]]:
+    """Save the reports of one send in the export folder, unless an earlier send of the
+    same snapshot and options already saved a file of that name there (it is reused, so
+    sending again never fills the folder with -2, -3 copies). New copies follow the export
+    rule: never overwrite, and are recorded in the snapshot's export history."""
+    from ntnxvision_core.exporters.naming import unique_report_path
+
+    meta = snapstore.read_meta_raw(snap_path) or {}
+    history = [e for e in meta.get("exports") or [] if isinstance(e, dict)]
+    kept: list[dict[str, Any]] = []
+    new: list[dict[str, Any]] = []
+    for f in written:
+        src = Path(f["path"])
+        earlier = next((e for e in reversed(history)
+                        if e.get("email_key") == key and e.get("format") == f["format"]
+                        and e.get("sent_as") == src.name
+                        and Path(str(e.get("path"))).parent == out_dir
+                        and Path(str(e.get("path"))).is_file()),
+                       None)
+        if earlier is not None:
+            kept.append({k: v for k, v in earlier.items() if k not in _SEND_FIELDS})
+            continue
+        dest = unique_report_path(out_dir, src.stem, src.suffix.lstrip("."))
+        shutil.copy2(src, dest)
+        entry = {**_report_file(f["format"], dest, f.get("detail")), "email_key": key,
+                 "sent_as": src.name}
+        new.append(entry)
+        kept.append({k: v for k, v in entry.items() if k not in _SEND_FIELDS})
+    if new:
+        snapstore.record_exports(snap_path, new)
+    return kept
+
+
+def _target_label(meta: dict[str, Any], names: dict[str, str]) -> str:
+    """{target} for one snapshot: the saved target's name for its host (the main process
+    passes `context.target_names`), else the host."""
+    def one(host: Any) -> str:
+        h = str(host or "").strip()
+        return names.get(h.lower()) or h
+
+    if meta.get("kind") == "combined":
+        sources = [one(h) for h in meta.get("sources") or [] if h]
+        return ", ".join(sources) or str(meta.get("source") or meta.get("name") or "")
+    return one(meta.get("source")) or str(meta.get("name") or "")
+
+
 def _m_send_email(_req_id: Any, params: dict[str, Any]) -> dict[str, Any]:
     """Write a snapshot's (or several snapshots') reports and email them.
 
-    The reports land in the export folder like any export (and stay there when sending
-    fails); SMTP failures come back as a classified result, not a JSON-RPC error.
+    The reports are written to a private per-send folder under stable names
+    (`<prefix>-<name>-<date>.<ext>`, the same stem for every format) and attached from
+    there; a copy is kept in the export folder like any export, reusing an earlier send's
+    copy of the same snapshot and options (it stays there when sending fails). SMTP
+    failures come back as a classified result, not a JSON-RPC error.
     """
+    import tempfile
     from datetime import date
 
     from ntnxvision_core import mailer
@@ -1578,54 +1667,87 @@ def _m_send_email(_req_id: Any, params: dict[str, Any]) -> dict[str, Any]:
     out_dir = _export_dir_from(params)
     options = _export_options(params)
     prefix = _file_prefix(params)
+    context = params.get("context") or {}
+    raw_names = context.get("target_names")
+    target_names = {str(k).strip().lower(): str(v).strip()
+                    for k, v in (raw_names.items() if isinstance(raw_names, dict) else [])
+                    if str(k).strip() and str(v).strip()}
     files: list[dict[str, Any]] = []
+    attach: list[Path] = []
     errors: dict[str, str] = {}
     names: list[str] = []
     metas: list[dict[str, Any]] = []
     diagram_lines: list[str] = []
-    for raw in raws:
-        snap_path = _resolve_snapshot_path(str(raw))
-        env = _cache.get(snap_path)
-        name = snapstore.snapshot_name(snap_path)
-        written, errs = _write_reports(env, name, formats, out_dir, options, prefix=prefix,
-                                       snapshot=snap_path)
-        if written:
-            snapstore.record_exports(snap_path, written)
-        files.extend(written)
-        errors.update({(f"{name} {k}" if len(raws) > 1 else k): v for k, v in errs.items()})
-        names.append(name)
-        metas.append(snapstore.read_meta(snap_path, _cache))
-        diagram_lines.extend(_diagram_notes(snap_path, env))
-    if not files:
-        detail = "; ".join(f"{k}: {v}" for k, v in errors.items()) or None
-        return mailer.result(False, "error", "The reports could not be written.", detail=detail)
+    send_dir = Path(tempfile.mkdtemp(prefix="ntnxvision-send-"))
+    try:
+        for raw in raws:
+            snap_path = _resolve_snapshot_path(str(raw))
+            env = _cache.get(snap_path)
+            name = snapstore.snapshot_name(snap_path)
+            written, errs = _write_reports(env, name, formats, send_dir, options,
+                                           prefix=prefix, snapshot=snap_path)
+            attach.extend(Path(f["path"]) for f in written)
+            if written:
+                try:
+                    files.extend(_keep_sent_reports(written, out_dir, snap_path,
+                                                    _send_key(params, snap_path)))
+                except OSError as exc:
+                    errors[f"{name} copy" if len(raws) > 1 else "copy"] = (
+                        f"not saved in the export folder: {exc}")
+            errors.update({(f"{name} {k}" if len(raws) > 1 else k): v for k, v in errs.items()})
+            names.append(name)
+            metas.append(snapstore.read_meta(snap_path, _cache))
+            diagram_lines.extend(_diagram_notes(snap_path, env))
+        if not attach:
+            detail = "; ".join(f"{k}: {v}" for k, v in errors.items()) or None
+            return mailer.result(False, "error", "The reports could not be written.",
+                                 detail=detail)
 
-    context = params.get("context") or {}
-    target = str(context.get("target") or "").strip() or ", ".join(
-        str(m.get("source") or m.get("name") or "") for m in metas)
-    days = sorted(d for d in (_local_day(m.get("collected_at")) for m in metas) if d)
-    if len(metas) == 1:
-        summary = f"Summary: {_summary_line(metas[0].get('summary') or {})}"
-    else:
-        summary = "Summary:\n" + "\n".join(
-            f"{n}: {_summary_line(m.get('summary') or {})}"
-            for n, m in zip(names, metas, strict=True))
-    ctx = {"target": target, "date": days[-1] if days else date.today().isoformat(),
-           "snapshot": ", ".join(names), "summary": summary}
-    subject = mailer.render_subject(str(params.get("subject") or ""), ctx) or \
-        f"NTNXVision report: {target}"
-    body = mailer.render_template(str(params.get("body") or ""), ctx)
-    if diagram_lines:
-        body += "\n\n" + "\n".join(dict.fromkeys(diagram_lines)) + "\n"
-    if errors:
-        body += "\n\nNot attached (could not be written): " + ", ".join(errors) + "\n"
-    result = mailer.send_files(cfg, to, cc, subject, body, [Path(f["path"]) for f in files],
-                               zip_name=f"{names[0]}-reports")
+        target = str(context.get("target") or "").strip() or ", ".join(
+            dict.fromkeys(_target_label(m, target_names) for m in metas))
+        days = sorted(d for d in (_local_day(m.get("collected_at")) for m in metas) if d)
+        if len(metas) == 1:
+            summary = f"Summary: {_summary_line(metas[0].get('summary') or {})}"
+        else:
+            summary = "Summary:\n" + "\n".join(
+                f"{n}: {_summary_line(m.get('summary') or {})}"
+                for n, m in zip(names, metas, strict=True))
+        ctx = {"target": target, "date": days[-1] if days else date.today().isoformat(),
+               "snapshot": ", ".join(names), "summary": summary}
+        subject = mailer.render_subject(str(params.get("subject") or ""), ctx) or \
+            f"NTNXVision report: {target}"
+        body = mailer.render_template(str(params.get("body") or ""), ctx)
+        if diagram_lines:
+            body += "\n\n" + "\n".join(dict.fromkeys(diagram_lines)) + "\n"
+        not_written = [k for k in errors if not k.endswith("copy")]
+        if not_written:
+            body += "\n\nNot attached (could not be written): " + ", ".join(not_written) + "\n"
+        result = mailer.send_files(cfg, to, cc, subject, body, attach,
+                                   zip_name=f"{names[0]}-reports")
+    finally:
+        shutil.rmtree(send_dir, ignore_errors=True)
     result["files"] = files
     if errors:
         result["detail"] = "; ".join(filter(None, [
             result.get("detail"), *(f"{k}: {v}" for k, v in errors.items())]))
     return result
+
+
+def _m_send_notice(_req_id: Any, params: dict[str, Any]) -> dict[str, Any]:
+    """A short message without attachments (a schedule's failure notice). SMTP failures
+    are classified results, as for send_email."""
+    from ntnxvision_core import mailer
+
+    try:
+        cfg = mailer.SmtpConfig.from_params(params.get("smtp"))
+    except mailer.MailError as err:
+        return mailer.result(False, err.status, err.message, detail=err.detail)
+    subject = str(params.get("subject") or "").strip()
+    if not subject:
+        return mailer.result(False, "invalid", "Enter a subject.")
+    return mailer.send_notice(cfg, mailer.clean_addresses(params.get("to")),
+                              mailer.clean_addresses(params.get("cc")), subject,
+                              str(params.get("body") or "")[:20_000])
 
 
 _METHODS = {
@@ -1657,6 +1779,7 @@ _METHODS = {
     "disk_usage": _m_disk_usage,
     "test_smtp": _m_test_smtp,
     "send_email": _m_send_email,
+    "send_notice": _m_send_notice,
     "demo_seed": _m_demo_seed,
     "list_diagrams": _m_list_diagrams,
     "get_diagram": _m_get_diagram,

@@ -39,7 +39,18 @@ from ntnxvision_core.paths import demo_enabled
 SECURITY_MODES = ("none", "starttls", "ssl")
 LOOPBACK = {"127.0.0.1", "localhost", "::1"}
 DEFAULT_TIMEOUT = 20.0
+#: Waiting for the server's greeting: a STARTTLS / None client on an implicit-TLS port (465)
+#: hears nothing, so it gives up sooner than the general timeout, with a Security/port hint.
+GREETING_TIMEOUT = 8.0
 DEFAULT_MAX_MB = 20.0
+#: The highest attachment limit the settings accept (shared with app/src/shared/ipc.ts).
+MAX_ATTACHMENT_MB = 100
+#: Passwords shorter than this are only scrubbed as whole tokens, so a short password
+#: never mangles ordinary words in a server reply.
+SCRUB_MIN_LEN = 6
+APP_PASSWORD_HINT = ("If the account uses two-step verification (Gmail, Microsoft 365, "
+                     "iCloud, Yahoo), sign in with an app password instead of the account "
+                     "password.")
 
 _MIME = {
     ".xlsx": ("application", "vnd.openxmlformats-officedocument.spreadsheetml.sheet"),
@@ -98,8 +109,16 @@ class SmtpConfig:
         security = str(raw.get("security") or "starttls")
         if security not in SECURITY_MODES:
             raise MailError("invalid", f"Unknown security mode '{security}'.")
+        raw_port = raw.get("port")
         try:
-            port = int(raw.get("port") or {"none": 25, "starttls": 587, "ssl": 465}[security])
+            # Only a missing port takes the default; 0, a fraction or text is refused.
+            if raw_port is None or raw_port == "":
+                port = {"none": 25, "starttls": 587, "ssl": 465}[security]
+            elif isinstance(raw_port, bool) or (isinstance(raw_port, float)
+                                                and not raw_port.is_integer()):
+                raise ValueError(raw_port)
+            else:
+                port = int(raw_port)
         except (TypeError, ValueError):
             raise MailError("invalid", "The port must be a number from 1 to 65535.") from None
         if not 1 <= port <= 65535:
@@ -121,7 +140,7 @@ class SmtpConfig:
             username=str(raw.get("username") or "").strip(),
             password=str(raw.get("password") or ""),
             from_address=from_address,
-            from_name=str(raw.get("from_name") or "").strip(),
+            from_name=clean_display_name(raw.get("from_name")),
             allow_untrusted=bool(raw.get("allow_untrusted", False)),
             pinned_sha256=transport.normalize_fingerprint(
                 str(raw.get("pinned_sha256") or "")) or "",
@@ -148,6 +167,14 @@ def is_valid_address(address: str) -> bool:
     return domain == "localhost" or (
         "." in domain and not domain.startswith(".") and not domain.endswith(".")
         and ".." not in domain)
+
+
+def clean_display_name(raw: Any) -> str:
+    """A From display name on one line: CR, LF and other control characters become spaces,
+    quotes and angle brackets go, runs of spaces collapse; at most 120 characters."""
+    text = "".join(" " if (ord(c) < 32 or ord(c) == 127) else c for c in str(raw or ""))
+    text = re.sub(r'[<>"]', "", text)
+    return " ".join(text.split())[:120]
 
 
 def clean_addresses(raw: Any) -> list[str]:
@@ -202,6 +229,10 @@ def fmt_size(n: int) -> str:
 
 
 def _fmt_mb(mb: float) -> str:
+    """A limit in MB as typed: whole MB plain, under 1 MB in KB (0.01 MB is 10 KB, never
+    "0.0 MB")."""
+    if mb < 1:
+        return fmt_size(int(round(mb * 1024 * 1024)))
     return f"{mb:,.0f} MB" if float(mb).is_integer() else f"{mb:,.1f} MB"
 
 
@@ -379,7 +410,7 @@ def _open(cfg: SmtpConfig) -> smtplib.SMTP:
     if cfg.security == "ssl":
         server = smtplib.SMTP_SSL(cfg.host, cfg.port, timeout=cfg.timeout, context=ctx)
     else:
-        server = smtplib.SMTP(cfg.host, cfg.port, timeout=cfg.timeout)
+        server = _greet(cfg)
     try:
         server.ehlo()
         if cfg.security == "starttls":
@@ -394,15 +425,91 @@ def _open(cfg: SmtpConfig) -> smtplib.SMTP:
     return server
 
 
+def _greet(cfg: SmtpConfig) -> smtplib.SMTP:
+    """Connect a plain / STARTTLS client and read the greeting within GREETING_TIMEOUT.
+
+    A client on an implicit-TLS port (465) gets no greeting (the server waits for a TLS
+    hello), so that case fails quickly and says to check the Security setting."""
+    where = f"{cfg.host}:{cfg.port}"
+    greet = min(cfg.timeout, GREETING_TIMEOUT)
+    server = smtplib.SMTP(timeout=greet)
+    try:
+        server.connect(cfg.host, cfg.port)
+    except smtplib.SMTPServerDisconnected as exc:
+        # The TCP connection was made; the greeting never came (timed out) or the server
+        # hung up first. Both usually mean the port expects SSL/TLS from the first byte.
+        _close(server)
+        hint = ("If this port expects SSL/TLS from the first byte (usually 465), set Security "
+                "to SSL/TLS; STARTTLS is usually port 587.")
+        if "timed out" in str(exc).lower():
+            raise MailError("timeout", f"No greeting from {where} within {greet:g} s. {hint}",
+                            "Timed out waiting for the greeting") from None
+        raise MailError("tls_error", f"{where} closed the connection before greeting. {hint}",
+                        str(exc) or where) from None
+    except BaseException:
+        _close(server)
+        raise
+    server.timeout = cfg.timeout
+    if server.sock is not None:
+        server.sock.settimeout(cfg.timeout)
+    return server
+
+
+def _auth_failed(cfg: SmtpConfig, detail: str | None) -> MailError:
+    return MailError("auth_failed",
+                     f"The server rejected the username or password. {APP_PASSWORD_HINT}",
+                     detail or f"{cfg.host}:{cfg.port}")
+
+
+def _login(server: smtplib.SMTP, cfg: SmtpConfig) -> None:
+    """Sign in, trying each mechanism the server offers (CRAM-MD5, PLAIN, LOGIN, as
+    smtplib does), but classifying the outcome itself.
+
+    Gmail and others advertise LOGIN and PLAIN, answer the first attempt with 535 and then
+    hang up, so smtplib's fallback to the next mechanism raises SMTPServerDisconnected. A
+    disconnect during or after a rejected sign-in is a rejected sign-in: auth_failed with
+    the server's 535 reply, never a Security/port mismatch."""
+    if not server.has_extn("auth"):
+        raise MailError("auth_failed", "The server does not accept a sign-in on this "
+                                       "connection. Clear the username or turn on TLS.")
+    advertised = server.esmtp_features.get("auth", "").upper().split()
+    preferred = ["CRAM-MD5", "PLAIN", "LOGIN"]
+    methods = [m for m in preferred if m in advertised]
+    if not methods:
+        raise MailError("auth_failed", "The server offers no sign-in method NTNXVision "
+                                       "supports (CRAM-MD5, PLAIN or LOGIN).",
+                        f"AUTH {' '.join(advertised)}".strip())
+    server.user, server.password = cfg.username, cfg.password
+    rejected: smtplib.SMTPAuthenticationError | None = None
+    for method in methods:
+        handler = getattr(server, "auth_" + method.lower().replace("-", "_"))
+        try:
+            code, _resp = server.auth(method, handler, initial_response_ok=True)
+        except smtplib.SMTPAuthenticationError as exc:
+            rejected = exc
+            continue
+        except smtplib.SMTPServerDisconnected as exc:
+            if rejected is not None:
+                raise _auth_failed(cfg, _reply(rejected.smtp_code, rejected.smtp_error)) from None
+            if "timed out" in str(exc).lower():
+                raise
+            raise MailError(
+                "auth_failed",
+                f"The server closed the connection during sign-in. Check the username and "
+                f"password. {APP_PASSWORD_HINT}", str(exc) or f"{cfg.host}:{cfg.port}") from None
+        if code in (235, 503):
+            return
+    if rejected is not None:
+        raise _auth_failed(cfg, _reply(rejected.smtp_code, rejected.smtp_error))
+    raise _auth_failed(cfg, None)  # pragma: no cover - auth() raises on a bad reply
+
+
 def _connect(cfg: SmtpConfig) -> smtplib.SMTP:
     server = _open(cfg)
     try:
         _check_pin(cfg, server)
         if cfg.username:
-            if not server.has_extn("auth"):
-                raise MailError("auth_failed", "The server does not accept a sign-in on this "
-                                               "connection. Clear the username or turn on TLS.")
-            server.login(cfg.username, cfg.password)
+            _login(server, cfg)
     except BaseException:
         _close(server)
         raise
@@ -437,9 +544,29 @@ def _close(server: smtplib.SMTP) -> None:
 
 
 def _scrub(text: str, cfg: SmtpConfig) -> str:
-    if cfg.password and cfg.password in text:
-        text = text.replace(cfg.password, "***")
-    return text
+    """Hide the password if a server reply echoes it. A short password (under
+    SCRUB_MIN_LEN) is only hidden as a whole token, so "ab" never turns "table" into
+    "t***le"."""
+    pw = cfg.password
+    if not pw or pw not in text:
+        return text
+    if len(pw) >= SCRUB_MIN_LEN:
+        return text.replace(pw, "***")
+    return re.sub(rf"(?<![A-Za-z0-9]){re.escape(pw)}(?![A-Za-z0-9])", "***", text)
+
+
+def _wants_starttls(exc: smtplib.SMTPResponseException) -> bool:
+    """"530 5.7.0 Must issue a STARTTLS command first" (Gmail on 587 with Security None)."""
+    text = exc.smtp_error.decode("utf-8", "replace") if isinstance(exc.smtp_error, bytes) \
+        else str(exc.smtp_error or "")
+    return "starttls" in text.lower()
+
+
+def _starttls_required(cfg: SmtpConfig, exc: smtplib.SMTPResponseException) -> MailError:
+    return MailError("tls_error", "The server requires an encrypted connection first. Set "
+                                  "Security to STARTTLS (usually port 587) or SSL/TLS "
+                                  "(usually 465).",
+                     _reply(exc.smtp_code, exc.smtp_error))
 
 
 def classify(exc: BaseException, cfg: SmtpConfig) -> MailError:
@@ -448,8 +575,7 @@ def classify(exc: BaseException, cfg: SmtpConfig) -> MailError:
     if isinstance(exc, MailError):
         return exc
     if isinstance(exc, smtplib.SMTPAuthenticationError):
-        return MailError("auth_failed", "The server rejected the username or password.",
-                         _reply(exc.smtp_code, exc.smtp_error))
+        return _auth_failed(cfg, _reply(exc.smtp_code, exc.smtp_error))
     if isinstance(exc, smtplib.SMTPRecipientsRefused):
         rejected = sorted(exc.recipients)
         detail = "; ".join(f"{a}: {_reply(c, m)}" for a, (c, m) in exc.recipients.items())
@@ -457,6 +583,8 @@ def classify(exc: BaseException, cfg: SmtpConfig) -> MailError:
         return MailError("recipient_rejected",
                          f"The server refused {who}: {', '.join(rejected)}.", detail, rejected)
     if isinstance(exc, smtplib.SMTPSenderRefused):
+        if _wants_starttls(exc):
+            return _starttls_required(cfg, exc)
         if exc.smtp_code == 530 or b"auth" in (exc.smtp_error or b"").lower():
             return MailError("auth_required", "The server requires a sign-in. Enter a username "
                                               "and password in Settings > Email.",
@@ -474,6 +602,11 @@ def classify(exc: BaseException, cfg: SmtpConfig) -> MailError:
         return MailError("error", "The server refused the message.",
                          _reply(exc.smtp_code, exc.smtp_error))
     if isinstance(exc, smtplib.SMTPNotSupportedError):
+        if "smtputf8" in str(exc).lower():
+            return MailError("invalid", "The mail server does not accept addresses with "
+                                        "non-ASCII characters (it lacks SMTPUTF8). Use plain "
+                                        "ASCII addresses for the sender and recipients.",
+                             str(exc))
         return MailError("tls_error", "The server does not support this connection setting. "
                                       "Check the Security setting.", str(exc))
     if isinstance(exc, smtplib.SMTPServerDisconnected):
@@ -483,6 +616,8 @@ def classify(exc: BaseException, cfg: SmtpConfig) -> MailError:
                                   "setting matches the port (STARTTLS on 587, SSL/TLS on 465).",
                          str(exc) or where)
     if isinstance(exc, smtplib.SMTPResponseException):
+        if _wants_starttls(exc):
+            return _starttls_required(cfg, exc)
         if exc.smtp_code == 530:
             return MailError("auth_required", "The server requires a sign-in. Enter a username "
                                               "and password in Settings > Email.",
@@ -532,8 +667,16 @@ def result(ok: bool, status: str, message: str, **fields: Any) -> dict[str, Any]
     return out
 
 
-def deliver(cfg: SmtpConfig, msg: EmailMessage, recipients: list[str]) -> None:
-    """Connect, sign in and send; raises MailError on any failure (partial refusals too)."""
+@dataclass
+class Delivery:
+    """What the server accepted: every recipient but `rejected` (with `detail` its replies)."""
+    rejected: list[str] = field(default_factory=list)
+    detail: str | None = None
+
+
+def deliver(cfg: SmtpConfig, msg: EmailMessage, recipients: list[str]) -> Delivery:
+    """Connect, sign in and send. Raises MailError when nothing was delivered; a partial
+    refusal (some recipients accepted) comes back as `Delivery.rejected`."""
     _guard_demo(cfg)
     try:
         server = _connect(cfg)
@@ -547,13 +690,22 @@ def deliver(cfg: SmtpConfig, msg: EmailMessage, recipients: list[str]) -> None:
         _close(server)
         raise classify(exc, cfg) from None
     _close(server)
-    if refused:
-        rejected = sorted(refused)
-        detail = "; ".join(f"{a}: {_reply(c, m)}" for a, (c, m) in refused.items())
-        raise MailError("recipient_rejected",
-                        f"Sent, but the server refused {len(rejected):,} of "
-                        f"{len(recipients):,} recipients: {', '.join(rejected)}.",
-                        detail, rejected)
+    if not refused:
+        return Delivery()
+    return Delivery(sorted(refused),
+                    "; ".join(f"{a}: {_reply(c, m)}" for a, (c, m) in refused.items()))
+
+
+def _with_warnings(cfg: SmtpConfig, sent: Delivery, recipients: list[str], what: str,
+                   **fields: Any) -> dict[str, Any]:
+    """Delivered to some recipients, refused for others: ok, status sent_with_warnings."""
+    rejected = {a.casefold() for a in sent.rejected}
+    delivered = [a for a in recipients if a.casefold() not in rejected]
+    return result(True, "sent_with_warnings",
+                  f"{what} to {len(delivered):,} of {len(recipients):,} recipients. The server "
+                  f"refused {', '.join(sent.rejected)}.",
+                  detail=_scrub(sent.detail or "", cfg) or None, recipients=delivered,
+                  rejected=sent.rejected, **fields)
 
 
 def send_test(cfg: SmtpConfig, to: str) -> dict[str, Any]:
@@ -581,18 +733,27 @@ def send_test(cfg: SmtpConfig, to: str) -> dict[str, Any]:
                   detail=f"{cfg.host}:{cfg.port} · {security}", recipients=[to], subject=subject)
 
 
-def send_files(cfg: SmtpConfig, to: list[str], cc: list[str], subject: str, body: str,
-               files: list[Path], zip_name: str = "reports") -> dict[str, Any]:
-    """Email `files` (zipped and size-checked as configured)."""
+def _recipients(to: list[str], cc: list[str], subject: str
+                ) -> tuple[list[str], list[str], list[str], dict[str, Any] | None]:
+    """Clean To and CC; the combined recipient list, or an `invalid` result."""
     to = clean_addresses(to)
     cc = clean_addresses(cc)
     if not to:
-        return result(False, "invalid", "Add at least one recipient.", subject=subject)
+        return to, cc, [], result(False, "invalid", "Add at least one recipient.",
+                                  subject=subject)
     bad = [a for a in to + cc if not is_valid_address(a)]
     if bad:
-        return result(False, "invalid", f"Not an email address: {', '.join(bad)}.",
-                      subject=subject, rejected=bad)
-    recipients = to + [a for a in cc if a.casefold() not in {t.casefold() for t in to}]
+        return to, cc, [], result(False, "invalid", f"Not an email address: {', '.join(bad)}.",
+                                  subject=subject, rejected=bad)
+    return to, cc, to + [a for a in cc if a.casefold() not in {t.casefold() for t in to}], None
+
+
+def send_files(cfg: SmtpConfig, to: list[str], cc: list[str], subject: str, body: str,
+               files: list[Path], zip_name: str = "reports") -> dict[str, Any]:
+    """Email `files` (zipped and size-checked as configured)."""
+    to, cc, recipients, invalid = _recipients(to, cc, subject)
+    if invalid is not None:
+        return invalid
     try:
         with prepared_attachments(cfg, files, zip_name) as (attach, zipped):
             sizes: list[dict[str, Any]] = [
@@ -600,7 +761,7 @@ def send_files(cfg: SmtpConfig, to: list[str], cc: list[str], subject: str, body
             total = sum(p.stat().st_size for p in attach)
             msg = build_message(cfg, to, cc, subject, body, attach)
             try:
-                deliver(cfg, msg, recipients)
+                sent = deliver(cfg, msg, recipients)
             except MailError as err:
                 return _failure(err, cfg, recipients=recipients, attachments=sizes,
                                 total_bytes=total, zipped=zipped, subject=subject)
@@ -608,9 +769,31 @@ def send_files(cfg: SmtpConfig, to: list[str], cc: list[str], subject: str, body
         return _failure(err, cfg, recipients=recipients, subject=subject)
     n = len(sizes)
     files_word = "file" if n == 1 else "files"
+    if sent.rejected:
+        return _with_warnings(cfg, sent, recipients, f"Sent {n:,} {files_word}",
+                              attachments=sizes, total_bytes=total, zipped=zipped,
+                              subject=subject)
     people = "recipient" if len(recipients) == 1 else "recipients"
     return result(True, "ok", f"Sent {n:,} {files_word} to {len(recipients):,} {people}.",
                   detail=f"{fmt_size(total)}{' zipped' if zipped else ''} · "
                          f"{cfg.host}:{cfg.port}",
                   recipients=recipients, attachments=sizes, total_bytes=total,
                   zipped=zipped, subject=subject)
+
+
+def send_notice(cfg: SmtpConfig, to: list[str], cc: list[str], subject: str,
+                body: str) -> dict[str, Any]:
+    """A short message without attachments (a schedule's failure notice)."""
+    subject = " ".join((subject or "").split())[:MAX_SUBJECT].rstrip()
+    to, cc, recipients, invalid = _recipients(to, cc, subject)
+    if invalid is not None:
+        return invalid
+    try:
+        sent = deliver(cfg, build_message(cfg, to, cc, subject, body), recipients)
+    except MailError as err:
+        return _failure(err, cfg, recipients=recipients, subject=subject)
+    if sent.rejected:
+        return _with_warnings(cfg, sent, recipients, "Sent", subject=subject)
+    people = "recipient" if len(recipients) == 1 else "recipients"
+    return result(True, "ok", f"Sent to {len(recipients):,} {people}.",
+                  detail=f"{cfg.host}:{cfg.port}", recipients=recipients, subject=subject)

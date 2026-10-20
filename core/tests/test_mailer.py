@@ -220,9 +220,12 @@ def test_recipient_rejected_all_and_partial(tmp_path: Path) -> None:
         assert r["status"] == "recipient_rejected" and r["rejected"] == ["nobody@example.com"]
         r = mailer.send_files(cfg(s.port), ["user@example.com", "nobody@example.com"], [],
                               "s", "b", [])
-        assert r["status"] == "recipient_rejected" and not r["ok"]
+        # Delivered to the others: sent with warnings, not failed.
+        assert r["status"] == "sent_with_warnings" and r["ok"], r
         assert r["rejected"] == ["nobody@example.com"]
-        assert "1 of 2 recipients" in r["message"]
+        assert r["recipients"] == ["user@example.com"]
+        assert "to 1 of 2 recipients" in r["message"] and "nobody@example.com" in r["message"]
+        assert "550 5.1.1" in (r["detail"] or "")
         assert s.messages[-1]["rcpt_to"] == ["user@example.com"]
 
 
@@ -354,3 +357,140 @@ def test_subject_is_one_capped_line() -> None:
     assert len(mailer.render_subject("x" * 500, {})) == mailer.MAX_SUBJECT
     msg = mailer.build_message(cfg(25), ["a@example.com"], [], "a\nBcc: evil@example.com", "b")
     assert "\n" not in str(msg["Subject"])
+
+
+# ─── QA round: classification ──────────────────────────────────────────
+
+
+def test_gmail_style_wrong_password_is_a_sign_in_failure() -> None:
+    """Gmail offers PLAIN and LOGIN, answers the first with 535 and hangs up: smtplib's
+    fallback to LOGIN then sees a closed connection. That is a rejected sign-in, never a
+    Security/port mismatch, and the 535 reply is kept."""
+    with SmtpSink(username="mailer", password=PASSWORD, auth_fail_closes=True) as s:
+        r = mailer.send_test(cfg(s.port, username="mailer", password="wrong-" + PASSWORD),
+                             "user@example.com")
+        assert r["status"] == "auth_failed", r
+        assert r["message"].startswith("The server rejected the username or password.")
+        assert "app password" in r["message"]
+        assert r["detail"] == "535 5.7.8 Authentication credentials invalid"
+        assert "Security" not in r["message"]
+        assert PASSWORD not in repr(r)
+        assert not s.messages
+        # The right password still signs in with the same server behaviour.
+        assert mailer.send_test(cfg(s.port, username="mailer", password=PASSWORD),
+                                "user@example.com")["ok"]
+
+
+def test_disconnect_during_sign_in_is_a_sign_in_failure() -> None:
+    srv = socket.socket()
+    srv.bind(("127.0.0.1", 0))
+    srv.listen(1)
+
+    def serve() -> None:
+        conn, _ = srv.accept()
+        f = conn.makefile("rwb")
+        f.write(b"220 fake\r\n")
+        f.flush()
+        f.readline()  # EHLO
+        f.write(b"250-fake\r\n250 AUTH LOGIN\r\n")
+        f.flush()
+        f.readline()  # AUTH LOGIN
+        conn.close()
+
+    t = threading.Thread(target=serve, daemon=True)
+    t.start()
+    try:
+        r = mailer.send_test(cfg(srv.getsockname()[1], username="u", password="p4ssword"),
+                             "user@example.com")
+        assert r["status"] == "auth_failed", r
+        assert "during sign-in" in r["message"]
+    finally:
+        srv.close()
+
+
+def test_starttls_required_is_a_tls_hint_not_a_sign_in() -> None:
+    """Gmail on 587 with Security None and no username: 530 5.7.0 Must issue a STARTTLS
+    command first."""
+    with SmtpSink(tls="starttls", require_tls=True) as s:
+        r = mailer.send_test(cfg(s.port), "user@example.com")
+        assert r["status"] == "tls_error", r
+        assert "STARTTLS" in r["message"] and "sign-in" not in r["message"]
+        assert r["detail"].startswith("530 5.7.0 Must issue a STARTTLS")
+
+
+def test_non_ascii_recipient_without_smtputf8() -> None:
+    with SmtpSink() as s:
+        r = mailer.send_files(cfg(s.port), ["jos\u00e9@example.com"], [], "s", "b", [])
+        assert r["status"] == "invalid", r
+        assert "non-ASCII" in r["message"] and "SMTPUTF8" in r["message"]
+        assert not s.messages
+
+
+def test_starttls_on_an_ssl_port_fails_fast_with_a_hint(monkeypatch: pytest.MonkeyPatch
+                                                        ) -> None:
+    import time
+
+    monkeypatch.setattr(mailer, "GREETING_TIMEOUT", 0.5)
+    with SmtpSink(tls="ssl") as s:
+        t0 = time.monotonic()
+        r = mailer.send_test(cfg(s.port, security="starttls", timeout=20.0),
+                             "user@example.com")
+        assert time.monotonic() - t0 < 5
+        assert r["status"] == "timeout", r
+        assert "SSL/TLS" in r["message"] and "465" in r["message"]
+
+
+def test_server_hanging_up_before_greeting_hints_at_security() -> None:
+    srv = socket.socket()
+    srv.bind(("127.0.0.1", 0))
+    srv.listen(1)
+    t = threading.Thread(target=lambda: srv.accept()[0].close(), daemon=True)
+    t.start()
+    try:
+        r = mailer.send_test(cfg(srv.getsockname()[1]), "user@example.com")
+        assert r["status"] == "tls_error", r
+        assert "before greeting" in r["message"] and "SSL/TLS" in r["message"]
+    finally:
+        srv.close()
+
+
+def test_scrub_short_passwords_only_as_whole_tokens() -> None:
+    short = cfg(25, username="u", password="ab")
+    assert mailer._scrub("table ab cab (ab)", short) == "table *** cab (***)"
+    long = cfg(25, username="u", password="hunter22")
+    assert mailer._scrub("xhunter22y", long) == "x***y"
+    assert mailer._scrub("anything", cfg(25)) == "anything"
+
+
+def test_from_params_port_and_display_name() -> None:
+    base = {"host": "smtp.example.lab", "from_address": "a@example.com"}
+    for bad in (0, "0", -1, 70000, "abc", 25.5, True):
+        with pytest.raises(mailer.MailError) as e:
+            mailer.SmtpConfig.from_params({**base, "port": bad})
+        assert e.value.status == "invalid", bad
+    assert mailer.SmtpConfig.from_params({**base, "port": ""}).port == 587
+    assert mailer.SmtpConfig.from_params({**base, "port": "2525"}).port == 2525
+    c = mailer.SmtpConfig.from_params({**base, "from_name": 'Ops\r\nBcc: x@example.com <"a">'})
+    assert c.from_name == "Ops Bcc: x@example.com a"
+    msg = mailer.build_message(c, ["a@example.com"], [], "s", "b")
+    assert "\n" not in str(msg["From"])
+
+
+def test_size_limit_under_one_mb_is_shown_in_kb(tmp_path: Path) -> None:
+    assert mailer._fmt_mb(0.01) == "10.2 KB"
+    assert mailer._fmt_mb(20) == "20 MB" and mailer._fmt_mb(2.5) == "2.5 MB"
+    f = tmp_path / "r.pdf"
+    f.write_bytes(b"\0" * 20_000)
+    r = mailer.send_files(cfg(closed_port(), max_attachment_mb=0.01), ["user@example.com"],
+                          [], "s", "b", [f])
+    assert r["status"] == "too_large" and "over the 10.2 KB limit" in r["message"]
+
+
+def test_send_notice_has_no_attachments(sink: SmtpSink) -> None:
+    r = mailer.send_notice(cfg(sink.port), ["user@example.com"], ["cc@example.com"],
+                           "Schedule failed:\nweekly", "Reason: down")
+    assert r["ok"] and r["status"] == "ok", r
+    msg = parse(sink.messages[-1]["data"])
+    assert msg["Subject"] == "Schedule failed: weekly"
+    assert not list(msg.iter_attachments())
+    assert mailer.send_notice(cfg(sink.port), [], [], "s", "b")["status"] == "invalid"
