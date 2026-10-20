@@ -54,6 +54,11 @@ const rail = async (page, name) => {
   if (name === 'New collection') await page.waitForFunction(() => document.querySelector('[data-testid="target-details"]'));
 };
 const settle = (page) => page.waitForTimeout(350);
+/** Inventory: no row selected and no details pane. */
+const noDetail = async (page) => {
+  if (await page.locator('#inv-detail').count()) throw new Error('details pane open with no row clicked');
+  if (await page.locator('tbody tr[aria-selected="true"]').count()) throw new Error('a row is selected with no click');
+};
 /** The Targets table fits its panel (no horizontal scroll); names the column widths if not. */
 const targetsFit = async (page) => {
   const m = await page.getByRole('table', { name: 'Targets' }).evaluate((t) => ({
@@ -355,14 +360,34 @@ const SHOTS = [
     await p.getByText('Nutanix Objects running').waitFor();
     await cardsFit(p);
   }, 1000, 1100],
+  // Inventory opens on Clusters with nothing selected: no details pane, full-width grid.
   ['inventory', {}, async (p) => {
     await rail(p, 'Inventory');
-    // Inventory opens on Clusters; the VM scene needs Virtual machines first.
+    await p.getByRole('heading', { level: 1, name: 'Clusters' }).waitFor();
+    await p.locator('tbody tr button.lnk').first().waitFor();
+    await noDetail(p);
+  }],
+  // Another type and a filter: still nothing selected.
+  ['inventory-vms', {}, async (p) => {
+    await rail(p, 'Inventory');
     await p.getByRole('heading', { level: 1, name: 'Clusters' }).waitFor();
     await p.getByRole('navigation', { name: 'Object types' }).getByRole('button', { name: /^Virtual machines/ }).click();
     await p.getByRole('heading', { level: 1, name: 'Virtual machines' }).waitFor();
     await p.getByRole('button', { name: 'Protection: All' }).click();
     await p.getByRole('menuitem', { name: /^None/ }).click();
+    await p.locator('tbody tr button.lnk').first().waitFor();
+    await settle(p);
+    await noDetail(p);
+  }],
+  // A clicked row: selected, with its details pane.
+  ['inventory-selected', {}, async (p) => {
+    await rail(p, 'Inventory');
+    await p.getByRole('heading', { level: 1, name: 'Clusters' }).waitFor();
+    await p.getByRole('navigation', { name: 'Object types' }).getByRole('button', { name: /^Virtual machines/ }).click();
+    await p.getByRole('heading', { level: 1, name: 'Virtual machines' }).waitFor();
+    await p.getByRole('button', { name: 'Protection: All' }).click();
+    await p.getByRole('menuitem', { name: /^None/ }).click();
+    await p.locator('tbody tr button.lnk').first().click();
     await p.getByText('VM details').waitFor();
   }],
   ['inventory-empty', { empty: true }, async (p) => rail(p, 'Inventory')],
