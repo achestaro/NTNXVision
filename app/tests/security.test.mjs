@@ -275,3 +275,18 @@ test('the main process sends lcm_inventory only as an explicit true from the req
     'lcm_inventory: req.lcmInventory === true',
   ]);
 });
+
+test('Windows toasts: the AppUserModelID matches electron-builder appId and is set at startup', () => {
+  const here = dirname(fileURLToPath(import.meta.url));
+  const main = readFileSync(join(here, '..', 'src', 'main', 'main.ts'), 'utf8');
+  const pkg = JSON.parse(readFileSync(join(here, '..', 'package.json'), 'utf8'));
+  const id = /APP_USER_MODEL_ID = '([^']+)'/.exec(main)?.[1];
+  assert.equal(id, pkg.build.appId);
+  assert.match(main, /setAppUserModelId\(app\.isPackaged \? APP_USER_MODEL_ID/);
+});
+
+test('settings: the last test email recipient is kept, trimmed and bounded', () => {
+  assert.equal(req.cleanSettings({ emailTestTo: ' ops@example.com ' }).emailTestTo, 'ops@example.com');
+  assert.equal(req.cleanSettings({ emailTestTo: null }).emailTestTo, undefined);
+  throwsValidation(() => req.cleanSettings({ emailTestTo: 'x'.repeat(400) }));
+});

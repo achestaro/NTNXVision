@@ -216,3 +216,64 @@ export function scheduleSnapshotNames(
     combined: combine ? base : null,
   };
 }
+
+// ─── failures ───────────────────────────────────────────────────────────
+
+const REASON_MAX = 240;
+
+/** A low-level cause (urllib3, socket, TLS) as a short phrase, or null when unknown. */
+function causeHint(raw: string): string | null {
+  if (/failed to resolve|nodename nor servname|name or service not known|getaddrinfo|no address associated|name resolution/i.test(raw)) {
+    return 'the host name could not be resolved. Check the target address and DNS.';
+  }
+  if (/connection refused|actively refused|ECONNREFUSED/i.test(raw)) return 'the connection was refused. Check the address and port.';
+  if (/timed out|timeout/i.test(raw)) return 'it did not answer in time.';
+  if (/certificate|CERTIFICATE_VERIFY|SSL|TLS/i.test(raw)) return 'its certificate is not trusted. Open the target on the Targets page and trust it.';
+  if (/\b401\b|unauthori[sz]ed|authentication failed|invalid credentials|wrong password/i.test(raw)) {
+    return 'the username or password was rejected. Update the target on the Targets page.';
+  }
+  if (/network is unreachable|no route to host|EHOSTUNREACH|ENETUNREACH/i.test(raw)) return 'the network is unreachable from this computer.';
+  return null;
+}
+
+/**
+ * A collection error as one user-facing sentence plus the raw text for the detail. The
+ * sidecar's message ("Could not reach Prism Central at pc:9440 (Failed to resolve ...
+ * ([Errno 8] ...))") keeps its first clause and gains a plain cause.
+ */
+export function collectionFailureReason(raw: string): { message: string; detail: string | null } {
+  const text = (raw ?? '').replace(/^(Sidecar)?Error:\s*/, '').trim() || 'Unknown error';
+  const head = text.split(/\s\(|:\s*HTTPSConnectionPool|\n/)[0].trim().replace(/[.:;,\s]+$/, '');
+  const hint = causeHint(text);
+  let message = hint ? `${head}: ${hint}` : `${head}.`;
+  if (message.length > REASON_MAX) message = `${message.slice(0, REASON_MAX - 1).trimEnd()}…`;
+  return { message, detail: message.startsWith(text) || text === head ? null : text };
+}
+
+const STAGE_LABEL = { collect: 'Collection', email: 'Building or sending the reports' } as const;
+
+/** The failure notice a schedule emails to its recipients (no attachments). */
+export function failureNotice(
+  schedule: { name: string },
+  targets: string[],
+  run: { startedAt: string; stage?: 'collect' | 'email' | null; message: string; detail?: string | null },
+): { subject: string; body: string } {
+  const started = new Date(run.startedAt);
+  const when = Number.isNaN(started.getTime())
+    ? run.startedAt
+    : `${started.getFullYear()}-${String(started.getMonth() + 1).padStart(2, '0')}-${String(started.getDate()).padStart(2, '0')} ${String(
+        started.getHours(),
+      ).padStart(2, '0')}:${String(started.getMinutes()).padStart(2, '0')}`;
+  const lines = [
+    `The scheduled run of "${schedule.name}" failed, so no reports are attached.`,
+    '',
+    `Schedule: ${schedule.name}`,
+    `Targets: ${targets.join(', ') || 'N/A'}`,
+    `Started: ${when} (local time of the NTNXVision computer)`,
+    `Stage: ${STAGE_LABEL[run.stage ?? 'collect']}`,
+    `Reason: ${run.message}`,
+  ];
+  if (run.detail) lines.push(`Detail: ${run.detail.slice(0, 2000)}`);
+  lines.push('', 'NTNXVision sends this notice because "Email when a run fails" is on for this schedule.', '');
+  return { subject: `NTNXVision schedule failed: ${schedule.name}`, body: lines.join('\n') };
+}

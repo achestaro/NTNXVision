@@ -719,7 +719,7 @@ export interface SnapshotDetail extends SnapshotInfo {
   sources?: string[];
   collection_notes: Record<string, string>;
   /** Rough export sizes for the export dialog's format cards. */
-  export_estimates?: Partial<Record<ExportFormat, { bytes?: number | null; detail?: string | null }>>;
+  export_estimates?: Partial<Record<ExportFormat, { bytes?: number | null; detail?: string | null; measured?: boolean }>>;
   /** The collection run that produced this snapshot (absent for snapshots saved before this field existed). */
   run?: SnapshotRunInfo | null;
 }
@@ -1368,6 +1368,13 @@ export interface SmtpSettings {
 /** SEC-17: shown when schedules.json / email.json changed outside the app. */
 export const SCHEDULES_TAMPERED_MESSAGE = 'The schedule file was changed outside NTNXVision. Review and re-save to re-enable.';
 export const EMAIL_TAMPERED_MESSAGE = 'The email settings file was changed outside NTNXVision. Review and re-save to re-enable.';
+/** A schedule read from a schedules.json changed outside the app: it stays off until opened and saved. */
+export const SCHEDULE_REVIEW_MESSAGE =
+  'This schedule was changed outside NTNXVision. Open it, check its targets and recipients, and save it to turn it back on.';
+
+/** The attachment limit range in Settings > Email, in whole MB (the renderer, main and mailer.py agree). */
+export const SMTP_MIN_ATTACHMENT_MB = 1;
+export const SMTP_MAX_ATTACHMENT_MB = 100;
 
 export const DEFAULT_SMTP: SmtpSettings = {
   host: '',
@@ -1399,6 +1406,12 @@ export interface SmtpSaveRequest extends SmtpSettings {
   password: string;
   /** Remove the saved password (the server needs none any more). */
   clearPassword?: boolean;
+  /**
+   * The server the user chose Trust this certificate for, in this form. A pin is kept on a
+   * changed host, port or security mode only when it was trusted for exactly the server
+   * being saved; otherwise it belongs to the old server and is dropped.
+   */
+  pinnedFor?: { host: string; port: number; security: SmtpSecurity } | null;
 }
 
 export type SmtpField = 'host' | 'port' | 'username' | 'fromAddress' | 'maxAttachmentMb' | 'to' | 'form';
@@ -1407,6 +1420,13 @@ export interface SmtpSaveResult {
   ok: boolean;
   errors?: Partial<Record<SmtpField, string>>;
   settings: SmtpSettingsInfo;
+}
+
+/** Remove email settings: the server, the saved password and the trusted certificate are gone. */
+export interface SmtpClearResult {
+  settings: SmtpSettingsInfo;
+  /** Names of the enabled schedules that were switched off (every schedule sends email). */
+  disabledSchedules: string[];
 }
 
 /** Send a test message with the form's (possibly unsaved) values. */
@@ -1420,13 +1440,14 @@ export interface SmtpTestRequest extends SmtpSettings {
 /**
  * Outcome of a test or a send.
  * - ok                  accepted by the server for every recipient
+ * - sent_with_warnings  delivered (ok: true), but the server refused some recipients (see `rejected`)
  * - auth_failed         the server rejected the username or password
  * - auth_required       the server wants a sign-in and none is configured
  * - tls_error           TLS handshake failed (wrong security mode for the port, STARTTLS not offered)
  * - untrusted_cert      the server's certificate is not trusted (allow it in Settings)
  * - unreachable         DNS failure, connection refused, no route
  * - timeout             no answer in time
- * - recipient_rejected  the server refused one or more recipients (see `rejected`)
+ * - recipient_rejected  the server refused every recipient (see `rejected`)
  * - sender_rejected     the server refused the From address
  * - too_large           attachments over the size limit (ours or the server's)
  * - not_configured      no mail server set up yet
@@ -1435,6 +1456,7 @@ export interface SmtpTestRequest extends SmtpSettings {
  */
 export type EmailStatus =
   | 'ok'
+  | 'sent_with_warnings'
   | 'auth_failed'
   | 'auth_required'
   | 'tls_error'
@@ -1527,10 +1549,16 @@ export interface ScheduleDefinition {
   subject: string;
   body: string;
   frequency: ScheduleFrequency;
+  /**
+   * When a run fails (collection, or reports that could not be written or sent as too
+   * large), email the recipients a short notice without attachments. Unset = on.
+   */
+  notifyOnFailure?: boolean;
 }
 
 export type ScheduleTrigger = 'scheduled' | 'catch_up' | 'manual';
-export type ScheduleRunStatus = 'running' | 'ok' | 'failed';
+/** `warning`: the email went out, but a target was not collected or some recipients were refused. */
+export type ScheduleRunStatus = 'running' | 'ok' | 'warning' | 'failed';
 
 /** One run of a schedule (newest first in `history`, at most 20 kept). */
 export interface ScheduleRunRecord {
@@ -1548,6 +1576,10 @@ export interface ScheduleRunRecord {
   snapshots?: string[];
   /** The scheduled time this run was for (ISO); null for Run now. */
   slot?: string | null;
+  /** The raw error behind `message` (shown as detail), when the message was simplified. */
+  detail?: string | null;
+  /** The failure notice emailed for this run ("Email when a run fails"); absent = none tried. */
+  failureNotice?: { sent: boolean; message: string } | null;
 }
 
 export interface Schedule extends ScheduleDefinition {
@@ -1557,6 +1589,8 @@ export interface Schedule extends ScheduleDefinition {
   /** Slots at or before this instant are done (ran, caught up or predate the schedule). */
   anchor: string;
   history: ScheduleRunRecord[];
+  /** Read from a schedules.json changed outside the app: off, and cannot run until saved in the editor. */
+  needsReview?: boolean;
 }
 
 /** A schedule as listed to the renderer. */
@@ -1583,6 +1617,11 @@ export interface ScheduleSaveResult {
   schedules: ScheduleInfo[];
 }
 
+/** Run now: the state, and whether this request queued a run (false: already queued or running). */
+export interface ScheduleRunNowResult extends SchedulesState {
+  queued: boolean;
+}
+
 /** The schedules plus how the app keeps them running. */
 export interface SchedulesState {
   schedules: ScheduleInfo[];
@@ -1590,7 +1629,7 @@ export interface SchedulesState {
   background: boolean;
   /** Start at login is available (packaged app; not in demo or test runs). */
   loginItemSupported: boolean;
-  /** schedules.json was changed outside the app: all schedules are off until re-saved. */
+  /** Some schedules were changed outside the app (`needsReview`): off until each is opened and saved. */
   tampered?: boolean;
 }
 
@@ -1654,6 +1693,8 @@ export interface AppSettings {
   customSectionOrder?: boolean;
   /** The custom order of the movable report sections (kept while the switch is off). */
   sectionOrder?: ReportSectionId[];
+  /** Settings > Email: where the last test email went (not secret; the next test's default). */
+  emailTestTo?: string;
 }
 
 /** The vCPU:pCPU target used when the setting is unset (matches capacity.py). */
@@ -1662,7 +1703,7 @@ export const DEFAULT_VCPU_RATIO = 4;
 export interface AppInfo {
   version: string;
   platform: Platform;
-  /** Default export directory the sidecar uses when exportDir is unset. */
+  /** The report folder when exportDir is unset (the dialogs, email sends and schedules use it). */
   defaultExportDir: string;
   /**
    * Demo mode (NTNXVISION_DEMO=1 or --demo): the sidecar talks to the built-in synthetic
@@ -1744,6 +1785,7 @@ export const IPC = {
   saveSmtpSettings: 'email:saveSettings',
   testSmtp: 'email:test',
   emailSnapshot: 'email:sendSnapshot',
+  clearSmtpSettings: 'email:clearSettings',
   // schedules (main process scheduler)
   listSchedules: 'schedules:list',
   saveSchedule: 'schedules:save',
@@ -1854,13 +1896,15 @@ export interface NtnxApi {
   testSmtp(req: SmtpTestRequest): Promise<EmailResult>;
   /** Build the snapshot's reports and email them now. */
   emailSnapshot(req: EmailSnapshotRequest): Promise<EmailResult>;
+  /** Remove the mail server, its saved password and trusted certificate; switches every schedule off. */
+  clearSmtpSettings(): Promise<SmtpClearResult>;
 
   listSchedules(): Promise<SchedulesState>;
   saveSchedule(req: ScheduleSaveRequest): Promise<ScheduleSaveResult>;
   deleteSchedule(id: string): Promise<SchedulesState>;
   setScheduleEnabled(id: string, enabled: boolean): Promise<SchedulesState>;
   /** Queue a run now (it waits for a running collection). Rejects for an unknown schedule. */
-  runScheduleNow(id: string): Promise<SchedulesState>;
+  runScheduleNow(id: string): Promise<ScheduleRunNowResult>;
   onSchedulesChanged(cb: (state: SchedulesState) => void): () => void;
 }
 

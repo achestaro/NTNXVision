@@ -22,21 +22,23 @@ import type {
   InventoryResult,
   MultiInventoryResult,
   Schedule,
+  ScheduleRunNowResult,
   ScheduleRunRecord,
   ScheduleSaveRequest,
   SchedulesState,
+  SmtpClearResult,
   SmtpSaveRequest,
   SmtpTestRequest,
 } from '../shared/ipc';
-import { EMAIL_TAMPERED_MESSAGE, IPC } from '../shared/ipc';
-import { TargetRef, describeFrequency, scheduleSnapshotNames } from '../shared/schedule';
+import { EMAIL_TAMPERED_MESSAGE, IPC, SCHEDULE_REVIEW_MESSAGE } from '../shared/ipc';
+import { TargetRef, collectionFailureReason, describeFrequency, failureNotice, scheduleSnapshotNames } from '../shared/schedule';
 import { SmtpStore, smtpParams } from './mail';
 import { Job, RetryLater, RunOutcome, ScheduleRunner, ScheduleStore, nextRun, scheduleInfo } from './schedules';
 import { SidecarClient, SidecarError } from './sidecar';
 import { cleanOverrides, endpointTls, TARGETS_TAMPERED_MESSAGE } from './targets';
 import type { StoredTarget } from './targets';
 import * as store from './store';
-import { wordTemplateFor } from './security';
+import { defaultExportDir, wordTemplateFor } from './security';
 import { defaultSectionOrder } from '../shared/reportSections';
 import { bool, obj, optStr, optStrArray, str, strArray } from './validate';
 import { APP_ICON_PNG, MAC_TEMPLATE_PNG } from './trayIcons';
@@ -65,12 +67,31 @@ const plural = (n: number, one: string, many = `${one}s`) => `${n.toLocaleString
 const label = (t: { name?: string; host: string }) => t.name?.trim() || t.host;
 const errMsg = (err: unknown) => (err instanceof Error ? err.message : String(err));
 
-const FAILED = (stage: 'collect' | 'email', message: string, snapshots: string[] = []): RunOutcome => ({
+const FAILED = (stage: 'collect' | 'email', message: string, snapshots: string[] = [], extra: Partial<RunOutcome> = {}): RunOutcome => ({
   status: 'failed',
   stage,
   message,
   snapshots,
+  ...extra,
 });
+
+/** A collection failure with a user-facing reason; the raw error goes to the run's detail. */
+const COLLECT_FAILED = (raw: string): RunOutcome => {
+  const reason = collectionFailureReason(raw);
+  return FAILED('collect', `Collection failed: ${reason.message}`, [], { detail: reason.detail });
+};
+
+/** Where reports are saved when no folder is set: the folder the dialogs show (see AppInfo). */
+export function reportFolder(settings: AppSettings = store.getSettings()): string {
+  return settings.exportDir || defaultExportDir();
+}
+
+/** host (lower case) -> saved target name, for {target} in emails. */
+export function targetNames(): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const t of store.targets.list()) if (t.name?.trim()) out[t.host.trim().toLowerCase()] = t.name.trim();
+  return out;
+}
 
 const DATE = new Intl.DateTimeFormat('en-US', { month: 'short', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false });
 
@@ -91,6 +112,7 @@ export class Scheduler {
       execute: (s, job) => this.execute(s, job),
       changed: () => this.changed(),
       finished: (s, r) => this.finished(s, r),
+      notifyFailure: (s, r) => this.sendFailureNotice(s, r),
     });
   }
 
@@ -269,12 +291,23 @@ export class Scheduler {
 
   // ─── notifications ───────────────────────────────────────────────────
 
+  /** Shown notifications, kept referenced until closed: a collected one can vanish on Windows. */
+  private readonly shown = new Set<Notification>();
+
   private notify(title: string, body: string): void {
     if (this.host.e2e || !Notification.isSupported()) return;
     try {
       const n = new Notification({ title, body });
+      this.shown.add(n);
       n.on('click', () => this.host.showWindow());
+      n.on('close', () => this.shown.delete(n));
+      n.on('failed', (_e, error) => {
+        this.shown.delete(n);
+        console.error('Notification failed:', error);
+      });
       n.show();
+      // Bound the set if a platform never reports close.
+      if (this.shown.size > 20) this.shown.delete(this.shown.values().next().value as Notification);
     } catch (err) {
       console.error('Notification failed:', err);
     }
@@ -282,6 +315,34 @@ export class Scheduler {
 
   private finished(s: Schedule, r: ScheduleRunRecord): void {
     if (r.status === 'failed') this.notify(`Schedule failed: ${s.name}`, r.message);
+    else if (r.status === 'warning') this.notify(`Schedule finished with warnings: ${s.name}`, r.message);
+  }
+
+  /** "Email when a run fails": one short notice to the schedule's recipients, never retried. */
+  private async sendFailureNotice(s: Schedule, r: ScheduleRunRecord): Promise<{ sent: boolean; message: string } | null> {
+    const smtp = await this.host.mail.info();
+    if (smtp.tampered || !smtp.configured) return null;
+    const labels = s.targetIds.map((id) => {
+      const t = store.targets.get(id);
+      return t ? label(t) : 'Deleted target';
+    });
+    const notice = failureNotice(s, labels, r);
+    try {
+      const res = await this.host.sidecar.call<EmailResult>('send_notice', {
+        smtp: smtpParams(smtp, await this.host.mail.password()),
+        to: s.to,
+        cc: s.cc,
+        subject: notice.subject,
+        body: notice.body,
+      });
+      if (res.ok) {
+        const n = (res.recipients ?? []).length || s.to.length + s.cc.length;
+        return { sent: true, message: `Failure notice emailed to ${plural(n, 'recipient')}.` };
+      }
+      return { sent: false, message: `Failure notice not sent: ${res.message}` };
+    } catch (err) {
+      return { sent: false, message: `Failure notice not sent: ${errMsg(err)}` };
+    }
   }
 
   // ─── running a schedule ──────────────────────────────────────────────
@@ -348,6 +409,7 @@ export class Scheduler {
 
   private async execute(s: Schedule, _job: Job): Promise<RunOutcome> {
     if (this.host.manualBusy()) throw new RetryLater();
+    if (s.needsReview) return FAILED('collect', SCHEDULE_REVIEW_MESSAGE);
     const smtp = await this.host.mail.info();
     if (smtp.tampered) return FAILED('email', EMAIL_TAMPERED_MESSAGE);
     if (!smtp.configured) return FAILED('email', 'Email is not set up. Set up the mail server in Settings > Email.');
@@ -368,6 +430,7 @@ export class Scheduler {
     let snapshotPaths: string[] = [];
     let snapshotNames: string[] = [];
     let partial: string | null = null;
+    let partialDetail: string | null = null;
     try {
       const areasFor = await this.areas();
       if (picked.length === 1) {
@@ -426,10 +489,15 @@ export class Scheduler {
         });
         const ok = res.targets.filter((t) => t.success) as (InventoryResult & { host: string })[];
         const bad = res.targets.filter((t) => !t.success) as { host: string; error: string }[];
+        const why = (b: { host: string; error: string }) => `${b.host}: ${collectionFailureReason(b.error).message}`;
+        const raw = bad.map((b) => `${b.host}: ${b.error}`).join('; ');
         if (!ok.length) {
-          return FAILED('collect', `No target was collected. ${bad.map((b) => `${b.host}: ${b.error}`).join('; ')}`);
+          return FAILED('collect', `No target was collected. ${bad.map(why).join(' ')}`, [], { detail: raw });
         }
-        if (bad.length) partial = `Not collected: ${bad.map((b) => `${b.host} (${b.error})`).join('; ')}.`;
+        if (bad.length) {
+          partial = `Not collected: ${bad.map(why).join(' ')}`;
+          partialDetail = raw;
+        }
         const chosen = s.combine && res.combined?.snapshot_path ? [res.combined] : ok;
         snapshotPaths = chosen.map((r) => r.snapshot_path).filter((p): p is string => !!p);
         snapshotNames = chosen.map((r) => r.snapshot_name ?? '').filter(Boolean);
@@ -437,7 +505,7 @@ export class Scheduler {
       }
     } catch (err) {
       if (err instanceof SidecarError && err.code === BUSY_CODE) throw new RetryLater();
-      return FAILED('collect', `Collection failed: ${errMsg(err)}`);
+      return COLLECT_FAILED(errMsg(err));
     } finally {
       this.runIds.delete(runId);
     }
@@ -450,24 +518,31 @@ export class Scheduler {
         cc: s.cc,
         subject: s.subject,
         body: s.body,
-        context: { target: labels.join(', ') },
+        context: { target: labels.join(', '), target_names: targetNames() },
         snapshots: snapshotPaths,
         formats: s.formats,
         sections: s.sections,
         word: { template: 'standard', prepared_for: s.word?.preparedFor ?? '', author: s.word?.author || settings.author || '' },
-        export_dir: settings.exportDir,
+        export_dir: reportFolder(settings),
         file_prefix: settings.filePrefix ?? '',
         vcpu_ratio: settings.vcpuRatio,
         section_order: defaultSectionOrder(settings),
       });
     } catch (err) {
-      return FAILED('email', `Email failed: ${errMsg(err)}`, snapshotNames);
+      return FAILED('email', `Email failed: ${errMsg(err)}`, snapshotNames, { emailStatus: 'error' });
     }
-    if (!sent.ok) return FAILED('email', `Email failed: ${sent.message}`, snapshotNames);
+    if (!sent.ok) return FAILED('email', `Email failed: ${sent.message}`, snapshotNames, { detail: sent.detail ?? null, emailStatus: sent.status });
     const files = sent.files?.length ?? sent.attachments?.length ?? 0;
-    const recipients = s.to.length + s.cc.length;
+    const recipients = sent.recipients?.length ?? s.to.length + s.cc.length;
     const message = `Emailed ${plural(files, 'report')} to ${plural(recipients, 'recipient')}`;
-    if (partial) return FAILED('collect', `${message}. ${partial}`, snapshotNames);
+    // Mail went out: anything missing is a warning on a sent run, not a failure.
+    const warnings: string[] = [];
+    if (partial) warnings.push(partial);
+    if (sent.status === 'sent_with_warnings' && sent.rejected?.length) warnings.push(`The server refused ${sent.rejected.join(', ')}.`);
+    if (warnings.length) {
+      const detail = [partialDetail, sent.status === 'sent_with_warnings' ? sent.detail : null].filter(Boolean).join('; ') || null;
+      return { status: 'warning', stage: partial ? 'collect' : 'email', message: `${message}. ${warnings.join(' ')}`, detail, snapshots: snapshotNames };
+    }
     return { status: 'ok', message, snapshots: snapshotNames };
   }
 
@@ -476,6 +551,14 @@ export class Scheduler {
   registerHandlers(ipc: Pick<IpcMain, 'handle'>): void {
     const { mail, sidecar } = this.host;
     ipc.handle(IPC.getSmtpSettings, () => mail.info());
+    ipc.handle(IPC.clearSmtpSettings, async (): Promise<SmtpClearResult> => {
+      const settings = await mail.clear();
+      // Every schedule emails its reports: none can run without a mail server.
+      const disabledSchedules = this.host.schedules.disableAll();
+      for (const s of this.host.schedules.list()) this.runner.drop(s.id);
+      this.changed();
+      return { settings, disabledSchedules };
+    });
     ipc.handle(IPC.saveSmtpSettings, (_e, req: SmtpSaveRequest) => mail.save(obj(req, 'request') as unknown as SmtpSaveRequest));
     ipc.handle(IPC.testSmtp, async (_e, req: SmtpTestRequest) => {
       obj(req, 'request');
@@ -503,13 +586,14 @@ export class Scheduler {
         cc: req.cc,
         subject: req.subject,
         body: req.body,
+        context: { target_names: targetNames() },
         snapshots: req.snapshotPaths,
         formats: req.formats,
         sections: req.sections,
         word: req.word
           ? { template: req.word.template, prepared_for: req.word.preparedFor ?? '', author: req.word.author ?? '' }
           : { template: 'standard', prepared_for: '', author: settings.author ?? '' },
-        export_dir: settings.exportDir,
+        export_dir: reportFolder(settings),
         file_prefix: req.filePrefix !== undefined ? req.filePrefix : settings.filePrefix ?? '',
         vcpu_ratio: settings.vcpuRatio,
         section_order: defaultSectionOrder(settings),
@@ -544,10 +628,10 @@ export class Scheduler {
       this.changed();
       return this.state();
     });
-    ipc.handle(IPC.runScheduleNow, (_e, id: string) => {
+    ipc.handle(IPC.runScheduleNow, (_e, id: string): ScheduleRunNowResult => {
       str(id, 'id', 128);
-      this.runner.runNow(id);
-      return this.state();
+      const queued = this.runner.runNow(id);
+      return { ...this.state(), queued };
     });
   }
 }
