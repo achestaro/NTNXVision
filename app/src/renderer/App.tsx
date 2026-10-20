@@ -145,10 +145,11 @@ function Shell(): JSX.Element {
       case 'inventory':
         return (
           <InventoryView
-            key={`${route.snapshot ?? ''}|${route.type ?? ''}|${route.filterText ?? ''}`}
+            key={`${route.snapshot ?? ''}|${route.type ?? ''}|${route.filterText ?? ''}|${route.objectId ?? ''}`}
             snapshot={route.snapshot}
             type={route.type}
             filterText={route.filterText}
+            objectId={route.objectId}
           />
         );
       case 'snapshots':

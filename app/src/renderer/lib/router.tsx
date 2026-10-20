@@ -13,7 +13,8 @@ export type Route =
   | { screen: 'targets'; edit?: string; returnTo?: 'new' | 'multi' }
   | { screen: 'collecting' }
   | { screen: 'results'; snapshot?: string }
-  | { screen: 'inventory'; snapshot?: string; type?: string; filterText?: string }
+  /** `objectId`: a deep link to one object (⌘K) selects it and opens its details. */
+  | { screen: 'inventory'; snapshot?: string; type?: string; filterText?: string; objectId?: string }
   | { screen: 'snapshots' }
   | { screen: 'compare'; baseline?: string; current?: string }
   /** `snapshot`: its path; `type` / `part`: the diagram to open. */

@@ -81,7 +81,7 @@ export function CommandPalette({ onClose }: { onClose(): void }): JSX.Element {
                   label: name,
                   meta: typeof cluster === 'string' ? cluster : latest.name,
                   icon: type === 'vms' ? CubeIcon : HardDrivesIcon,
-                  run: () => navigate({ screen: 'inventory', snapshot: latest.path, type, filterText: name }),
+                  run: () => navigate({ screen: 'inventory', snapshot: latest.path, type, filterText: name, objectId: row.id }),
                 };
               }),
             )
