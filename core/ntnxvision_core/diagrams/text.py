@@ -134,10 +134,20 @@ def wrap(text: str, size: float, bold: bool, max_w: float, max_lines: int) -> li
     return lines or [""]
 
 
+#: C0 control characters (and DEL): never drawn; a collected name that carries one
+#: (a stray tab or newline from an API) reads as a space.
+_CONTROL = re.compile(r"[\x00-\x1f\x7f]")
+
+
+def clean(text: str) -> str:
+    return _CONTROL.sub(" ", text)
+
+
 def fit(text: str, size: float, bold: bool, max_w: float, max_lines: int = 1,
         min_size: float | None = None) -> tuple[float, list[str]]:
     """Shrink in 0.25 pt steps (never below `min_size`, never below `MIN_SIZE`) before
     wrapping past `max_lines`; ellipsise what still does not fit. Returns (size, lines)."""
+    text = clean(text)
     floor = max(MIN_SIZE, min_size if min_size is not None else size)
     s = size
     while True:

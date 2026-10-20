@@ -52,6 +52,7 @@ from ..build import (
 from ..facts import short_name
 from ..model import Card, ConceptualModel, Link, Remote, Repl, Site
 from ..scene import Node, Scene, Style, q
+from . import parts as parts_mod
 
 # Geometry (pt).
 MX = 0.5  # outer margin (half a stroke)
@@ -127,47 +128,16 @@ class _Plan:
 
 def plan_parts(model: ConceptualModel, per: int = PER_PART,
                sites: list[Site] | None = None) -> list[list[Site]]:
-    """Group sites (default: all, in model order) into parts of up to `per`: a linked
-    group stays together (one larger than a part is cut into consecutive chunks), and
-    unlinked AZs fill the free slots of earlier parts in model order."""
+    """Group sites (default: all, in model order) into parts of up to `per`, by the rule
+    every per-AZ figure shares (`parts.plan`)."""
     pool = sites if sites is not None else model.sites
-    ids = [s.id for s in pool]
-    adj: dict[str, set[str]] = {i: set() for i in ids}
-    for lk in model.links:
-        if lk.a in adj and lk.b in adj:
-            adj[lk.a].add(lk.b)
-            adj[lk.b].add(lk.a)
-    seen: set[str] = set()
-    comps: list[list[str]] = []
-    for sid in ids:  # components in model order, members in model order
-        if sid in seen:
-            continue
-        found: set[str] = set()
-        stack = [sid]
-        while stack:
-            node = stack.pop()
-            if node in found:
-                continue
-            found.add(node)
-            stack.extend(adj[node] - found)
-        seen |= found
-        comps.append([i for i in ids if i in found])
-    parts: list[list[str]] = []
-    for comp in comps:
-        if len(comp) == 1:  # an unlinked AZ takes the first free slot
-            free = next((p for p in parts if len(p) < per), None)
-            if free is not None:
-                free.append(comp[0])
-            else:
-                parts.append(list(comp))
-        elif len(comp) > per:
-            parts.extend(comp[k:k + per] for k in range(0, len(comp), per))
-        elif parts and len(parts[-1]) + len(comp) <= per:
-            parts[-1].extend(comp)
-        else:
-            parts.append(list(comp))
     by_id = {s.id: s for s in pool}
-    return [[by_id[i] for i in p] for p in parts] or [[]]
+    out = parts_mod.plan([s.id for s in pool], _pairs(model), per)
+    return [[by_id[i] for i in p] for p in out] or [[]]
+
+
+def _pairs(model: ConceptualModel) -> list[tuple[str, str]]:
+    return [(lk.a, lk.b) for lk in model.links]
 
 
 def _plan(model: ConceptualModel, sites: list[Site], parts: list[list[Site]],
@@ -387,9 +357,10 @@ def _strips(c: Card, w: float) -> list[list[tuple[str, str, float]]]:
     if st:
         items.append(("dsf", st, q(tx.width(st, K.SIZE_SMALL) + 7)))
     for xa in c.external:
-        label = f"{xa.product.split()[-1]}, {fmt.plural(xa.containers, 'ctr', 'ctr')}"
-        items.append((xa.id, label.replace(" ", fmt.NBSP), q(tx.width(label, K.SIZE_SMALL,
-                                                                        True) + 7)))
+        # The product as named (decision 5), never shortened; the array's own name is
+        # in the shape data and drawn in full in the logical cluster design.
+        label = xa.product
+        items.append((xa.id, label, q(tx.width(label, K.SIZE_SMALL, True) + 7)))
     if not items:
         return []
     if sum(iw for _, _, iw in items) + PILL_GAP * (len(items) - 1) <= sw:
@@ -913,6 +884,10 @@ def _below(sc: Scene, plan: _Plan, site_nodes: dict[str, Node], page: Page,
     for sid, lst in ports.items():
         n = site_nodes[sid]
         m = len(lst)
+        # Along the bottom edge in the order of where each bus heads (its target's
+        # estimated x), so the drops of one zone never cross each other's channels.
+        lst.sort(key=lambda p: (proxy_x(groups[p[0]]) if p[1] == "src"
+                                else centre(groups[p[0]].sources[0][0]), p[0]))
         for i, (gi, role) in enumerate(lst):
             px = n.x + n.w / 2 if m == 1 else n.x + n.w * (0.1 + 0.8 * i / (m - 1))
             port_x[(gi, sid, role)] = q(px)
@@ -1063,25 +1038,10 @@ def _best(model: ConceptualModel, sites: list[Site], parts: list[list[Site]], pa
 
 
 def _split(model: ConceptualModel, sites: list[Site]) -> tuple[list[Site], list[Site]]:
-    """Split a part that does not fit: its last linked group moves to a new part when
-    the part holds several (paired AZs stay together), else its last site."""
-    parent = {s.id: s.id for s in sites}
-
-    def root(i: str) -> str:
-        while parent[i] != i:
-            i = parent[i]
-        return i
-
-    for lk in model.links:
-        if lk.a in parent and lk.b in parent:
-            ra, rb = root(lk.a), root(lk.b)
-            if ra != rb:
-                parent[max(ra, rb)] = min(ra, rb)
-    last = root(sites[-1].id)
-    move = [s for s in sites if root(s.id) == last]
-    if len(move) == len(sites):
-        return sites[:-1], sites[-1:]
-    return [s for s in sites if root(s.id) != last], move
+    """Split a part that does not fit (`parts.split`)."""
+    by_id = {s.id: s for s in sites}
+    keep, move = parts_mod.split([s.id for s in sites], _pairs(model))
+    return [by_id[i] for i in keep], [by_id[i] for i in move]
 
 
 def layout(model: ConceptualModel, page: Page | None = None, refs: Refs | None = None,

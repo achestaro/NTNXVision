@@ -10,7 +10,6 @@ from __future__ import annotations
 import io
 import json
 import os
-import random
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -35,6 +34,8 @@ from ntnxvision_core.diagrams.render.png import render_png
 from ntnxvision_core.diagrams.render.svg import render_svg
 from ntnxvision_core.diagrams.summary import conceptual_bullets
 from ntnxvision_core.models import Environment
+
+from .diagram_helpers import shuffled as _shuffled
 
 GOLDEN = Path(__file__).parent / "golden" / "diagrams"
 UPDATE = os.environ.get("NTNXVISION_UPDATE_GOLDEN") == "1"
@@ -200,14 +201,6 @@ def test_render_twice_identical(estates: dict[str, Environment], name: str) -> N
     assert Image.open(io.BytesIO(pa)).tobytes() == Image.open(io.BytesIO(pb)).tobytes()
 
 
-def _shuffled(env: Environment, seed: int) -> Environment:
-    r = random.Random(seed)
-    out = env.model_copy(deep=True)
-    for name in type(out).model_fields:
-        value = getattr(out, name)
-        if isinstance(value, list):
-            r.shuffle(value)
-    return out
 
 
 @pytest.mark.parametrize("name", ["medium", "enterprise"])
@@ -441,8 +434,11 @@ def test_word_report_contains_the_figure(estates: dict[str, Environment],
     beside = [t for t in doc.tables if len(t.rows[0].cells) == 2
               and "DESIGN SUMMARY" in t.rows[0].cells[1].text]
     assert beside
-    # The DR chapter names the figures that draw replication.
-    assert "Figures 5-1 to 5-2 (Solution Conceptual Overview" in text
+    # Two parts: no estate map (it opens an overview drawn in 3 parts or more); the
+    # DR chapter has its own design figure, so it does not point back at the overview.
+    assert not any("Estate map" in d for d in descr)
+    assert "(Solution Conceptual Overview" not in text
+    assert any("Disaster recovery design" in d for d in descr)
     # Plain ASCII hyphens: Word rendered both U+2011 and w:noBreakHyphen with gaps or
     # squeezed text, and they broke copy, paste and Find on host and cluster names.
     xml = doc.element.xml
@@ -513,9 +509,14 @@ def test_pdf_keeps_heading_summary_and_figure_on_one_page(
         monkeypatch.setattr(pdf_mod.PdfExporter, "_summary_block", summary)
         monkeypatch.setattr(pdf_mod, "draw_scene", draw)
         pdf_mod.PdfExporter().export(estates[name], tmp_path / f"{name}.pdf")
-        pages = dict(events)
-        head = next(p for k, p in events if k.endswith("Solution Conceptual Overview"))
-        assert pages["summary"] == pages["figure:1"] == head, name
+        # Other architecture sections draw too: look at the events after this heading.
+        at = next(i for i, (k, _) in enumerate(events)
+                  if k.endswith("Solution Conceptual Overview"))
+        head = events[at][1]
+        after = events[at + 1:]
+        first_summary = next(p for k, p in after if k == "summary")
+        first_figure = next(p for k, p in after if k.startswith("figure:"))
+        assert first_summary == first_figure == head, name
         monkeypatch.undo()
 
 
@@ -534,8 +535,9 @@ def test_pdf_report_draws_the_figure_as_vectors(estates: dict[str, Environment],
     monkeypatch.setattr(pdf_mod, "draw_scene", spy)
     out = pdf_mod.PdfExporter().export(estates["medium"], tmp_path / "r.pdf")
     assert out.stat().st_size > 20_000
-    assert drawn == ["Solution conceptual overview: 2 availability zones, 6 clusters, "
-                     "33 nodes."]
+    # The other architecture figures draw too; the overview is drawn once, first.
+    assert [c for c in drawn if c.startswith("Solution conceptual")] == [
+        "Solution conceptual overview: 2 availability zones, 6 clusters, 33 nodes."]
 
 
 def test_pdf_drawing_uses_real_embedded_text(estates: dict[str, Environment]) -> None:

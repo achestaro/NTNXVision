@@ -12,6 +12,9 @@ Report sections (`exporters/sections.py`): `chapters` picks individual chapters 
 "Sections and order" panel of the export dialog) and applies to the PDF, Word and the
 Excel object sheets; `section_order` reorders them (unknown ids ignored, missing ids
 appended in default order). Both None (the default) leave every report exactly as before.
+
+The "diagrams" format writes ``<name>_diagrams.zip``, the editable copies (Visio,
+draw.io, SVG) of the report's architecture figures (`diagrams.bundle`).
 """
 
 from __future__ import annotations
@@ -115,6 +118,14 @@ def export_environment(
     """Export `env` in the given format into `directory`, returning the output path
     (and, with `with_detail`, a short description such as "34 sheets")."""
     fmt = fmt.lower()
+    if fmt == "diagrams":
+        # The editable diagrams bundle (.vsdx, .drawio, .svg) of the report's figures.
+        from ntnxvision_core.diagrams.bundle import write_bundle
+        from ntnxvision_core.exporters.naming import DIAGRAMS_SUFFIX
+
+        bundle = Path(directory) / f"{name}{DIAGRAMS_SUFFIX}.zip"
+        summary = write_bundle(env, ExportOptions.coerce(options), bundle)
+        return (bundle, summary) if with_detail else bundle
     ext = _EXTENSIONS.get(fmt)
     if ext is None:
         raise ValueError(f"Unknown export format: {fmt!r}")

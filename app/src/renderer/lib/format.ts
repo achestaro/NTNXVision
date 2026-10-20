@@ -207,6 +207,12 @@ export function reportFileName(prefix: string, snapshot: string, ext: string, da
   return `${[sanitizePrefix(prefix), stem, isoDay(date)].filter(Boolean).join('-')}.${ext}`;
 }
 
+/** "<prefix>-<snapshot>-<YYYY-MM-DD>_diagrams.zip": the editable diagrams bundle written
+ * next to the reports (the sidecar adds -2, -3 to the stem instead of overwriting). */
+export function diagramsFileName(prefix: string, snapshot: string, date = new Date()): string {
+  return reportFileName(prefix, snapshot, 'zip', date).replace(/\.zip$/, '_diagrams.zip');
+}
+
 /** File extension per report format. */
 export const REPORT_EXT: Record<'excel' | 'pdf' | 'word' | 'csv', string> = {
   excel: 'xlsx',

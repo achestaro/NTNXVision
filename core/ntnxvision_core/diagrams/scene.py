@@ -128,7 +128,8 @@ class Scene:
 
 
 #: Paint layer per node kind (lower first). Edges sit at layer 2, their labels at 2.5.
-_LAYER = {"container": 0, "box": 1, "swatch": 1, "label": 1, "strip": 3, "pill": 3,
+#: Shared by every renderer (`draw_order`, the .vsdx and the .drawio writers).
+LAYER = {"container": 0, "box": 1, "swatch": 1, "label": 1, "strip": 3, "pill": 3,
           "tag": 3}
 
 
@@ -136,11 +137,11 @@ def draw_order(sc: Scene) -> list[tuple[str, Any]]:
     """The paint order every renderer follows: [("node", n) | ("edge", e) |
     ("label", (e, label))]. Stable: ties keep the scene's list order."""
     out: list[tuple[str, Any]] = []
-    nodes = sorted(enumerate(sc.nodes), key=lambda iv: (_LAYER.get(iv[1].kind, 1), iv[0]))
-    out.extend(("node", n) for _, n in nodes if _LAYER.get(n.kind, 1) < 2)
+    nodes = sorted(enumerate(sc.nodes), key=lambda iv: (LAYER.get(iv[1].kind, 1), iv[0]))
+    out.extend(("node", n) for _, n in nodes if LAYER.get(n.kind, 1) < 2)
     out.extend(("edge", e) for e in sc.edges)
     out.extend(("label", (e, lab)) for e in sc.edges for lab in e.labels)
-    out.extend(("node", n) for _, n in nodes if _LAYER.get(n.kind, 1) >= 2)
+    out.extend(("node", n) for _, n in nodes if LAYER.get(n.kind, 1) >= 2)
     return out
 
 
@@ -191,3 +192,7 @@ def from_doc(d: dict[str, Any]) -> Scene:
 
 def scene_json(sc: Scene) -> bytes:
     return dumps(to_doc(sc))
+
+
+#: Former private name.
+_LAYER = LAYER

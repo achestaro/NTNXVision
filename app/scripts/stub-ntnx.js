@@ -795,7 +795,10 @@
       const name = s ? s.name : 'snapshot';
       const paths = {};
       req.formats.forEach((f) => (paths[f] = `${EXPORT_DIR}${sep}${name}.${f === 'excel' ? 'xlsx' : f === 'word' ? 'docx' : 'pdf'}`));
-      return delay({ paths, errors: {}, path: Object.values(paths)[0] || null, files: [] }, 400);
+      const diagrams = req.diagrams
+        ? { path: `${EXPORT_DIR}${sep}${name}_diagrams.zip`, name: `${name}_diagrams.zip`, size_bytes: 0.2 * MB, detail: '6 diagrams' }
+        : null;
+      return delay({ paths, errors: {}, path: Object.values(paths)[0] || null, files: [], diagrams }, 400);
     },
     renameSnapshot: (p, n) => {
       const s = find(p);

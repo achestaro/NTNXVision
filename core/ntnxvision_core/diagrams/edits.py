@@ -27,6 +27,7 @@ from __future__ import annotations
 import copy
 import hashlib
 from collections.abc import Callable, Iterator
+from collections.abc import Collection as Collection_
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -433,15 +434,49 @@ def _count(n: int, one: str, many: str | None = None) -> str:
     return f"{n:,} {one if n == 1 else (many or one + 's')}"
 
 
+#: Fields that tie an element to others it links (a replication flow, an AZ pairing).
+LINK_FIELDS = ("a", "b", "site_a", "site_b")
+
+
+def _scoped(payload: dict[str, Any], spec: EditSpec, scope: Collection_[str]
+            ) -> dict[str, tuple[dict[str, Any], Collection]]:
+    """The elements of `payload` inside `scope`: an element whose id, an owner's id or
+    a linked end (`LINK_FIELDS`) is in it, in walk order."""
+    slots = walk(payload, spec)
+    elems = _elements(payload, spec)
+
+    def inside(ident: str | None) -> bool:
+        seen: set[str] = set()
+        while ident is not None and ident not in seen:
+            if ident in scope:
+                return True
+            seen.add(ident)
+            slot = slots.get(ident)
+            ident = slot.parent if slot is not None else None
+        return False
+
+    return {i: ec for i, ec in elems.items()
+            if inside(i) or any(isinstance(ec[0].get(k), str) and inside(ec[0][k])
+                                for k in LINK_FIELDS)}
+
+
 def disclosure(generated: dict[str, Any], edited: dict[str, Any], spec: EditSpec,
-               carried_from: str | None = None) -> str | None:
+               carried_from: str | None = None,
+               scope: Collection_[str] | None = None) -> str | None:
     """One design-summary bullet saying how a saved edit differs from the data:
     elements not drawn, user-added items, renames, roles and notes set by the author,
     and the snapshot the edits were carried from automatically (`carried_from`).
-    None when the two models are the same."""
+    None when the two models are the same. With `scope` (element ids: an availability
+    zone, a profile), only the edits inside it count (`_scoped`): a figure of one zone
+    discloses that zone's edits, and None when it has none."""
     if generated == edited:
         return None
-    gen, ed = _elements(generated, spec), _elements(edited, spec)
+    if scope is None:
+        gen, ed = _elements(generated, spec), _elements(edited, spec)
+    else:
+        gen, ed = _scoped(generated, spec, scope), _scoped(edited, spec, scope)
+        if [(i, e) for i, (e, _) in gen.items()] == [(i, e) for i, (e, _) in ed.items()]:
+            return None
     parts: list[str] = []
     removed: dict[str, list[str]] = {}
     owner = {i: s.parent for i, s in walk(generated, spec).items()}

@@ -22,6 +22,7 @@ template keeps its own styles: only direct table and cover formatting is applied
 from __future__ import annotations
 
 import io
+import zipfile
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -37,6 +38,8 @@ from docx.oxml.ns import qn
 from docx.shared import Emu, Inches, Pt, RGBColor
 
 from ntnxvision_core.diagrams.render.png import render_png
+from ntnxvision_core.diagrams.render.svg import render_svg
+from ntnxvision_core.diagrams.render.vsdx import ZIP_TIME
 from ntnxvision_core.exporters import theme as T
 from ntnxvision_core.exporters import wordcols
 from ntnxvision_core.exporters.content import (
@@ -101,7 +104,9 @@ class WordExporter:
 
         out = Path(path)
         out.parent.mkdir(parents=True, exist_ok=True)
-        doc.save(str(out))
+        buf = io.BytesIO()
+        doc.save(buf)
+        out.write_bytes(stable_zip(buf.getvalue()))
         self.section_count = len(report.chapters)
         self.table_count = self._tables
         return out
@@ -174,7 +179,9 @@ class WordExporter:
                           f"collected {T.collected_label(env)}.{lcm_sentence(env)}")
         props.keywords = report.keywords
         props.language = "en-US"
-        props.created = props.modified = datetime.now()
+        # The snapshot's collection time, so one snapshot gives one document's bytes.
+        stamp = T.parse_datetime(env.collected_at) or datetime(2000, 1, 1)
+        props.created = props.modified = stamp
         props.revision = 1
 
     # ─── cover & contents ──────────────────────────────────────────
@@ -445,7 +452,8 @@ class WordExporter:
     def _scene_figure(self, doc: DocumentObject, f: SceneFigure) -> None:
         text_w = _text_width(doc)
         width = min(text_w, int(Pt(f.scene.width)))
-        png = render_png(f.scene, dpi=220)
+        png = render_png(f.scene, dpi=220, palette=True)
+        svg = render_svg(f.scene, mode="outline")
         if f.summary_beside:
             # Decision 3: beside the figure when it is 480 pt or narrower.
             if f.new_page:
@@ -458,7 +466,7 @@ class WordExporter:
             pic = left.paragraphs[0]
             pic.paragraph_format.space_after = Pt(0)
             pic.paragraph_format.keep_with_next = True
-            pic.add_run().add_picture(io.BytesIO(png), width=Emu(width))
+            _add_svg_picture(pic.add_run(), png, svg, width)
             _alt_text(pic, T.clean(f.title))
             self._eyebrow(right.paragraphs[0])
             self._summary_items(right, f.summary)
@@ -483,7 +491,7 @@ class WordExporter:
             # Too tall for the room under the heading and summary: the figure and its
             # caption start the next page (the summary stays with its heading).
             p.paragraph_format.page_break_before = f.new_page
-            p.add_run().add_picture(io.BytesIO(png), width=Emu(width))
+            _add_svg_picture(p.add_run(), png, svg, width)
             _alt_text(p, T.clean(f.title))
         cap = doc.add_paragraph(style="Caption")
         self._figure_caption(cap, f)
@@ -772,6 +780,33 @@ def _clear_border(p_pr: Any) -> None:
         p_pr.remove(borders)
 
 
+#: The Office 2016+ extension that gives a picture an SVG alternative (``a:blip``).
+SVG_BLIP_EXT = "{96DAC541-7B7A-43D3-8B79-37D633B846F1}"
+_NS_ASVG = "http://schemas.microsoft.com/office/drawing/2016/SVG/main"
+
+
+def _add_svg_picture(run: Any, png: bytes, svg: bytes, width: int) -> None:
+    """The PNG as the picture, with `svg` attached as its vector alternative (svgBlip):
+    Word 2016+, 365, Mac and web draw the SVG; older readers and LibreOffice the PNG."""
+    from docx.opc.constants import RELATIONSHIP_TYPE as RT
+    from docx.opc.packuri import PackURI
+    from docx.opc.part import Part
+    from docx.oxml import parse_xml
+
+    shape = run.add_picture(io.BytesIO(png), width=Emu(width))
+    doc_part = run.part
+    package = doc_part.package
+    part = Part(PackURI(package.next_partname("/word/media/diagram%d.svg")), "image/svg+xml",
+                svg, package)
+    rid = doc_part.relate_to(part, RT.IMAGE)
+    blip = shape._inline.xpath(".//a:blip")[0]
+    blip.append(parse_xml(
+        f'<a:extLst xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">'
+        f'<a:ext uri="{SVG_BLIP_EXT}"><asvg:svgBlip xmlns:asvg="{_NS_ASVG}" '
+        f'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" '
+        f'r:embed="{rid}"/></a:ext></a:extLst>'))
+
+
 def _alt_text(paragraph: Any, text: str) -> None:
     """Alt text (title and description) on the picture just added, for screen readers."""
     for doc_pr in paragraph._p.iter(qn("wp:docPr")):
@@ -924,3 +959,18 @@ def load_template(template: str) -> DocumentObject:
 
 
 __all__ = ["WordExporter", "load_template"]
+
+
+def stable_zip(data: bytes) -> bytes:
+    """Rewrite an OOXML package with fixed entry times (python-docx stamps the current
+    time), in its original entry order and compression, so equal content gives equal
+    bytes."""
+    src = zipfile.ZipFile(io.BytesIO(data))
+    out = io.BytesIO()
+    with zipfile.ZipFile(out, "w") as z:
+        for info in src.infolist():
+            zi = zipfile.ZipInfo(info.filename, ZIP_TIME)
+            zi.compress_type = zipfile.ZIP_DEFLATED
+            zi.external_attr = 0o644 << 16
+            z.writestr(zi, src.read(info.filename))
+    return out.getvalue()

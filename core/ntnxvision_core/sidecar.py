@@ -63,7 +63,7 @@ from ntnxvision_core.engine import (
     combine_environments,
 )
 from ntnxvision_core.exporters import export_environment, extension_for
-from ntnxvision_core.exporters.naming import report_path
+from ntnxvision_core.exporters.naming import diagrams_stem, report_path
 from ntnxvision_core.lcm_inventory import (
     DEFAULT_TIMEOUT_S,
     MAX_TIMEOUT_S,
@@ -399,11 +399,8 @@ def _write_reports(env: Any, name: str, formats: list[str], out_dir: Path,
     """Write each format as ``<prefix>-<name>-<YYYY-MM-DD>.<ext>`` (see exporters.naming),
     never overwriting an existing file. The figures of a saved `snapshot` draw the
     diagram edits saved on the Diagrams page."""
-    if snapshot is not None:  # every format: the diagrams bundle draws them too
-        from ntnxvision_core.diagrams import store as diagram_store
-
-        options = {**options, "diagram_models": diagram_store.edited_models(snapshot, env),
-                   "diagram_origins": _carried_names(snapshot)}
+    if snapshot is not None:
+        options = _with_diagram_edits(options, snapshot, env)
     files: list[dict[str, Any]] = []
     errors: dict[str, str] = {}
     for fmt in formats:
@@ -597,6 +594,18 @@ def _current_name(source: dict[str, Any], names: dict[str, str] | None = None) -
     now when it still exists, else the name stored with it."""
     names = _snapshot_names() if names is None else names
     return names.get(str(source.get("snapshot_id") or ""), "") or str(source.get("name") or "")
+
+
+def _with_diagram_edits(options: dict[str, Any], snapshot: Path, env: Any
+                        ) -> dict[str, Any]:
+    """`options` with the diagram edits saved for `snapshot` (resolved once per export,
+    so the reports and the diagrams bundle draw the same edited models)."""
+    if "diagram_models" in options:
+        return options
+    from ntnxvision_core.diagrams import store as diagram_store
+
+    return {**options, "diagram_models": diagram_store.edited_models(snapshot, env),
+            "diagram_origins": _carried_names(snapshot)}
 
 
 def _carried_names(snapshot: Path) -> dict[str, str]:
@@ -961,7 +970,8 @@ def _m_report_sections(_req_id: Any, params: dict[str, Any]) -> dict[str, Any]:
 
 
 def _m_export(_req_id: Any, params: dict[str, Any]) -> dict[str, Any]:
-    """Re-export a saved snapshot to one or more formats (excel / pdf / word).
+    """Re-export a saved snapshot to one or more formats (excel / pdf / word), plus the
+    editable diagrams bundle when ``diagrams`` is true.
 
     The snapshot path is confined to the snapshots directory (no arbitrary file reads)
     and must exist; per-format failures are reported structurally, not as pseudo-success
@@ -971,14 +981,39 @@ def _m_export(_req_id: Any, params: dict[str, Any]) -> dict[str, Any]:
     env = _cache.get(snap_path)
     name = params.get("name") or snapstore.snapshot_name(snap_path)
     formats = params.get("formats") or [params.get("format", "excel")]
-    files, errors = _write_reports(env, name, list(formats), _export_dir_from(params),
-                                   _export_options(params), prefix=_file_prefix(params),
-                                   snapshot=snap_path)
+    want_diagrams = params.get("diagrams") is True
+    if want_diagrams and not {"pdf", "word"} & set(formats):
+        raise NutanixApiError("Editable diagrams need a PDF or Word report in the export.")
+    out_dir = _export_dir_from(params)
+    # The saved diagram edits, resolved once for the reports and the bundle alike.
+    options = _with_diagram_edits(_export_options(params), snap_path, env)
+    files, errors = _write_reports(env, name, list(formats), out_dir, options,
+                                   prefix=_file_prefix(params))
     if files:
         snapstore.record_exports(snap_path, files)
     paths = {f["format"]: f["path"] for f in files}
-    return {"paths": paths, "errors": errors, "path": next(iter(paths.values()), None),
-            "files": files}
+    bundle = None
+    if want_diagrams:
+        bundle = _write_diagrams(env, name, out_dir, options, _file_prefix(params), errors)
+    return {"paths": paths, "errors": errors,
+            "path": next(iter(paths.values()), bundle["path"] if bundle else None),
+            "files": files, "diagrams": bundle}
+
+
+def _write_diagrams(env: Any, name: str, out_dir: Path, options: dict[str, Any], prefix: str,
+                    errors: dict[str, str]) -> dict[str, Any] | None:
+    """The editable diagrams bundle ``<prefix>-<name>-<YYYY-MM-DD>_diagrams.zip`` next to
+    the reports; a failure lands in ``errors["diagrams"]`` and never fails the reports."""
+    try:
+        stem = diagrams_stem(out_dir, name, prefix)
+        path, detail = export_environment(env, "diagrams", out_dir, stem, options=options,
+                                          with_detail=True)
+    except Exception as exc:  # noqa: BLE001 — the reports are already written
+        errors["diagrams"] = str(exc)
+        return None
+    file = _report_file("diagrams", Path(path), detail)
+    file.pop("format", None)
+    return file
 
 
 def _m_rename_snapshot(_req_id: Any, params: dict[str, Any]) -> dict[str, Any]:
