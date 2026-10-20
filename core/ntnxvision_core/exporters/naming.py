@@ -19,6 +19,7 @@ The renderer mirrors `sanitize_prefix` for its live preview (``app/src/renderer/
 
 from __future__ import annotations
 
+import contextlib
 from datetime import date
 from pathlib import Path
 
@@ -102,17 +103,17 @@ DIAGRAMS_SUFFIX = "_diagrams"
 
 def diagrams_stem(directory: str | Path, snapshot_name: str, prefix: str | None = None,
                   on: date | None = None) -> str:
-    """The report stem for a diagrams bundle: ``<stem>_diagrams.zip`` does not exist yet
-    (``-2``, ``-3``, ... is added to the stem, as for the other reports)."""
+    """The report stem for a diagrams bundle: neither ``<stem>_diagrams.zip`` nor a
+    ``<stem>_diagrams`` folder exists yet (``-2``, ``-3``, ... is added to the stem, as
+    for the other reports)."""
     folder = Path(directory)
     room = _max_stem_for(folder, "zip") - len(DIAGRAMS_SUFFIX)
     stem = report_stem(snapshot_name, prefix, on, max_len=max(_MIN_STEM, room))
-    suffix = f"{DIAGRAMS_SUFFIX}.zip".casefold()
-    try:
-        taken = [p.name[: -len(suffix)] for p in folder.iterdir()
-                 if p.name.casefold().endswith(suffix)]
-    except OSError:
-        taken = []
+    taken: list[str] = []
+    for suffix in (f"{DIAGRAMS_SUFFIX}.zip".casefold(), DIAGRAMS_SUFFIX.casefold()):
+        with contextlib.suppress(OSError):
+            taken += [p.name[: -len(suffix)] for p in folder.iterdir()
+                      if p.name.casefold().endswith(suffix)]
     return unique_name(stem, taken, max_len=_MAX_STEM + _SUFFIX_ROOM)
 
 

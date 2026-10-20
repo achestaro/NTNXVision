@@ -383,6 +383,7 @@ def _export_options(params: dict[str, Any]) -> dict[str, Any]:
         "prepared_for": word.get("prepared_for") or "",
         "author": word.get("author") or "",
         "vcpu_ratio": params.get("vcpu_ratio"),
+        "diagrams_package": "folder" if params.get("diagrams_package") == "folder" else "zip",
     }
 
 
@@ -419,7 +420,8 @@ def _write_reports(env: Any, name: str, formats: list[str], out_dir: Path,
 
 def _report_file(fmt: str, path: Path, detail: str | None) -> dict[str, Any]:
     try:
-        size: int | None = path.stat().st_size
+        size: int | None = (sum(p.stat().st_size for p in path.rglob("*") if p.is_file())
+                            if path.is_dir() else path.stat().st_size)
     except OSError:
         size = None
     return {"format": fmt, "path": str(path), "name": path.name, "size_bytes": size,
@@ -1014,6 +1016,167 @@ def _write_diagrams(env: Any, name: str, out_dir: Path, options: dict[str, Any],
     file = _report_file("diagrams", Path(path), detail)
     file.pop("format", None)
     return file
+
+
+#: Report kinds as the export preview names them.
+_PREVIEW_KINDS = {"excel": "Excel", "pdf": "PDF", "word": "Word ADD"}
+_preview_lock = threading.Lock()
+_preview_cache: dict[str, list[Any]] = {}
+_PREVIEW_CACHE_MAX = 6
+
+
+def _mtime(path: Path) -> float:
+    try:
+        return path.stat().st_mtime
+    except OSError:
+        return 0.0
+
+
+def _preview_scenes(snap_path: Path, env: Any, params: dict[str, Any]) -> list[Any]:
+    """The report's architecture figures for these export options (cached per snapshot,
+    saved edits and options: building them takes the report content)."""
+    from ntnxvision_core.diagrams import store as diagram_store
+    from ntnxvision_core.diagrams.bundle import report_scenes
+
+    base = _export_options(params)
+    key = json.dumps([str(snap_path), _mtime(snap_path),
+                      _mtime(diagram_store.path_for(snap_path)),
+                      {k: v for k, v in base.items() if k != "diagrams_package"}],
+                     sort_keys=True, default=str)
+    with _preview_lock:
+        hit = _preview_cache.get(key)
+    if hit is not None:
+        return hit
+    scenes = report_scenes(env, _with_diagram_edits(base, snap_path, env))
+    with _preview_lock:
+        _preview_cache[key] = scenes
+        while len(_preview_cache) > _PREVIEW_CACHE_MAX:
+            _preview_cache.pop(next(iter(_preview_cache)))
+    return scenes
+
+
+def _diagram_tags(snap_path: Path, env: Any) -> tuple[dict[str, list[str]],
+                                                      list[dict[str, str]]]:
+    """Per diagram type with saved edits: ["edited"] or ["edited", "stale"]; and the
+    stale ones ({type, title}) for the export dialog's callout."""
+    from ntnxvision_core.diagrams import TYPES
+    from ntnxvision_core.diagrams import store as diagram_store
+
+    tags: dict[str, list[str]] = {}
+    stale: list[dict[str, str]] = []
+    for type_id, entry in diagram_store.load(snap_path).items():
+        t = TYPES.get(type_id)
+        if t is None or t.embedded or not t.applies(env):
+            continue
+        tags[type_id] = ["edited"]
+        try:
+            gen = diagram_store.generated(env, type_id)
+            if diagram_store.stale_info(type_id, entry, gen, t.edit_spec) is not None:
+                tags[type_id].append("stale")
+                stale.append({"type": type_id, "title": t.title})
+        except Exception:  # noqa: BLE001 - a tag never fails the preview
+            continue
+    return tags, stale
+
+
+def _m_export_preview(_req_id: Any, params: dict[str, Any]) -> dict[str, Any]:
+    """What an export with these options writes (the export dialog's "What lands in the
+    export folder"): each report file's name and about size, and the editable diagrams
+    bundle's entries with sizes and Edited / Stale tags. Writes nothing."""
+    from ntnxvision_core.diagrams.bundle import _created, bundle_preview
+    from ntnxvision_core.exporters.naming import DIAGRAMS_SUFFIX
+
+    snap_path = _resolve_snapshot_path(params["snapshot"])
+    env = _cache.get(snap_path)
+    name = params.get("name") or snapstore.snapshot_name(snap_path)
+    raw = params.get("export_dir")
+    out_dir = Path(raw).expanduser() if isinstance(raw, str) and raw.strip() else exports_dir()
+    prefix = _file_prefix(params)
+    formats = [f for f in params.get("formats") or [] if f in _PREVIEW_KINDS]
+    meta = snapstore.read_meta(snap_path, _cache)
+    est = _estimates(meta.get("summary") or {}, meta.get("kind"))
+    last = {f.get("format"): f for f in meta.get("exports") or [] if f.get("size_bytes")}
+    files = []
+    for fmt in formats:
+        path = report_path(out_dir, name, extension_for(fmt) or fmt, prefix)
+        files.append({"format": fmt, "name": path.name, "kind": _PREVIEW_KINDS[fmt],
+                      "size_bytes": int(last.get(fmt, {}).get("size_bytes")
+                                        or est[fmt]["bytes"]),
+                      "approx": True, "detail": est[fmt]["detail"]})
+    bundle = None
+    if params.get("diagrams") is True and {"pdf", "word"} & set(formats):
+        package = "folder" if params.get("diagrams_package") == "folder" else "zip"
+        stem = diagrams_stem(out_dir, name, prefix) + DIAGRAMS_SUFFIX
+        scenes = _preview_scenes(snap_path, env, params)
+        tags, stale = _diagram_tags(snap_path, env)
+        if scenes:
+            bundle = bundle_preview(scenes, stem, package, tags, _created(env))
+            bundle["name"] = stem if package == "folder" else f"{stem}.zip"
+            bundle["stale"] = stale
+            bundle["edited"] = sorted(tags)
+    return {"files": files, "diagrams": bundle}
+
+
+_DIAGRAM_FORMATS = ("vsdx", "drawio", "svg", "png")
+
+
+def _m_export_diagram(_req_id: Any, params: dict[str, Any]) -> dict[str, Any]:
+    """One diagram of a snapshot as Visio, draw.io, SVG or PNG (the Diagrams page's
+    Download links): the report's figures of that type, saved edits applied, written to
+    the export folder as ``<prefix>-<snapshot>-<date>_<slug>[-part-N].<ext>``."""
+    from ntnxvision_core.diagrams import store as diagram_store
+    from ntnxvision_core.diagrams.bundle import (
+        PNG_DPI,
+        VSDX_FONT,
+        _created,
+        report_scenes,
+        tab_name,
+    )
+    from ntnxvision_core.diagrams.render.drawio import render_drawio
+    from ntnxvision_core.diagrams.render.png import render_png
+    from ntnxvision_core.diagrams.render.svg import render_svg
+    from ntnxvision_core.diagrams.render.vsdx import render_vsdx
+    from ntnxvision_core.exporters.naming import report_stem, unique_report_path
+
+    snap_path = _resolve_snapshot_path(params["snapshot"])
+    env = _cache.get(snap_path)
+    fmt = params.get("format")
+    if fmt not in _DIAGRAM_FORMATS:
+        raise NutanixApiError("format must be one of vsdx, drawio, svg, png.")
+    t = _diagram_call(lambda: diagram_store.dtype(_diagram_type(params)))
+    if not t.applies(env):
+        raise NutanixApiError(f"This snapshot has no {t.title.lower()}.")
+    options = _with_diagram_edits({**_export_options({}), "chapters": [t.chapter]},
+                                  snap_path, env)
+    scenes = [sc for sc in report_scenes(env, options) if sc.type == t.id]
+    if not scenes:
+        raise NutanixApiError(f"The {t.title.lower()} has no figure in this snapshot.")
+    out_dir = _export_dir_from(params)
+    name = snapstore.snapshot_name(snap_path)
+    stem = f"{report_stem(name, _file_prefix(params))}_{t.slug or t.id}"
+    written: list[Path] = []
+    if fmt in ("vsdx", "drawio"):
+        path = unique_report_path(out_dir, stem, fmt)
+        names = [tab_name(sc) for sc in scenes]
+        data = render_vsdx(scenes, names, title=path.stem, created=_created(env),
+                           font=VSDX_FONT) if fmt == "vsdx" else render_drawio(scenes, names)
+        written.append(_write_new(path, data))
+    else:
+        for sc in scenes:
+            part = f"-part-{sc.part[0]}" if len(scenes) > 1 else ""
+            path = unique_report_path(out_dir, f"{stem}{part}", fmt)
+            data = render_svg(sc) if fmt == "svg" else render_png(sc, PNG_DPI)
+            written.append(_write_new(path, data))
+    return {"path": str(written[0]), "paths": [str(p) for p in written],
+            "name": written[0].name,
+            "detail": f"{len(written):,} file{'s' * (len(written) != 1)}"}
+
+
+def _write_new(path: Path, data: bytes) -> Path:
+    tmp = path.with_name(path.name + ".partial")
+    tmp.write_bytes(data)
+    tmp.replace(path)
+    return path
 
 
 def _m_rename_snapshot(_req_id: Any, params: dict[str, Any]) -> dict[str, Any]:
@@ -1664,4 +1827,6 @@ _METHODS = {
     "save_diagram": _m_save_diagram,
     "reset_diagram": _m_reset_diagram,
     "carry_diagrams": _m_carry_diagrams,
+    "export_preview": _m_export_preview,
+    "export_diagram": _m_export_diagram,
 }

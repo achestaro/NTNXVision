@@ -67,10 +67,14 @@ SPEC = EditSpec(
     collections=(
         Collection("sites", "Availability zone", label=None, reorder=False, delete=False,
                    title_of=lambda s: str(s.get("name", ""))),
-        Collection("clusters", "Cluster", sublabel="note", kind_of=_cluster_kind),
+        Collection("clusters", "Cluster", sublabel="note", kind_of=_cluster_kind,
+                   cross="user", cross_reason="A collected cluster stays in the "
+                   "availability zone that manages it."),
         Collection("switches", "Virtual switch", label=None, sublabel="note", delete=False,
                    title_of=lambda w: str(w.get("name", ""))),
-        Collection("segments", "Segment", sublabel="note", kind_of=_segment_kind),
+        Collection("segments", "Segment", sublabel="note", kind_of=_segment_kind,
+                   cross="user", cross_reason="A collected segment stays on the virtual "
+                   "switch that carries it."),
     ),
     palette=(
         PaletteItem("segment", "Segment", "segments",
