@@ -439,12 +439,14 @@ def connector_outline(view: View, elements: list[dict[str, Any]]) -> list[dict[s
                               "can_delete": False, "delete_op": "hide",
                               "source": "Removed from this figure on the Diagrams page. "
                                         "Restore brings it back."}
+    seen = {e.id for sc in view.scenes for e in sc.edges} | \
+        {k for sc in view.scenes for k in (sc.meta.get("connectors") or {})}
     for ident, want in asked.items():
         if ident in out:
             continue
         user = ident.startswith(E.USER_PREFIX)
-        if not user and not want.get("a") and not want.get("b"):
-            continue  # an edit of a connector no part draws: reported as a problem
+        if not user and (ident not in seen or (not want.get("a") and not want.get("b"))):
+            continue  # a connector no part has (the data changed): its edits are problems
         a = str(want.get("a") or "")
         b = str(want.get("b") or "")
         issue = next((note.get("issue") for sc in view.scenes
@@ -575,15 +577,14 @@ def part_list(scenes: list[Scene]) -> list[dict[str, Any]]:
     """The parts of a figure as the Diagrams page lists them: named after their zone or
     profile ("pc02, part 2 of 3", "Profile A"), "part i of n" only when there is more
     than one."""
-    from ntnxvision_core.diagrams.bundle import _group
+    from ntnxvision_core.diagrams.facts import short_name
 
-    groups: dict[str, int] = {}
-    for sc in scenes:
-        key = str(sc.meta.get("group") or "")
-        groups[key] = groups.get(key, 0) + 1
     out = []
     for i, sc in enumerate(scenes):
-        name = _group(sc)
+        # The zone or profile as it reads ("Profile A", "pc02"); file names drop the
+        # word "Profile" (`bundle._group`), the list keeps it.
+        raw = str(sc.meta.get("group_name") or sc.meta.get("group") or "")
+        name = raw if raw.lower().startswith("profile ") else (short_name(raw) if raw else "")
         many = sc.part[1] > 1
         if name and many:
             label = f"{name}, part {sc.part[0]:,} of {sc.part[1]:,}"

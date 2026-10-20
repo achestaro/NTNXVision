@@ -403,6 +403,13 @@ export function DiagramsView({ snapshot: snapProp, type: typeProp, part: partPro
         setExpanded((v) => !v);
         return;
       }
+      if (e.key === 'Escape' && isTyping(e.target) && expandedRef.current) {
+        // In the full-window editor, Escape first leaves the field (its blur keeps the
+        // value), then deselects, then leaves the full window.
+        e.preventDefault();
+        (e.target as HTMLElement).blur();
+        return;
+      }
       if (isTyping(e.target)) return;
       if (e.key === 'Escape') {
         if (toolRef.current === 'connect') {
@@ -915,7 +922,15 @@ export function DiagramsView({ snapshot: snapProp, type: typeProp, part: partPro
                 </Button>
               }
             >
-              <span className="dg-callout-body">{view.problems.slice(0, 3).map((p) => `${describeOp(p.op, p.label)}: ${p.reason}.`).join(' ')}</span>
+              <span className="dg-callout-body">
+                {[...new Map(view.problems.map((p) => [`${p.op.op === 'add' ? p.op.element.id : p.op.id}|${p.reason}`, p])).values()]
+                  .slice(0, 3)
+                  .map((p) => {
+                    const same = view.problems.filter((q) => (q.op.op === 'add' ? q.op.element.id : q.op.id) === (p.op.op === 'add' ? p.op.element.id : p.op.id) && q.reason === p.reason).length;
+                    return same > 1 ? `${plural(same, 'edit')} of ${p.label || 'a connector'}: ${p.reason}.` : `${describeOp(p.op, p.label)}: ${p.reason}.`;
+                  })
+                  .join(' ')}
+              </span>
             </Callout>
           )}
           {view && (view.notes ?? []).length > 0 && (

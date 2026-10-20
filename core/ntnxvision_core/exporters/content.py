@@ -1704,39 +1704,42 @@ _ORDER: tuple[str, ...] = (
 )
 
 
-_UNDRAWN = {
-    "parts": "its ends are in different parts of the figure",
-    "route": "no clear route was left",
-}
-
-
 def _disclose_tally(f: SceneFigure, tally: dict[str, int]) -> None:
-    """Fold the undrawn connectors of one figure part into its edit bullet:
-    "2 connectors added by the author (1 not drawn: its ends are in different parts
-    of the figure)", "1 reconnected connector not drawn: ...", "1 connector label not
-    drawn: no room beside its line"."""
+    """Fold the undrawn connectors of one figure part into its edit bullet. A connector
+    with both ends here but no clear route is one of the part's added connectors:
+    "2 connectors added by the author (1 not drawn: no clear route was left)". One
+    with an end elsewhere is not counted there, so it gets its own clause: "1 more
+    connector not drawn here: its other end is in another part of the figure". Labels:
+    "1 connector label not drawn: no room beside the line"."""
     lead = "Figure edited on the Diagrams page"
     idx = next((i for i, b in enumerate(f.summary) if b.startswith(lead)), None)
     bullet = f.summary[idx] if idx is not None else f"{lead}: . Counts are as collected."
     extra: list[str] = []
-    for who in ("user", "moved"):
-        for key, why in _UNDRAWN.items():
-            n = tally.get(f"{who}:{key}", 0)
-            if not n:
-                continue
-            added = re.search(r"(\d[\d,]*) connectors? added by the author", bullet)
-            if who == "user" and added:
-                bullet = bullet.replace(added.group(0),
-                                        f"{added.group(0)} ({n:,} not drawn: {why})", 1)
-            else:
-                what = "connector" if who == "user" else "reconnected connector"
-                extra.append(f"{n:,} {what}{'s' * (n != 1)} not drawn: {why}")
+    added = re.search(r"(\d[\d,]*) connectors? added by the author", bullet)
+    blocked = tally.get("user:route", 0)
+    if blocked and added:
+        bullet = bullet.replace(added.group(0), f"{added.group(0)} ({blocked:,} not drawn: "
+                                "no clear route was left)", 1)
+    elif blocked:
+        extra.append(f"{blocked:,} connector{'s' * (blocked != 1)} not drawn: no clear "
+                     "route was left")
+    for who, what in (("user", "connector"), ("moved", "reconnected connector")):
+        n = tally.get(f"{who}:parts", 0)
+        if n:
+            more = "more " if who == "user" and added else ""
+            whose = "its other end is" if n == 1 else "their other ends are"
+            extra.append(f"{n:,} {more}{what}{'s' * (n != 1)} not drawn here: {whose} in "
+                         "another part of the figure")
+    moved_blocked = tally.get("moved:route", 0)
+    if moved_blocked:
+        extra.append(f"{moved_blocked:,} reconnected connector{'s' * (moved_blocked != 1)} "
+                     "not drawn: no clear route was left")
     labels = tally.get("user:label", 0) + tally.get("moved:label", 0)
     if labels:
         extra.append(f"{labels:,} connector label{'s' * (labels != 1)} not drawn: no room "
                      "beside the line")
     if extra:
-        joined = ", ".join(extra)
+        joined = "; ".join(extra)
         bullet = bullet.replace(": . Counts", f": {joined}. Counts", 1) if \
             ": . Counts" in bullet else bullet.replace(
                 ". Counts are as collected.", f"; {joined}. Counts are as collected.", 1)

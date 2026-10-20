@@ -789,18 +789,65 @@ def test_every_editor_connector_is_in_the_report_or_flagged(design_envs: dict[st
                 assert any("not drawn" in " ".join(f.summary) for f in mine), (name, type_id)
 
 
-def test_label_with_no_room_is_disclosed() -> None:
+def _fig(bullet: str) -> Any:
     from ntnxvision_core.diagrams.scene import Scene
-    from ntnxvision_core.exporters.content import SceneFigure, _disclose_tally
+    from ntnxvision_core.exporters.content import SceneFigure
 
-    f = SceneFigure(Scene(id="s", type="t", title="t", caption="c", width=1, height=1), "c",
-                    summary=["Figure edited on the Diagrams page: 2 connectors added by the "
-                             "author. Counts are as collected."])
-    _disclose_tally(f, {"user:parts": 1, "user:label": 1})
-    assert f.summary[0] == ("Figure edited on the Diagrams page: 2 connectors added by the "
-                            "author (1 not drawn: its ends are in different parts of the "
-                            "figure); 1 connector label not drawn: no room beside the line. "
-                            "Counts are as collected.")
+    return SceneFigure(Scene(id="s", type="t", title="t", caption="c", width=1, height=1),
+                       "c", summary=[bullet])
+
+
+def test_undrawn_connectors_read_right_per_part() -> None:
+    """A part counts the connectors added inside it; one whose other end is in another
+    part is a separate clause, and the grammar follows the count."""
+    from ntnxvision_core.exporters.content import _disclose_tally
+
+    f = _fig("Figure edited on the Diagrams page: 1 connector added by the author. "
+             "Counts are as collected.")
+    _disclose_tally(f, {"user:parts": 2, "user:label": 1})
+    assert f.summary[0] == (
+        "Figure edited on the Diagrams page: 1 connector added by the author; 2 more "
+        "connectors not drawn here: their other ends are in another part of the figure; "
+        "1 connector label not drawn: no room beside the line. Counts are as collected.")
+    g = _fig("Figure edited on the Diagrams page: 2 connectors added by the author. "
+             "Counts are as collected.")
+    _disclose_tally(g, {"user:route": 1, "moved:parts": 1})
+    assert g.summary[0] == (
+        "Figure edited on the Diagrams page: 2 connectors added by the author (1 not "
+        "drawn: no clear route was left); 1 reconnected connector not drawn here: its "
+        "other end is in another part of the figure. Counts are as collected.")
+    h = _fig("Something else.")
+    _disclose_tally(h, {"user:parts": 1})
+    assert h.summary[1] == ("Figure edited on the Diagrams page: 1 connector not drawn "
+                            "here: its other end is in another part of the figure. Counts "
+                            "are as collected.")
+
+
+def test_report_parts_count_their_own_connectors(design_envs: dict[str, Any]) -> None:
+    """Every "N connectors added" a part states matches the connectors drawn there plus
+    those with no clear route, never the ones split off to another part."""
+    from ntnxvision_core.exporters.content import SceneFigure, build_report
+
+    env = design_envs["enterprise"]
+    t = TYPES["logical"]
+    v0 = ST.build_view(env, "logical", [])
+    out = E.outline(v0.payload, v0.generated, t.edit_spec)
+    ids = {o["id"] for o in out}
+    first = [n.id for n in v0.scenes[0].nodes if n.id in ids and n.kind == "box"]
+    last = [n.id for n in v0.scenes[-1].nodes if n.id in ids and n.kind == "box"
+            and n.id not in first]
+    ops = E.clean_ops([
+        {"op": "connect", "id": "user:in", "a": first[0], "b": first[-1]},
+        {"op": "connect", "id": "user:x1", "a": first[0], "b": last[0]},
+        {"op": "connect", "id": "user:x2", "a": first[-1], "b": last[-1]}])
+    model = t.from_doc(E.apply_ops(ST.generated(env, "logical"), ops, t.edit_spec).payload)
+    report = build_report(env, ExportOptions.coerce({"diagram_models": {"logical": model}}),
+                          eyebrow="Architecture design document")
+    figs = [b for ch in report.chapters for s in ch.sections for b in s.blocks
+            if isinstance(b, SceneFigure) and b.scene.type == "logical"]
+    text = " ".join(" ".join(f.summary) for f in figs)
+    assert "2 more connectors not drawn here: their other ends are in another part" in text
+    assert "(2 not drawn" not in text and "connectors not drawn: its" not in text
 
 
 def test_parts_are_named_after_their_zone_or_profile(design_envs: dict[str, Any],
@@ -811,7 +858,8 @@ def test_parts_are_named_after_their_zone_or_profile(design_envs: dict[str, Any]
     snap = SnapshotStore(tmp_path).save(env.model_copy(deep=True), "parts")
     listed = {d["type"]: d for d in ST.list_result(snap, env)}
     labels = [p["label"] for p in listed["network"]["parts"]]
-    assert all(lab and "part 1 of 1" not in lab.lower() for lab in labels)
+    assert all(lab.startswith("Profile ") and "part 1 of 1" not in lab.lower()
+               for lab in labels), labels
     assert len(set(labels)) == len(labels)
 
 
@@ -828,3 +876,19 @@ def test_one_stem_for_every_file_of_an_export(tmp_path: Path) -> None:
     # -2 is taken by a bundle: the PDF, the Word file and the bundle all move to -3.
     assert export_stem(tmp_path, "pc01", ["pdf", "docx"], "Acme", True, day) == \
         "Acme-pc01-2026-10-20-3"
+
+
+def test_a_connector_no_part_has_is_a_problem_not_a_parts_note(design_envs: dict[str, Any]
+                                                               ) -> None:
+    env = design_envs["medium"]
+    c = _conns(env, "dr")[0]
+    other = next(o["id"] for o in _boxes(env, "dr") if o["id"] not in c["ends"])
+    gone = "flow:cluster:gone->cluster:gone|site:x"
+    ops = E.clean_ops([
+        {"op": "edge", "id": gone, "ends": c["ends"], "field": "b", "value": other},
+        {"op": "edge", "id": gone, "ends": c["ends"], "field": "a_side", "value": "left"}])
+    view = ST.build_view(env, "dr", ops)
+    assert [p.reason for p in view.problems] == ["the connector is not in this figure"] * 2
+    listed = ST.connector_outline(view, E.outline(view.payload, view.generated,
+                                                  TYPES["dr"].edit_spec))
+    assert gone not in {x["id"] for x in listed}
