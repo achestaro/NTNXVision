@@ -72,6 +72,7 @@ import {
   asCollectionRequest,
   asCompareExportRequest,
   asDiagramCarryRequest,
+  asDiagramFileRequest,
   asDiagramOps,
   asDiagramType,
   asExportRequest,
@@ -674,11 +675,9 @@ ipc.handle(IPC.exportComparison, (_e, raw: CompareExportRequest) => {
   });
 });
 
-ipc.handle(IPC.exportSnapshot, (_e, raw: ExportRequest) => {
-  const req = asExportRequest(raw);
-  const exportDir = exportDirFor(req.exportDir);
-  if (req.word) wordTemplateFor(req.word.template);
-  return sidecar.call('export', {
+/** The sidecar parameters of an export request (export and its preview alike). */
+function exportParams(req: ExportRequest, exportDir: string | undefined): Record<string, unknown> {
+  return {
     snapshot: req.snapshotPath,
     formats: req.formats,
     export_dir: exportDir || store.getSettings().exportDir,
@@ -696,7 +695,34 @@ ipc.handle(IPC.exportSnapshot, (_e, raw: ExportRequest) => {
       : undefined,
     vcpu_ratio: req.vcpuRatio ?? vcpuRatio(),
     diagrams: req.diagrams === true,
+    diagrams_package: req.diagramsPackage === 'folder' ? 'folder' : 'zip',
+  };
+}
+
+// What an export would write (names, about sizes, the diagrams bundle's entries). The
+// sidecar writes nothing; the Word template is not read, so it is not checked here.
+ipc.handle(IPC.previewExport, (_e, raw: ExportRequest) => {
+  const req = asExportRequest(raw);
+  return sidecar.call('export_preview', exportParams(req, exportDirFor(req.exportDir)));
+});
+
+ipc.handle(IPC.exportDiagram, (_e, raw: unknown) => {
+  const req = asDiagramFileRequest(raw);
+  const exportDir = exportDirFor(req.exportDir);
+  return sidecar.call('export_diagram', {
+    snapshot: req.snapshotPath,
+    type: req.type,
+    format: req.format,
+    export_dir: exportDir || store.getSettings().exportDir,
+    file_prefix: filePrefix(req.filePrefix),
   });
+});
+
+ipc.handle(IPC.exportSnapshot, (_e, raw: ExportRequest) => {
+  const req = asExportRequest(raw);
+  const exportDir = exportDirFor(req.exportDir);
+  if (req.word) wordTemplateFor(req.word.template);
+  return sidecar.call('export', exportParams(req, exportDir));
 });
 
 ipc.handle(IPC.getReportSections, (_e, snapshotPath: string) =>
