@@ -51,6 +51,8 @@ export interface CanvasProps {
   /** An end handle dropped on another side of the element it already ends on. */
   onSide(conn: DiagramConnector, end: 'a' | 'b', side: DiagramSide): void;
   onBend(conn: DiagramConnector, bend: number): void;
+  /** The lane the router would keep for `bend` (live, while the lane handle is dragged). */
+  onLanePreview?(conn: DiagramConnector, bend: number): Promise<number | null>;
   onCancelTool(): void;
 }
 
@@ -201,7 +203,27 @@ export function SceneCanvas(props: CanvasProps): JSX.Element {
   const [drag, setDrag] = useState<Drag | null>(null);
   const dragRef = useRef<Drag | null>(null);
   dragRef.current = drag;
+  const laneRef = useRef<{ asked: number; kept: number | null } | null>(null);
   const [hover, setHover] = useState<Pt | null>(null);
+  /** Live answer for the lane being dragged: asked, and kept by the router. */
+  const [laneSeen, setLaneSeen] = useState<{ asked: number; kept: number | null } | null>(null);
+  laneRef.current = laneSeen;
+  const laneAsk = drag?.kind === 'lane' ? drag.conn.bend + drag.delta : null;
+  const laneConn = drag?.kind === 'lane' ? drag.conn : null;
+  useEffect(() => {
+    if (laneAsk === null || !laneConn || !props.onLanePreview) {
+      setLaneSeen(null);
+      return undefined;
+    }
+    let live = true;
+    const t = window.setTimeout(() => {
+      void props.onLanePreview!(laneConn, laneAsk).then((kept) => live && setLaneSeen({ asked: laneAsk, kept }));
+    }, 120);
+    return () => {
+      live = false;
+      window.clearTimeout(t);
+    };
+  }, [laneAsk, laneConn]);
 
   const byId = useMemo(() => new Map(scene.nodes.map((n) => [n.id, n])), [scene]);
   const edges = useMemo(() => new Map(scene.edges.map((e) => [e.id, e])), [scene]);
@@ -394,7 +416,9 @@ export function SceneCanvas(props: CanvasProps): JSX.Element {
         if (d.target && d.target !== current) onReconnect(d.conn, d.end, d.target, d.tside ?? 'auto');
         else if (d.target && d.tside && d.tside !== used) onSide(d.conn, d.end, d.tside);
       } else if (d.delta) {
-        onBend(d.conn, d.conn.bend + d.delta);
+        const seen = laneRef.current;
+        // The live check already said the router keeps the lane where it is: no edit.
+        if (!(seen && seen.asked === d.conn.bend + d.delta && seen.kept === d.conn.bend)) onBend(d.conn, d.conn.bend + d.delta);
       }
     };
     const key = (ev: KeyboardEvent) => {
@@ -467,8 +491,15 @@ export function SceneCanvas(props: CanvasProps): JSX.Element {
       const to = el.index + delta;
       if (el.can_reorder && to >= 0 && to < el.count) onMove(id, to);
     } else if (ev.key === 'Escape') {
-      if (tool === 'connect') onCancelTool();
-      else onSelect(null);
+      // Consumed only when there is something to cancel; with nothing selected it reaches
+      // the page (which leaves the full-window editor).
+      if (tool === 'connect') {
+        ev.stopPropagation();
+        onCancelTool();
+      } else if (selected) {
+        ev.stopPropagation();
+        onSelect(null);
+      }
     } else if (ev.key === ' ' && !isMod(ev)) {
       ev.preventDefault();
       onSelect(id);
@@ -483,7 +514,10 @@ export function SceneCanvas(props: CanvasProps): JSX.Element {
         onDelete(c.id);
       }
     } else if (ev.key === 'Escape') {
-      onSelect(null);
+      if (selected) {
+        ev.stopPropagation();
+        onSelect(null);
+      }
     } else if (ev.key === 'Enter' || ev.key === ' ') {
       ev.preventDefault();
       onSelect(c.id);
@@ -592,7 +626,16 @@ export function SceneCanvas(props: CanvasProps): JSX.Element {
     }
     if (drag?.kind === 'wire' || drag?.kind === 'end')
       return { x: drag.x, y: drag.y + 14, text: drag.target ? `Connect to ${outline.get(drag.target)?.label ?? ''}` : 'Drop on an element', warn: false };
-    if (drag?.kind === 'lane') return { x: (drag.seg[0][0] + drag.seg[1][0]) / 2, y: (drag.seg[0][1] + drag.seg[1][1]) / 2 + 12, text: `Lane ${drag.conn.bend + drag.delta > 0 ? '+' : ''}${drag.conn.bend + drag.delta} pt`, warn: false };
+    if (drag?.kind === 'lane') {
+      const asked = drag.conn.bend + drag.delta;
+      const fmt = (v: number) => `${v > 0 ? '+' : ''}${v} pt`;
+      const seen = laneSeen && laneSeen.asked === asked ? laneSeen.kept : undefined;
+      const at = { x: (drag.seg[0][0] + drag.seg[1][0]) / 2, y: (drag.seg[0][1] + drag.seg[1][1]) / 2 + 12 };
+      if (seen === undefined || seen === null || !drag.delta) return { ...at, text: `Lane ${fmt(asked)}`, warn: false };
+      if (seen === drag.conn.bend) return { ...at, text: `No clear lane there: the route stays at ${fmt(seen)}`, warn: true };
+      if (seen !== asked) return { ...at, text: `Lane ${fmt(seen)}, the nearest clear lane`, warn: false };
+      return { ...at, text: `Lane ${fmt(asked)}`, warn: false };
+    }
     return null;
   })();
 
@@ -694,6 +737,18 @@ export function SceneCanvas(props: CanvasProps): JSX.Element {
               </g>
             )}
           </>
+        )}
+        {drag?.kind === 'lane' && laneSeen && laneSeen.asked === drag.conn.bend + drag.delta && laneSeen.kept !== null && laneSeen.kept !== drag.conn.bend + drag.delta && (
+          <polyline
+            className="dg-ghost kept"
+            points={(drag.axis === 'y'
+              ? [drag.seg[0], drag.seg[1]].map((p) => [p[0], p[1] + (laneSeen.kept! - drag.conn.bend)])
+              : [drag.seg[0], drag.seg[1]].map((p) => [p[0] + (laneSeen.kept! - drag.conn.bend), p[1]])
+            )
+              .map((p) => p.join(','))
+              .join(' ')}
+            pointerEvents="none"
+          />
         )}
         {drag?.kind === 'lane' && (
           <polyline

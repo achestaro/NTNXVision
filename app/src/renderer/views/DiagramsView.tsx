@@ -381,6 +381,10 @@ export function DiagramsView({ snapshot: snapProp, type: typeProp, part: partPro
   // ─ shortcuts ─
   const toolRef = useRef(tool);
   toolRef.current = tool;
+  // Read by the window's Escape: the first Escape on the canvas deselects, the next one
+  // (nothing selected) leaves the full-window editor.
+  const selectedRef = useRef(selected);
+  selectedRef.current = selected;
   const expandedRef = useRef(expanded);
   expandedRef.current = expanded;
   useEffect(() => {
@@ -404,7 +408,12 @@ export function DiagramsView({ snapshot: snapProp, type: typeProp, part: partPro
         if (toolRef.current === 'connect') {
           setTool('select');
           setConnectFrom(null);
-        } else if (expandedRef.current && !(e.target as HTMLElement | null)?.closest?.('[data-el],[data-conn]')) setExpanded(false);
+        } else if (expandedRef.current) {
+          // In the full-window editor: the first Escape clears the selection (the canvas
+          // does it when it has focus), the next one leaves.
+          if (!selectedRef.current) setExpanded(false);
+          else if (!(e.target as HTMLElement | null)?.closest?.('[data-el],[data-conn]')) setSelected(null);
+        }
         return;
       }
       if (isMod(e) && e.key.toLowerCase() === 'z') {
@@ -518,11 +527,27 @@ export function DiagramsView({ snapshot: snapProp, type: typeProp, part: partPro
     afterLayout.current = (r) => {
       const now = r.connectors.find((x) => x.id === c.id);
       if (now && now.bend === before) {
-        setEdits(opsRef.current.slice(0, -1), false);
-        toast.show({ tone: 'warn', title: 'No clear lane there.', hint: 'The route stays where it was: that lane would cross a box or another line.' });
+        // Not kept: drop it and lay the figure out again, so the view, the inspector
+        // and the saved edits agree.
+        setEdits(opsRef.current.slice(0, -1));
+        toast.show({ key: 'dg-lane', tone: 'warn', title: 'No clear lane there.', hint: 'The route stays where it was: that lane would cross a box or another line.' });
       }
     };
   };
+  /** Live lane check while the handle is dragged: the lane the router would keep. */
+  const lanePreview = useCallback(
+    async (c: DiagramConnector, value: number): Promise<number | null> => {
+      if (!snapPath || !curType) return null;
+      const op: DiagramOp = { op: 'edge', id: c.id, ends: [c.ends[0] ?? c.a ?? '', c.ends[1] ?? c.b ?? ''], field: 'bend', value };
+      try {
+        const r = await window.ntnx.layoutDiagram(snapPath, curType, [...opsRef.current, op]);
+        return r.connectors.find((x) => x.id === c.id)?.bend ?? null;
+      } catch {
+        return null;
+      }
+    },
+    [snapPath, curType],
+  );
   const connect = (a: string, b: string, aSide?: DiagramSide, bSide?: DiagramSide) => {
     if (a === b) return;
     const id = newId();
@@ -533,8 +558,8 @@ export function DiagramsView({ snapshot: snapProp, type: typeProp, part: partPro
       setSelected(id);
       afterLayout.current = (r) => {
         const why = r.problems.find((p) => p.op.op === 'connect' && p.op.id === id);
-        if (why) toast.show({ tone: 'warn', title: 'Couldn’t connect those two.', detail: `${why.reason[0].toUpperCase()}${why.reason.slice(1)}.` });
-        else toast.show({ tone: 'ok', title: `Connected ${endLabel(a)} to ${endLabel(b)}.`, hint: 'Exports draw it dashed amber, marked as added by the author.' });
+        if (why) toast.show({ key: 'dg-connect', tone: 'warn', title: 'Couldn’t connect those two.', detail: `${why.reason[0].toUpperCase()}${why.reason.slice(1)}.` });
+        else toast.show({ key: 'dg-connect', tone: 'ok', title: `Connected ${endLabel(a)} to ${endLabel(b)}.`, hint: 'Exports draw it dashed amber, marked as added by the author.' });
       };
     }
     setTool('select');
@@ -712,7 +737,7 @@ export function DiagramsView({ snapshot: snapProp, type: typeProp, part: partPro
             {diagrams.flatMap((d) =>
               (d.parts.length > 1 ? d.parts : [d.parts[0] ?? { index: 0, part: [1, 1] as [number, number] }]).map((p) => (
                 <option key={`${d.type}|${p.index}`} value={`${d.type}|${p.index}`}>
-                  {d.parts.length > 1 ? `${d.title}, part ${p.part[0]} of ${p.part[1]}` : d.title} · {d.edited ? (d.stale ? 'Edited, stale' : 'Edited') : 'Generated'}
+                  {d.parts.length > 1 ? `${d.title}, ${p.label || `part ${p.part[0]} of ${p.part[1]}`}` : d.title} · {d.edited ? (d.stale ? 'Edited, stale' : 'Edited') : 'Generated'}
                 </option>
               )),
             )}
@@ -749,7 +774,7 @@ export function DiagramsView({ snapshot: snapProp, type: typeProp, part: partPro
                         aria-current={on ? 'true' : undefined}
                         onClick={() => (isCur ? setCur({ type: d.type, part: p.index }) : guarded(() => setCur({ type: d.type, part: p.index })))}
                       >
-                        <span className="dg-item-t">{d.parts.length > 1 ? `Part ${p.part[0]} of ${p.part[1]}` : d.title}</span>
+                        <span className="dg-item-t">{d.parts.length > 1 ? p.label || `Part ${p.part[0]} of ${p.part[1]}` : d.title}</span>
                         <span className="dg-item-s">
                           <span className={`dg-glyph ${isCur && dirty ? 'dirty' : d.edited ? 'edit' : 'gen'}`} aria-hidden="true" />
                           {state}
@@ -768,7 +793,7 @@ export function DiagramsView({ snapshot: snapProp, type: typeProp, part: partPro
         <Panel className="dg-canvas" aria-label="Canvas">
           <div className="phead dg-head">
             <span className="dg-title">{summary?.title ?? detail?.title ?? 'Diagram'}</span>
-            {scenes.length > 1 && <span className="mono t12 muted">Part {partIndex + 1} of {scenes.length}</span>}
+            {scenes.length > 1 && <span className="mono t12 muted">{summary?.parts[partIndex]?.label || `Part ${partIndex + 1} of ${scenes.length}`}</span>}
             {detail && (
               <Badge className={stale ? 'warn' : detail.edited ? 'acc' : undefined}>{stale ? 'Edited · stale' : detail.edited ? 'Edited' : 'Generated'}</Badge>
             )}
@@ -904,7 +929,7 @@ export function DiagramsView({ snapshot: snapProp, type: typeProp, part: partPro
                   .slice(0, 3)
                   .map((n) => {
                     const c = connectors.get(n.id);
-                    const name = c ? spoken(c.kind, c.label) : 'A connector';
+                    const name = c ? `${spoken(c.kind, c.label)} (${c.a_label ?? 'N/A'} to ${c.b_label ?? 'N/A'})` : 'A connector';
                     return `${name}: ${n.reason}.`;
                   })
                   .join(' ')}{' '}
@@ -950,6 +975,7 @@ export function DiagramsView({ snapshot: snapProp, type: typeProp, part: partPro
                 onReconnect={(c, end, target, side) => editConnector(c, end, target, side)}
                 onSide={(c, end, side) => editConnector(c, end === 'a' ? 'a_side' : 'b_side', side)}
                 onBend={(c, value) => bend(c, value)}
+                onLanePreview={lanePreview}
                 onCancelTool={() => (setTool('select'), setConnectFrom(null))}
               />
             ) : (
@@ -1305,20 +1331,25 @@ function ConnectorInspector({
       </Field>
     );
   };
-  const sideSelect = (end: 'a' | 'b') => (
-    <Field id={`dg-side-${end}`} label={end === 'a' ? 'Leaves by' : 'Enters by'}>
-      <select className="input" value={end === 'a' ? c.a_side : c.b_side} onChange={(e) => onSide(end, e.target.value as DiagramSide)}>
-        {(Object.keys(SIDE_LABELS) as DiagramSide[]).map((v) => {
-          const used = end === 'a' ? c.a_side_used : c.b_side_used;
-          return (
+  const sideSelect = (end: 'a' | 'b') => {
+    const asked = end === 'a' ? c.a_side : c.b_side;
+    const used = end === 'a' ? c.a_side_used : c.b_side_used;
+    // The side drawn, under the select: "Auto · drawn right", "Bottom · drawn left" when
+    // the asked side forced a bad route and Auto was used.
+    const hint =
+      used === 'auto' ? undefined : asked === 'auto' ? `Auto · drawn ${used}` : asked === used ? undefined : `${SIDE_LABELS[asked]} · drawn ${used}, as that side is blocked`;
+    return (
+      <Field id={`dg-side-${end}`} label={end === 'a' ? 'Leaves by' : 'Enters by'} hint={hint}>
+        <select className="input" value={asked} onChange={(e) => onSide(end, e.target.value as DiagramSide)}>
+          {(Object.keys(SIDE_LABELS) as DiagramSide[]).map((v) => (
             <option key={v} value={v}>
-              {v === 'auto' && used !== 'auto' ? `Auto (${SIDE_LABELS[used].toLowerCase()})` : SIDE_LABELS[v]}
+              {SIDE_LABELS[v]}
             </option>
-          );
-        })}
-      </select>
-    </Field>
-  );
+          ))}
+        </select>
+      </Field>
+    );
+  };
   return (
     <div className="dg-ins" data-testid="dg-connector-inspector">
       <div className="dg-ins-kind">
