@@ -10,7 +10,7 @@ readme = "README.md"
 # Cap the upper bound: brand-new Python releases (e.g. 3.14) often lack prebuilt wheels
 # for pydantic-core/lxml, which forces pip into a long backtracking search that can end
 # in ResolutionImpossible. 3.10–3.13 all have wheels for every runtime dep.
-requires-python = ">=3.10,<3.14"
+requires-python = ">=3.11,<3.14"
 authors = [{ name = "Alberto Chestaro" }]
 license = { text = "MIT" }
 classifiers = [
@@ -81,13 +81,13 @@ include = ["ntnxvision_core*"]
 
 [tool.ruff]
 line-length = 100
-target-version = "py310"
+target-version = "py311"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "SIM"]
 
 [tool.mypy]
-python_version = "3.10"
+python_version = "3.11"
 warn_unused_ignores = true
 plugins = ["pydantic.mypy"]
 

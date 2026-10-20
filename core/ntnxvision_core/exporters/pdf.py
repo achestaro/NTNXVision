@@ -18,7 +18,7 @@ cleanly with PyInstaller on Windows and macOS.
 from __future__ import annotations
 
 import io
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, cast
 
@@ -141,7 +141,7 @@ class PdfExporter:
         pdf.set_lang("en-US")
         # The snapshot's collection time, so one snapshot gives one document's bytes.
         stamp = T.parse_datetime(env.collected_at) or datetime(2000, 1, 1)
-        pdf.set_creation_date(stamp.replace(tzinfo=timezone.utc))
+        pdf.set_creation_date(stamp.replace(tzinfo=UTC))
         pdf.page_mode = PageMode.USE_OUTLINES
         pdf.viewer_preferences = ViewerPreferences(display_doc_title=True)
 

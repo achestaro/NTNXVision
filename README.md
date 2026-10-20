@@ -240,7 +240,7 @@ so a second run gives Compare a believable change list.
 
 ## Build from source
 
-Prerequisites: Python 3.10 to 3.13 (3.13 pinned in `.python-version`) and Node.js 20 or later
+Prerequisites: Python 3.11 to 3.13 (3.13 pinned in `.python-version`) and Node.js 20 or later
 (22 pinned in `.nvmrc`).
 
 ```bash

@@ -14,7 +14,7 @@ from __future__ import annotations
 import threading
 import time
 from collections.abc import Callable
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from ntnxvision_core.areas import AREAS_BY_ID, NDB_AREA, PE_LABELS, TYPICAL_SECONDS, Area
@@ -30,7 +30,7 @@ Emit = Callable[[dict[str, Any]], None]
 
 
 def now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat(timespec="seconds")
+    return datetime.now(UTC).isoformat(timespec="seconds")
 
 
 def classify(area_id: str, note: str | None) -> tuple[str, str | None]:

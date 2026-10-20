@@ -8,6 +8,7 @@ failing the run.
 
 from __future__ import annotations
 
+from datetime import UTC
 from typing import Any
 
 from ntnxvision_core.api.errors import NutanixApiError
@@ -66,17 +67,17 @@ def _compliance(lic: dict[str, Any], expiry: Any) -> str | None:
         if isinstance(v, str) and v:
             return v
     if isinstance(expiry, str) and expiry:
-        from datetime import datetime, timezone
+        from datetime import datetime
 
         raw = expiry.strip().replace("Z", "+00:00")
         try:
             dt = datetime.fromisoformat(raw)
         except ValueError:
             try:
-                dt = datetime.strptime(raw[:10], "%Y-%m-%d").replace(tzinfo=timezone.utc)
+                dt = datetime.strptime(raw[:10], "%Y-%m-%d").replace(tzinfo=UTC)
             except ValueError:
                 return None
         if dt.tzinfo is None:
-            dt = dt.replace(tzinfo=timezone.utc)
-        return "EXPIRED" if dt < datetime.now(timezone.utc) else "COMPLIANT"
+            dt = dt.replace(tzinfo=UTC)
+        return "EXPIRED" if dt < datetime.now(UTC) else "COMPLIANT"
     return None

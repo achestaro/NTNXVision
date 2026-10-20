@@ -20,7 +20,7 @@ import hashlib
 import random
 import uuid
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from ntnxvision_core.compat import parse_version
@@ -32,7 +32,7 @@ TIB = 1024**4
 MIB = 1024**2
 
 #: Reference "now" for synthetic timestamps — fixed so payloads are reproducible.
-BASE_TIME = datetime(2026, 10, 1, 9, 0, tzinfo=timezone.utc)
+BASE_TIME = datetime(2026, 10, 1, 9, 0, tzinfo=UTC)
 
 
 def uid(*parts: object) -> str:
