@@ -336,10 +336,10 @@ per-platform binaries (`@napi-rs/keyring-<platform>-<arch>`) carry the same MIT 
 
 | Component | Version | License |
 |---|---|---|
-| [@napi-rs/keyring](#m-napi-rs-keyring) | 2.1.1 | MIT |
+| [@napi-rs/keyring](#m-napi-rs-keyring) | 1.2.0 | MIT |
 
 <a id="m-napi-rs-keyring"></a>
-#### @napi-rs/keyring 2.1.1
+#### @napi-rs/keyring 1.2.0
 
 License: **MIT** · <https://github.com/Brooooooklyn/keyring-node>
 
@@ -1334,7 +1334,7 @@ SOFTWARE.
 | [certifi](#py-certifi) | 2026.7.22 | Mozilla Public License 2.0 (MPL 2.0) |
 | [cffi](#py-cffi) | 2.1.1 | MIT-0 |
 | [charset-normalizer](#py-charset-normalizer) | 3.5.2 | MIT |
-| [cryptography](#py-cryptography) | 46.0.7 | Apache-2.0 OR BSD-3-Clause |
+| [cryptography](#py-cryptography) | 50.0.2 | Apache-2.0 OR BSD-3-Clause |
 | [defusedxml](#py-defusedxml) | 0.7.1 | Python Software Foundation License |
 | [et_xmlfile](#py-et-xmlfile) | 2.0.0 | MIT License |
 | [fonttools](#py-fonttools) | 4.67.0 | MIT |
@@ -1353,6 +1353,7 @@ SOFTWARE.
 | [requests](#py-requests) | 2.34.2 | Apache Software License |
 | [rich](#py-rich) | 14.3.4 | MIT License |
 | [shellingham](#py-shellingham) | 1.5.4 | ISC License (ISCL) |
+| [truststore](#py-truststore) | 0.10.5 | MIT |
 | [typer](#py-typer) | 0.27.3 | MIT |
 | [typing_extensions](#py-typing-extensions) | 4.16.0 | PSF-2.0 |
 | [typing-inspection](#py-typing-inspection) | 0.4.4 | MIT |
@@ -1503,7 +1504,7 @@ SOFTWARE.
 ```
 
 <a id="py-cryptography"></a>
-#### cryptography 46.0.7
+#### cryptography 50.0.2
 
 License: **Apache-2.0 OR BSD-3-Clause** · <https://github.com/pyca/cryptography>
 
@@ -4236,6 +4237,35 @@ ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
 WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
 ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
 OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+```
+
+<a id="py-truststore"></a>
+#### truststore 0.10.5
+
+License: **MIT** · <https://github.com/sethmlarson/truststore>
+
+```text
+The MIT License (MIT)
+
+Copyright (c) 2022 Seth Michael Larson
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in
+all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+THE SOFTWARE.
 ```
 
 <a id="py-typer"></a>
