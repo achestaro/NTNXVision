@@ -848,6 +848,9 @@ def _moved_across(generated: dict[str, Any], edited: dict[str, Any], spec: EditS
     """"VDI-01 moved to POD B" for each collected element now in another container."""
     before = walk(generated, spec)
     after = walk(edited, spec)
+    if not any(i in before and i in after and before[i].parent != after[i].parent
+               for i in ed if i in gen):
+        return []
     labels = {i: _label_of(e) for i, (e, _) in ed.items()}
     titles = {o["id"]: o["label"] for o in outline(edited, edited, spec)}
     out = []

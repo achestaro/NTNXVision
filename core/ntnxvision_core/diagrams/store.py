@@ -288,11 +288,22 @@ class View:
 
 
 def build_view(env: Any, type_id: str, ops: list[dict[str, Any]],
-               gen: dict[str, Any] | None = None) -> View:
+               gen: dict[str, Any] | None = None, origin: str | None = None) -> View:
+    """The diagram with `ops` replayed, laid out exactly as the report draws it
+    (`content.figure_scenes`: the same parts, budgets, zones and cross references), so
+    the Diagrams page shows what every export draws. `origin`: the snapshot the edits
+    were carried from automatically (it lengthens the disclosure bullet, which can move
+    a part break)."""
+    from ntnxvision_core.exporters.content import figure_scenes
+
     t = dtype(type_id)
     gen = gen if gen is not None else generated(env, type_id)
     applied = E.apply_ops(gen, ops, t.edit_spec)
-    scenes = t.layout(t.from_doc(applied.payload), t.page)
+    model = t.from_doc(applied.payload)
+    opts: dict[str, Any] = {"diagram_models": {type_id: model} if ops else {}}
+    if origin and ops:
+        opts["diagram_origins"] = {type_id: origin}
+    scenes = figure_scenes(env, opts, type_id) or t.layout(model, t.page)
     problems = sorted([*applied.problems, *_layout_problems(ops, scenes, applied.problems)],
                       key=lambda p: p.index)
     return View(type_id, applied.payload, gen, scenes, problems)
@@ -441,8 +452,9 @@ def connector_outline(view: View, elements: list[dict[str, Any]]) -> list[dict[s
                       if k == ident and note.get("issue")), None)
         why = ("Not drawn: there is no clear route between its ends here."
                if issue == "route" else
-               "Not drawn: its ends are in different parts of this figure. Reports "
-               "split figures the same way and say so in the figure's summary.")
+               "Not drawn: its ends are in different parts of this figure (the report "
+               "splits it the same way and says so in the summary of each part that "
+               "holds an end).")
         out[ident] = {
             "id": ident, "origin": "user" if user else "collected", "kind": "Connector",
             "label": want.get("label") or None, "collected_label": None,
@@ -466,11 +478,13 @@ def _problem_docs(view: View) -> list[dict[str, Any]]:
     return [p.to_doc() for p in view.problems]
 
 
-def layout_result(env: Any, type_id: str, ops: list[dict[str, Any]]) -> dict[str, Any]:
+def layout_result(env: Any, type_id: str, ops: list[dict[str, Any]],
+                  snapshot: Path | None = None) -> dict[str, Any]:
     """Re-layout with `ops` (unsaved edits): scenes, outline and the operations that did
     not apply."""
     t = dtype(type_id)
-    view = build_view(env, type_id, ops)
+    entry = load(snapshot).get(type_id) if snapshot is not None else None
+    view = build_view(env, type_id, ops, None, _origin(entry))
     elements = E.outline(view.payload, view.generated, t.edit_spec)
     return {
         "type": type_id,
@@ -481,6 +495,13 @@ def layout_result(env: Any, type_id: str, ops: list[dict[str, Any]]) -> dict[str
         "problems": _problem_docs(view),
         "notes": view.notes,
     }
+
+
+def _origin(entry: dict[str, Any] | None) -> str | None:
+    """The snapshot an entry's edits were carried from automatically (its disclosure
+    names it)."""
+    src = (entry or {}).get("carried_from") or {}
+    return str(src["name"]) if src.get("auto") and src.get("name") else None
 
 
 def stale_info(type_id: str, entry: dict[str, Any], gen: dict[str, Any],
@@ -502,7 +523,7 @@ def get_result(snapshot: Path, env: Any, type_id: str) -> dict[str, Any]:
     entry = load(snapshot).get(type_id)
     ops = entry["ops"] if entry else []
     gen = generated(env, type_id)
-    view = build_view(env, type_id, ops, gen)
+    view = build_view(env, type_id, ops, gen, _origin(entry))
     stale = stale_info(t.id, entry, gen, t.edit_spec) if entry else None
     elements = E.outline(view.payload, gen, t.edit_spec)
     return {
@@ -536,18 +557,44 @@ def list_result(snapshot: Path, env: Any) -> list[dict[str, Any]]:
         entry = entries.get(t.id)
         ops = entry["ops"] if entry else []
         gen = generated(env, t.id)
-        view = build_view(env, t.id, ops, gen)
+        view = build_view(env, t.id, ops, gen, _origin(entry))
         stale = stale_info(t.id, entry, gen, t.edit_spec) if entry else None
         out.append({
             "type": t.id,
             "title": t.title,
-            "parts": [{"index": i, "id": sc.id, "caption": sc.caption,
-                       "part": list(sc.part)} for i, sc in enumerate(view.scenes)],
+            "parts": part_list(view.scenes),
             "edited": entry is not None,
             "edits": len(ops),
             "saved_at": entry.get("saved_at") if entry else None,
             "stale": stale is not None,
         })
+    return out
+
+
+def part_list(scenes: list[Scene]) -> list[dict[str, Any]]:
+    """The parts of a figure as the Diagrams page lists them: named after their zone or
+    profile ("pc02, part 2 of 3", "Profile A"), "part i of n" only when there is more
+    than one."""
+    from ntnxvision_core.diagrams.bundle import _group
+
+    groups: dict[str, int] = {}
+    for sc in scenes:
+        key = str(sc.meta.get("group") or "")
+        groups[key] = groups.get(key, 0) + 1
+    out = []
+    for i, sc in enumerate(scenes):
+        name = _group(sc)
+        many = sc.part[1] > 1
+        if name and many:
+            label = f"{name}, part {sc.part[0]:,} of {sc.part[1]:,}"
+        elif name:
+            label = name
+        elif many:
+            label = f"Part {sc.part[0]:,} of {sc.part[1]:,}"
+        else:
+            label = ""
+        out.append({"index": i, "id": sc.id, "caption": sc.caption, "part": list(sc.part),
+                    "label": label})
     return out
 
 
