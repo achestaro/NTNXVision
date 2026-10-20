@@ -17,7 +17,7 @@ Ids come from object identity, never from positions or counters:
 from __future__ import annotations
 
 import hashlib
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, fields
 from typing import Any
 
 from .scene import dumps
@@ -207,6 +207,13 @@ def from_doc(d: dict[str, Any]) -> ConceptualModel:
         title=d.get("title", "Solution conceptual overview"),
         edited=bool(d.get("edited", False)),
     )
+
+
+def known(cls: Any, d: dict[str, Any]) -> dict[str, Any]:
+    """The keys of `d` that dataclass `cls` declares: an element added in the Diagrams
+    editor may carry keys of its palette template that a model type does not use."""
+    names = {f.name for f in fields(cls)}
+    return {k: v for k, v in d.items() if k in names}
 
 
 def envelope(type_id: str, payload: dict[str, Any]) -> dict[str, Any]:

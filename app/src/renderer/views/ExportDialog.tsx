@@ -22,7 +22,7 @@ import {
 } from '../components';
 import { ReportSectionList } from './ReportSectionList';
 import type { SectionAvailability } from './ReportSectionList';
-import { REPORT_EXT, errorMessage, fmtAbs, fmtBytes, fmtCount, reportFileName, tildify } from '../lib/format';
+import { REPORT_EXT, diagramsFileName, errorMessage, fmtAbs, fmtBytes, fmtCount, reportFileName, tildify } from '../lib/format';
 import { revealLabel, useSettings } from '../lib/settings';
 import { useRun } from '../lib/run';
 import { useEmailDialog } from './EmailDialog';
@@ -121,6 +121,10 @@ function ExportDialog({
     const init = initialFormats ?? ['excel', 'word'];
     return { excel: init.includes('excel'), pdf: init.includes('pdf'), word: init.includes('word') };
   });
+  // Editable diagrams (.vsdx, .drawio, .svg of the report's figures): on by default, and
+  // only offered with a PDF or Word report, whose figures it carries. The last choice
+  // is remembered (settings.exportDiagrams).
+  const [diagrams, setDiagrams] = useState(settings.exportDiagrams ?? true);
   // Sections and order: collapsed by default, applies to this export only. The order
   // starts from Settings > Reports when its custom order is on.
   const [sectionsOpen, setSectionsOpen] = useState(false);
@@ -167,11 +171,14 @@ function ExportDialog({
     if (v && !orderChanged) setOrder(normalizeSectionOrder(settings.customSectionOrder === true ? settings.sectionOrder : undefined));
   };
   const chosen = FORMATS.filter((f) => fmt[f.id]).map((f) => f.id);
-  const n = chosen.length;
+  const docs = fmt.pdf || fmt.word;
+  const withDiagrams = diagrams && docs;
+  const n = chosen.length + (withDiagrams ? 1 : 0);
   const name = many ? `${fmtCount(snapshotPaths.length)} snapshots` : snap?.name ?? snapName(snapshotPath);
   // Live preview: the first snapshot's files (the sidecar names them the same way).
   const previewNames = chosen.map((f) => reportFileName(prefix, snapName(snapshotPath), REPORT_EXT[f]));
-  const previewMore = chosen.length * (snapshotPaths.length - 1);
+  if (withDiagrams) previewNames.push(diagramsFileName(prefix, snapName(snapshotPath)));
+  const previewMore = n * (snapshotPaths.length - 1);
 
   const pickTemplate = async (value: string) => {
     if (value === 'custom') {
@@ -212,15 +219,18 @@ function ExportDialog({
           word: fmt.word
             ? { template: template === 'custom' && templatePath ? templatePath : 'standard', preparedFor, author }
             : undefined,
+          diagrams: withDiagrams,
         });
         const tag = many ? `${snapName(p)} ` : '';
         for (const [f, v] of Object.entries(one.paths ?? {})) merged.paths[`${tag}${f}`] = v;
+        if (one.diagrams) merged.paths[`${tag}diagrams`] = one.diagrams.path;
         for (const [f, v] of Object.entries(one.errors ?? {})) merged.errors[`${tag}${f}`] = v;
         merged.path = merged.path ?? one.path;
       }
       const res = merged;
       if (author && author !== settings.author) void update({ author });
       if (prefix !== (settings.filePrefix ?? '')) void update({ filePrefix: prefix });
+      if (docs && diagrams !== (settings.exportDiagrams ?? true)) void update({ exportDiagrams: diagrams });
       const errs = Object.entries(res.errors ?? {});
       const written = Object.values(res.paths ?? {});
       if (errs.length && !written.length) {
@@ -312,7 +322,19 @@ function ExportDialog({
                 onChange={(v) => setFmt((p) => ({ ...p, [f.id]: v }))}
               />
             ))}
+            <FormatCard
+              title="Editable diagrams"
+              description={docs ? 'Visio, draw.io and SVG of every architecture figure' : 'Needs the PDF or Word report'}
+              checked={withDiagrams}
+              disabled={!docs}
+              onChange={setDiagrams}
+            />
           </div>
+          {withDiagrams && (
+            <p className="hint" style={{ margin: '6px 0 0' }}>
+              One .zip next to the report: a .vsdx with a page per figure, a .drawio with a tab per figure and an .svg of each. It follows the chosen sections.
+            </p>
+          )}
         </fieldset>
 
         {fmt.word && (

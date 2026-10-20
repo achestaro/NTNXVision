@@ -930,20 +930,30 @@ try {
     await uxShot('export-dialog-sections');
     // File name prefix with a live preview of every file.
     await dialog.locator('#exp-prefix').fill('ACME Q4');
+    // Editable diagrams is on by default with a PDF or Word report: one more file.
     for (const ext of ['xlsx', 'pdf', 'docx']) {
       await dialog.getByText(`ACME Q4-pc01-week1-${today}.${ext}`, { exact: true }).waitFor();
     }
+    await dialog.getByText(`ACME Q4-pc01-week1-${today}_diagrams.zip`, { exact: true }).waitFor();
     await uxShot('export-dialog-prefix');
-    await dialog.getByRole('button', { name: /^Export 3 files/ }).click();
-    await page.getByText(/Exported 3 files/).first().waitFor({ timeout: 120_000 });
+    await dialog.getByRole('button', { name: /^Export 4 files/ }).click();
+    await page.getByText(/Exported 4 files/).first().waitFor({ timeout: 180_000 });
     const files = await readdir(exportDir);
-    for (const ext of ['.xlsx', '.pdf', '.docx']) {
+    for (const ext of ['.xlsx', '.pdf', '.docx', '_diagrams.zip']) {
       if (!files.includes(`ACME Q4-pc01-week1-${today}${ext}`)) throw new Error(`no ACME Q4 ${ext} written: ${files.join(', ')}`);
     }
     // The Word chapters follow the order and the selection.
     const heads = await wordHeadings(join(exportDir, `ACME Q4-pc01-week1-${today}.docx`));
     if (heads[0] !== '1. Executive Summary' || heads[1] !== '2. Networking') throw new Error(`chapter order: ${heads.join(' | ')}`);
     if (heads.some((h) => h.includes('Data Protection'))) throw new Error(`Data Protection was left out: ${heads.join(' | ')}`);
+    // The bundle holds a Visio file, a draw.io file and one SVG per figure (zip entry
+    // names are stored uncompressed, so a byte search finds them).
+    const zip = await readFile(join(exportDir, `ACME Q4-pc01-week1-${today}_diagrams.zip`));
+    for (const entry of [`ACME Q4-pc01-week1-${today}_diagrams.vsdx`, `ACME Q4-pc01-week1-${today}_diagrams.drawio`, 'svg/01-']) {
+      if (!zip.includes(Buffer.from(entry))) throw new Error(`diagrams bundle has no ${entry}`);
+    }
+    // It follows the chosen sections: Data Protection was left out, so no DR figure.
+    if (zip.includes(Buffer.from('-data-protection'))) throw new Error('diagrams bundle has the left-out DR figure');
   });
 
   await run('export-dialog-remembers-prefix', async () => {
@@ -967,7 +977,8 @@ try {
     const dialog = page.getByRole('dialog');
     await dialog.getByText(/Prism Central/).first().waitFor();
     await dialog.getByText('PDF report', { exact: true }).first().click(); // Word only
-    await dialog.getByRole('button', { name: /^Export 1 file/ }).click();
+    // Word, plus the editable diagrams bundle when that option is on (its default).
+    await dialog.getByRole('button', { name: /^Export [12] files?/ }).click();
     // Wait for the file itself: an earlier "Exported 1 file" toast may still be showing.
     let added = [];
     for (let i = 0; i < 240 && !added.length; i++) {

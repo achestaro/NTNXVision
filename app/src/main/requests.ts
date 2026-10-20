@@ -183,6 +183,11 @@ export function asExportRequest(v: unknown): ExportRequest {
     optStr(w.author, 'word.author', 500);
   }
   if (r.vcpuRatio !== undefined && r.vcpuRatio !== null) num(r.vcpuRatio, 'vcpuRatio', RATIO_MIN, RATIO_MAX);
+  optBool(r.diagrams, 'diagrams');
+  // The bundle carries the report's figures: it needs a PDF or Word report.
+  if (r.diagrams === true && !(r.formats as string[]).some((f) => f === 'pdf' || f === 'word')) {
+    throw new ValidationError('diagrams needs a pdf or word report');
+  }
   return r as unknown as ExportRequest;
 }
 
@@ -240,6 +245,7 @@ export function cleanSettings(v: unknown): AppSettings {
   if ('multiTargetIds' in r) out.multiTargetIds = cleared('multiTargetIds') ? undefined : strArray(r.multiTargetIds, 'multiTargetIds', 500, 128);
   if ('author' in r) out.author = cleared('author') ? undefined : str(r.author, 'author', 500);
   if ('filePrefix' in r) out.filePrefix = cleared('filePrefix') ? undefined : str(r.filePrefix, 'filePrefix', 200);
+  if ('exportDiagrams' in r) out.exportDiagrams = cleared('exportDiagrams') ? undefined : bool(r.exportDiagrams, 'exportDiagrams');
   if ('vcpuRatio' in r) out.vcpuRatio = cleared('vcpuRatio') ? undefined : num(r.vcpuRatio, 'vcpuRatio', RATIO_MIN, RATIO_MAX);
   if ('startAtLogin' in r) out.startAtLogin = bool(r.startAtLogin, 'startAtLogin');
   if ('customSectionOrder' in r) out.customSectionOrder = bool(r.customSectionOrder, 'customSectionOrder');

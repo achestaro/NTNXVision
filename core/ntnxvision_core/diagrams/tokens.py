@@ -71,3 +71,55 @@ LEGEND_REPL = REPL_NEARSYNC
 REF = Style(fill=WHITE, stroke=IRIS, stroke_w=0.75, dash=(2.6, 1.9), radius=4.5)
 #: AZ pairing whose connection is reported down.
 PAIRING_DOWN = Style(stroke=RULE_STRONG, stroke_w=0.75, dash=(1.5, 2.0))
+
+# ─── logical cluster design (A2) ───────────────────────────────────────
+POD_FILL = "#F3F4F6"
+POD = Style(fill=POD_FILL, stroke=RULE, stroke_w=0.7, radius=4.5)
+TAG_POD = Style(fill=INK_2, radius=1.9)
+#: The NODES box inside a cluster card.
+NODES_BOX = Style(fill=SURFACE, stroke=RULE_2, stroke_w=0.6, radius=2.25)
+#: "Runs Prism Central" strip.
+ROLE_STRIP = Style(fill=IRIS_TINT, radius=1.5)
+#: "+N more" container chip.
+MORE_CHIP = Style(fill=WHITE, stroke=RULE, stroke_w=0.45, radius=1.5)
+#: "EXTERNAL STORAGE" chip on an array box: white with a teal outline (teal text).
+TAG_EXTERNAL = Style(fill=WHITE, stroke=LIVE, stroke_w=0.6, radius=1.9)
+#: A container to the array it lives on.
+ARRAY_LINK = Style(stroke=LIVE, stroke_w=0.9)
+
+# ─── estate map (A6) ───────────────────────────────────────────────────
+#: ESXi share of an AZ's nodes (the hypervisor bar; AHV is iris).
+ESXI = "#B38C15"
+#: A part of the conceptual overview: a dashed frame around its AZ tiles.
+FRAME = Style(stroke=RULE_STRONG, stroke_w=0.75, dash=(3.0, 2.5), radius=5.25)
+
+# ─── host network (A4) ─────────────────────────────────────────────────
+#: Virtual switch bar, uplink bond, physical NIC, traffic (what uses a switch).
+NET_SWITCH = Style(fill=IRIS_TINT, stroke=IRIS, stroke_w=0.75, radius=2.25)
+NET_BOND = Style(fill=WHITE, stroke=INK_2, stroke_w=0.68, radius=2.25)
+NET_NIC = Style(fill=WHITE, stroke=INK, stroke_w=0.75, radius=1.5)
+NET_TRAFFIC = Style(fill=WHITE, stroke=RULE, stroke_w=0.68, radius=2.25)
+NET_MTU = Style(fill=WHITE, stroke=INK_2, stroke_w=0.6, radius=1.5)
+NET_LINK = Style(stroke=RULE_STRONG, stroke_w=0.68)
+#: "LLDP NEIGHBOUR" chip; the dashed "not reported by Nutanix APIs" note.
+TAG_NEIGHBOUR = Style(fill=INK_2, radius=1.9)
+NOT_REPORTED = Style(fill=WHITE, stroke=RULE_STRONG, stroke_w=0.75, dash=(2.6, 1.9),
+                     radius=3.75)
+
+# ─── disaster recovery design (A5) ─────────────────────────────────────
+#: A cluster no protection policy names (greyed).
+CLUSTER_MUTED = Style(fill=SURFACE, stroke=RULE, stroke_w=0.7, radius=3.4)
+#: "2 RECOVERY PLANS" chip on the gutter between two zones.
+TAG_PLANS = Style(fill=WHITE, stroke=RULE_STRONG, stroke_w=0.6, radius=1.9)
+
+# ─── management plane (A3) ─────────────────────────────────────────────
+#: Status green ("connected").
+GOOD = _h(T.OK)
+#: "PCVM 1 of 3" chips inside the Prism Central block (a lighter iris).
+PCVM_CHIP = Style(fill="#7A63E3", radius=1.5)
+#: The vCenter Server box under an ESXi cluster.
+VCENTER = Style(fill=WHITE, stroke=INK_2, stroke_w=0.6, radius=2.25)
+#: The AZ pairing glyph between two Prism Centrals (a circle with two arrows).
+PAIR_GLYPH = Style(stroke=IRIS, stroke_w=0.8, radius=7.5)
+#: Version strip at the foot of a management-plane column ("LCM 3.1.2 · NCC 5.1.1").
+FOOT_STRIP = Style(fill=WHITE, stroke=RULE_2, stroke_w=0.6, radius=1.5)

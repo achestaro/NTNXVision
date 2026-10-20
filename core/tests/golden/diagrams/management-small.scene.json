@@ -1,0 +1,777 @@
+{
+ "caption": "Management plane: 1 Prism Central, its deployment and hosting clusters, 2 registered clusters and AZ pairing.",
+ "edges": [
+  {
+   "arrow_end": true,
+   "arrow_start": false,
+   "data": {
+    "kind": "runs_on"
+   },
+   "dst": "cluster:0ca0388a-8411-5a32-a54a-f18b3163a417",
+   "id": "site:sm-pc01.demo.local:pc->cluster:0ca0388a-8411-5a32-a54a-f18b3163a417",
+   "labels": [
+    {
+     "background": false,
+     "h": 9.68,
+     "lines": [
+      {
+       "baseline": 6.94,
+       "bold": false,
+       "color": "#5B6976",
+       "size": 6.0,
+       "text": "runs on",
+       "width": 19.83,
+       "x": 2.6
+      }
+     ],
+     "w": 25.02,
+     "x": 107.0,
+     "y": 99.4
+    }
+   ],
+   "points": [
+    [
+     104.5,
+     96.74
+    ],
+    [
+     104.5,
+     121.42
+    ]
+   ],
+   "src": "site:sm-pc01.demo.local:pc",
+   "style": {
+    "dash": null,
+    "fill": null,
+    "radius": 0.0,
+    "stroke": "#8E99A4",
+    "stroke_w": 0.7
+   }
+  },
+  {
+   "arrow_end": true,
+   "arrow_start": true,
+   "data": {
+    "kind": "pairing"
+   },
+   "dst": "az:dr-colo",
+   "id": "link:pairing:site:sm-pc01.demo.local->az:dr-colo",
+   "labels": [
+    {
+     "background": false,
+     "h": 9.68,
+     "lines": [
+      {
+       "baseline": 6.94,
+       "bold": false,
+       "color": "#5B3FD9",
+       "size": 6.0,
+       "text": "AZ pairing",
+       "width": 27.68,
+       "x": 2.83
+      }
+     ],
+     "w": 33.34,
+     "x": 224.83,
+     "y": 47.52
+    }
+   ],
+   "points": [
+    [
+     209.0,
+     58.7
+    ],
+    [
+     274.0,
+     58.7
+    ]
+   ],
+   "src": "site:sm-pc01.demo.local",
+   "style": {
+    "dash": [
+     3.0,
+     2.25
+    ],
+    "fill": null,
+    "radius": 0.0,
+    "stroke": "#5B3FD9",
+    "stroke_w": 0.75
+   }
+  },
+  {
+   "arrow_end": false,
+   "arrow_start": false,
+   "data": {},
+   "dst": "",
+   "id": "legend:3",
+   "labels": [],
+   "points": [
+    [
+     99.5,
+     219.65
+    ],
+    [
+     116.5,
+     219.65
+    ]
+   ],
+   "src": "",
+   "style": {
+    "dash": [
+     3.0,
+     2.25
+    ],
+    "fill": null,
+    "radius": 0.0,
+    "stroke": "#5B3FD9",
+    "stroke_w": 0.75
+   }
+  },
+  {
+   "arrow_end": false,
+   "arrow_start": false,
+   "data": {},
+   "dst": "",
+   "id": "legend:4",
+   "labels": [],
+   "points": [
+    [
+     164.84,
+     219.65
+    ],
+    [
+     181.84,
+     219.65
+    ]
+   ],
+   "src": "",
+   "style": {
+    "dash": null,
+    "fill": null,
+    "radius": 0.0,
+    "stroke": "#8E99A4",
+    "stroke_w": 0.7
+   }
+  }
+ ],
+ "height": 226.4,
+ "id": "management",
+ "meta": {
+  "drawn": [
+   "cluster:0ca0388a-8411-5a32-a54a-f18b3163a417",
+   "cluster:8996917a-a180-5d7e-83b7-4e276021ce55"
+  ],
+  "hops": 0,
+  "sites": [
+   "site:sm-pc01.demo.local"
+  ],
+  "summarised": []
+ },
+ "nodes": [
+  {
+   "data": {
+    "name": "sm-pc01.demo.local",
+    "prism_central": "sm-pc01.demo.local"
+   },
+   "h": 189.4,
+   "id": "site:sm-pc01.demo.local",
+   "kind": "container",
+   "lines": [
+    {
+     "baseline": 17.91,
+     "bold": true,
+     "color": "#0F1A24",
+     "size": 9.0,
+     "text": "sm-pc01.demo.local",
+     "width": 82.06,
+     "x": 62.97
+    },
+    {
+     "baseline": 26.96,
+     "bold": false,
+     "color": "#5B6976",
+     "size": 6.0,
+     "text": "Management plane, 2 registered clusters",
+     "width": 108.98,
+     "x": 49.51
+    }
+   ],
+   "parent": null,
+   "style": {
+    "dash": null,
+    "fill": "#FAFBFB",
+    "radius": 5.25,
+    "stroke": "#C9D0D6",
+    "stroke_w": 0.75
+   },
+   "w": 208.0,
+   "x": 0.5,
+   "y": 5.0
+  },
+  {
+   "data": {},
+   "h": 9.0,
+   "id": "site:sm-pc01.demo.local:tag",
+   "kind": "tag",
+   "lines": [
+    {
+     "baseline": 6.6,
+     "bold": true,
+     "color": "#FFFFFF",
+     "size": 6.0,
+     "text": "AZ",
+     "width": 8.0,
+     "x": 3.74
+    }
+   ],
+   "parent": "site:sm-pc01.demo.local",
+   "style": {
+    "dash": null,
+    "fill": "#5B3FD9",
+    "radius": 1.9,
+    "stroke": null,
+    "stroke_w": 0.75
+   },
+   "w": 15.48,
+   "x": 6.0,
+   "y": 0.5
+  },
+  {
+   "data": {},
+   "h": 7.68,
+   "id": "site:sm-pc01.demo.local:clusters-label",
+   "kind": "label",
+   "lines": [
+    {
+     "baseline": 5.94,
+     "bold": true,
+     "color": "#5B6976",
+     "size": 6.0,
+     "text": "REGISTERED CLUSTERS",
+     "width": 67.03,
+     "x": 0.0
+    }
+   ],
+   "parent": "site:sm-pc01.demo.local",
+   "style": {
+    "dash": null,
+    "fill": null,
+    "radius": 0.0,
+    "stroke": null,
+    "stroke_w": 0.75
+   },
+   "w": 72.05,
+   "x": 6.5,
+   "y": 111.74
+  },
+  {
+   "data": {
+    "cluster_uuid": "0ca0388a-8411-5a32-a54a-f18b3163a417",
+    "name": "BRANCH-PRD-01",
+    "prism_central": "sm-pc01.demo.local"
+   },
+   "h": 24.9,
+   "id": "cluster:0ca0388a-8411-5a32-a54a-f18b3163a417",
+   "kind": "box",
+   "lines": [
+    {
+     "baseline": 11.13,
+     "bold": true,
+     "color": "#0F1A24",
+     "size": 7.2,
+     "text": "BRANCH-PRD-01",
+     "width": 57.65,
+     "x": 5.0
+    },
+    {
+     "baseline": 19.16,
+     "bold": false,
+     "color": "#3E4C59",
+     "size": 6.0,
+     "text": "PE 10.20.0.10 · DSIP 10.20.0.11 · AOS 7.0.1",
+     "width": 111.31,
+     "x": 5.0
+    }
+   ],
+   "parent": "site:sm-pc01.demo.local",
+   "style": {
+    "dash": null,
+    "fill": "#FFFFFF",
+    "radius": 3.4,
+    "stroke": "#5B3FD9",
+    "stroke_w": 0.7
+   },
+   "w": 196.0,
+   "x": 6.5,
+   "y": 121.42
+  },
+  {
+   "data": {},
+   "h": 9.0,
+   "id": "cluster:0ca0388a-8411-5a32-a54a-f18b3163a417:tag:HOSTS PC",
+   "kind": "tag",
+   "lines": [
+    {
+     "baseline": 6.6,
+     "bold": true,
+     "color": "#FFFFFF",
+     "size": 6.0,
+     "text": "HOSTS PC",
+     "width": 29.3,
+     "x": 4.63
+    }
+   ],
+   "parent": "cluster:0ca0388a-8411-5a32-a54a-f18b3163a417",
+   "style": {
+    "dash": null,
+    "fill": "#0F1A24",
+    "radius": 1.9,
+    "stroke": null,
+    "stroke_w": 0.75
+   },
+   "w": 38.56,
+   "x": 159.94,
+   "y": 124.92
+  },
+  {
+   "data": {
+    "cluster_uuid": "8996917a-a180-5d7e-83b7-4e276021ce55",
+    "name": "BRANCH-VDI-01",
+    "prism_central": "sm-pc01.demo.local"
+   },
+   "h": 24.9,
+   "id": "cluster:8996917a-a180-5d7e-83b7-4e276021ce55",
+   "kind": "box",
+   "lines": [
+    {
+     "baseline": 11.13,
+     "bold": true,
+     "color": "#0F1A24",
+     "size": 7.2,
+     "text": "BRANCH-VDI-01",
+     "width": 55.94,
+     "x": 5.0
+    },
+    {
+     "baseline": 19.16,
+     "bold": false,
+     "color": "#3E4C59",
+     "size": 6.0,
+     "text": "PE 10.21.0.10 · DSIP 10.21.0.11 · AOS 7.0.1",
+     "width": 108.58,
+     "x": 5.0
+    }
+   ],
+   "parent": "site:sm-pc01.demo.local",
+   "style": {
+    "dash": null,
+    "fill": "#FFFFFF",
+    "radius": 3.4,
+    "stroke": "#5B3FD9",
+    "stroke_w": 0.7
+   },
+   "w": 196.0,
+   "x": 6.5,
+   "y": 149.82
+  },
+  {
+   "data": {
+    "name": "Prism Central",
+    "prism_central": "sm-pc01.demo.local"
+   },
+   "h": 58.04,
+   "id": "site:sm-pc01.demo.local:pc",
+   "kind": "box",
+   "lines": [
+    {
+     "baseline": 12.92,
+     "bold": true,
+     "color": "#FFFFFF",
+     "size": 8.0,
+     "text": "Prism Central pc.7.5.1.1",
+     "width": 83.25,
+     "x": 56.38
+    },
+    {
+     "baseline": 21.88,
+     "bold": false,
+     "color": "#FFFFFF",
+     "size": 6.2,
+     "text": "Single VM, Small",
+     "width": 46.07,
+     "x": 74.96
+    },
+    {
+     "baseline": 29.62,
+     "bold": false,
+     "color": "#EAE8F8",
+     "size": 6.0,
+     "text": "6 vCPU, 28 GiB · 10.23.0.50",
+     "width": 73.34,
+     "x": 61.33
+    },
+    {
+     "baseline": 38.3,
+     "bold": false,
+     "color": "#EAE8F8",
+     "size": 6.0,
+     "text": "DR · Flow Security · Intelligent Ops · NCM · Marketplace",
+     "width": 149.03,
+     "x": 23.48
+    }
+   ],
+   "parent": "site:sm-pc01.demo.local",
+   "style": {
+    "dash": null,
+    "fill": "#5B3FD9",
+    "radius": 3.75,
+    "stroke": null,
+    "stroke_w": 0.75
+   },
+   "w": 196.0,
+   "x": 6.5,
+   "y": 38.7
+  },
+  {
+   "data": {},
+   "h": 9.0,
+   "id": "site:sm-pc01.demo.local:pc:pcvm:1",
+   "kind": "pill",
+   "lines": [
+    {
+     "baseline": 6.6,
+     "bold": true,
+     "color": "#FFFFFF",
+     "size": 6.0,
+     "text": "PCVM 1 of 1",
+     "width": 32.44,
+     "x": 15.78
+    }
+   ],
+   "parent": "site:sm-pc01.demo.local:pc",
+   "style": {
+    "dash": null,
+    "fill": "#7A63E3",
+    "radius": 1.5,
+    "stroke": null,
+    "stroke_w": 0.75
+   },
+   "w": 64.0,
+   "x": 72.5,
+   "y": 82.74
+  },
+  {
+   "data": {},
+   "h": 10.68,
+   "id": "site:sm-pc01.demo.local:versions",
+   "kind": "strip",
+   "lines": [
+    {
+     "baseline": 7.44,
+     "bold": false,
+     "color": "#3E4C59",
+     "size": 6.0,
+     "text": "LCM 2025.9.2 · NCC 5.1.0",
+     "width": 68.79,
+     "x": 63.6
+    }
+   ],
+   "parent": "site:sm-pc01.demo.local",
+   "style": {
+    "dash": null,
+    "fill": "#FFFFFF",
+    "radius": 1.5,
+    "stroke": "#DEE3E7",
+    "stroke_w": 0.6
+   },
+   "w": 196.0,
+   "x": 6.5,
+   "y": 177.72
+  },
+  {
+   "data": {
+    "availability_zone": "dr-colo",
+    "name": "dr-colo"
+   },
+   "h": 40.84,
+   "id": "az:dr-colo",
+   "kind": "box",
+   "lines": [
+    {
+     "baseline": 15.22,
+     "bold": true,
+     "color": "#0F1A24",
+     "size": 7.8,
+     "text": "dr-colo",
+     "width": 25.79,
+     "x": 53.1
+    },
+    {
+     "baseline": 23.92,
+     "bold": false,
+     "color": "#3E4C59",
+     "size": 6.0,
+     "text": "Prism Central, physical AZ, us-east · not in",
+     "width": 112.69,
+     "x": 9.66
+    },
+    {
+     "baseline": 31.6,
+     "bold": false,
+     "color": "#3E4C59",
+     "size": 6.0,
+     "text": "this inventory",
+     "width": 36.7,
+     "x": 47.65
+    }
+   ],
+   "parent": null,
+   "style": {
+    "dash": [
+     2.6,
+     1.9
+    ],
+    "fill": "#FFFFFF",
+    "radius": 4.5,
+    "stroke": "#8E99A4",
+    "stroke_w": 0.75
+   },
+   "w": 132.0,
+   "x": 274.5,
+   "y": 38.7
+  },
+  {
+   "data": {},
+   "h": 9.0,
+   "id": "az:dr-colo:tag",
+   "kind": "tag",
+   "lines": [
+    {
+     "baseline": 6.6,
+     "bold": true,
+     "color": "#FFFFFF",
+     "size": 6.0,
+     "text": "REMOTE AZ",
+     "width": 33.6,
+     "x": 4.51
+    }
+   ],
+   "parent": "az:dr-colo",
+   "style": {
+    "dash": null,
+    "fill": "#5B6976",
+    "radius": 1.9,
+    "stroke": null,
+    "stroke_w": 0.75
+   },
+   "w": 42.62,
+   "x": 280.0,
+   "y": 34.2
+  },
+  {
+   "data": {},
+   "h": 7.5,
+   "id": "legend:0",
+   "kind": "swatch",
+   "lines": [],
+   "parent": null,
+   "style": {
+    "dash": null,
+    "fill": "#5B3FD9",
+    "radius": 3.75,
+    "stroke": null,
+    "stroke_w": 0.75
+   },
+   "w": 17,
+   "x": 0.5,
+   "y": 204.9
+  },
+  {
+   "data": {},
+   "h": 10.5,
+   "id": "legend:0:label",
+   "kind": "label",
+   "lines": [
+    {
+     "baseline": 7.35,
+     "bold": false,
+     "color": "#3E4C59",
+     "size": 6.0,
+     "text": "Prism Central (PCVMs)",
+     "width": 61.44,
+     "x": 0.0
+    }
+   ],
+   "parent": null,
+   "style": {
+    "dash": null,
+    "fill": null,
+    "radius": 0.0,
+    "stroke": null,
+    "stroke_w": 0.75
+   },
+   "w": 66.13,
+   "x": 21.5,
+   "y": 203.4
+  },
+  {
+   "data": {},
+   "h": 7.5,
+   "id": "legend:1",
+   "kind": "swatch",
+   "lines": [],
+   "parent": null,
+   "style": {
+    "dash": null,
+    "fill": "#FFFFFF",
+    "radius": 3.4,
+    "stroke": "#5B3FD9",
+    "stroke_w": 0.7
+   },
+   "w": 17,
+   "x": 101.63,
+   "y": 204.9
+  },
+  {
+   "data": {},
+   "h": 10.5,
+   "id": "legend:1:label",
+   "kind": "label",
+   "lines": [
+    {
+     "baseline": 7.35,
+     "bold": false,
+     "color": "#3E4C59",
+     "size": 6.0,
+     "text": "Prism Element cluster",
+     "width": 58.19,
+     "x": 0.0
+    }
+   ],
+   "parent": null,
+   "style": {
+    "dash": null,
+    "fill": null,
+    "radius": 0.0,
+    "stroke": null,
+    "stroke_w": 0.75
+   },
+   "w": 62.68,
+   "x": 122.63,
+   "y": 203.4
+  },
+  {
+   "data": {},
+   "h": 7.5,
+   "id": "legend:2",
+   "kind": "swatch",
+   "lines": [],
+   "parent": null,
+   "style": {
+    "dash": [
+     2.6,
+     1.9
+    ],
+    "fill": "#FFFFFF",
+    "radius": 4.5,
+    "stroke": "#8E99A4",
+    "stroke_w": 0.75
+   },
+   "w": 17,
+   "x": 0.5,
+   "y": 215.9
+  },
+  {
+   "data": {},
+   "h": 10.5,
+   "id": "legend:2:label",
+   "kind": "label",
+   "lines": [
+    {
+     "baseline": 7.35,
+     "bold": false,
+     "color": "#3E4C59",
+     "size": 6.0,
+     "text": "Outside this inventory",
+     "width": 59.44,
+     "x": 0.0
+    }
+   ],
+   "parent": null,
+   "style": {
+    "dash": null,
+    "fill": null,
+    "radius": 0.0,
+    "stroke": null,
+    "stroke_w": 0.75
+   },
+   "w": 64.0,
+   "x": 21.5,
+   "y": 214.4
+  },
+  {
+   "data": {},
+   "h": 10.5,
+   "id": "legend:3:label",
+   "kind": "label",
+   "lines": [
+    {
+     "baseline": 7.35,
+     "bold": false,
+     "color": "#3E4C59",
+     "size": 6.0,
+     "text": "AZ pairing",
+     "width": 27.68,
+     "x": 0.0
+    }
+   ],
+   "parent": null,
+   "style": {
+    "dash": null,
+    "fill": null,
+    "radius": 0.0,
+    "stroke": null,
+    "stroke_w": 0.75
+   },
+   "w": 30.34,
+   "x": 120.5,
+   "y": 214.4
+  },
+  {
+   "data": {},
+   "h": 10.5,
+   "id": "legend:4:label",
+   "kind": "label",
+   "lines": [
+    {
+     "baseline": 7.35,
+     "bold": false,
+     "color": "#3E4C59",
+     "size": 6.0,
+     "text": "Runs on",
+     "width": 21.56,
+     "x": 0.0
+    }
+   ],
+   "parent": null,
+   "style": {
+    "dash": null,
+    "fill": null,
+    "radius": 0.0,
+    "stroke": null,
+    "stroke_w": 0.75
+   },
+   "w": 23.85,
+   "x": 185.84,
+   "y": 214.4
+  }
+ ],
+ "part": [
+  1,
+  1
+ ],
+ "schema": "ntnxvision.diagram.scene/1",
+ "title": "Management plane design",
+ "type": "management",
+ "width": 407.0
+}

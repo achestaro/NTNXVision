@@ -1294,13 +1294,32 @@ export interface ExportRequest {
    * Omitted = the vcpuRatio setting (DEFAULT_VCPU_RATIO when unset).
    */
   vcpuRatio?: number;
+  /**
+   * Editable diagrams: also write `<report>_diagrams.zip` next to the reports (same
+   * prefix, snapshot name and date), holding a multi-page .vsdx, a multi-tab .drawio and
+   * one .svg per architecture figure of the PDF / Word report (built from the same
+   * figures, with the same sections). Omitted = false.
+   */
+  diagrams?: boolean;
+}
+
+/** The editable diagrams bundle an export wrote (`ExportRequest.diagrams`). */
+export interface DiagramsBundleFile {
+  path: string;
+  name: string;
+  size_bytes?: number | null;
+  /** "9 diagrams". */
+  detail?: string | null;
 }
 
 export interface ExportResult {
   paths: Record<string, string>;
+  /** Per format; a failed bundle is reported under "diagrams" (the reports still count). */
   errors: Record<string, string>;
   path: string | null;
   files?: ReportFile[];
+  /** The diagrams bundle, when requested and written; null otherwise. */
+  diagrams?: DiagramsBundleFile | null;
 }
 
 export interface CompareExportRequest {
@@ -1616,6 +1635,8 @@ export interface AppSettings {
   author?: string;
   /** The last report file name prefix used (Export dialog, New collection, Multiple PCs). */
   filePrefix?: string;
+  /** The Export dialog's last "Editable diagrams" choice. Unset = on. */
+  exportDiagrams?: boolean;
   /**
    * The default vCPU:pCPU target behind the cluster capacity figures ("vCPU Total"):
    * recorded on every cluster a new collection collects unless New collection sets a

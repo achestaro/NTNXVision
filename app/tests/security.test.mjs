@@ -237,6 +237,9 @@ test('R3-03: renderer snapshot paths are UNC-checked before the sidecar sees the
     throwsValidation(() => req.asSnapshotFilesExportRequest({ snapshotPaths: [bad], destDir: '/a' }));
   }
   assert.doesNotThrow(() => req.asExportRequest({ snapshotPath: '/a/b.json', formats: ['excel'] }));
+  // Editable diagrams come with a PDF or Word report only.
+  throwsValidation(() => req.asExportRequest({ snapshotPath: '/a/b.json', formats: ['excel'], diagrams: true }));
+  assert.doesNotThrow(() => req.asExportRequest({ snapshotPath: '/a/b.json', formats: ['pdf'], diagrams: true }));
 });
 
 test('R3-03: the Word template is judged lexically before realpath (static check)', () => {

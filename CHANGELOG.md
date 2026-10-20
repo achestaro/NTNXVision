@@ -6,6 +6,26 @@ format older builds can't read. Windows shows the version as X.Y.Z.0 in Installe
 Every pull request that changes shipped code raises it with `node scripts/bump-version.mjs`
 and adds a section here (CI checks both).
 
+## 0.10.0 (2026-10-19)
+
+### Added
+- Architecture design figures in the Word and PDF reports, each with a short summary and the
+  tables behind it: Logical Cluster Design (Logical Design), Management Plane Design (Prism
+  Central), Host Network Configuration (Physical Design) and Disaster Recovery Design (Data
+  Protection), plus an estate map when a figure is drawn in three or more parts.
+- Editable diagrams: the Export dialog's "Editable diagrams" option (PDF or Word) also writes a
+  zip with a multi-page Visio file, a draw.io file and one SVG per figure, Calibri throughout,
+  with grouped shapes and glued connectors. It follows the chosen report sections.
+- Every design figure can be edited on the Diagrams page (rename, reorder, remove, and add a
+  cluster, component or note to the management, logical and DR figures). Edits reach the
+  reports and the editable files; a figure's caption says "(edited)" only where an edit
+  touches it, and its summary and tables stay as collected.
+
+### Changed
+- Reports are byte-stable: the same snapshot exports identical Word, PDF and diagram files.
+- A figure starts its own page only when its measured summary and first part do not fit.
+- One architecture figure that cannot be built never stops the report; a note says why.
+
 ## 0.9.0 (2026-10-19)
 
 ### Added
