@@ -64,7 +64,7 @@ Modules that Vite compiles into the renderer bundle (determined from the actual 
 | [react](#r-react) | 18.3.1 | MIT |
 | [react-dom](#r-react-dom) | 18.3.1 | MIT |
 | [scheduler](#r-scheduler) | 0.23.2 | MIT |
-| [vite](#r-vite) | 6.4.4 | MIT |
+| [vite](#r-vite) | 8.3.4 | MIT |
 
 <a id="r-phosphor-icons-react"></a>
 #### @phosphor-icons/react 2.1.10
@@ -183,7 +183,7 @@ SOFTWARE.
 ```
 
 <a id="r-vite"></a>
-#### vite 6.4.4
+#### vite 8.3.4
 
 License: **MIT** · <https://vite.dev>
 
