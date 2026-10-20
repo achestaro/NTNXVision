@@ -1146,6 +1146,8 @@ export interface DiagramPart {
   id: string;
   caption: string;
   part: [number, number];
+  /** How the list names it: its zone or profile, "part i of n" only when there are several ("" = the diagram's title). */
+  label?: string;
 }
 
 export interface DiagramSummary {

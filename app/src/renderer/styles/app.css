@@ -2666,10 +2666,23 @@ h1 .imported-badge {
   stroke: var(--accent);
   stroke-width: 1.4;
 }
+.dg-inspector {
+  container-type: inline-size;
+}
 .dg-sides {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   gap: 8px;
+}
+/* A narrow inspector stacks the two side selects, so "Bottom" is never cut short. */
+@container (max-width: 360px) {
+  .dg-sides {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+.dg-ghost.kept {
+  stroke-dasharray: none;
+  stroke-width: 1.4;
 }
 .dg-conns {
   margin-top: 12px;
