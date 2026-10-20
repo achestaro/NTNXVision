@@ -6,6 +6,34 @@ format older builds can't read. Windows shows the version as X.Y.Z.0 in Installe
 Every pull request that changes shipped code raises it with `node scripts/bump-version.mjs`
 and adds a section here (CI checks both).
 
+## 0.12.0 (2026-10-20)
+
+### Added
+- Schedules: "Email when a run fails" (on by default) sends a short failure notice with the
+  stage and reason, no attachments.
+- Settings > Email: "Remove email settings" clears the server, password and trusted certificate.
+- macOS 26 and later: a native app icon with Liquid Glass, dark and tinted styles.
+
+### Fixed
+- The installed macOS app could not verify any public mail server's certificate (it trusted no
+  certificate authority). Every verified connection now uses the computer's own trust store
+  (Keychain or Windows), so company certificates work too, with a built-in list as fallback.
+- A wrong Gmail password was reported as a Security or port problem; it now says the server
+  rejected the username or password.
+- A schedules file edited outside the app could be re-enabled, with its changed recipients,
+  from the Enabled switch; each changed schedule now needs review and a save. A file edited
+  while the app runs is caught at once.
+- Partial delivery (some recipients refused) is reported as sent with warnings, and a multi-PC
+  run with one failed target shows which one.
+- Emailed reports keep the same file names on every send and no longer pile up copies; they are
+  saved where the dialog says.
+- The email size estimate was 2 to 6 times too high and could warn falsely about the limit.
+- A trusted certificate is kept when saving after a port change; the test result shows once;
+  the last test recipient is remembered; clearer messages for STARTTLS-required, non-ASCII
+  addresses and STARTTLS on an SSL port.
+- Windows: the first "still running" notification could be missing.
+- macOS Dock icon: a clipped second tile and a white backing tile.
+
 ## 0.11.0 (2026-10-19)
 
 ### Added
