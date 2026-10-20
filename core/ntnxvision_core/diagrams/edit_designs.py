@@ -144,6 +144,10 @@ LOGICAL = EditSpec(
         Collection("pods", "POD", label=None, reorder=False, delete=False,
                    title_of=lambda p: f"POD {p['name']}" if p.get("name") else "Clusters"),
         Collection("clusters", "Cluster", sublabel="note", kind_of=_kind),
+        # Node groups (model, CPU, memory, GPUs): a note line only, collected values.
+        Collection("groups", "Node group", label=None, sublabel="note", reorder=False,
+                   delete=False, title_of=lambda g: f"{g.get('count', 0):,} x "
+                   f"{g.get('model') or 'model N/A'}"),
         Collection("containers", "Storage container", label=None, reorder=False,
                    title_of=lambda c: f"Container {c.get('name', '')}"),
         Collection("arrays", "External storage", label=None, reorder=False,

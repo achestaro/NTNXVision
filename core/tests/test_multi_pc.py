@@ -366,18 +366,17 @@ def test_identically_named_clusters_do_not_pool_their_objects() -> None:
     assert _counts_per_cluster(combined, combined.subnets) == {id(c1): 1}
 
 
-def test_per_cluster_figures_only_see_their_own_clusters_objects() -> None:
-    from ntnxvision_core.exporters.diagrams import cluster_compute, network_topology
+def test_per_pc_segment_figures_only_see_their_own_clusters_objects() -> None:
+    from ntnxvision_core.diagrams.segments import segments_model
 
     combined = combine_environments([_pc_env("pc1.local", hosts=2, vms=3, subnets=1),
                                      _pc_env("pc2.local", hosts=0, vms=1)])
-    c1, c2 = combined.clusters
-
-    assert cluster_compute(combined, c1) is not None
-    # pc2's cluster has no nodes of its own — it must not borrow pc1's.
-    assert cluster_compute(combined, c2) is None
-    assert network_topology(combined, c1) is not None
-    assert network_topology(combined, c2) is None
+    m = segments_model(combined)
+    # pc2's cluster (same name, same uuid scheme) has no subnet of its own: it must not
+    # borrow pc1's.
+    assert [s.name for s in m.sites] == ["pc1.local"]
+    [card] = m.sites[0].clusters
+    assert sum(len(w.segments) for w in card.switches) == 1
 
 
 def test_cluster_labels_disambiguate_only_when_names_collide() -> None:

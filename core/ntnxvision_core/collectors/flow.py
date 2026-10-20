@@ -34,6 +34,7 @@ from ntnxvision_core.models import (
     Category,
     FloatingIp,
     SecurityPolicy,
+    SecurityRule,
     ServiceGroup,
     Vpc,
 )
@@ -78,10 +79,13 @@ class FlowSecurityCollector(Collector):
         # the category UUIDs a policy names into the readable "key:value" the v3 path
         # produced from its filter params.
         category_rows = self._v4_categories()
-        self._policies_v4(env, _category_labels(category_rows))
-        self._categories_v4(env, category_rows)
+        # Service and address groups first: policy rules name them by extId.
         self._service_groups_v4(env)
         self._address_groups_v4(env)
+        names = {g.uuid: g.name for g in [*env.service_groups, *env.address_groups]
+                 if g.uuid and g.name}
+        self._policies_v4(env, _category_labels(category_rows), names)
+        self._categories_v4(env, category_rows)
 
     def _v4_categories(self) -> list[dict[str, Any]]:
         """All v4 category key/value pairs, or empty if this PC does not serve them.
@@ -95,10 +99,11 @@ class FlowSecurityCollector(Collector):
         except NutanixApiError:
             return []
 
-    def _policies_v4(self, env: Any, labels: dict[str, str]) -> None:
+    def _policies_v4(self, env: Any, labels: dict[str, str],
+                     names: dict[str, str] | None = None) -> None:
         for entity in self.conn.v4_list("microseg/v4.0/config/policies"):
             ext_id = entity.get("extId") or ""
-            inbound, outbound = self._v4_rule_counts(ext_id)
+            inbound, outbound, rules = self._v4_rules(ext_id, labels, names or {})
             policy_type = entity.get("type")
             env.security_policies.append(
                 SecurityPolicy(
@@ -120,31 +125,42 @@ class FlowSecurityCollector(Collector):
                     # For an isolation policy this names *both* isolated groups where v3
                     # showed only the first — v4's securedGroups spans the whole policy.
                     secured_group=_label_for(entity.get("securedGroups"), labels),
+                    rules=rules,
                     api_source="v4",
                 )
             )
 
-    def _v4_rule_counts(self, ext_id: str) -> tuple[int | None, int | None]:
-        """(inbound, outbound) rule counts for one policy, from its detail endpoint.
+    def _v4_rules(self, ext_id: str, labels: dict[str, str], names: dict[str, str]
+                  ) -> tuple[int | None, int | None, list[SecurityRule] | None]:
+        """(inbound, outbound, rules) for one policy, from its detail endpoint.
 
         None rather than 0 when the policy cannot be read, so a failed request reads as
-        "unknown" instead of "no rules".
+        "unknown" instead of "no rules". `rules` keeps each application rule's
+        direction, peer and service groups (the Microsegmentation Design draws them).
         """
         if not ext_id:
-            return (None, None)
+            return (None, None, None)
         try:
             payload = self.conn.v4_get(f"microseg/v4.0/config/policies/{ext_id}")
         except NutanixApiError:
-            return (None, None)
+            return (None, None, None)
         data = payload.get("data") or {}
         inbound = outbound = 0
+        rules: list[SecurityRule] = []
         for rule in data.get("rules") or []:
-            direction = _rule_direction(rule.get("spec") or {})
+            spec = rule.get("spec") or {}
+            direction = _rule_direction(spec)
             if direction == "IN":
                 inbound += 1
             elif direction == "OUT":
                 outbound += 1
-        return (inbound, outbound)
+            else:
+                continue
+            kind, peer = _v4_peer(spec, "src" if direction == "IN" else "dest", labels, names)
+            services = [names.get(x, str(x)) for x in spec.get("serviceGroupReferences") or []]
+            rules.append(SecurityRule(direction=direction, peer_kind=kind, peer=peer,
+                                      services=sorted(services)))
+        return (inbound, outbound, rules)
 
     def _categories_v4(self, env: Any, rows: list[dict[str, Any]]) -> None:
         """One row per category key/value, with valueless keys merged in from v3.
@@ -273,6 +289,9 @@ class FlowSecurityCollector(Collector):
                     inbound_rule_count=len(app_rule.get("inbound_allow_list", []) or []),
                     outbound_rule_count=len(app_rule.get("outbound_allow_list", []) or []),
                     secured_group=secured,
+                    rules=[_v3_rule(d, x) for d, key in (("IN", "inbound_allow_list"),
+                                                         ("OUT", "outbound_allow_list"))
+                           for x in app_rule.get(key, []) or []] if app_rule else None,
                     api_source="v3",
                 )
             )
@@ -352,8 +371,11 @@ class FlowNetworkingCollector(Collector):
         try:
             tables = self.conn.v4_list("networking/v4.0/config/route-tables")
         except Exception:  # noqa: BLE001 — v4 networking absent
-            tables = []
-        for table in tables:
+            tables = None
+        if tables is not None:  # answered: a VPC with no route table has no routes
+            for vpc in env.vpcs:
+                vpc.route_count = vpc.route_count or 0
+        for table in tables or []:
             vpc_ref = table.get("vpcReference")
             vpc_uuid = vpc_ref if isinstance(vpc_ref, str) else (vpc_ref or {}).get("extId")
             vpc = by_uuid.get(vpc_uuid or "")
@@ -369,8 +391,11 @@ class FlowNetworkingCollector(Collector):
         try:
             policies = self.conn.v4_list("networking/v4.0/config/routing-policies")
         except Exception:  # noqa: BLE001
-            policies = []
-        for policy in policies:
+            policies = None
+        if policies is not None:  # answered: no policy names a VPC means none
+            for vpc in env.vpcs:
+                vpc.routing_policy_count = vpc.routing_policy_count or 0
+        for policy in policies or []:
             vpc_ref = policy.get("vpcExtId") or policy.get("vpcReference")
             vpc_uuid = vpc_ref if isinstance(vpc_ref, str) else (vpc_ref or {}).get("extId")
             vpc = by_uuid.get(vpc_uuid or "")
@@ -467,6 +492,47 @@ def _label_for(ext_ids: Any, labels: dict[str, str]) -> str | None:
     parts = [f"{k}:{','.join(sorted(v))}" for k, v in sorted(grouped.items())]
     parts += sorted(unresolved)
     return "; ".join(parts) or None
+
+
+def _v4_peer(spec: dict[str, Any], side: str, labels: dict[str, str],
+             names: dict[str, str]) -> tuple[str, str | None]:
+    """(peer kind, peer label) of one side of a v4 application rule."""
+    if spec.get(f"{side}AllowSpec") == "ALL":
+        return "ALL", "All sources" if side == "src" else "All destinations"
+    cats = spec.get(f"{side}CategoryReferences")
+    if isinstance(cats, list) and cats:
+        return "CATEGORY", _label_for(cats, labels)
+    groups = spec.get(f"{side}AddressGroupReferences")
+    if isinstance(groups, list) and groups:
+        return "ADDRESS_GROUP", ", ".join(sorted(names.get(g, str(g)) for g in groups))
+    subnet = spec.get(f"{side}Subnet")
+    if subnet:
+        return "SUBNET", _v4_prefix(subnet)
+    return "OTHER", None
+
+
+def _v3_rule(direction: str, entry: dict[str, Any]) -> SecurityRule:
+    """One v3 allow-list entry as a rule (peer and service groups)."""
+    services = sorted(str(s.get("name") or s.get("uuid"))
+                      for s in entry.get("service_group_list", []) or [])
+    groups = entry.get("address_group_inclusion_list") or []
+    kind: str
+    peer: str | None
+    ptype = (entry.get("peer_specification_type") or "").upper()
+    if groups:
+        kind, peer = "ADDRESS_GROUP", ", ".join(sorted(str(g.get("name") or g.get("uuid"))
+                                                       for g in groups))
+    elif ptype == "ALL":
+        kind = "ALL"
+        peer = "All sources" if direction == "IN" else "All destinations"
+    elif ptype == "FILTER" or entry.get("filter"):
+        kind, peer = "CATEGORY", _target_group(entry)
+    elif entry.get("ip_subnet"):
+        sub = entry["ip_subnet"]
+        kind, peer = "SUBNET", f"{sub.get('ip')}/{sub.get('prefix_length')}"
+    else:
+        kind, peer = "OTHER", None
+    return SecurityRule(direction=direction, peer_kind=kind, peer=peer, services=services)
 
 
 def _rule_direction(spec: dict[str, Any]) -> str | None:

@@ -380,7 +380,7 @@
   },
   {
    "data": {
-    "name": "Guest VMs 5 subnets per cluster"
+    "name": "Guest VMs 6 subnets per cluster"
    },
    "h": 21.62,
    "id": "profile:70713501173a:vs:vs0:t:guest",
@@ -400,9 +400,9 @@
      "bold": false,
      "color": "#3E4C59",
      "size": 6.0,
-     "text": "5 subnets per cluster",
-     "width": 56.38,
-     "x": 26.68
+     "text": "6 subnets per cluster",
+     "width": 56.32,
+     "x": 26.72
     }
    ],
    "parent": "profile:70713501173a:host",

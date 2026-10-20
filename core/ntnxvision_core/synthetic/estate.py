@@ -612,6 +612,27 @@ def _networking(est: PcEstate) -> None:
                 "port": k + 1,
             })
     if est.features.fvn:
+        # The VPCs' uplink: an external VLAN subnet on the first AHV cluster, routed
+        # (no NAT), so the virtual networking design can draw its VLAN and range.
+        host = next((c for c in est.clusters if c["hypervisor"] != "ESXi"), None)
+        if host is not None:
+            est.subnets.append({
+                "uuid": uid(seed, "subnet", "ext-transit"),
+                "name": "ext-transit",
+                "cluster_uuid": host["uuid"],
+                "cluster_name": host["name"],
+                "type": "VLAN",
+                "vlan": 900,
+                "vswitch_uuid": est.vswitches[0]["uuid"],
+                "prefix": "203.0.113.0",
+                "prefix_len": 24,
+                "gateway": "203.0.113.1",
+                "dhcp": False,
+                "vpc": None,
+                "port": 0,
+                "external": True,
+                "nat": False,
+            })
         for i, vpc_name in enumerate(["vpc-prod", "vpc-dev", "vpc-pci"]):
             vuuid = uid(seed, "vpc", vpc_name)
             est.vpcs.append({
@@ -777,7 +798,7 @@ def _vms(est: PcEstate, specs: list[ClusterSpec]) -> None:
         hosts_by_cluster.setdefault(h["cluster_uuid"], []).append(h)
     subnets_by_cluster: dict[str, list[dict[str, Any]]] = {}
     for s in est.subnets:
-        if s["cluster_uuid"]:
+        if s["cluster_uuid"] and not s.get("external"):  # no guest VM on an uplink
             subnets_by_cluster.setdefault(s["cluster_uuid"], []).append(s)
     servers_pg = {p["cluster_uuid"]: p for p in est.port_groups if p["name"] == "servers_vlan"}
     containers_by_cluster: dict[str, list[dict[str, Any]]] = {}
@@ -1089,6 +1110,32 @@ def _flow(est: PcEstate) -> None:
             ("Any-IPv4", True, [("0.0.0.0", 0)], []),
         ]
     ]
+    _rule_peers(est, cat_id)
+
+
+def _rule_peers(est: PcEstate, cat_id: dict[tuple[str, str], str]) -> None:
+    """Who each application policy's allow rules name (the v4 detail and v3 allow
+    lists): any source first, then the corporate address group, then a category; out
+    to the SQL tier (sql service group), then the monitoring hosts over HTTPS."""
+    ag = {a["name"]: a["uuid"] for a in est.address_groups}
+    sg = {g["name"]: g["uuid"] for g in est.service_groups}
+    for p in est.security_policies:
+        own = p["groups"][0] if p["groups"] else None
+        other = ("App", "Web") if own != ("App", "Web") else ("App", "Billing")
+        peer_cat = [cat_id[other]] if other in cat_id else []
+        sql = ("App", "SQL") if own != ("App", "SQL") else ("App", "Billing")
+        p["in_peers"] = [
+            {"kind": "ALL"} if i == 0 else
+            {"kind": "AG", "ids": [ag["corp-networks"]], "names": ["corp-networks"]} if i == 1
+            else {"kind": "CAT", "ids": peer_cat, "labels": [f"{other[0]}:{other[1]}"],
+                  "services": [sg["HTTPS"]], "service_names": ["HTTPS"]}
+            for i in range(p["inbound"])]
+        p["out_peers"] = [
+            {"kind": "CAT", "ids": [cat_id[sql]] if sql in cat_id else [],
+             "labels": [f"{sql[0]}:{sql[1]}"], "services": [sg["sql"]],
+             "service_names": ["sql"]} if j == 0 else
+            {"kind": "AG", "ids": [ag["monitoring-hosts"]], "names": ["monitoring-hosts"]}
+            for j in range(p["outbound"])]
 
 
 def _nus(est: PcEstate) -> None:
