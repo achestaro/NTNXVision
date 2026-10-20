@@ -165,27 +165,40 @@ def write_bundle(env: Any, options: Any, path: str | Path, package: str = "zip")
     return f"{len(scenes):,} diagram{'s' if len(scenes) != 1 else ''}"
 
 
+#: Most figures whose PNGs the export preview renders to size them exactly.
+PREVIEW_PNG_MAX = 16
+
+
 def bundle_preview(scenes: list[Scene], stem: str, package: str = "zip",
                    tags: dict[str, list[str]] | None = None,
                    created: str | None = None) -> dict[str, Any]:
     """What the bundle for `scenes` will hold, for the export dialog's preview: its
-    entries in order with their sizes (exact for the .vsdx, .drawio and .svg files,
-    estimated for the PNGs, which are not rendered here) and, per figure file, the
-    `tags` of its diagram type ("edited", "stale")."""
+    entries in order with their exact sizes, and per figure file the `tags` of its
+    diagram type ("edited", "stale") when that part draws an edit. PNGs are rendered
+    to size them up to `PREVIEW_PNG_MAX` figures; past that their sizes (and the
+    bundle's) are left unknown (None) rather than guessed."""
     files = bundle_files(scenes, stem, created, png=False)
     sizes = {name: len(data) for name, data in files}
     tags = tags or {}
 
-    def figure(folder: str, ext: str, i: int, sc: Scene, size: int, approx: bool
+    def tagged(sc: Scene) -> list[str]:
+        # Only a figure part that draws an edit says so ("(edited)" in its caption,
+        # scoped to the part); a part of an edited diagram that no edit touches is
+        # exported as generated.
+        return tags.get(sc.type, []) if " (edited)" in sc.caption else []
+
+    def figure(folder: str, ext: str, i: int, sc: Scene, size: int | None, approx: bool
                ) -> dict[str, Any]:
         return {"name": f"{file_stem(i, sc)}.{ext}", "kind": ext.upper(),
-                "size_bytes": size, "approx": approx, "tags": tags.get(sc.type, []),
+                "size_bytes": size, "approx": approx, "tags": tagged(sc),
                 "path": f"{folder}/{file_stem(i, sc)}.{ext}"}
 
     svgs = [figure("svg", "svg", i, sc, sizes[f"svg/{file_stem(i, sc)}.svg"], False)
             for i, sc in enumerate(scenes, start=1)]
-    pngs = [figure("png", "png", i, sc, png_estimate(sc), True)
-            for i, sc in enumerate(scenes, start=1)]
+    exact = len(scenes) <= PREVIEW_PNG_MAX
+    pngs = [figure("png", "png", i, sc, len(render_png(sc, PNG_DPI)) if exact else None,
+                   False) for i, sc in enumerate(scenes, start=1)]
+    png_total = sum(f["size_bytes"] for f in pngs) if exact else None
     n = len(scenes)
     entries = [
         {"name": f"{stem}.vsdx", "kind": "Visio", "detail": f"{n:,} page{'s' * (n != 1)}",
@@ -196,20 +209,22 @@ def bundle_preview(scenes: list[Scene], stem: str, package: str = "zip",
          "size_bytes": sum(f["size_bytes"] for f in svgs), "approx": False,
          "children": svgs},
         {"name": "png/", "kind": "PNG", "detail": f"{PNG_DPI} dpi", "folder": True,
-         "size_bytes": sum(f["size_bytes"] for f in pngs), "approx": True,
-         "children": pngs},
+         "size_bytes": png_total, "approx": False, "children": pngs},
     ]
-    if package == "folder":
-        total = sum(e["size_bytes"] for e in entries)
+    total: int | None
+    if png_total is None:
+        total = None
+    elif package == "folder":
+        total = sum(int(e["size_bytes"]) for e in entries)
     else:
-        # Deflate shrinks the XML files; PNGs are already compressed.
+        # Deflate shrinks the XML files; PNGs are already compressed (stored as is).
         buf = io.BytesIO()
         with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
             for name, data in files:
                 z.writestr(name, data)
-        total = len(buf.getvalue()) + sum(f["size_bytes"] for f in pngs)
-    return {"package": package, "count": n, "size_bytes": total, "approx": True,
-            "entries": entries}
+        total = len(buf.getvalue()) + png_total
+    return {"package": package, "count": n, "size_bytes": total,
+            "approx": total is not None and package == "zip", "entries": entries}
 
 
 def write_folder(files: list[tuple[str, bytes]], path: Path) -> None:
@@ -229,4 +244,5 @@ def write_folder(files: list[tuple[str, bytes]], path: Path) -> None:
 
 
 __all__ = ["PACKAGES", "PNG_DPI", "bundle_bytes", "bundle_files", "bundle_preview",
-           "file_stem", "png_estimate", "report_scenes", "tab_name", "write_bundle", "write_folder"]
+           "file_stem", "png_estimate", "report_scenes", "tab_name", "write_bundle",
+           "write_folder"]

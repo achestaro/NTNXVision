@@ -52,7 +52,7 @@ CONNECTORS = "connectors"
 EDGE_EDITS = "edge_edits"
 CONNECTOR_KEYS = (CONNECTORS, EDGE_EDITS)
 #: What an ``edge`` operation may change.
-EDGE_FIELDS = ("a", "b", "label", "a_side", "b_side", "bend", "arrow", "hidden")
+EDGE_FIELDS = ("a", "b", "label", "a_side", "b_side", "bend", "arrow", "hidden", "route")
 SIDES = ("auto", "top", "right", "bottom", "left")
 ARROWS = ("none", "end", "start", "both")
 #: Largest lane offset (pt) a connector may carry.
@@ -325,11 +325,22 @@ def _clean_edge(op: dict[str, Any], ident: str, i: int) -> dict[str, Any]:
                             f"{MAX_BEND:,.0f}")
         value = round(float(v) * 2) / 2
         value = int(value) if value == int(value) else value
+    elif fld == "route":  # back to Auto sides and no lane offset, in one edit
+        if v != "auto":
+            raise EditError(f"Edit {i + 1}: a route resets to auto")
+        value = v
     else:  # hidden
         if not isinstance(v, bool):
             raise EditError(f"Edit {i + 1}: hidden is true or false")
         value = v
-    return {"op": "edge", "id": ident, "ends": clean_ends, "field": fld, "value": value}
+    out: dict[str, Any] = {"op": "edge", "id": ident, "ends": clean_ends, "field": fld,
+                           "value": value}
+    side = op.get("side")
+    if fld in ("a", "b") and side not in (None, "auto"):
+        if side not in SIDES:
+            raise EditError(f"Edit {i + 1}: a side is one of {', '.join(SIDES)}")
+        out["side"] = side  # the side of the new end it was dropped on
+    return out
 
 
 def _index(v: Any, i: int) -> int:
@@ -462,6 +473,39 @@ def _apply_one(doc: dict[str, Any], op: dict[str, Any], slots: dict[str, Slot],
 # ─── connectors and moves across containers ────────────────────────────
 
 
+def owner_of(end: str, slots: Collection_[str]) -> str | None:
+    """The element a connector end belongs to: the end itself, or for a box drawn in
+    an element (``site:pc01:pc``, a zone's Prism Central) the element its id starts
+    with; None when neither is in the diagram."""
+    cur = end
+    while cur:
+        if cur in slots:
+            return cur
+        if ":" not in cur:
+            return None
+        cur = cur.rsplit(":", 1)[0]
+    return None
+
+
+#: Why a connector cannot join an element to one it holds (a zone and its cluster).
+NESTED = "a connector cannot join an element to one it holds"
+
+
+def nested(slots: dict[str, Slot], a: str, b: str) -> bool:
+    """Whether one end holds the other (a zone and a cluster in it): such a line would
+    have to cross its own end, so it is refused."""
+    oa, ob = owner_of(a, slots), owner_of(b, slots)
+    if oa is None or ob is None:
+        return False
+    if a in slots and b in slots:
+        return a == b or _inside(slots, a, b) or _inside(slots, b, a)
+    if a in slots:  # b is a box drawn in element ob (a zone's Prism Central)
+        return _inside(slots, ob, a)
+    if b in slots:
+        return _inside(slots, oa, b)
+    return a == b
+
+
 def _connector_ids(doc: dict[str, Any]) -> set[str]:
     return {str(c.get("id")) for c in doc.get(CONNECTORS) or [] if isinstance(c, dict)}
 
@@ -470,8 +514,10 @@ def _connect(doc: dict[str, Any], op: dict[str, Any], slots: dict[str, Slot]) ->
     if op["id"] in slots or op["id"] in _connector_ids(doc):
         return "an element with this id is already in the diagram"
     for end in (op["a"], op["b"]):
-        if end not in slots:
+        if owner_of(end, slots) is None:
             return "an end of the connector is not in this snapshot"
+    if nested(slots, op["a"], op["b"]):
+        return NESTED
     links = doc.get(CONNECTORS)
     if not isinstance(links, list):
         links = doc[CONNECTORS] = []
@@ -484,7 +530,7 @@ def _connect(doc: dict[str, Any], op: dict[str, Any], slots: dict[str, Slot]) ->
 
 def _edge(doc: dict[str, Any], op: dict[str, Any], slots: dict[str, Slot]) -> str | None:
     fld, value = op["field"], op["value"]
-    if fld in ("a", "b") and value not in slots:
+    if fld in ("a", "b") and owner_of(value, slots) is None:
         return "the new end is not in this snapshot"
     if op["id"].startswith(USER_PREFIX):
         conn = next((c for c in doc.get(CONNECTORS) or [] if c.get("id") == op["id"]), None)
@@ -498,10 +544,17 @@ def _edge(doc: dict[str, Any], op: dict[str, Any], slots: dict[str, Slot]) -> st
             return None
         if fld in ("a", "b") and value == conn["b" if fld == "a" else "a"]:
             return "a connector needs two different ends"
+        if fld in ("a", "b") and nested(slots, value, conn["b" if fld == "a" else "a"]):
+            return NESTED
+        if fld == "route":
+            conn.update(a_side="auto", b_side="auto", bend=0)
+            return None
         conn[fld] = value
+        if fld in ("a", "b") and op.get("side"):
+            conn[f"{fld}_side"] = op["side"]
         return None
     for end in op["ends"]:
-        if end not in slots:
+        if owner_of(end, slots) is None:
             return "an end of the connector is not in this snapshot"
     edits = doc.get(EDGE_EDITS)
     if not isinstance(edits, dict):
@@ -512,11 +565,18 @@ def _edge(doc: dict[str, Any], op: dict[str, Any], slots: dict[str, Slot]) -> st
         other = entry.get("b" if fld == "a" else "a") or op["ends"][1 if fld == "a" else 0]
         if value == other:
             return "a connector needs two different ends"
-    if (fld == "label" and value is None) or (fld == "hidden" and not value) or \
+        if nested(slots, value, other):
+            return NESTED
+    if fld == "route":
+        for k in ("a_side", "b_side", "bend"):
+            entry.pop(k, None)
+    elif (fld == "label" and value is None) or (fld == "hidden" and not value) or \
             (fld in ("a_side", "b_side") and value == "auto") or (fld == "bend" and not value):
         entry.pop(fld, None)
     else:
         entry[fld] = value
+        if fld in ("a", "b") and op.get("side"):
+            entry[f"{fld}_side"] = op["side"]
     if set(entry) == {"ends"}:
         edits.pop(op["id"], None)
     else:
@@ -531,15 +591,19 @@ def normalize_connectors(doc: dict[str, Any], spec: EditSpec) -> None:
     if not any(k in doc for k in CONNECTOR_KEYS):
         return
     ids = set(walk(doc, spec))
+
+    def live(end: Any) -> bool:
+        return isinstance(end, str) and owner_of(end, ids) is not None
+
     links = [c for c in doc.get(CONNECTORS) or []
-             if isinstance(c, dict) and c.get("a") in ids and c.get("b") in ids]
+             if isinstance(c, dict) and live(c.get("a")) and live(c.get("b"))]
     if links:
         doc[CONNECTORS] = links
     else:
         doc.pop(CONNECTORS, None)
     edits = {k: v for k, v in sorted((doc.get(EDGE_EDITS) or {}).items())
-             if isinstance(v, dict) and all(e in ids for e in v.get("ends", []))
-             and all(v[f] in ids for f in ("a", "b") if f in v)}
+             if isinstance(v, dict) and all(live(e) for e in v.get("ends", []))
+             and all(live(v[f]) for f in ("a", "b") if f in v)}
     if edits:
         doc[EDGE_EDITS] = edits
     else:
@@ -799,20 +863,30 @@ def _moved_across(generated: dict[str, Any], edited: dict[str, Any], spec: EditS
 
 def _connector_parts(edited: dict[str, Any], spec: EditSpec,
                      scope: Collection_[str] | None) -> list[str]:
-    """The connector edits of `edited` (inside `scope`), in words."""
+    """The connector edits of `edited` in words. With `scope`, only those whose ends
+    are all inside it: a figure of one zone or part draws a connector only when both
+    its ends are there, so only those mark it edited (the report says separately which
+    connectors no figure part could draw)."""
     slots = walk(edited, spec)
 
     def inside(ident: Any) -> bool:
         if scope is None:
             return True
-        return isinstance(ident, str) and any(_inside(slots, ident, s) for s in scope)
+        own = owner_of(ident, slots) if isinstance(ident, str) else None
+        return own is not None and any(_inside(slots, own, s) for s in scope)
 
     added = [c for c in edited.get(CONNECTORS) or []
-             if inside(c.get("a")) or inside(c.get("b"))]
-    counts = {"removed": 0, "reconnected": 0, "relabeled": 0, "rerouted": 0}
+             if inside(c.get("a")) and inside(c.get("b"))]
+    counts = {"removed": 0, "reconnected": 0, "relabeled": 0, "with the label removed": 0,
+              "rerouted": 0, "with new arrowheads": 0}
     for entry in (edited.get(EDGE_EDITS) or {}).values():
-        ends = [*entry.get("ends", []), *(entry[f] for f in ("a", "b") if f in entry)]
-        if not any(inside(e) for e in ends):
+        ends = list(entry.get("ends", []))
+        for i, f in enumerate(("a", "b")):
+            if f in entry and i < len(ends):
+                ends[i] = entry[f]
+        if entry.get("hidden"):
+            ends = list(entry.get("ends", []))  # drawn as removed where it was
+        if not ends or not all(inside(e) for e in ends):
             continue
         if entry.get("hidden"):
             counts["removed"] += 1
@@ -820,9 +894,11 @@ def _connector_parts(edited: dict[str, Any], spec: EditSpec,
         if "a" in entry or "b" in entry:
             counts["reconnected"] += 1
         if "label" in entry:
-            counts["relabeled"] += 1
-        if any(k in entry for k in ("a_side", "b_side", "bend", "arrow")):
+            counts["with the label removed" if not entry["label"] else "relabeled"] += 1
+        if any(k in entry for k in ("a_side", "b_side", "bend")):
             counts["rerouted"] += 1
+        if "arrow" in entry:
+            counts["with new arrowheads"] += 1
     parts = []
     if added:
         parts.append(f"{_count(len(added), 'connector')} added by the author")
@@ -833,12 +909,17 @@ def _connector_parts(edited: dict[str, Any], spec: EditSpec,
 
 
 def touched(op: dict[str, Any]) -> set[str]:
-    """Element ids an operation depends on (its ends, for a connector edit)."""
+    """Element ids an operation depends on (its ends, for a connector edit; for an end
+    on a box inside an element, that element too)."""
     ids = {op[k] for k in ("id", "parent", "a", "b") if isinstance(op.get(k), str)}
     ids |= {e for e in op.get("ends") or [] if isinstance(e, str)}
     if op.get("op") == "edge" and op.get("field") in ("a", "b") and \
             isinstance(op.get("value"), str):
         ids.add(op["value"])
+    for ident in list(ids):
+        while ":" in ident:
+            ident = ident.rsplit(":", 1)[0]
+            ids.add(ident)
     return ids
 
 
