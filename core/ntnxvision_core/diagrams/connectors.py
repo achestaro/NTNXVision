@@ -664,8 +664,18 @@ def place_bend(sc: Scene, e: Edge, pts: list[Point], bend: float, a: Node, b: No
     return pts, 0.0
 
 
-def _hop(e: Edge, marks: list[Point]) -> None:
-    """A hop at each of `marks` on the horizontal runs of `e`."""
+def _hop(e: Edge, marks: list[Point], solid: list[Box] | None = None) -> None:
+    """A hop at each of `marks` on the horizontal runs of `e`: over the crossing line,
+    or under it where a box sits right above the run (a run in a narrow gap)."""
+    solid = solid or []
+
+    def lift(x: float, y: float) -> float:
+        for dy in (-HOP_H, HOP_H):
+            r = Box(x - HOP_W, min(y, y + dy), x + HOP_W, max(y, y + dy))
+            if not any(_overlaps(r, o) for o in solid):
+                return dy
+        return -HOP_H
+
     pts: list[Point] = [e.points[0]]
     for s0, s1 in _segments(e.points):
         if _h((s0, s1)):
@@ -675,8 +685,9 @@ def _hop(e: Edge, marks: list[Point]) -> None:
                          min(s0[0], s1[0]) + HOP_W < p[0] < max(s0[0], s1[0]) - HOP_W},
                         reverse=sign < 0)
             for x in xs:
-                pts += [(q(x - sign * HOP_W), y), (q(x - sign * HOP_W * 0.5), q(y - HOP_H)),
-                        (q(x + sign * HOP_W * 0.5), q(y - HOP_H)), (q(x + sign * HOP_W), y)]
+                dy = lift(x, y)
+                pts += [(q(x - sign * HOP_W), y), (q(x - sign * HOP_W * 0.5), q(y + dy)),
+                        (q(x + sign * HOP_W * 0.5), q(y + dy)), (q(x + sign * HOP_W), y)]
         pts.append(s1)
     e.points = pts
 
@@ -698,9 +709,13 @@ def hop_crossings(sc: Scene, routed: set[str]) -> None:
                         marks.setdefault(e.id, []).append(p)
                     elif _v(s) and _h(t) and (p := _cross(t, s)) is not None:
                         marks.setdefault(o.id, []).append(p)
+    solid = [Box.of(n) for n in sc.nodes if n.kind in _SOLID and n.kind != "container"]
     for e in edges:
         if e.id in marks:
-            _hop(e, marks[e.id])
+            ends = {e.src, e.dst}
+            _hop(e, marks[e.id], [b for n, b in zip(
+                [n for n in sc.nodes if n.kind in _SOLID and n.kind != "container"], solid,
+                strict=True) if n.id not in ends])
 
 
 # ─── labels ────────────────────────────────────────────────────────────
@@ -781,18 +796,27 @@ def _label_color(e: Edge, default: str) -> str:
 
 def _longer_with_label(sc: Scene, f: Field, j: _Job, e: Edge, labels: list[EdgeLabel],
                        nodes: dict[str, Node]) -> bool:
-    """A short straight connector whose label has no room: route it the long way round
-    instead (with room for the label), when that route is clean."""
+    """A connector whose label has no room beside its route: take the cheapest other
+    route (every side pair the edit allows, never the shortcut across a narrow gap)
+    that is clean and has room for the label."""
     keep = list(e.points)
-    e.points = []
-    r = route(f, j.a, j.b, j.a_side, j.b_side, [o for o in sc.edges if o.id != e.id],
-              straight=False)
-    if r is not None:
-        e.points = r.points
-        e.labels = list(labels)
-        if _clean(sc, e, nodes) and not crossing_problems(sc, e) and \
-                place_labels(sc, e, nodes):
-            return True
+    others = [o for o in sc.edges if o.id != e.id]
+    best: tuple[float, list[Point], list[EdgeLabel]] | None = None
+    for sa in (SIDES if j.a_side == "auto" else (j.a_side,)):
+        for sb in (SIDES if j.b_side == "auto" else (j.b_side,)):
+            e.points = []
+            r = route(f, j.a, j.b, sa, sb, others, straight=False)
+            if r is None or (best is not None and r.score[0] >= best[0]):
+                continue
+            e.points = r.points
+            e.labels = [EdgeLabel(lb.x, lb.y, lb.w, lb.h, list(lb.lines), lb.background)
+                        for lb in labels]
+            if _clean(sc, e, nodes) and not crossing_problems(sc, e) and \
+                    place_labels(sc, e, nodes):
+                best = (r.score[0], list(e.points), list(e.labels))
+    if best is not None:
+        e.points, e.labels = best[1], best[2]
+        return True
     e.points, e.labels = keep, []
     return False
 
