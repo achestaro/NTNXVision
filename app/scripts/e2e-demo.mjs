@@ -1252,6 +1252,13 @@ try {
     await page.keyboard.press('ControlOrMeta+Shift+f');
     await page.locator('.dg-expanded').waitFor();
     await uxShot('diagrams-expanded');
+    // From an inspector field: the first Escape only leaves the field.
+    await page.locator('[data-el]').first().focus();
+    const field = page.locator('.dg-inspector input, .dg-inspector select').first();
+    await field.focus();
+    await page.keyboard.press('Escape');
+    await page.locator('.dg-expanded').waitFor();
+    if (await field.evaluate((el) => el === document.activeElement)) throw new Error('Escape did not leave the field');
     // From a focused element: the first Escape deselects, the second leaves.
     await page.locator('[data-el]').first().focus();
     await page.keyboard.press('Escape');
