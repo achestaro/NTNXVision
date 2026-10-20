@@ -26,7 +26,7 @@ import shutil
 import ssl
 import tempfile
 import time
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 _SMALL_PRIMES = [p for p in range(3, 2000) if all(p % d for d in range(2, int(p**0.5) + 1))]
@@ -208,7 +208,7 @@ def _pem(label: str, der: bytes) -> str:
 
 def _certificate(subject: tuple[str, str], issuer: tuple[str, str], key: RsaKey,
                  signer: RsaKey, *, ca: bool, days: int) -> bytes:
-    now = datetime.now(timezone.utc).replace(microsecond=0)
+    now = datetime.now(UTC).replace(microsecond=0)
     spki = _seq(_seq(_oid("1.2.840.113549.1.1.1"), _NULL), _tlv(0x03, b"\x00" + key.public_der()))
     ski = hashlib.sha1(key.public_der()).digest()  # noqa: S324 — RFC 5280 key identifier
     aki = hashlib.sha1(signer.public_der()).digest()  # noqa: S324

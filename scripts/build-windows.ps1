@@ -36,7 +36,7 @@ function Invoke-Checked {
 
 # -- Python ---------------------------------------------------------------------
 $py = $null
-foreach ($v in '3.13', '3.12', '3.11', '3.10') {
+foreach ($v in '3.13', '3.12', '3.11') {
   if (Get-Command py -ErrorAction SilentlyContinue) {
     & py "-$v" -c "import sys" 2>$null
     if ($LASTEXITCODE -eq 0) { $py = @('py', "-$v"); break }
@@ -49,7 +49,7 @@ if (-not $py) {
     if ($LASTEXITCODE -eq 0) { $py = @('python') }
   }
 }
-if (-not $py) { throw 'Need Python 3.10-3.13 (winget install Python.Python.3.13)' }
+if (-not $py) { throw 'Need Python 3.11-3.13 (winget install Python.Python.3.13)' }
 
 Step "Python core venv"
 Set-Location (Join-Path $Root 'core')

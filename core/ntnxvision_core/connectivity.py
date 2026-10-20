@@ -25,7 +25,7 @@ import os
 import socket
 import ssl
 import tempfile
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from ntnxvision_core.api import PrismConnection, PrismCredentials, transport
@@ -350,7 +350,7 @@ def describe_certificate(host: str, port: int) -> dict[str, Any] | None:
         if not_after:
             with contextlib.suppress(ValueError):
                 ts = ssl.cert_time_to_seconds(not_after)
-                out["not_after"] = datetime.fromtimestamp(ts, timezone.utc).strftime(
+                out["not_after"] = datetime.fromtimestamp(ts, UTC).strftime(
                     "%Y-%m-%dT%H:%M:%SZ")
     return out
 

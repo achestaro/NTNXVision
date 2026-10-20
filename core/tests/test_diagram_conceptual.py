@@ -10,7 +10,7 @@ from __future__ import annotations
 import io
 import json
 import os
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -68,7 +68,7 @@ def _labels(sc: S.Scene, edge_id: str) -> list[str]:
 
 def _pdf_bytes(sc: S.Scene) -> bytes:
     pdf = FPDF(orientation="L", unit="pt", format=(sc.height + 20, sc.width + 20))
-    pdf.set_creation_date(datetime(2026, 10, 1, tzinfo=timezone.utc))
+    pdf.set_creation_date(datetime(2026, 10, 1, tzinfo=UTC))
     pdf.add_page()
     draw_scene(pdf, sc, 10, 10)
     return bytes(pdf.output())
