@@ -15,7 +15,8 @@
 // .ntnxsnap → delete → import → open in Inventory → reopen it as the OS would and skip
 // the duplicate) → Multiple PCs with one failing target → Overview. Along the way: a named
 // saved target (and renaming it without a duplicate), report file name prefixes, Inventory
-// opening on Clusters, and click-anywhere rows toggling the detail pane. Cluster scope and
+// opening on Clusters with nothing selected (no pane until a row is opened, Esc closes it,
+// a ⌘K deep link opens its object), and click-anywhere rows toggling the detail pane. Cluster scope and
 // snapshot names: a required, unique snapshot name gates Start; the PE cluster picker
 // (several clusters: deselect / select all and pick; one cluster: shown greyed out; a
 // failed listing with retry), a scoped snapshot holding only the chosen clusters, the
@@ -295,6 +296,12 @@ const gridRow = (name) => page.getByRole('row').filter({ has: page.getByRole('bu
 async function openRow(name) {
   const b = page.getByRole('button', { name, exact: true });
   if ((await b.getAttribute('aria-pressed')) !== 'true') await b.click();
+}
+
+/** No grid row is selected and the details pane is closed. */
+async function expectNoSelection(when) {
+  if (await page.locator('#inv-detail').count()) throw new Error(`details pane open after ${when}`);
+  if (await page.locator('tbody tr[aria-selected="true"]').count()) throw new Error(`a row is selected after ${when}`);
 }
 
 async function expectExpanded(name, expanded) {
@@ -765,7 +772,9 @@ try {
     await rail('Inventory');
     await page.getByRole('heading', { level: 1, name: 'Clusters' }).waitFor({ timeout: 30_000 });
     await page.getByRole('navigation', { name: 'Object types' }).locator('[aria-current="page"]', { hasText: 'Clusters' }).waitFor();
-    await page.getByText('Cluster details').waitFor({ timeout: 30_000 });
+    // Nothing is selected on arrival: no details pane, the grid takes the full width.
+    await page.locator('tbody tr button.lnk').first().waitFor({ timeout: 30_000 });
+    await expectNoSelection('landing on Clusters');
     for (const col of ['Data Services IP', 'vCPU:pCore', 'vCPU:pCore N-1', 'Storage ratio', 'Storage ratio N-1']) {
       if (await page.getByRole('columnheader', { name: col, exact: true }).count()) throw new Error(`${col} is still a grid column`);
     }
@@ -779,12 +788,42 @@ try {
   await run('inventory-row-click', async () => {
     const first = await page.locator('tbody tr button.lnk').first().innerText();
     const second = await page.locator('tbody tr button.lnk').nth(1).innerText();
-    await expectExpanded(first, true); // the first row opens on its own
-    // A click anywhere on the open row (not the name) closes the pane...
+    await expectExpanded(first, false); // no row opens on its own
+    // A click anywhere on a row (not only the name) opens its details...
+    await gridRow(first).locator('td').nth(3).click();
+    await expectExpanded(first, true);
+    await page.getByText('Cluster details').waitFor({ timeout: 15_000 });
+    // ...a second click closes them...
     await gridRow(first).locator('td').nth(2).click();
     await expectExpanded(first, false);
     await page.getByText('Cluster details').waitFor({ state: 'detached' });
-    // ...and opens it again.
+    // ...and opens them again.
+    await gridRow(first).locator('td').nth(3).click();
+    await expectExpanded(first, true);
+    // Esc closes the pane and clears the selection.
+    await gridRow(first).focus();
+    await page.keyboard.press('Escape');
+    await expectNoSelection('Esc');
+    // Arrow keys only move focus; Enter opens the focused row.
+    await page.keyboard.press('ArrowDown');
+    await page.waitForTimeout(200);
+    await expectNoSelection('ArrowDown');
+    await page.keyboard.press('Enter');
+    await expectExpanded(second, true);
+    await page.getByRole('button', { name: 'Close details' }).click();
+    await expectNoSelection('Close details');
+    // Another type opens with nothing selected, then back to Clusters the same way.
+    await gridRow(first).locator('td').nth(2).click();
+    await expectExpanded(first, true);
+    const types = page.getByRole('navigation', { name: 'Object types' });
+    await types.getByRole('button', { name: /^Hosts/ }).click();
+    await page.getByRole('heading', { level: 1, name: /Hosts/ }).waitFor({ timeout: 30_000 });
+    await page.locator('tbody tr button.lnk').first().waitFor({ timeout: 30_000 });
+    await expectNoSelection('switching to Hosts');
+    await types.getByRole('button', { name: /^Clusters/ }).click();
+    await page.getByRole('heading', { level: 1, name: 'Clusters' }).waitFor({ timeout: 30_000 });
+    await gridRow(first).waitFor({ timeout: 30_000 });
+    await expectNoSelection('back to Clusters');
     await gridRow(first).locator('td').nth(3).click();
     await expectExpanded(first, true);
     // Another row switches to it.
@@ -830,7 +869,27 @@ try {
     await page.getByRole('heading', { level: 1, name: 'Virtual machines' }).waitFor({ timeout: 30_000 });
     await page.getByRole('button', { name: /^Protection\s*:?\s*All$/ }).click();
     await page.getByRole('menuitem', { name: /^None/ }).click();
+    // A filter never selects a row; the first click does.
+    await page.locator('tbody tr button.lnk').first().waitFor({ timeout: 30_000 });
+    await page.waitForTimeout(300);
+    await expectNoSelection('filtering VMs');
+    await page.locator('tbody tr button.lnk').first().click();
     await page.getByText('VM details').waitFor({ timeout: 30_000 });
+  });
+
+  // A deep link to one object (⌘K) still opens it selected, with its details.
+  await run('inventory-palette-deep-link', async () => {
+    await rail('Overview');
+    await page.keyboard.press('ControlOrMeta+k');
+    const palette = page.getByRole('dialog', { name: 'Search and jump' });
+    await palette.getByRole('combobox', { name: 'Search' }).fill('PHX-PROD-01');
+    // The Clusters group comes first; its PHX-PROD-01 row is the cluster itself.
+    await palette.locator('.palette-item', { hasText: 'pc01-week2' }).filter({ hasText: 'PHX-PROD-01' }).first().click({ timeout: 15_000 });
+    await page.getByRole('heading', { level: 1, name: 'Clusters' }).waitFor({ timeout: 30_000 });
+    await expectExpanded('PHX-PROD-01', true);
+    await page.getByText('Cluster details').waitFor({ timeout: 15_000 });
+    await page.keyboard.press('Escape');
+    await expectNoSelection('Esc after a deep link');
   });
 
   await run('inventory-cluster-capacity', async () => {

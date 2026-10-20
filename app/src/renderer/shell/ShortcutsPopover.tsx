@@ -44,7 +44,7 @@ export function ShortcutsPopover({ onClose }: { onClose(): void }): JSX.Element 
     ['Next / previous row', ['j', 'k']],
     ['Open row', ['↵']],
     ['Confirm (start, export)', [`${mod}↵`]],
-    ['Close dialog or menu', ['Esc']],
+    ['Close dialog, menu or details', ['Esc']],
     ['Diagrams: undo, redo', [`${mod}Z`, `⇧${mod}Z`]],
     ['Diagrams: save', [`${mod}S`]],
     ['Diagrams: rename, delete, move', ['F2', '⌫', '⌥←→']],

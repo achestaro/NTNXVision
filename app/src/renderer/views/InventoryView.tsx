@@ -65,10 +65,13 @@ export function InventoryView({
   snapshot: snapshotProp,
   type: typeProp,
   filterText,
+  objectId,
 }: {
   snapshot?: string;
   type?: string;
   filterText?: string;
+  /** A deep link naming one object (⌘K): it opens selected, with its details. */
+  objectId?: string;
 }): JSX.Element {
   const { navigate } = useRouter();
   const { dataVersion } = useRun();
@@ -83,7 +86,10 @@ export function InventoryView({
   const [facets, setFacets] = useState<Record<string, string>>({});
   const [sort, setSort] = useState<InventorySort | null>(null);
   const [offset, setOffset] = useState(0);
-  const [selected, setSelected] = useState<string | null | undefined>(undefined); // undefined = auto first row
+  // Nothing is selected (and the details pane stays closed) until the user opens a row,
+  // or a deep link names an object. Landing on a type, switching type or snapshot, or
+  // filtering never selects a row on its own.
+  const [selected, setSelected] = useState<string | null>(objectId ?? null);
   const [hidden, setHidden] = useState<Record<string, boolean>>({});
   const [facetMenu, setFacetMenu] = useState<{ facet: InventoryFacet; x: number; y: number } | null>(null);
   const [colMenu, setColMenu] = useState<{ x: number; y: number } | null>(null);
@@ -101,10 +107,16 @@ export function InventoryView({
 
   // New query → back to page 1.
   useEffect(() => setOffset(0), [path, type, debounced, facets, sort]);
+  // Only a real change of type or snapshot clears the selection, so a deep link's object
+  // stays selected on mount (StrictMode's double effect run included) and when the first
+  // snapshot is picked for an empty `path`.
+  const shown = useRef({ type, path });
   useEffect(() => {
     setFacets({});
     setSort(null);
-    setSelected(undefined);
+    const prev = shown.current;
+    if (prev.type !== type || (prev.path !== undefined && prev.path !== path)) setSelected(null);
+    shown.current = { type, path };
     setHidden({});
   }, [type, path]);
 
@@ -119,9 +131,33 @@ export function InventoryView({
   // pair their ids with the new type (the detail request would 404).
   const q = query.data && query.data.object_type === type ? query.data : undefined;
   const rows = q?.rows ?? [];
-  const selectedId = selected === undefined ? rows[0]?.id ?? null : selected;
+  const selectedId = selected;
   /** Open a row's details, or close them when that row is already open. */
   const toggleRow = (id: string) => setSelected(id === selectedId ? null : id);
+  /** Close the details pane (X / Esc): clears the selection, focus back on the row. */
+  const closeDetail = () => {
+    const tr = document.querySelector<HTMLElement>('tbody tr[aria-expanded="true"]');
+    setSelected(null);
+    if (tr && tr.tabIndex >= 0) tr.focus();
+  };
+  const closeDetailRef = useRef(closeDetail);
+  closeDetailRef.current = closeDetail;
+  const menuOpen = !!facetMenu || !!colMenu;
+
+  // Esc closes the details pane, unless a menu or dialog is open (Esc is theirs then).
+  useEffect(() => {
+    if (!selectedId || menuOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape' || e.defaultPrevented) return;
+      if (document.querySelector('[role="dialog"], [role="menu"], [role="listbox"]')) return;
+      const t = e.target as HTMLElement | null;
+      if (t && (t.tagName === 'INPUT' || t.tagName === 'SELECT' || t.tagName === 'TEXTAREA')) return;
+      e.preventDefault();
+      closeDetailRef.current();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [selectedId, menuOpen]);
 
   const detail = useAsync<ObjectDetail>(
     () => (path && selectedId ? window.ntnx.getObjectDetail(path, type, selectedId) : undefined),
@@ -268,7 +304,7 @@ export function InventoryView({
             </label>
             <select id="snap" className="input" style={{ width: 280 }} value={path ?? ''} onChange={(e) => {
                 setPath(e.target.value);
-                setSelected(undefined);
+                setSelected(null);
               }}
             >
               {snapshots.map((s) => (
@@ -298,8 +334,9 @@ export function InventoryView({
                   aria-current={t.type === type ? 'page' : undefined}
                   onClick={() => {
                     setType(t.type);
-                    // Same update as the type: never pair the old type's id with the new one.
-                    setSelected(undefined);
+                    // Same update as the type: never pair the old type's id with the new one,
+                    // and a new type opens with nothing selected.
+                    setSelected(null);
                     setText('');
                     setDebounced('');
                   }}
@@ -466,7 +503,7 @@ export function InventoryView({
             state={detail}
             row={rows.find((r) => r.id === selectedId) ?? null}
             columns={q?.columns ?? []}
-            onClose={() => setSelected(null)}
+            onClose={closeDetail}
           />
         )}
       </div>
