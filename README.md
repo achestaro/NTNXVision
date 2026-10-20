@@ -154,13 +154,15 @@ You can also email any report on demand.
 
 ### Download
 
-Installers are built by the [Release workflow](.github/workflows/release.yml) on GitHub
-Actions. **Builds are currently unsigned**: every pull request into `main` and every manual run
-produces the installers as workflow artifacts (`NTNXVision-windows-msi`,
-`NTNXVision-macos-arm64`, `NTNXVision-macos-x64`). Signed, notarized releases on the
-[Releases](../../releases) page will follow once code-signing certificates are in place; the
-workflow refuses to publish a version-tagged release without them. Check a download against
-its SHA-256 with `shasum -a 256 <file>` (macOS) or `Get-FileHash <file>` (Windows).
+Download the installers from the [Releases](../../releases) page. Each release lists the
+Windows MSI and macOS DMG/ZIP files, a `SHA256SUMS` file and a build-provenance attestation, all
+produced by the [Release workflow](.github/workflows/release.yml) on GitHub Actions. Check a
+download with `shasum -a 256 <file>` (macOS) or `Get-FileHash <file>` (Windows), or verify its
+provenance with `gh attestation verify <file> -R achestaro/NTNXVision`.
+
+**Builds are currently unsigned.** Code-signing certificates are not in place yet, so releases
+are marked "Unsigned build" and both systems warn on first launch (see below). Once
+certificates are added, the same workflow signs and notarizes every release.
 
 | Platform | File | Notes |
 |---|---|---|
@@ -172,7 +174,7 @@ its SHA-256 with `shasum -a 256 <file>` (macOS) or `Get-FileHash <file>` (Window
 Upgrades install over the previous version and keep your targets, snapshots and settings.
 
 **Opening an unsigned build.** The macOS app is only ad-hoc signed and not notarized, and the
-MSI has no Authenticode signature, so both systems warn on first launch:
+MSI has no Authenticode signature:
 
 - **macOS**: Gatekeeper refuses the first launch, often as "NTNXVision is damaged and can't be
   opened". After copying the app to Applications, clear the download quarantine flag once:
