@@ -131,6 +131,25 @@ def port(n: Node, side: str, frac: float = 0.5) -> Point:
     return (q(n.x + n.w), q(n.y + n.h * frac))
 
 
+def _free_frac(n: Node, side: str, others: list[Edge], want: float) -> float:
+    """A port position along `side` of `n` at least 7 pt from where another connector
+    already ends on that side (`want` first, then the centre and either side of it)."""
+    taken = []
+    for o in others:
+        for p in (o.points[:1] + o.points[-1:]) if o.points else []:
+            on = {"top": abs(p[1] - n.y) < 0.6, "bottom": abs(p[1] - n.y - n.h) < 0.6,
+                  "left": abs(p[0] - n.x) < 0.6, "right": abs(p[0] - n.x - n.w) < 0.6}[side]
+            if on:
+                taken.append(p[0] if side in ("top", "bottom") else p[1])
+    if not taken:
+        return want
+    lo, span = (n.x, n.w) if side in ("top", "bottom") else (n.y, n.h)
+    for f in (want, 0.5, 0.35, 0.65, 0.2, 0.8):
+        if all(abs(lo + span * f - t) >= 7 for t in taken):
+            return f
+    return want
+
+
 def _stub(p: Point, side: str) -> Point:
     dx, dy = _NORMAL[side]
     return (q(p[0] + dx * STUB), q(p[1] + dy * STUB))
@@ -289,7 +308,8 @@ def route(f: Field, a: Node, b: Node, a_side: str = "auto", b_side: str = "auto"
     best: Route | None = None
     for sa in (SIDES if a_side == "auto" else (a_side,)):
         for sb in (SIDES if b_side == "auto" else (b_side,)):
-            pa, pb = port(a, sa, a_frac), port(b, sb, b_frac)
+            pa = port(a, sa, _free_frac(a, sa, others, a_frac))
+            pb = port(b, sb, _free_frac(b, sb, others, b_frac))
             qa, qb = _stub(pa, sa), _stub(pb, sb)
             mids_x = _mids(qa[0], qb[0], near, ends, 0, f.sc.width)
             mids_y = _mids(qa[1], qb[1], near, ends, 1, f.sc.height)
