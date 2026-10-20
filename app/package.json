@@ -46,11 +46,11 @@
     "@types/node": "^20.11.0",
     "@types/react": "^18.2.0",
     "@types/react-dom": "^18.2.0",
-    "@vitejs/plugin-react": "^4.2.0",
+    "@vitejs/plugin-react": "^6.1.2",
     "concurrently": "^9.0.0",
     "electron": "44.9.0",
     "electron-builder": "^26.15.3",
-    "esbuild": "0.25.12",
+    "esbuild": "0.28.2",
     "eslint": "^10.13.0",
     "globals": "^17.13.0",
     "playwright-core": "^1.61.1",
@@ -58,7 +58,7 @@
     "react-dom": "^18.2.0",
     "typescript": "^5.4.0",
     "typescript-eslint": "^8.71.2",
-    "vite": "^6.4.4",
+    "vite": "^8.3.4",
     "wait-on": "^9.5.1"
   },
   "build": {
