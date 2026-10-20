@@ -132,7 +132,7 @@ def port(n: Node, side: str, frac: float = 0.5) -> Point:
 
 
 def _free_frac(n: Node, side: str, others: list[Edge], want: float) -> float:
-    """A port position along `side` of `n` at least 7 pt from where another connector
+    """A port position along `side` of `n` at least 10 pt from where another connector
     already ends on that side (`want` first, then the centre and either side of it)."""
     taken = []
     for o in others:
@@ -145,7 +145,7 @@ def _free_frac(n: Node, side: str, others: list[Edge], want: float) -> float:
         return want
     lo, span = (n.x, n.w) if side in ("top", "bottom") else (n.y, n.h)
     for f in (want, 0.5, 0.35, 0.65, 0.2, 0.8):
-        if all(abs(lo + span * f - t) >= 7 for t in taken):
+        if all(abs(lo + span * f - t) >= 10 for t in taken):
             return f
     return want
 
