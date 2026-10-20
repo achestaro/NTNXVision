@@ -151,3 +151,83 @@ def test_test_smtp_untrusted_returns_the_certificate_then_pins(demo: Any) -> Non
         params["smtp"]["pinned_sha256"] = "00" * 32
         assert "changed" in sc._m_test_smtp(None, params)["message"]
         assert len(tls_sink.messages) == 1
+
+
+# ─── QA round ──────────────────────────────────────────────────────────
+
+
+def _attachment_names(sink: SmtpSink, n: int) -> list[str]:
+    msg = email.message_from_bytes(sink.messages[n]["data"], policy=email.policy.default)
+    return [str(a.get_filename()) for a in msg.iter_attachments()]  # type: ignore[attr-defined]
+
+
+def test_resending_keeps_stable_names_and_reuses_the_saved_copy(
+        demo: Any, data_dir: Path, sink: SmtpSink) -> None:
+    exports = data_dir / "exports"
+    snap = _run(data_dir, "pc01 resend")
+    today = date.today().isoformat()
+    params = {"smtp": smtp(sink.port), "to": ["user@example.com"], "subject": "s",
+              "body": "b", "snapshots": [snap["snapshot_path"]],
+              "formats": ["excel", "pdf"], "export_dir": str(exports)}
+    # A manual export of the same snapshot already holds the plain names.
+    sc._m_export(None, {"snapshot": snap["snapshot_path"], "formats": ["excel"],
+                        "export_dir": str(exports)})
+    first = sc._m_send_email(None, params)
+    second = sc._m_send_email(None, params)
+    assert first["ok"] and second["ok"], (first, second)
+    stable = [f"pc01 resend-{today}.xlsx", f"pc01 resend-{today}.pdf"]
+    # Every send attaches the same names, consistent across formats.
+    assert _attachment_names(sink, 0) == stable == _attachment_names(sink, 1)
+    assert [a["name"] for a in second["attachments"]] == stable
+    # The second send reuses the first send's copies: no -3 files.
+    assert [f["path"] for f in first["files"]] == [f["path"] for f in second["files"]]
+    names = sorted(p.name for p in exports.iterdir())
+    assert names == sorted([f"pc01 resend-{today}.xlsx", f"pc01 resend-{today}-2.xlsx",
+                            f"pc01 resend-{today}.pdf"]), names
+    # Other options are other content: a new copy.
+    third = sc._m_send_email(None, {**params, "formats": ["pdf"],
+                                    "sections": ["executive_summary"]})
+    assert third["ok"] and third["files"][0]["path"] != first["files"][1]["path"]
+    # No temp folder is left behind.
+    assert all(Path(a).exists() for a in [f["path"] for f in third["files"]])
+
+
+def test_target_placeholder_uses_the_saved_target_name(demo: Any, data_dir: Path,
+                                                       sink: SmtpSink) -> None:
+    snap = _run(data_dir, "pc01 named")
+    base = {"smtp": smtp(sink.port), "to": ["user@example.com"], "subject": "R {target}",
+            "body": "b", "snapshots": [snap["snapshot_path"]], "formats": ["excel"],
+            "export_dir": str(data_dir / "exports")}
+    r = sc._m_send_email(None, {**base, "context": {
+        "target_names": {"PC01.demo.local": "Production PC"}}})
+    assert r["subject"] == "R Production PC"
+    # No saved target for the host: the host.
+    r = sc._m_send_email(None, base)
+    assert r["subject"] == "R pc01.demo.local"
+
+
+def test_estimates_use_measured_export_sizes(demo: Any, data_dir: Path) -> None:
+    snap = _run(data_dir, "pc01 sizes")
+    before = sc._m_get_snapshot(None, {"snapshot": snap["snapshot_path"]})["export_estimates"]
+    assert not before["excel"]["measured"]
+    out = sc._m_export(None, {"snapshot": snap["snapshot_path"], "formats": ["excel", "pdf"],
+                              "export_dir": str(data_dir / "exports")})
+    real = {f: Path(p).stat().st_size for f, p in out["paths"].items()}
+    after = sc._m_get_snapshot(None, {"snapshot": snap["snapshot_path"]})["export_estimates"]
+    assert after["excel"] == {**after["excel"], "bytes": real["excel"], "measured": True}
+    assert after["pdf"]["bytes"] == real["pdf"] and not after["word"]["measured"]
+    # The model is within a factor of two of the real files (it was 2 to 4 times high).
+    for fmt in ("excel", "pdf"):
+        assert real[fmt] / 2 < before[fmt]["bytes"] < real[fmt] * 2, (fmt, before, real)
+
+
+def test_send_notice_and_header_safe_from_name(demo: Any, sink: SmtpSink) -> None:
+    r = sc._m_send_notice(None, {"smtp": smtp(sink.port, from_name="Ops\r\nBcc: x@example.com"),
+                                 "to": ["user@example.com"], "subject": "Schedule failed",
+                                 "body": "Reason"})
+    assert r["ok"], r
+    msg = email.message_from_bytes(sink.messages[-1]["data"], policy=email.policy.default)
+    assert msg["From"] == "\"Ops Bcc: x@example.com\" <ntnxvision@example.com>"
+    assert msg["Bcc"] is None
+    assert sc._m_send_notice(None, {"smtp": {**smtp(sink.port), "port": 0}, "to": ["a@example.com"],
+                                    "subject": "s"})["status"] == "invalid"

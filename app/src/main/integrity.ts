@@ -110,7 +110,12 @@ export class Integrity {
 
   /** Check a file's parsed content. `undefined` = no file: nothing to protect. */
   check(name: string, value: unknown): Verdict {
-    if (!this.key || value === undefined) return 'ok';
+    if (!this.key) return 'ok';
+    if (value === undefined) {
+      // No file to adopt: whatever appears later (outside the app) is checked, not adopted.
+      if (this.adopting) this.adopted.add(name);
+      return 'ok';
+    }
     const macs = this.io.read();
     if (this.adopting && !this.adopted.has(name)) {
       // Once per file: a later outside edit in the same session is still caught.
@@ -127,6 +132,8 @@ export class Integrity {
   /** Record the MAC of content the app just wrote. */
   sign(name: string, value: unknown): void {
     if (!this.key) return;
+    // Written by the app: from now on the file is checked, never adopted unchecked.
+    if (this.adopting) this.adopted.add(name);
     this.io.write({
       ...this.io.read(),
       [name]: computeMac(this.key, name, value),

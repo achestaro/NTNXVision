@@ -4,10 +4,10 @@
 
 import React, { useEffect, useState } from 'react';
 import { EnvelopeSimpleIcon } from '@phosphor-icons/react';
-import type { EmailResult, SmtpField, SmtpSecurity, SmtpSettings, SmtpSettingsInfo } from '@shared/ipc';
-import { DEFAULT_SMTP, EMAIL_TAMPERED_MESSAGE, SMTP_PORTS } from '@shared/ipc';
+import type { EmailResult, SmtpField, SmtpSaveRequest, SmtpSecurity, SmtpSettings, SmtpSettingsInfo } from '@shared/ipc';
+import { DEFAULT_SMTP, EMAIL_TAMPERED_MESSAGE, SMTP_MAX_ATTACHMENT_MB, SMTP_MIN_ATTACHMENT_MB, SMTP_PORTS } from '@shared/ipc';
 import { isValidEmail } from '@shared/schedule';
-import { Button, Callout, Field, Loading, Panel, PanelHeader, Segmented, Status, Switch, useToast } from '../components';
+import { Button, Callout, ConfirmDialog, Field, Loading, Panel, PanelHeader, Segmented, Status, Switch, useToast } from '../components';
 import { useSettings } from '../lib/settings';
 import { useRouter } from '../lib/router';
 import { errorMessage } from '../lib/format';
@@ -28,7 +28,9 @@ function check(f: Form): Errors {
   if (host && !f.fromAddress.trim()) e.fromAddress = 'Enter the address mail is sent from.';
   else if (f.fromAddress.trim() && !isValidEmail(f.fromAddress)) e.fromAddress = 'Not an email address.';
   const limit = Number(f.maxAttachmentMb);
-  if (!Number.isFinite(limit) || limit < 1 || limit > 100) e.maxAttachmentMb = 'Enter a limit from 1 to 100 MB.';
+  if (!/^\d+$/.test(f.maxAttachmentMb.trim()) || !Number.isInteger(limit) || limit < SMTP_MIN_ATTACHMENT_MB || limit > SMTP_MAX_ATTACHMENT_MB) {
+    e.maxAttachmentMb = `Enter a whole number from ${SMTP_MIN_ATTACHMENT_MB} to ${SMTP_MAX_ATTACHMENT_MB} MB.`;
+  }
   return e;
 }
 
@@ -42,7 +44,7 @@ function isLocalHost(h: string): boolean {
 
 /** The Email (SMTP) panel. */
 export function EmailSettingsPanel(): JSX.Element {
-  const { appInfo } = useSettings();
+  const { appInfo, settings, update } = useSettings();
   const toast = useToast();
   const [saved, setSaved] = useState<SmtpSettingsInfo | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -54,28 +56,42 @@ export function EmailSettingsPanel(): JSX.Element {
   const [testTo, setTestTo] = useState('');
   const [testing, setTesting] = useState(false);
   const [test, setTest] = useState<{ to: string; result: EmailResult } | { error: string } | null>(null);
+  /** The server the user chose Trust this certificate for in this form (main keeps the pin only for it). */
+  const [pinnedFor, setPinnedFor] = useState<SmtpSaveRequest['pinnedFor']>(null);
+  const [confirmRemove, setConfirmRemove] = useState(false);
+  const [removing, setRemoving] = useState(false);
+
+  /** The form for saved settings. A file changed outside the app vouches for no pin. */
+  const formFor = (s: SmtpSettingsInfo): Form => toForm(s.tampered ? { ...s, pinnedSha256: '' } : s);
 
   useEffect(() => {
     window.ntnx
       .getSmtpSettings()
       .then((s) => {
         setSaved(s);
-        setForm(toForm(s));
-        setTestTo(s.fromAddress);
+        setForm(formFor(s));
+        setTestTo((t) => t || s.fromAddress);
       })
       .catch((e) => setLoadError(errorMessage(e)));
   }, []);
+
+  // The last test recipient is remembered (not secret), so a test never goes to a guessed address.
+  useEffect(() => {
+    if (settings.emailTestTo) setTestTo(settings.emailTestTo);
+  }, [settings.emailTestTo]);
 
   const set = <K extends keyof Form>(k: K, v: Form[K]) => {
     // A trusted certificate belongs to the server it was shown for (R2-03).
     const resetsPin = k === 'host' || k === 'port' || k === 'username' || (k === 'allowUntrusted' && !v);
     setForm((f) => ({ ...f, [k]: v, ...(resetsPin ? { pinnedSha256: '' } : {}) }));
+    if (resetsPin) setPinnedFor(null);
     setErrors((x) => ({ ...x, [k]: undefined, form: undefined }));
     setTest(null);
   };
 
   const setSecurity = (sec: SmtpSecurity) => {
     setForm((f) => ({ ...f, security: sec, pinnedSha256: '', port: f.port === String(SMTP_PORTS[f.security]) || !f.port ? String(SMTP_PORTS[sec]) : f.port }));
+    setPinnedFor(null);
     setErrors((x) => ({ ...x, port: undefined }));
     setTest(null);
   };
@@ -97,12 +113,13 @@ export function EmailSettingsPanel(): JSX.Element {
     if (hasErrors(e)) return;
     setSaving(true);
     try {
-      const r = await window.ntnx.saveSmtpSettings({ ...values(), password, clearPassword });
+      const r = await window.ntnx.saveSmtpSettings({ ...values(), password, clearPassword, pinnedFor });
       if (r.ok) {
         setSaved(r.settings);
-        setForm(toForm(r.settings));
+        setForm(formFor(r.settings));
         setPassword('');
         setClearPassword(false);
+        setPinnedFor(null);
         if (!testTo) setTestTo(r.settings.fromAddress);
         toast.show({ tone: 'ok', title: 'Email settings saved', detail: r.settings.host ? `${r.settings.host}:${r.settings.port}` : undefined });
       } else {
@@ -128,7 +145,11 @@ export function EmailSettingsPanel(): JSX.Element {
     setErrors(e);
     if (hasErrors(e)) return;
     if (form.username.trim() && !password && !keychainApplies) {
-      setTest({ error: 'Enter the password to test. A saved password is only used with the server and username it was saved for.' });
+      setTest({
+        error: saved?.hasPassword
+          ? 'Enter the password to test this server. For safety, a saved password is only sent to the server it was saved for: the same host, port, security and username.'
+          : 'Enter the password to test.',
+      });
       return;
     }
     setTesting(true);
@@ -136,6 +157,7 @@ export function EmailSettingsPanel(): JSX.Element {
     try {
       const result = await window.ntnx.testSmtp({ ...values(), password, to });
       setTest({ to, result });
+      if (to !== settings.emailTestTo) void update({ emailTestTo: to });
     } catch (err) {
       setTest({ error: errorMessage(err) });
     } finally {
@@ -145,13 +167,41 @@ export function EmailSettingsPanel(): JSX.Element {
 
   const trustCertificate = (fingerprint: string) => {
     setForm((f) => ({ ...f, pinnedSha256: fingerprint.replace(/:/g, '').toLowerCase() }));
+    setPinnedFor({ host: form.host.trim(), port: Number(form.port), security: form.security });
     setTest(null);
     toast.show({ tone: 'ok', title: 'Certificate trusted', detail: 'Save the email settings to keep it.' });
   };
 
+  const removeSettings = async () => {
+    setRemoving(true);
+    try {
+      const r = await window.ntnx.clearSmtpSettings();
+      setSaved(r.settings);
+      setForm(formFor(r.settings));
+      setPassword('');
+      setClearPassword(false);
+      setPinnedFor(null);
+      setTest(null);
+      setErrors({});
+      setConfirmRemove(false);
+      const n = r.disabledSchedules.length;
+      toast.show({
+        tone: n ? 'warn' : 'ok',
+        title: 'Email settings removed',
+        detail: n ? `${n === 1 ? '1 schedule was' : `${n} schedules were`} switched off because schedules need email: ${r.disabledSchedules.join(', ')}.` : undefined,
+      });
+    } catch (err) {
+      setErrors({ form: errorMessage(err) });
+      setConfirmRemove(false);
+    } finally {
+      setRemoving(false);
+    }
+  };
+
   const dirty =
     !!saved &&
-    (password !== '' ||
+    (!!saved.tampered ||
+      password !== '' ||
       clearPassword ||
       (Object.keys(DEFAULT_SMTP) as (keyof SmtpSettings)[]).some((k) => String(form[k]) !== String(saved[k])));
 
@@ -174,7 +224,8 @@ export function EmailSettingsPanel(): JSX.Element {
         {loadError && <Callout tone="error" title="Couldn’t load the email settings.">{loadError}</Callout>}
         {saved?.tampered && (
           <Callout tone="warn" title="Email is switched off.">
-            {EMAIL_TAMPERED_MESSAGE} Check the values below, enter the password again if needed, and save.
+            {EMAIL_TAMPERED_MESSAGE} Check the values below and save. For safety the saved password and any trusted certificate are not carried over: enter the
+            password again, and send a test to trust the certificate again if the server needs one.
           </Callout>
         )}
         {errors.form && <Callout tone="error" title={errors.form} />}
@@ -322,8 +373,25 @@ export function EmailSettingsPanel(): JSX.Element {
               <Button variant="primary" onClick={() => void save()} disabled={saving || !dirty || unsafeAuth} data-testid="smtp-save">
                 Save email settings
               </Button>
-              {dirty && <span className="hint">Unsaved changes</span>}
+              {dirty && <span className="hint">{saved?.tampered ? 'Review, then save to switch email back on' : 'Unsaved changes'}</span>}
+              {(saved?.configured || saved?.tampered || saved?.hasPassword) && (
+                <Button variant="ghost" onClick={() => setConfirmRemove(true)} style={{ marginLeft: 'auto' }} data-testid="smtp-remove">
+                  Remove email settings
+                </Button>
+              )}
             </div>
+            {confirmRemove && (
+              <ConfirmDialog
+                open
+                destructive
+                busy={removing}
+                title="Remove email settings?"
+                confirmLabel="Remove email settings"
+                onClose={() => setConfirmRemove(false)}
+                onConfirm={() => void removeSettings()}
+                body="The mail server, the saved password and any trusted certificate are removed. Every enabled schedule is switched off, because schedules email their reports. Snapshots and reports are kept."
+              />
+            )}
 
             <div style={{ borderTop: '1px solid var(--rule-2)', paddingTop: 16 }}>
               <div className="email-test">
@@ -377,9 +445,9 @@ export function EmailSettingsPanel(): JSX.Element {
 
 /** Ok or failure callout for an email result. */
 export function EmailOutcome({ result, okTitle, extra }: { result: EmailResult; okTitle: string; extra?: React.ReactNode }): JSX.Element {
-  if (result.ok) {
+  if (result.ok && result.status === 'sent_with_warnings') {
     return (
-      <Callout tone="ok" title={okTitle}>
+      <Callout tone="warn" title={`${emailStatusTitle(result.status)}.`}>
         {result.message}
         {result.detail && (
           <>
@@ -387,6 +455,22 @@ export function EmailOutcome({ result, okTitle, extra }: { result: EmailResult; 
             <span className="mono t12">{result.detail}</span>
           </>
         )}
+        {extra}
+      </Callout>
+    );
+  }
+  if (result.ok) {
+    // The headline often says it already ("Test email sent to x."): no second copy.
+    const same = result.message.trim() === okTitle.trim();
+    return (
+      <Callout tone="ok" title={okTitle || result.message}>
+        {okTitle && !same ? (
+          <>
+            {result.message}
+            <br />
+          </>
+        ) : null}
+        {result.detail && <span className="mono t12">{result.detail}</span>}
       </Callout>
     );
   }

@@ -108,15 +108,18 @@ function EmailDialog({
 
   const est = snap?.export_estimates ?? {};
   const estimate = chosen.reduce((sum, f) => sum + (est[f]?.bytes ?? 0), 0) * snapshotPaths.length;
+  // Real sizes when this snapshot was exported before (one snapshot), else a model estimate.
+  const measured = !many && chosen.length > 0 && chosen.every((f) => est[f]?.measured);
   const limitBytes = (smtp?.maxAttachmentMb ?? 20) * 1024 * 1024;
   const sizeLine = chosen.length
     ? [
-        estimate ? `≈ ${fmtBytes(estimate)} of attachments` : `${plural(reportCount, 'report')}`,
+        estimate ? (measured ? `${fmtBytes(estimate)} of attachments (last export)` : `≈ ${fmtBytes(estimate)} of attachments (estimate)`) : `${plural(reportCount, 'report')}`,
         `limit ${fmtCount(smtp?.maxAttachmentMb ?? 20)} MB`,
         smtp?.zipAttachments ? 'sent as one .zip' : 'sent as separate files',
       ].join(' · ')
     : 'Choose at least one format';
   const overLimit = !!estimate && !smtp?.zipAttachments && estimate > limitBytes;
+  const folder = settings.exportDir || appInfo?.defaultExportDir || '';
 
   const validate = () => {
     const e = {
@@ -146,11 +149,12 @@ function EmailDialog({
       });
       if (r.files?.length) invalidate();
       if (r.ok) {
-        const n = r.attachments?.length ?? r.files?.length ?? reportCount;
+        const n = r.files?.length ?? r.attachments?.length ?? reportCount;
+        const warned = r.status === 'sent_with_warnings';
         toast.show({
-          tone: 'ok',
-          title: `Emailed ${n === 1 ? '1 report' : `${fmtCount(n)} reports`} · ${name}`,
-          detail: (r.recipients?.length ? r.recipients : [...toList, ...ccList]).join(', '),
+          tone: warned ? 'warn' : 'ok',
+          title: `Emailed ${n === 1 ? '1 report' : `${fmtCount(n)} reports`}${warned ? ' with warnings' : ''} · ${name}`,
+          detail: warned ? r.message : (r.recipients?.length ? r.recipients : [...toList, ...ccList]).join(', '),
         });
         onClose();
         return;
@@ -251,11 +255,15 @@ function EmailDialog({
               />
             ))}
           </div>
-          <div className={`mono t12 below ${overLimit ? '' : 'muted'}`} style={{ marginTop: 8, color: overLimit ? 'var(--warn)' : undefined }} data-testid="email-size">
+          <div className={`mono t12 below ${overLimit && measured ? '' : 'muted'}`} style={{ marginTop: 8, color: overLimit && measured ? 'var(--warn)' : undefined }} data-testid="email-size">
             {sizeLine}
-            {overLimit ? ' · over the limit: turn on Zip attachments in Settings or choose fewer formats' : ''}
+            {overLimit
+              ? measured
+                ? ' · over the limit: turn on Zip attachments in Settings or choose fewer formats'
+                : ' · may be over the limit: the size is checked before sending'
+              : ''}
           </div>
-          <div className="hint below">The reports are also saved to {tildify(settings.exportDir || appInfo?.defaultExportDir || '') || 'the report folder'}.</div>
+          <div className="hint below">The reports are also saved to {tildify(folder) || 'the report folder'}. Sending again reuses the same files.</div>
         </fieldset>
 
         {callError && <Callout tone="error" title="Email failed.">{callError}</Callout>}

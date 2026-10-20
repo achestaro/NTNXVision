@@ -16,7 +16,7 @@ import type {
   ScheduleTrigger,
   SchedulesState,
 } from '@shared/ipc';
-import { DEFAULT_EMAIL_BODY, DEFAULT_EMAIL_SUBJECT, SCHEDULES_TAMPERED_MESSAGE } from '@shared/ipc';
+import { DEFAULT_EMAIL_BODY, DEFAULT_EMAIL_SUBJECT } from '@shared/ipc';
 import { WEEK_ORDER, addressIssue, describeFrequency, nextRunAfter, parseAddressList, validateSchedule } from '@shared/schedule';
 import {
   Badge,
@@ -70,11 +70,43 @@ function LastRun({ run }: { run: ScheduleRunRecord | null }): JSX.Element {
   }
   const when = run.finishedAt ?? run.startedAt;
   const ok = run.status === 'ok';
+  const warned = run.status === 'warning';
+  const text = ok
+    ? `Sent ${fmtRel(when)}`
+    : warned
+      ? `Sent with warnings ${fmtRel(when)}`
+      : /fail/i.test(run.message)
+        ? run.message
+        : `Failed: ${run.message}`;
   return (
     <span className="st" title={`${run.message} (${fmtAbs(when)})`}>
-      <StatusGlyph tone={ok ? 'ok' : 'error'} />
-      <span className="sch-clip sch-last-text">{ok ? `Sent ${fmtRel(when)}` : /fail/i.test(run.message) ? run.message : `Failed: ${run.message}`}</span>
+      <StatusGlyph tone={ok ? 'ok' : warned ? 'warn' : 'error'} />
+      <span className="sch-clip sch-last-text">{text}</span>
     </span>
+  );
+}
+
+const RUN_TONE = { ok: 'ok', warning: 'warn', running: 'live', failed: 'error' } as const;
+
+/** One history line: the outcome, its raw detail and the failure notice, if any. */
+function RunLine({ run }: { run: ScheduleRunRecord }): JSX.Element {
+  return (
+    <>
+      <Status tone={RUN_TONE[run.status] ?? 'error'}>{run.status === 'warning' ? `Sent with warnings. ${run.message}` : run.message}</Status>
+      {run.failureNotice && (
+        <div className={`t12 ${run.failureNotice.sent ? 'muted' : ''}`} style={run.failureNotice.sent ? undefined : { color: 'var(--warn)' }}>
+          {run.failureNotice.message}
+        </div>
+      )}
+      {run.detail && (
+        <details className="t12 muted">
+          <summary>Details</summary>
+          <span className="mono" style={{ overflowWrap: 'anywhere' }}>
+            {run.detail}
+          </span>
+        </details>
+      )}
+    </>
   );
 }
 
@@ -136,6 +168,11 @@ export function SchedulesView({ edit }: { edit?: string }): JSX.Element {
     try {
       const next = await window.ntnx.runScheduleNow(s.id);
       setState(next);
+      if (!next.queued) {
+        const now = next.schedules.find((x) => x.id === s.id)?.state;
+        toast.show({ tone: 'warn', title: now === 'running' ? `Already running · ${s.name}` : `Already queued · ${s.name}`, hint: 'It runs once; nothing was added.' });
+        return;
+      }
       toast.show({ tone: 'ok', title: `Run queued · ${s.name}`, hint: 'It collects fresh, then emails the reports.' });
     } catch (e) {
       toast.show({ tone: 'error', title: `Couldn’t run ${s.name}`, detail: errorMessage(e) });
@@ -244,12 +281,13 @@ export function SchedulesView({ edit }: { edit?: string }): JSX.Element {
       <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
         {loadError && <ErrorState title="Couldn’t load the schedules." error={loadError} onRetry={() => void load()} />}
         {state.tampered && (
-          <Callout tone="warn" title="Schedules are switched off.">
-            {SCHEDULES_TAMPERED_MESSAGE} Nothing in the file runs or sends mail until you edit and save a schedule.
+          <Callout tone="warn" title="Schedules changed outside NTNXVision are switched off.">
+            The schedule file was changed outside NTNXVision. Each schedule marked Needs review stays off and sends nothing until you open it, check its
+            targets and recipients, and save it. Deleting or saving one schedule does not turn the others back on.
           </Callout>
         )}
         {emailCallout}
-        {problems.map((s) => (
+        {problems.filter((s) => !s.needsReview).map((s) => (
           <Callout
             key={s.id}
             tone="warn"
@@ -288,7 +326,7 @@ export function SchedulesView({ edit }: { edit?: string }): JSX.Element {
                 onRowOpen={(s) => setEditing(s)}
                 rowActions={rowActions}
                 rowActionsLabel={(s) => `Actions for ${s.name}`}
-                rowClassName={(s) => (s.problems.length ? 'r-warn' : s.lastRun?.status === 'failed' ? 'r-error' : undefined)}
+                rowClassName={(s) => (s.problems.length || s.lastRun?.status === 'warning' ? 'r-warn' : s.lastRun?.status === 'failed' ? 'r-error' : undefined)}
                 kebabAlwaysVisible
                 columns={[
                   {
@@ -301,6 +339,7 @@ export function SchedulesView({ edit }: { edit?: string }): JSX.Element {
                           {s.name}
                         </button>
                         {s.state === 'queued' && <Badge>Queued</Badge>}
+                        {s.needsReview && <Badge>Needs review</Badge>}
                       </span>
                     ),
                   },
@@ -332,7 +371,11 @@ export function SchedulesView({ edit }: { edit?: string }): JSX.Element {
                   {
                     key: 'enabled',
                     header: 'Enabled',
-                    render: (s) => <Switch checked={s.enabled} onChange={(v) => void setEnabled(s, v)} label={`Enable ${s.name}`} />,
+                    render: (s) => (
+                      <span title={s.needsReview ? 'Open and save this schedule to turn it back on.' : undefined}>
+                        <Switch checked={s.enabled} onChange={(v) => void setEnabled(s, v)} label={`Enable ${s.name}`} disabled={!!s.needsReview} />
+                      </span>
+                    ),
                   },
                 ]}
                 rowInlineActions={(s) => (
@@ -394,7 +437,8 @@ function ScheduleEditor({
   const [cc, setCc] = useState((schedule?.cc ?? []).join(', '));
   const [subject, setSubject] = useState(schedule?.subject ?? DEFAULT_EMAIL_SUBJECT);
   const [body, setBody] = useState(schedule?.body ?? DEFAULT_EMAIL_BODY);
-  const [enabled, setEnabled] = useState(schedule?.enabled ?? true);
+  const [enabled, setEnabled] = useState(schedule?.needsReview ? true : schedule?.enabled ?? true);
+  const [notifyOnFailure, setNotifyOnFailure] = useState(schedule?.notifyOnFailure !== false);
   const [errors, setErrors] = useState<Errors>({});
   const [saving, setSaving] = useState(false);
 
@@ -419,6 +463,7 @@ function ScheduleEditor({
     subject,
     body,
     frequency: frequency(),
+    notifyOnFailure,
   });
 
   const next = useMemo(() => nextRunAfter(frequency(), new Date()), [kind, time, days, day]);
@@ -476,7 +521,15 @@ function ScheduleEditor({
     >
       <div style={{ display: 'flex', flexDirection: 'column', gap: 20, marginTop: 16 }}>
         {errors.form && <Callout tone="error" title={errors.form} />}
-        {schedule?.problems.length ? <Callout tone="warn" title="This schedule can’t run as saved.">{schedule.problems.join(' ')}</Callout> : null}
+        {schedule?.needsReview ? (
+          <Callout tone="warn" title="Review this schedule.">
+            It was changed outside NTNXVision. Check the targets, recipients and message below, then save to turn it back on.
+          </Callout>
+        ) : schedule?.problems.length ? (
+          <Callout tone="warn" title="This schedule can’t run as saved.">
+            {schedule.problems.join(' ')}
+          </Callout>
+        ) : null}
         <div className="email-fields">
           <Field id="sch-name" label="Name" error={errors.name} hint="Snapshots are saved under this name (with -2, -3 for later runs).">
             <input
@@ -699,9 +752,15 @@ function ScheduleEditor({
           <Field id="sch-subject" label="Subject" error={errors.subject} className="span-all">
             <input className="input" value={subject} onChange={(e) => (setSubject(e.target.value), clear('subject'))} />
           </Field>
-          <Field id="sch-body" label="Message" className="span-all" hint="Placeholders: {target}, {date}, {snapshot}, {summary}">
+          <Field id="sch-body" label="Message" className="span-all" hint="Placeholders: {target} (the saved target name), {date}, {snapshot}, {summary}">
             <textarea className="input" rows={5} value={body} onChange={(e) => setBody(e.target.value)} />
           </Field>
+          <div className="span-all">
+            <Checkbox checked={notifyOnFailure} onChange={setNotifyOnFailure}>
+              Email when a run fails
+            </Checkbox>
+            <div className="hint">A short notice to these recipients, without reports: the schedule, its targets, where it failed and why.</div>
+          </div>
         </div>
 
         {history.length > 0 && (
@@ -713,7 +772,7 @@ function ScheduleEditor({
                   <span className="mono t12">{fmtAbs(h.startedAt)}</span>
                   <span className="t12 muted">{TRIGGER_LABEL[h.trigger]}</span>
                   <span className="msg">
-                    <Status tone={h.status === 'ok' ? 'ok' : h.status === 'running' ? 'live' : 'error'}>{h.message}</Status>
+                    <RunLine run={h} />
                   </span>
                 </li>
               ))}

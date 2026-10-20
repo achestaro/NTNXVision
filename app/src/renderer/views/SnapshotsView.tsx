@@ -98,7 +98,8 @@ export function SnapshotsView(): JSX.Element {
     { label: 'Delete…', shortcut: '⌫', danger: true, onSelect: () => setDeleting([s]) },
   ];
 
-  if (list.loading && !list.data) {
+  // While loading, never show "No snapshots yet" (also on a reload of an empty list).
+  if (list.loading && (!list.data || !all.length)) {
     return (
       <>
         <PageHeader eyebrow="Explore / Snapshots" title="Snapshots" />
