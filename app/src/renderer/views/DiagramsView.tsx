@@ -54,7 +54,7 @@ import { isMod, isTyping } from '../lib/keyboard';
 import { NA, errorMessage, fmtAbs, fmtDay, plural } from '../lib/format';
 import { useExportDialog } from './ExportDialog';
 import { useSnapshotTransfer } from './SnapshotTransfer';
-import { SceneCanvas } from './diagrams/SceneCanvas';
+import { SceneCanvas, spoken } from './diagrams/SceneCanvas';
 import type { CanvasTool } from './diagrams/SceneCanvas';
 
 const PALETTE_ICONS: Record<string, PhosphorIcon> = {
@@ -263,6 +263,8 @@ export function DiagramsView({ snapshot: snapProp, type: typeProp, part: partPro
   const dirty = !!detail && !same(ops, savedOps);
   const unsaved = dirty ? (ops.length > savedOps.length && same(ops.slice(0, savedOps.length), savedOps) ? ops.length - savedOps.length : null) : 0;
 
+  /** Runs once on the next layout result (a lane edit that changed nothing, a moved card). */
+  const afterLayout = useRef<((r: DiagramLayoutResult) => void) | null>(null);
   const relayout = useCallback(
     (next: DiagramOp[]) => {
       if (!snapPath || !curType) return;
@@ -273,6 +275,9 @@ export function DiagramsView({ snapshot: snapProp, type: typeProp, part: partPro
           if (my !== seq.current) return;
           laying.current = false;
           setView(r);
+          const then = afterLayout.current;
+          afterLayout.current = null;
+          then?.(r);
         },
         (e) => {
           if (my !== seq.current) return;
@@ -428,6 +433,16 @@ export function DiagramsView({ snapshot: snapProp, type: typeProp, part: partPro
     const ids = new Set(scene?.nodes.map((n) => n.id) ?? []);
     return [...outline.values()].filter((o) => ids.has(o.id));
   }, [scene, outline]);
+  /** Connector ends in this part: the elements, and boxes drawn in a zone (its Prism Central). */
+  const endsHere = useMemo(() => {
+    const byId = new Map((scene?.nodes ?? []).map((n) => [n.id, n]));
+    const boxes = (scene?.nodes ?? [])
+      .filter((n) => n.kind === 'box' && n.parent && !outline.has(n.id) && byId.get(n.parent)?.kind === 'container' && outline.has(n.parent) && n.id.startsWith(`${n.parent}:`))
+      .map((n) => ({ id: n.id, kind: n.lines[0]?.text ?? 'Box', label: `${n.lines[0]?.text ?? 'Box'} of ${outline.get(n.parent!)?.label ?? ''}` }));
+    return [...drawnHere.map((o) => ({ id: o.id, kind: o.kind, label: o.label ?? o.id })), ...boxes];
+  }, [scene, outline, drawnHere]);
+  const endLabel = (id: string) => endsHere.find((e) => e.id === id)?.label ?? outline.get(id)?.label ?? id;
+  const removedHere = useMemo(() => (view?.connectors ?? []).filter((c) => c.hidden && c.parts.includes(partIndex)), [view, partIndex]);
   const partConnectors = useMemo(() => (view?.connectors ?? []).filter((c) => c.parts.includes(partIndex) && !c.hidden), [view, partIndex]);
   const stale = detail?.stale && !kept ? detail.stale : null;
   const marked = useMemo(() => new Set(stale ? stale.changes.filter((c) => c.kind !== 'removed').map((c) => c.id) : []), [stale]);
@@ -474,7 +489,14 @@ export function DiagramsView({ snapshot: snapProp, type: typeProp, part: partPro
 
   // ─ edits from the canvas and inspector ─
   const rename = (id: string, label: string) => apply({ op: 'set', id, field: 'label', value: label });
-  const move = (id: string, index: number, parent?: string) => apply(parent ? { op: 'move', id, index, parent } : { op: 'move', id, index });
+  const move = (id: string, index: number, parent?: string) => {
+    if (!apply(parent ? { op: 'move', id, index, parent } : { op: 'move', id, index })) return;
+    // A card moved into another zone or POD can land in another part: follow it there.
+    afterLayout.current = (r) => {
+      const at = r.scenes.findIndex((sc) => sc.nodes.some((n) => n.id === id));
+      if (at >= 0 && at !== partIndex && curType) setCur({ type: curType, part: at });
+    };
+  };
   const remove = (id: string) => {
     const c = connectors.get(id);
     setSelected(null);
@@ -484,18 +506,36 @@ export function DiagramsView({ snapshot: snapProp, type: typeProp, part: partPro
     }
     apply({ op: 'delete', id });
   };
-  const editConnector = (c: DiagramConnector, field: DiagramEdgeField, value: string | number | boolean | null) =>
-    apply({ op: 'edge', id: c.id, ends: [c.ends[0] ?? c.a ?? '', c.ends[1] ?? c.b ?? ''], field, value });
-  const connect = (a: string, b: string, aSide?: DiagramSide) => {
+  const editConnector = (c: DiagramConnector, field: DiagramEdgeField, value: string | number | boolean | null, side?: DiagramSide) => {
+    const op: DiagramOp = { op: 'edge', id: c.id, ends: [c.ends[0] ?? c.a ?? '', c.ends[1] ?? c.b ?? ''], field, value };
+    if (side && side !== 'auto' && (field === 'a' || field === 'b')) op.side = side;
+    return apply(op);
+  };
+  /** A lane change the router has to pull all the way back changes nothing: not kept as an edit. */
+  const bend = (c: DiagramConnector, value: number) => {
+    const before = c.bend;
+    if (!editConnector(c, 'bend', Math.max(-600, Math.min(600, Math.round(value * 2) / 2)))) return;
+    afterLayout.current = (r) => {
+      const now = r.connectors.find((x) => x.id === c.id);
+      if (now && now.bend === before) {
+        setEdits(opsRef.current.slice(0, -1), false);
+        toast.show({ tone: 'warn', title: 'No clear lane there.', hint: 'The route stays where it was: that lane would cross a box or another line.' });
+      }
+    };
+  };
+  const connect = (a: string, b: string, aSide?: DiagramSide, bSide?: DiagramSide) => {
     if (a === b) return;
     const id = newId();
     const op: DiagramOp = { op: 'connect', id, a, b, label: null };
     if (aSide && aSide !== 'auto') op.a_side = aSide;
+    if (bSide && bSide !== 'auto') op.b_side = bSide;
     if (apply(op)) {
       setSelected(id);
-      const pa = outline.get(a)?.label ?? a;
-      const pb = outline.get(b)?.label ?? b;
-      toast.show({ tone: 'ok', title: `Connected ${pa} to ${pb}.`, hint: 'Exports draw it dashed amber, marked as added by the author.' });
+      afterLayout.current = (r) => {
+        const why = r.problems.find((p) => p.op.op === 'connect' && p.op.id === id);
+        if (why) toast.show({ tone: 'warn', title: 'Couldn’t connect those two.', detail: `${why.reason[0].toUpperCase()}${why.reason.slice(1)}.` });
+        else toast.show({ tone: 'ok', title: `Connected ${endLabel(a)} to ${endLabel(b)}.`, hint: 'Exports draw it dashed amber, marked as added by the author.' });
+      };
     }
     setTool('select');
     setConnectFrom(null);
@@ -803,9 +843,9 @@ export function DiagramsView({ snapshot: snapProp, type: typeProp, part: partPro
               <FlowArrowIcon size={14} aria-hidden="true" />
               <span>
                 {connectFrom
-                  ? `From ${outline.get(connectFrom)?.label ?? ''}: pick the end element.`
+                  ? `From ${endLabel(connectFrom)}: pick the end element.`
                   : 'Pick the start element.'}{' '}
-                <span className="hint">Click it, or Tab to it and press Enter. Esc cancels.</span>
+                <span className="hint">Click it, or move to it with the arrow keys and press Enter. Esc cancels.</span>
               </span>
               <div className="spacer" />
               <Button size="sm" variant="ghost" onClick={() => (setTool('select'), setConnectFrom(null))}>
@@ -853,6 +893,25 @@ export function DiagramsView({ snapshot: snapProp, type: typeProp, part: partPro
               <span className="dg-callout-body">{view.problems.slice(0, 3).map((p) => `${describeOp(p.op, p.label)}: ${p.reason}.`).join(' ')}</span>
             </Callout>
           )}
+          {view && (view.notes ?? []).length > 0 && (
+            <Callout
+              tone="neutral"
+              className="dg-callout"
+              title={`${plural(view.notes.length, 'connector is', 'connectors are')} drawn differently from your edit.`}
+            >
+              <span className="dg-callout-body" data-testid="dg-notes">
+                {view.notes
+                  .slice(0, 3)
+                  .map((n) => {
+                    const c = connectors.get(n.id);
+                    const name = c ? spoken(c.kind, c.label) : 'A connector';
+                    return `${name}: ${n.reason}.`;
+                  })
+                  .join(' ')}{' '}
+                Your edits are kept; exports draw the figure the same way.
+              </span>
+            </Callout>
+          )}
           {detail?.carried_from?.auto && !stale && (
             <Callout tone="neutral" className="dg-callout" title={`Carried forward automatically from ${detail.carried_from.name ?? NA}.`}>
               <span className="dg-callout-body">Every saved edit applied to this collection, so its reports drew the edited diagram.</span>
@@ -887,9 +946,10 @@ export function DiagramsView({ snapshot: snapProp, type: typeProp, part: partPro
                 onDelete={remove}
                 onPick={pick}
                 onStartConnect={(id) => startConnect(id)}
-                onConnect={(a, b, side) => connect(a, b, side)}
-                onReconnect={(c, end, target) => editConnector(c, end, target)}
-                onBend={(c, bend) => editConnector(c, 'bend', Math.max(-600, Math.min(600, bend)))}
+                onConnect={(a, b, aSide, bSide) => connect(a, b, aSide, bSide)}
+                onReconnect={(c, end, target, side) => editConnector(c, end, target, side)}
+                onSide={(c, end, side) => editConnector(c, end === 'a' ? 'a_side' : 'b_side', side)}
+                onBend={(c, value) => bend(c, value)}
                 onCancelTool={() => (setTool('select'), setConnectFrom(null))}
               />
             ) : (
@@ -931,17 +991,13 @@ export function DiagramsView({ snapshot: snapProp, type: typeProp, part: partPro
             <ConnectorInspector
               key={selConn.id + JSON.stringify([selConn.label, selConn.a, selConn.b, selConn.a_side, selConn.b_side, selConn.bend, selConn.arrow])}
               c={selConn}
-              ends={drawnHere}
+              ends={endsHere}
               onLabel={(v) => editConnector(selConn, 'label', v)}
               onEnd={(end, v) => editConnector(selConn, end, v)}
               onSide={(end, v) => editConnector(selConn, end === 'a' ? 'a_side' : 'b_side', v)}
-              onBend={(v) => editConnector(selConn, 'bend', v)}
+              onBend={(v) => bend(selConn, v)}
               onArrow={(v) => editConnector(selConn, 'arrow', v)}
-              onResetRoute={() => {
-                if (selConn.a_side !== 'auto') editConnector(selConn, 'a_side', 'auto');
-                if (selConn.b_side !== 'auto') editConnector(selConn, 'b_side', 'auto');
-                if (selConn.bend) editConnector(selConn, 'bend', 0);
-              }}
+              onResetRoute={() => editConnector(selConn, 'route', 'auto')}
               onDelete={() => remove(selConn.id)}
             />
           ) : sel ? (
@@ -959,6 +1015,27 @@ export function DiagramsView({ snapshot: snapProp, type: typeProp, part: partPro
             />
           ) : (
             <div className="dg-ins-empty">
+              {removedHere.length > 0 && (
+                <div className="dg-conns" style={{ marginTop: 0, marginBottom: 12 }}>
+                  <span className="eyebrow">Removed from this figure</span>
+                  <ul>
+                    {removedHere.map((c) => (
+                      <li key={c.id}>
+                        <span>{spoken(c.kind, c.label)}</span>
+                        {c.a_label && c.b_label && (
+                          <span className="hint">
+                            {' '}
+                            {c.a_label} to {c.b_label}
+                          </span>
+                        )}
+                        <button type="button" className="textlink" onClick={() => editConnector(c, 'hidden', false)}>
+                          Restore
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
               <p className="hint">
                 Select an element on the canvas to edit its label, role and order, or a connector to change its ends, label and route. Double-click a label to edit it in place.
               </p>
@@ -969,8 +1046,7 @@ export function DiagramsView({ snapshot: snapProp, type: typeProp, part: partPro
                     {partConnectors.map((c) => (
                       <li key={c.id}>
                         <button type="button" className="textlink" onClick={() => setSelected(c.id)}>
-                          {c.kind}
-                          {c.label ? `: ${c.label}` : ''}
+                          {spoken(c.kind, c.label)}
                         </button>
                         <span className="hint">
                           {' '}
@@ -1180,8 +1256,8 @@ function ConnectorInspector({
   onDelete,
 }: {
   c: DiagramConnector;
-  /** Elements drawn in this part: the ends it can take. */
-  ends: DiagramElement[];
+  /** What is drawn in this part that it can end on (elements, a zone's Prism Central). */
+  ends: { id: string; label: string; kind: string }[];
   onLabel(v: string | null): void;
   onEnd(end: 'a' | 'b', id: string): void;
   onSide(end: 'a' | 'b', side: DiagramSide): void;
@@ -1199,6 +1275,17 @@ function ConnectorInspector({
     onLabel(v || (user ? null : ''));
   };
   const relabeled = !user && (c.label ?? '') !== (c.collected_label ?? '');
+  const pinned = c.a_side !== 'auto' || c.b_side !== 'auto' || c.bend_asked !== 0;
+  const issue =
+    c.issue === 'side'
+      ? 'The side you chose forces the route through other boxes, so Auto is used.'
+      : c.issue === 'label'
+        ? 'There is no room for the label beside its line here, so it is not drawn.'
+        : c.issue === 'route'
+          ? 'There is no clear route between its ends here, so it is not drawn.'
+          : c.issue === 'parts'
+            ? 'Its ends are in different parts of this figure, so it is not drawn. The figure summary in reports says so.'
+            : null;
   const sorted = [...ends].sort((x, y) => (x.label ?? '').localeCompare(y.label ?? ''));
   const endSelect = (end: 'a' | 'b') => {
     const cur = end === 'a' ? c.a : c.b;
@@ -1211,7 +1298,7 @@ function ConnectorInspector({
             .filter((o) => o.id !== other)
             .map((o) => (
               <option key={o.id} value={o.id}>
-                {o.label ?? o.id} ({o.kind.toLowerCase()})
+                {o.label.toLowerCase().startsWith(o.kind.toLowerCase()) ? o.label : `${o.label} (${o.kind.toLowerCase()})`}
               </option>
             ))}
         </select>
@@ -1221,11 +1308,14 @@ function ConnectorInspector({
   const sideSelect = (end: 'a' | 'b') => (
     <Field id={`dg-side-${end}`} label={end === 'a' ? 'Leaves by' : 'Enters by'}>
       <select className="input" value={end === 'a' ? c.a_side : c.b_side} onChange={(e) => onSide(end, e.target.value as DiagramSide)}>
-        {(Object.keys(SIDE_LABELS) as DiagramSide[]).map((v) => (
-          <option key={v} value={v}>
-            {SIDE_LABELS[v]}
-          </option>
-        ))}
+        {(Object.keys(SIDE_LABELS) as DiagramSide[]).map((v) => {
+          const used = end === 'a' ? c.a_side_used : c.b_side_used;
+          return (
+            <option key={v} value={v}>
+              {v === 'auto' && used !== 'auto' ? `Auto (${SIDE_LABELS[used].toLowerCase()})` : SIDE_LABELS[v]}
+            </option>
+          );
+        })}
       </select>
     </Field>
   );
@@ -1236,6 +1326,11 @@ function ConnectorInspector({
         <Badge className={user ? 'warn' : undefined}>{user ? 'User-added' : 'Collected'}</Badge>
         {c.edited && !user && <Badge className="acc">Edited</Badge>}
       </div>
+      {issue && (
+        <p className="dg-ins-issue" role="note">
+          {issue}
+        </p>
+      )}
       <div>
         <Field id="dg-conn-label" label="Label">
           <input
@@ -1275,8 +1370,12 @@ function ConnectorInspector({
           <Button size="sm" iconOnly icon={MinusIcon} aria-label="Move the lane back 6 pt" onClick={() => onBend(c.bend - 6)} />
           <Button size="sm" iconOnly icon={PlusIcon} aria-label="Move the lane on 6 pt" onClick={() => onBend(c.bend + 6)} />
         </div>
-        <span className="hint">Or drag the lane handle. The router keeps the route orthogonal and clear of boxes.</span>
-        {(c.a_side !== 'auto' || c.b_side !== 'auto' || c.bend !== 0) && (
+        <span className="hint">
+          {c.bend_asked !== c.bend
+            ? `You asked for ${c.bend_asked > 0 ? '+' : ''}${c.bend_asked} pt; the router keeps it at ${c.bend > 0 ? '+' : ''}${c.bend} pt, the nearest clear lane.`
+            : 'Or drag the lane handle. The router keeps the route orthogonal and clear of boxes.'}
+        </span>
+        {pinned && (
           <p className="hint dg-ins-note">
             <button type="button" className="textlink" onClick={onResetRoute}>
               Reset route

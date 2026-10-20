@@ -941,8 +941,9 @@ export const DIAGRAM_SIDES: readonly DiagramSide[] = ['auto', 'top', 'right', 'b
 export type DiagramArrow = 'none' | 'end' | 'start' | 'both';
 export const DIAGRAM_ARROWS: readonly DiagramArrow[] = ['none', 'end', 'start', 'both'];
 /** What an `edge` edit changes on a connector. */
-export type DiagramEdgeField = 'a' | 'b' | 'label' | 'a_side' | 'b_side' | 'bend' | 'arrow' | 'hidden';
-export const DIAGRAM_EDGE_FIELDS: readonly DiagramEdgeField[] = ['a', 'b', 'label', 'a_side', 'b_side', 'bend', 'arrow', 'hidden'];
+/** `route` (value 'auto') puts both sides back to Auto and the lane to 0 in one edit. */
+export type DiagramEdgeField = 'a' | 'b' | 'label' | 'a_side' | 'b_side' | 'bend' | 'arrow' | 'hidden' | 'route';
+export const DIAGRAM_EDGE_FIELDS: readonly DiagramEdgeField[] = ['a', 'b', 'label', 'a_side', 'b_side', 'bend', 'arrow', 'hidden', 'route'];
 /** Largest lane offset (points) a connector may carry (mirrors MAX_BEND). */
 export const MAX_DIAGRAM_BEND = 600;
 
@@ -964,6 +965,8 @@ export type DiagramOp =
       ends: [string, string];
       field: DiagramEdgeField;
       value: string | number | boolean | null;
+      /** With field a / b: the side of the new end it was dropped on. */
+      side?: DiagramSide;
     }
   | {
       op: 'add';
@@ -1097,10 +1100,16 @@ export interface DiagramConnector {
   b_label: string | null;
   /** The element ids it joined as generated (sent back as `ends` in edge edits). */
   ends: string[];
+  /** The sides asked for (auto unless pinned) and the sides the route uses. */
   a_side: DiagramSide;
   b_side: DiagramSide;
-  /** Lane offset actually applied (points; the router may pull a request back). */
+  a_side_used: DiagramSide;
+  b_side_used: DiagramSide;
+  /** Lane offset applied (points; the router pulls a request back until the route is clean) and asked for. */
   bend: number;
+  bend_asked: number;
+  /** Why it is drawn differently: 'side' (Auto used), 'route' (not drawn), 'label' (label not drawn), 'parts' (ends in different parts). */
+  issue: 'side' | 'route' | 'label' | 'parts' | null;
   arrow: DiagramArrow;
   /** Scene indexes that draw it ([] = not drawn: its ends are in different parts). */
   parts: number[];
@@ -1195,6 +1204,17 @@ export interface DiagramLayoutResult {
   /** The figure's editable connectors (diagrams editor v2). */
   connectors: DiagramConnector[];
   problems: DiagramProblem[];
+  /** Connector edits the layout drew differently (the edit stays): one per connector. */
+  notes: DiagramLayoutNote[];
+}
+
+export interface DiagramLayoutNote {
+  /** The connector's id. */
+  id: string;
+  kind: 'side' | 'route' | 'label';
+  reason: string;
+  /** Scene index of the part that says so. */
+  part: number;
 }
 
 export interface DiagramDetail extends DiagramLayoutResult {
@@ -1391,13 +1411,16 @@ export interface ExportPreviewFile {
 
 /** What an export with these options writes (Export dialog, "What lands in the export folder"). */
 export interface ExportPreview {
+  /** The report name stem (prefix, snapshot, date) every file starts with. */
+  stem?: string;
+  /** Sizes are null until known (a report's size after its first export; the bundle's PNGs past 16 figures). */
   files: ExportPreviewFile[];
   diagrams: {
     name: string;
     package: DiagramsPackage;
     /** Figures in the bundle. */
     count: number;
-    size_bytes: number;
+    size_bytes: number | null;
     approx: boolean;
     entries: ExportPreviewFile[];
     /** Diagram types with saved edits, and the stale ones. */
