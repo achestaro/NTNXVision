@@ -31,6 +31,7 @@ from ntnxvision_core.api.errors import (
     ReadOnlyViolation,
     RedirectBlocked,
 )
+from ntnxvision_core.tlsctx import TrustStoreAdapter
 
 #: A bare DNS name (labels of letters, digits, hyphens) or an IPv4 address.
 # Labels may contain "_" (not strict DNS, but common in lab and AD names); the target
@@ -503,6 +504,9 @@ def configure_tls(session: requests.Session, verify: bool, pinned: str | None = 
 
 def new_session() -> requests.Session:
     session: requests.Session = GuardedSession()
+    # Verified TLS uses the OS trust store (see ntnxvision_core.tlsctx); pinned and
+    # unverified connections are unchanged.
+    session.mount("https://", TrustStoreAdapter())
     if _session_hook is not None:
         _session_hook(session)
     return session

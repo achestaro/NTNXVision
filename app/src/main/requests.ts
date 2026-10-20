@@ -259,6 +259,8 @@ export function cleanSettings(v: unknown): AppSettings {
   if ('exportDiagrams' in r) out.exportDiagrams = cleared('exportDiagrams') ? undefined : bool(r.exportDiagrams, 'exportDiagrams');
   if ('vcpuRatio' in r) out.vcpuRatio = cleared('vcpuRatio') ? undefined : num(r.vcpuRatio, 'vcpuRatio', RATIO_MIN, RATIO_MAX);
   if ('startAtLogin' in r) out.startAtLogin = bool(r.startAtLogin, 'startAtLogin');
+  // Not secret: the next test email's default recipient (Settings > Email).
+  if ('emailTestTo' in r) out.emailTestTo = cleared('emailTestTo') ? undefined : str(r.emailTestTo, 'emailTestTo', 320).trim();
   if ('customSectionOrder' in r) out.customSectionOrder = bool(r.customSectionOrder, 'customSectionOrder');
   // Stored normalized: known movable ids only, every one once, missing ones appended.
   if ('sectionOrder' in r) out.sectionOrder = cleared('sectionOrder') ? undefined : normalizeSectionOrder(strArray(r.sectionOrder, 'sectionOrder', 64, 64));

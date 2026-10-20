@@ -347,6 +347,7 @@ jobs:
           check GrantFileProtocolExtraPrivileges Disabled
           exit $fail
 
+      # --ping-only still runs the --tls-check trust store self-check (no network).
       - name: Ping the sidecar bundled inside the packaged app
         shell: bash
         run: |

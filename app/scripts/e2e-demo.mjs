@@ -1461,6 +1461,9 @@ try {
     await page.getByText('Email settings saved').first().waitFor({ timeout: 15_000 });
     await page.getByTestId('smtp-test').click();
     await page.getByText('Test email sent to ops@example.com.').first().waitFor({ timeout: 30_000 });
+    // Said once, not as the headline and again as the message.
+    const said = await page.getByText('Test email sent to ops@example.com.').count();
+    if (said !== 1) throw new Error(`the test result repeats itself (${said} times)`);
     const [m] = await waitForMails(1);
     if (m.subject !== 'NTNXVision test email') throw new Error(`test subject: ${m.subject}`);
     if (JSON.stringify(m.rcpt_to) !== JSON.stringify(['ops@example.com'])) throw new Error(`test rcpt: ${m.rcpt_to}`);
@@ -1526,6 +1529,20 @@ try {
     const m = got[got.length - 1];
     if (JSON.stringify(m.rcpt_to) !== JSON.stringify(['auditor@example.com'])) throw new Error(`email rcpt: ${m.rcpt_to}`);
     if (!m.attachments.length) throw new Error('no attachments');
+    // Sending again attaches the same names and reuses the saved copies (no -2, -3 files).
+    const filesBefore = (await readdir(exportDir)).filter((f) => f.startsWith('Nightly Tiny-2')).sort();
+    await page.getByRole('button', { name: 'More actions for Nightly Tiny-2', exact: true }).click();
+    await page.getByRole('menuitem', { name: 'Email reports…' }).click();
+    await dialog.locator('#em-to').fill('auditor@example.com');
+    await dialog.getByTestId('email-send').click();
+    const again = await waitForMails(before + 2, 120_000);
+    const m2 = again[again.length - 1];
+    const names = (x) => x.attachments.map((a) => a.filename).join(',');
+    if (names(m2) !== names(m)) throw new Error(`attachment names changed: ${names(m)} then ${names(m2)}`);
+    if (new RegExp(`-${today}-\\d+\\.`).test(names(m2))) throw new Error(`suffixed attachment: ${names(m2)}`);
+    await dialog.waitFor({ state: 'detached', timeout: 30_000 });
+    const filesAfter = (await readdir(exportDir)).filter((f) => f.startsWith('Nightly Tiny-2')).sort();
+    if (JSON.stringify(filesAfter) !== JSON.stringify(filesBefore)) throw new Error(`export folder grew: ${filesBefore} then ${filesAfter}`);
   });
 
   await run('schedule-failure-recorded', async () => {

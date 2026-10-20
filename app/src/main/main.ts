@@ -1106,6 +1106,13 @@ async function checkRenderer(): Promise<string> {
 
 // ─── lifecycle ─────────────────────────────────────────────────────────
 
+// Windows attributes toasts by AppUserModelID. Without it the first "still running"
+// notification after closing to the tray could go missing. The installed app uses
+// electron-builder's appId (its Start menu shortcut carries it); a dev build uses the
+// Electron binary, which is what Windows knows it by.
+export const APP_USER_MODEL_ID = 'com.achestaro.ntnxvision';
+if (process.platform === 'win32') app.setAppUserModelId(app.isPackaged ? APP_USER_MODEL_ID : process.execPath);
+
 // One window per profile: a second launch (Windows: double-clicking a .ntnxsnap while the
 // app runs) hands its arguments to this instance and quits.
 const primary = isSmokeRun() || app.requestSingleInstanceLock();
