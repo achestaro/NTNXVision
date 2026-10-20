@@ -245,7 +245,7 @@ test('vCenter: its password has its own keychain entry, dropped with the endpoin
   assert.equal(sec.map.get(vcAcct), 'v');
   assert.ok(!JSON.stringify(io.file).includes('"v"'));
   // An empty password on an update keeps the saved one.
-  r = await store.save({ ...base, id: 'id-1', ...vc });
+  await store.save({ ...base, id: 'id-1', ...vc });
   assert.equal(sec.map.get(vcAcct), 'v');
   // Removing the vCenter removes its password.
   r = await store.save({ ...base, id: 'id-1', vcenterHost: '' });
