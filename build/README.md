@@ -54,6 +54,17 @@ cd ../app && npm ci && npm run package:mac      # or: npm run package:win (Windo
   `NTNXVISION_*` test override except demo mode, and starts the sidecar with an allowlisted
   environment).
 
+## App icon
+
+`npm run icons` (from `app/`, on macOS with Xcode 26+) regenerates every icon from
+`app/build/art/icon.svg`; commit the outputs. Windows (`icon.ico`), Linux and the tray use the
+full-bleed tile. macOS gets two: `icon.icns`, drawn on Apple's icon grid (824 px squircle body
+centred on the 1024 canvas, standard drop shadow) for macOS 11 to 15, and `Assets.car`,
+compiled by actool from the Icon Composer source `app/build/AppIcon.icon`, which
+`app/build/after-pack.js` copies into `Contents/Resources` and names in `CFBundleIconName`, so
+macOS 26+ renders it natively (Liquid Glass, dark and tinted modes). Packaging only needs the
+committed `Assets.car`, not Xcode.
+
 ## File association (`.ntnxsnap`)
 
 `build.fileAssociations` in `app/package.json` registers portable snapshot files

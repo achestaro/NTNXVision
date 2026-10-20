@@ -1,0 +1,48 @@
+{
+  "fill": {
+    "solid": "srgb:0.04314,0.07451,0.10588,1.00000"
+  },
+  "groups": [
+    {
+      "layers": [
+        {
+          "image-name": "cube.svg",
+          "name": "cube"
+        },
+        {
+          "image-name": "iris.svg",
+          "name": "iris"
+        }
+      ],
+      "shadow": {
+        "kind": "neutral",
+        "opacity": 0.5
+      },
+      "translucency": {
+        "enabled": true,
+        "value": 0.5
+      }
+    },
+    {
+      "layers": [
+        {
+          "image-name": "eye.svg",
+          "name": "eye"
+        }
+      ],
+      "shadow": {
+        "kind": "neutral",
+        "opacity": 0.5
+      },
+      "translucency": {
+        "enabled": true,
+        "value": 0.5
+      }
+    }
+  ],
+  "supported-platforms": {
+    "squares": [
+      "macOS"
+    ]
+  }
+}
