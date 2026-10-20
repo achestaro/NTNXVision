@@ -208,7 +208,8 @@ def conceptual_scenes(env: Any, page: Page | None = None, refs: Refs | None = No
 
 
 __all__ = [
-    "TYPES", "ConceptualModel", "DiagramType", "EditSpec", "Page", "Refs", "Scene", "check_scene",
+    "TYPES", "ConceptualModel", "DiagramType", "EditSpec", "Page", "Refs", "Scene",
+    "check_scene", "connector_extra",
     "conceptual_layout", "conceptual_model", "conceptual_scenes", "from_doc",
     "model_envelope", "model_from_envelope", "scene_json", "to_doc",
 ]

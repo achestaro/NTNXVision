@@ -160,9 +160,11 @@ LOGICAL = EditSpec(
         Collection("sites", "Availability zone", reorder=False, delete=False),
         Collection("pods", "POD", label=None, reorder=False, delete=False,
                    title_of=lambda p: f"POD {p['name']}" if p.get("name") else "Clusters"),
-        Collection("clusters", "Cluster", sublabel="note", kind_of=_kind, cross="sibling",
-                   cross_reason="A collected cluster stays in the availability zone that "
-                   "manages it. It can move to another POD of that zone."),
+        # A POD comes from the cluster's category or name (the card says which), so a
+        # collected cluster keeps it; added components and notes move freely.
+        Collection("clusters", "Cluster", sublabel="note", kind_of=_kind, cross="user",
+                   cross_reason="A collected cluster stays in the POD its category or "
+                   "name puts it in."),
         # Node groups (model, CPU, memory, GPUs): a note line only, collected values.
         Collection("groups", "Node group", label=None, sublabel="note", reorder=False,
                    delete=False, title_of=lambda g: f"{g.get('count', 0):,} x "

@@ -1099,10 +1099,12 @@ def _m_export_preview(_req_id: Any, params: dict[str, Any]) -> dict[str, Any]:
     files = []
     for fmt in formats:
         path = report_path(out_dir, name, extension_for(fmt) or fmt, prefix)
+        # A report's size is only known once it has been written: the last export of
+        # this snapshot in that format, else unknown (the estimates were far off).
+        size = last.get(fmt, {}).get("size_bytes")
         files.append({"format": fmt, "name": path.name, "kind": _PREVIEW_KINDS[fmt],
-                      "size_bytes": int(last.get(fmt, {}).get("size_bytes")
-                                        or est[fmt]["bytes"]),
-                      "approx": True, "detail": est[fmt]["detail"]})
+                      "size_bytes": int(size) if size else None, "approx": bool(size),
+                      "detail": est[fmt]["detail"]})
     bundle = None
     if params.get("diagrams") is True and {"pdf", "word"} & set(formats):
         package = "folder" if params.get("diagrams_package") == "folder" else "zip"
@@ -1114,7 +1116,9 @@ def _m_export_preview(_req_id: Any, params: dict[str, Any]) -> dict[str, Any]:
             bundle["name"] = stem if package == "folder" else f"{stem}.zip"
             bundle["stale"] = stale
             bundle["edited"] = sorted(tags)
-    return {"files": files, "diagrams": bundle}
+    from ntnxvision_core.exporters.naming import report_stem
+
+    return {"files": files, "diagrams": bundle, "stem": report_stem(name, prefix)}
 
 
 _DIAGRAM_FORMATS = ("vsdx", "drawio", "svg", "png")

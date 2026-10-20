@@ -282,6 +282,10 @@ class View:
     scenes: list[Scene]
     problems: list[E.Problem]
 
+    @property
+    def notes(self) -> list[dict[str, Any]]:
+        return layout_notes(self.scenes)
+
 
 def build_view(env: Any, type_id: str, ops: list[dict[str, Any]],
                gen: dict[str, Any] | None = None) -> View:
@@ -289,13 +293,21 @@ def build_view(env: Any, type_id: str, ops: list[dict[str, Any]],
     gen = gen if gen is not None else generated(env, type_id)
     applied = E.apply_ops(gen, ops, t.edit_spec)
     scenes = t.layout(t.from_doc(applied.payload), t.page)
-    problems = sorted([*applied.problems, *_undrawn_edge_ops(ops, scenes, applied.problems)],
+    problems = sorted([*applied.problems, *_layout_problems(ops, scenes, applied.problems)],
                       key=lambda p: p.index)
     return View(type_id, applied.payload, gen, scenes, problems)
 
 
-def _undrawn_edge_ops(ops: list[dict[str, Any]], scenes: list[Scene],
-                      known: list[E.Problem]) -> list[E.Problem]:
+#: Why a connector edit was not drawn as asked, by the overlay's issue.
+ISSUES = {
+    "side": "this side forces the route through other boxes; Auto is used",
+    "route": "there is no clear route for this connector here; it is not drawn",
+    "label": "there is no room for this label beside its line; it is not drawn",
+}
+
+
+def _layout_problems(ops: list[dict[str, Any]], scenes: list[Scene],
+                     known: list[E.Problem]) -> list[E.Problem]:
     """Edits of a generated connector that no part of the figure draws (the data no
     longer has it): problems, like an edit whose element is gone."""
     seen = {e.id for sc in scenes for e in sc.edges} | \
@@ -307,13 +319,43 @@ def _undrawn_edge_ops(ops: list[dict[str, Any]], scenes: list[Scene],
             and op["id"] not in seen]
 
 
+def layout_notes(scenes: list[Scene]) -> list[dict[str, Any]]:
+    """How the layout drew connector edits differently from what was asked (never an
+    edit that fails: the edit stays, the figure says what it did): a pinned side that
+    forced a bad route (Auto is used), a connector with no clear route (not drawn), a
+    label with no room (not drawn). One note per connector, in part order."""
+    out: dict[str, dict[str, Any]] = {}
+    for i, sc in enumerate(scenes):
+        for ident, note in (sc.meta.get("connectors") or {}).items():
+            kind = note.get("issue")
+            if kind in ISSUES and ident not in out:
+                out[ident] = {"id": ident, "kind": kind, "reason": ISSUES[kind], "part": i}
+    return list(out.values())
+
+
+def _end_label(nodes: dict[str, Any], ident: str, labels: dict[str, str]) -> str:
+    """How an end reads: its element's label, or "Prism Central of pc01" for a box in a
+    zone."""
+    if ident in labels:
+        return labels[ident]
+    n = nodes.get(ident)
+    first = n.lines[0].text if n is not None and n.lines else ident
+    holder = labels.get(n.parent, "") if n is not None and n.parent else ""
+    return f"{first} of {holder}" if holder else first
+
+
 def connector_outline(view: View, elements: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """What the inspector shows for each connector of the figure: the generated ones the
-    author may change and the user-added ones, with their ends (element ids), label,
-    sides, lane offset, arrowheads and the parts that draw them."""
-    from .connectors import KIND_NAMES, editable
+    author may change and the user-added ones, with their ends (element ids, or a box a
+    connector may end on, `connectors.end_box`), label, the sides asked for and used,
+    the lane offset asked for and applied, arrowheads, the parts that draw them and
+    why one is not drawn."""
+    from .check import side_of
+    from .connectors import KIND_NAMES, editable, end_box
 
     labels = {o["id"]: str(o["label"] or o["id"]) for o in elements}
+    asked = {c["id"]: c for c in view.payload.get(E.CONNECTORS) or []}
+    asked.update(view.payload.get(E.EDGE_EDITS) or {})
     out: dict[str, dict[str, Any]] = {}
     for i, sc in enumerate(view.scenes):
         nodes = {n.id: n for n in sc.nodes}
@@ -329,11 +371,14 @@ def connector_outline(view: View, elements: list[dict[str, Any]]) -> list[dict[s
                 cur = n.parent if n is not None else None
             return None
 
+        def end(ident: str, nodes: dict[str, Any] = nodes) -> str | None:
+            return ident if ident in labels or end_box(nodes, ident) else owner(ident)
+
         info = sc.meta.get("connectors") or {}
         for e in sc.edges:
             if not editable(e, nodes):
                 continue
-            a, b = owner(e.src), owner(e.dst)
+            a, b = end(e.src), end(e.dst)
             if a is None or b is None or a == b:
                 continue
             if e.id in out:
@@ -341,6 +386,7 @@ def connector_outline(view: View, elements: list[dict[str, Any]]) -> list[dict[s
                 continue
             user = e.id.startswith(E.USER_PREFIX)
             note = info.get(e.id, {})
+            want = asked.get(e.id, {})
             ca = owner(str(note.get("collected_src") or e.src)) or a
             cb = owner(str(note.get("collected_dst") or e.dst)) or b
             label = " ".join(t.text for lab in e.labels for t in lab.lines)
@@ -351,11 +397,15 @@ def connector_outline(view: View, elements: list[dict[str, Any]]) -> list[dict[s
                 "id": e.id, "origin": "user" if user else "collected", "kind": kind,
                 "label": label or None,
                 "collected_label": None if user else note.get("collected_label", label) or None,
-                "a": a, "b": b, "a_label": labels.get(a, a), "b_label": labels.get(b, b),
+                "a": a, "b": b, "a_label": _end_label(nodes, a, labels),
+                "b_label": _end_label(nodes, b, labels),
                 "ends": [ca, cb],
-                "a_side": note.get("a_side", "auto"), "b_side": note.get("b_side", "auto"),
-                "bend": note.get("bend", 0), "arrow": arrow, "parts": [i],
-                "edited": user or bool(note), "hidden": False,
+                "a_side": want.get("a_side", "auto"), "b_side": want.get("b_side", "auto"),
+                "a_side_used": side_of(nodes[e.src], e.points[0]) or "auto",
+                "b_side_used": side_of(nodes[e.dst], e.points[-1]) or "auto",
+                "bend": note.get("bend", 0), "bend_asked": want.get("bend", 0),
+                "arrow": arrow, "parts": [i],
+                "edited": user or bool(want), "hidden": False, "issue": note.get("issue"),
                 "can_delete": True,
                 "delete_op": "delete" if user or e.id in labels else "hide",
                 "source": ("Added on the Diagrams page. Exports draw it dashed amber; it "
@@ -364,27 +414,46 @@ def connector_outline(view: View, elements: list[dict[str, Any]]) -> list[dict[s
             }
         for ident, note in info.items():
             if note.get("hidden") and ident not in out:
+                ca = owner(str(note.get("collected_src") or "")) or ""
+                cb = owner(str(note.get("collected_dst") or "")) or ""
                 out[ident] = {"id": ident, "origin": "collected", "kind": "Connector",
                               "label": note.get("collected_label") or None,
                               "collected_label": note.get("collected_label") or None,
-                              "a": None, "b": None, "a_label": None, "b_label": None,
-                              "ends": [], "a_side": "auto", "b_side": "auto", "bend": 0,
-                              "arrow": "none", "parts": [], "edited": True, "hidden": True,
+                              "a": ca or None, "b": cb or None,
+                              "a_label": labels.get(ca), "b_label": labels.get(cb),
+                              "ends": [ca, cb], "a_side": "auto", "b_side": "auto",
+                              "a_side_used": "auto", "b_side_used": "auto", "bend": 0,
+                              "bend_asked": 0, "arrow": "none", "parts": [i],
+                              "edited": True, "hidden": True, "issue": None,
                               "can_delete": False, "delete_op": "hide",
-                              "source": "Removed from this figure on the Diagrams page."}
-    for c in view.payload.get(E.CONNECTORS) or []:
-        if c["id"] in out:
+                              "source": "Removed from this figure on the Diagrams page. "
+                                        "Restore brings it back."}
+    for ident, want in asked.items():
+        if ident in out:
             continue
-        out[c["id"]] = {
-            "id": c["id"], "origin": "user", "kind": "Connector",
-            "label": c.get("label") or None, "collected_label": None,
-            "a": c.get("a"), "b": c.get("b"), "a_label": labels.get(str(c.get("a"))),
-            "b_label": labels.get(str(c.get("b"))), "ends": [c.get("a"), c.get("b")],
-            "a_side": c.get("a_side", "auto"), "b_side": c.get("b_side", "auto"),
-            "bend": c.get("bend", 0), "arrow": c.get("arrow", "end"), "parts": [],
-            "edited": True, "hidden": False, "can_delete": True, "delete_op": "delete",
-            "source": "Not drawn: its ends are not in the same part of this figure. "
-                      "Exports leave it out.",
+        user = ident.startswith(E.USER_PREFIX)
+        if not user and not want.get("a") and not want.get("b"):
+            continue  # an edit of a connector no part draws: reported as a problem
+        a = str(want.get("a") or "")
+        b = str(want.get("b") or "")
+        issue = next((note.get("issue") for sc in view.scenes
+                      for k, note in (sc.meta.get("connectors") or {}).items()
+                      if k == ident and note.get("issue")), None)
+        why = ("Not drawn: there is no clear route between its ends here."
+               if issue == "route" else
+               "Not drawn: its ends are in different parts of this figure. Reports "
+               "split figures the same way and say so in the figure's summary.")
+        out[ident] = {
+            "id": ident, "origin": "user" if user else "collected", "kind": "Connector",
+            "label": want.get("label") or None, "collected_label": None,
+            "a": a or None, "b": b or None, "a_label": labels.get(a), "b_label": labels.get(b),
+            "ends": list(want.get("ends") or [a, b]),
+            "a_side": want.get("a_side", "auto"), "b_side": want.get("b_side", "auto"),
+            "a_side_used": "auto", "b_side_used": "auto",
+            "bend": 0, "bend_asked": want.get("bend", 0),
+            "arrow": want.get("arrow", "end"), "parts": [], "edited": True,
+            "hidden": False, "issue": issue or "parts", "can_delete": True,
+            "delete_op": "delete" if user else "hide", "source": why,
         }
     return [out[k] for k in sorted(out, key=lambda k: (out[k]["parts"][:1] or [10**6], k))]
 
@@ -410,6 +479,7 @@ def layout_result(env: Any, type_id: str, ops: list[dict[str, Any]]) -> dict[str
         "outline": elements,
         "connectors": connector_outline(view, elements),
         "problems": _problem_docs(view),
+        "notes": view.notes,
     }
 
 
@@ -450,6 +520,7 @@ def get_result(snapshot: Path, env: Any, type_id: str) -> dict[str, Any]:
         "outline": elements,
         "connectors": connector_outline(view, elements),
         "problems": _problem_docs(view),
+        "notes": view.notes,
         "palette": [{"id": p.id, "label": p.label, "collection": p.collection,
                      "parents": list(p.parents), "hint": p.hint,
                      "template": {k: v for k, v in p.template.items() if k != "cards"}}

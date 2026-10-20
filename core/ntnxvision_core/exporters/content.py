@@ -941,6 +941,55 @@ class _Builder:
         return disclosure(dtype.to_doc(generated), dtype.to_doc(drawn), dtype.edit_spec,
                           origins.get(dtype.id), scope)
 
+    def disclose_undrawn_connectors(self, chapters: Sequence[Chapter]) -> None:
+        """Say in the figure's summary which connector edits no figure part could draw:
+        a report figure can split where the Diagrams page did not (parts sized under
+        the summary, one figure per zone), and a crowded figure can leave no clear
+        route. The summaries otherwise count connectors as edited."""
+        from ntnxvision_core.diagrams import connector_extra
+
+        models = getattr(self.opts, "diagram_models", None) or {}
+        every = [blk for ch in chapters
+                 for blk in [*ch.blocks, *(b for s in ch.sections for b in s.blocks)]
+                 if isinstance(blk, SceneFigure)]
+        for type_id, model in sorted(models.items()):
+            extra = connector_extra(model)
+            figs = [f for f in every if f.scene.type == type_id]
+            if not extra or not figs:
+                continue
+            drawn = {e.id for f in figs for e in f.scene.edges}
+            blocked = {k for f in figs for k, n in (f.scene.meta.get("connectors") or {})
+                       .items() if n.get("issue") == "route"}
+            wanted = [str(c.get("id")) for c in extra.connectors] + [
+                k for k, v in sorted(extra.edits.items())
+                if not v.get("hidden") and ("a" in v or "b" in v)]
+            missing = [k for k in wanted if k not in drawn]
+            if not missing:
+                continue
+            n_route = sum(1 for k in missing if k in blocked)
+            n_parts = len(missing) - n_route
+            why = []
+            if n_parts:
+                why.append(f"{n_parts:,} connector{'s' * (n_parts != 1)} not drawn: "
+                           f"{'its' if n_parts == 1 else 'their'} ends are in different "
+                           "parts of the figure")
+            if n_route:
+                why.append(f"{n_route:,} connector{'s' * (n_route != 1)} not drawn: no "
+                           "clear route was left")
+            text = "; ".join(why)
+            for f in figs:
+                for i, bullet in enumerate(f.summary):
+                    if bullet.startswith("Figure edited on the Diagrams page"):
+                        f.summary[i] = bullet.replace(
+                            ". Counts are as collected.",
+                            f"; {text}. Counts are as collected.", 1)
+                        break
+                else:
+                    continue
+                break
+            else:
+                figs[0].summary.append(f"Figure edited on the Diagrams page: {text}.")
+
     @staticmethod
     def part_scope(model: Any, scene: Scene) -> set[str]:
         """The element ids one part of a figure draws, for `scope_edit_marks`: its
@@ -1673,6 +1722,7 @@ def build_report(env: Environment, opts: Any, eyebrow: str) -> Report:
         except Exception as exc:  # noqa: BLE001 - cross references are best effort
             _log.warning("Report cross reference not resolved: %s", exc, exc_info=exc)
             b.warnings.append(f"Cross reference not resolved ({type(exc).__name__}: {exc})")
+    b.disclose_undrawn_connectors(chapters)
     if env.is_combined:
         scope = f"{fmt_count(len(env.source_environments))} Prism Centrals (combined)"
     else:

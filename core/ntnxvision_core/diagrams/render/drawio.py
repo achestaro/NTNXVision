@@ -190,14 +190,18 @@ def _scene(sc: Scene, idx: int, name: str) -> str:
         rel_x, (dx, dy) = _label_position(e, first) if first else (0.0, (0.0, 0.0))
         way = "".join(f'<mxPoint x="{num(x)}" y="{num(y)}"/>' for x, y in e.points[1:-1])
         (sx, sy), (tx_, ty) = e.points[0], e.points[-1]
+        # Like a vertex, the connector carries its data (kind, origin=user, edited) as
+        # draw.io properties on an <object> wrapping its cell.
         cells.append(
-            f'<mxCell id={quoteattr(cid(e.id))} value={quoteattr(label)} '
-            f'style={quoteattr(_edge_style(e, by_id))} edge="1" parent="1"{src}{dst}>'
+            f'<object id={quoteattr(cid(e.id))} label={quoteattr(label)}'
+            f'{_data_attrs({"kind": "edge", **e.data})}>'
+            f'<mxCell style={quoteattr(_edge_style(e, by_id))} edge="1" parent="1"{src}{dst}>'
             f'<mxGeometry x="{num(rel_x)}" relative="1" as="geometry">'
             f'<mxPoint x="{num(sx)}" y="{num(sy)}" as="sourcePoint"/>'
             f'<mxPoint x="{num(tx_)}" y="{num(ty)}" as="targetPoint"/>'
             f'<Array as="points">{way}</Array>'
-            f'<mxPoint x="{num(dx)}" y="{num(dy)}" as="offset"/></mxGeometry></mxCell>')
+            f'<mxPoint x="{num(dx)}" y="{num(dy)}" as="offset"/></mxGeometry></mxCell>'
+            '</object>')
         for k, lab in enumerate(e.labels[1:], start=1):
             style = ";".join(["text=1", "html=1", "whiteSpace=nowrap", f"fontFamily={FONT}",
                               f"fillColor={'#FFFFFF' if lab.background else 'none'}",

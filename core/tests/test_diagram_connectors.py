@@ -106,6 +106,8 @@ def test_user_connectors_route_cleanly_on_every_figure(design_envs: dict[str, An
     env = design_envs[name]
     for t in ST.applicable(env):
         boxes = _boxes(env, t.id)
+        # Two of a kind (a cluster and its own segment would nest: refused).
+        boxes = [o for o in boxes if boxes and o["collection"] == boxes[0]["collection"]]
         if len(boxes) < 2:
             continue
         ops = E.clean_ops([
@@ -125,7 +127,9 @@ def test_user_connectors_route_cleanly_on_every_figure(design_envs: dict[str, An
         for p, r in zip(e.points, e.points[1:], strict=False):
             assert p[0] == r[0] or p[1] == r[1], "orthogonal"
         text = " ".join(t_.text for lab in e.labels for t_ in lab.lines)
-        assert text == "Backup path"
+        # The label is drawn, or a note says there was no room for it beside its line.
+        noted = {n["id"]: n["kind"] for n in view.notes}
+        assert text == "Backup path" or noted.get("user:a") == "label", (name, t.id)
 
 
 def test_connectors_are_deterministic(design_envs: dict[str, Any]) -> None:
@@ -330,31 +334,32 @@ def test_report_figure_draws_and_discloses_connectors(design_envs: dict[str, Any
 # ─── moves across containers ───────────────────────────────────────────
 
 
-def test_collected_cluster_moves_to_another_pod_of_its_zone(design_envs: dict[str, Any]
-                                                           ) -> None:
+def test_collected_cluster_keeps_its_pod_a_note_moves(design_envs: dict[str, Any]
+                                                     ) -> None:
+    """A POD comes from the cluster's category or name, so a collected cluster keeps
+    it (the card would otherwise say a false "from category POD"); a note moves."""
     env = design_envs["enterprise"]
     out = _outline(env, "logical")
-    cluster = next(o for o in out if o["collection"] == "clusters" and o["move_targets"])
-    target = cluster["move_targets"][0]["id"]
+    cluster = next(o for o in out if o["collection"] == "clusters")
+    assert cluster["move_targets"] == []
+    assert "POD its category or name" in str(cluster["move_refusal"])
+    pods = [o for o in out if o["collection"] == "pods"]
+    own = cluster["parent"]
+    other = next(p for p in pods if p["id"] != own and p["parent"] ==
+                 next(o for o in out if o["id"] == own)["parent"])
+    refused = ST.build_view(env, "logical", E.clean_ops([
+        {"op": "move", "id": cluster["id"], "index": 0, "parent": other["id"]}]))
+    assert refused.problems and "POD its category" in refused.problems[0].reason
     view = ST.build_view(env, "logical", E.clean_ops([
-        {"op": "move", "id": cluster["id"], "index": 0, "parent": target}]))
+        {"op": "add", "parent": own, "field": "clusters", "index": 0,
+         "element": {"id": "user:n", "palette": "note", "name": "Note"}},
+        {"op": "move", "id": "user:n", "index": 0, "parent": other["id"]}]))
     assert not view.problems
     moved = {o["id"]: o for o in E.outline(view.payload, view.generated,
                                            TYPES["logical"].edit_spec)}
-    assert moved[cluster["id"]]["parent"] == target
-    text = E.disclosure(view.generated, view.payload, TYPES["logical"].edit_spec)
-    assert text and "moved to POD" in text
-    for s in view.scenes:
-        assert check_scene(s) == []
-    # Another zone's POD is refused, with the reason.
-    pods = [o for o in out if o["collection"] == "pods"]
-    own_site = next(o for o in out if o["id"] == cluster["parent"])["parent"]
-    far = next(p for p in pods if p["parent"] != own_site)
-    refused = ST.build_view(env, "logical", E.clean_ops([
-        {"op": "move", "id": cluster["id"], "index": 0, "parent": far["id"]}]))
-    assert refused.problems and "stays in the availability zone" in \
-        refused.problems[0].reason
-    assert cluster["move_refusal"] and "availability zone" in cluster["move_refusal"]
+    assert moved["user:n"]["parent"] == other["id"]
+    for sc_ in view.scenes:
+        assert check_scene(sc_) == []
 
 
 def test_user_card_moves_across_zones_collected_does_not(design_envs: dict[str, Any]
@@ -458,9 +463,20 @@ def test_bundle_preview_matches_the_bundle(design_envs: dict[str, Any]) -> None:
     assert [c["path"] for c in svgs] == [f"svg/{file_stem(i, s)}.svg"
                                          for i, s in enumerate(scenes, 1)]
     assert all(c["size_bytes"] == len(files[c["path"]]) for c in svgs)
+    # Tags only on a part that draws an edit ("(edited)" in its caption).
     dr = [c for c in svgs if "data-protection" in c["name"]]
-    assert dr and dr[0]["tags"] == ["edited", "stale"]
-    assert all(c["approx"] for c in plan["entries"][3]["children"])
+    assert dr and dr[0]["tags"] == []
+    marked = [s for s in scenes if s.type == "dr"][0]
+    marked.caption = marked.caption.replace(":", " (edited):", 1)
+    plan2 = bundle_preview(scenes, "x_diagrams", "zip", {"dr": ["edited", "stale"]})
+    dr2 = [c for c in plan2["entries"][2]["children"] if "data-protection" in c["name"]]
+    assert dr2[0]["tags"] == ["edited", "stale"]
+    # PNGs are rendered to size them exactly (a few figures), never guessed.
+    from ntnxvision_core.diagrams.bundle import PNG_DPI
+    from ntnxvision_core.diagrams.render.png import render_png
+    pngs = plan["entries"][3]["children"]
+    assert not any(c["approx"] for c in pngs)
+    assert pngs[0]["size_bytes"] == len(render_png(scenes[0], PNG_DPI))
     assert plan["count"] == len(scenes) and plan["size_bytes"] > 0
 
 
@@ -575,3 +591,132 @@ def test_editable_assets_carry_connector_edits(design_envs: dict[str, Any]) -> N
     assert any(x.get("source") and x.get("target") for x in cells)
     assert "Backup path" in drawio
     assert io.BytesIO(render_svg(scenes[0])).getvalue().count(b'id="user:a"') == 1
+
+
+# ─── editor v2 review fixes ────────────────────────────────────────────
+
+
+def test_nested_ends_are_refused(design_envs: dict[str, Any]) -> None:
+    env = design_envs["medium"]
+    out = _outline(env, "conceptual")
+    site = next(o for o in out if o["collection"] == "sites")
+    card = next(o for o in out if o["parent"] == site["id"])
+    view = ST.build_view(env, "conceptual", E.clean_ops([
+        {"op": "connect", "id": "user:n", "a": site["id"], "b": card["id"]}]))
+    assert [p.reason for p in view.problems] == [E.NESTED]
+
+
+def test_a_zones_prism_central_is_a_connector_end(design_envs: dict[str, Any]) -> None:
+    env = design_envs["medium"]
+    out = _outline(env, "conceptual")
+    sites = [o for o in out if o["collection"] == "sites"]
+    other = next(o for o in out if o["parent"] == sites[1]["id"])
+    pc = f"{sites[0]['id']}:pc"
+    view = ST.build_view(env, "conceptual", E.clean_ops([
+        {"op": "connect", "id": "user:pc", "a": pc, "b": other["id"]}]))
+    assert not view.problems
+    e = _edge(view.scenes, "user:pc")
+    assert e is not None and e.src == pc
+    conn = next(c for c in ST.connector_outline(view, E.outline(
+        view.payload, view.generated, TYPES["conceptual"].edit_spec)) if c["id"] == "user:pc")
+    assert conn["a"] == pc and conn["a_label"].startswith("Prism Central of ")
+    # Its own zone is not a valid other end (it holds the Prism Central).
+    nested = ST.build_view(env, "conceptual", E.clean_ops([
+        {"op": "connect", "id": "user:x", "a": pc, "b": sites[0]["id"]}]))
+    assert [p.reason for p in nested.problems] == [E.NESTED]
+
+
+def test_route_reset_is_one_edit_and_drop_sets_the_side(design_envs: dict[str, Any]
+                                                       ) -> None:
+    env = design_envs["medium"]
+    c = _conns(env, "dr")[0]
+    other = next(o["id"] for o in _boxes(env, "dr") if o["id"] not in c["ends"])
+
+    def op(field: str, value: Any, **extra: Any) -> dict[str, Any]:
+        return {"op": "edge", "id": c["id"], "ends": c["ends"], "field": field,
+                "value": value, **extra}
+
+    ops = E.clean_ops([op("a_side", "bottom"), op("bend", 12), op("b", other, side="top")])
+    entry = E.apply_ops(ST.generated(env, "dr"), ops, TYPES["dr"].edit_spec).payload[
+        E.EDGE_EDITS][c["id"]]
+    assert entry["b"] == other and entry["b_side"] == "top" and entry["bend"] == 12
+    reset = E.apply_ops(ST.generated(env, "dr"), [*ops, *E.clean_ops([op("route", "auto")])],
+                        TYPES["dr"].edit_spec).payload[E.EDGE_EDITS][c["id"]]
+    assert "a_side" not in reset and "b_side" not in reset and "bend" not in reset
+    assert reset["b"] == other
+
+
+def test_check_scene_catches_a_bad_connector() -> None:
+    from ntnxvision_core.diagrams.scene import Edge, Node, Scene, Style
+
+    box = Style(fill="#FFFFFF", stroke="#000000")
+    sc_ = Scene(id="t", type="t", title="t", caption="t", width=200, height=100, nodes=[
+        Node(id="a", kind="box", x=10, y=40, w=30, h=20, style=box),
+        Node(id="m", kind="box", x=80, y=40, w=30, h=20, style=box),
+        Node(id="b", kind="box", x=150, y=40, w=30, h=20, style=box)])
+    sc_.edges.append(Edge(id="user:bad", src="a", dst="b",
+                          points=[(40, 50), (150, 50)], style=USER_LINK))
+    sc_.meta["connectors"] = {"user:bad": {"routed": True}}
+    assert any("runs through box m" in p for p in check_scene(sc_))
+
+
+ESTATES = ["small", "medium", "enterprise", "xlarge"]
+
+
+def _sweep_ops(env: Any, type_id: str) -> list[dict[str, Any]]:
+    """Far user connectors plus a reconnected, pinned, lane-shifted, relabelled
+    generated one: the review's adversarial edit set."""
+    v0 = ST.build_view(env, type_id, [])
+    out = E.outline(v0.payload, v0.generated, TYPES[type_id].edit_spec)
+    ids = {o["id"] for o in out}
+    nodes = {n.id: n for n in v0.scenes[0].nodes if n.id in ids and n.kind == "box"}
+    items = sorted(nodes)
+    ops: list[dict[str, Any]] = []
+    if len(items) >= 2:
+        ops.append({"op": "connect", "id": "user:far", "a": items[0], "b": items[-1],
+                    "label": "Backup path 1,000 Mbps"})
+    if len(items) >= 3:
+        ops.append({"op": "connect", "id": "user:near", "a": items[1], "b": items[2]})
+    conns = [c for c in ST.connector_outline(v0, out) if c["parts"] == [0]]
+    if conns:
+        c = conns[0]
+        ops += [{"op": "edge", "id": c["id"], "ends": c["ends"], "field": "a_side",
+                 "value": "left"},
+                {"op": "edge", "id": c["id"], "ends": c["ends"], "field": "bend",
+                 "value": 300},
+                {"op": "edge", "id": c["id"], "ends": c["ends"], "field": "label",
+                 "value": "Edited link"}]
+    return E.clean_ops(ops)
+
+
+@pytest.mark.parametrize("name", ESTATES)
+def test_connector_rules_hold_in_editor_and_report(design_envs: dict[str, Any],
+                                                   name: str) -> None:
+    """Every routed connector and placed label passes `check_connectors` (inside
+    `check_scene`) in the editor and in every report figure; a connector that could not
+    be drawn is reported as a problem and disclosed in the figure's summary."""
+    from ntnxvision_core.exporters.content import SceneFigure, build_report
+
+    env = design_envs[name]
+    models = {}
+    for t in ST.applicable(env):
+        ops = _sweep_ops(env, t.id)
+        view = ST.build_view(env, t.id, ops)
+        for sc_ in view.scenes:
+            assert check_scene(sc_) == [], (name, t.id, check_scene(sc_)[:3])
+        models[t.id] = t.from_doc(E.apply_ops(ST.generated(env, t.id), ops,
+                                              t.edit_spec).payload)
+    report = build_report(env, ExportOptions.coerce({"diagram_models": models}),
+                          eyebrow="Architecture design document")
+    figs = [b for ch in report.chapters for s in ch.sections for b in s.blocks
+            if isinstance(b, SceneFigure)]
+    for f in figs:
+        assert check_scene(f.scene) == [], (name, f.caption, check_scene(f.scene)[:3])
+    for t in models:
+        mine = [f for f in figs if f.scene.type == t]
+        drawn = {e.id for f in mine for e in f.scene.edges}
+        text = " ".join(" ".join(f.summary) for f in mine)
+        for ident in ("user:far", "user:near"):
+            if mine and ident not in drawn and any(
+                    c.get("id") == ident for c in (models[t]._ntnx_connectors.connectors)):
+                assert "not drawn" in text, (name, t, ident)
