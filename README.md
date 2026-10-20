@@ -155,12 +155,12 @@ You can also email any report on demand.
 ### Download
 
 Installers are built by the [Release workflow](.github/workflows/release.yml) on GitHub
-Actions. A version tag (`v*`) creates a **draft** GitHub Release with every installer, a
-`SHA256SUMS` file and a build-provenance attestation; the maintainer publishes it on the
-[Releases](../../releases) page. Pull requests into `main` and manual runs build the same
-installers as workflow artifacts (`NTNXVision-windows-msi`, `NTNXVision-macos-arm64`,
-`NTNXVision-macos-x64`). Check a download against `SHA256SUMS` with `shasum -a 256 <file>`
-(macOS) or `Get-FileHash <file>` (Windows).
+Actions. **Builds are currently unsigned**: every pull request into `main` and every manual run
+produces the installers as workflow artifacts (`NTNXVision-windows-msi`,
+`NTNXVision-macos-arm64`, `NTNXVision-macos-x64`). Signed, notarized releases on the
+[Releases](../../releases) page will follow once code-signing certificates are in place; the
+workflow refuses to publish a version-tagged release without them. Check a download against
+its SHA-256 with `shasum -a 256 <file>` (macOS) or `Get-FileHash <file>` (Windows).
 
 | Platform | File | Notes |
 |---|---|---|
@@ -171,9 +171,8 @@ installers as workflow artifacts (`NTNXVision-windows-msi`, `NTNXVision-macos-ar
 
 Upgrades install over the previous version and keep your targets, snapshots and settings.
 
-**Unsigned builds.** Builds made without the maintainer's signing certificates (local builds and
-CI artifacts from pull requests or manual runs) are not code-signed: the macOS app is only
-ad-hoc signed and not notarized, and the MSI has no Authenticode signature.
+**Opening an unsigned build.** The macOS app is only ad-hoc signed and not notarized, and the
+MSI has no Authenticode signature, so both systems warn on first launch:
 
 - **macOS**: Gatekeeper refuses the first launch, often as "NTNXVision is damaged and can't be
   opened". After copying the app to Applications, clear the download quarantine flag once:
