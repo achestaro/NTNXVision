@@ -8,6 +8,7 @@ design summary, reported when an end is gone, and byte-stable.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import zipfile
 from pathlib import Path
@@ -720,3 +721,110 @@ def test_connector_rules_hold_in_editor_and_report(design_envs: dict[str, Any],
             if mine and ident not in drawn and any(
                     c.get("id") == ident for c in (models[t]._ntnx_connectors.connectors)):
                 assert "not drawn" in text, (name, t, ident)
+
+
+# ─── review round 2 ────────────────────────────────────────────────────
+
+
+@pytest.mark.parametrize("name", ["enterprise", "xlarge"])
+def test_editor_parts_are_the_report_figures(design_envs: dict[str, Any], name: str) -> None:
+    """The Diagrams page draws each type exactly as the report does (same parts, same
+    bytes), so what the editor shows is what every export draws."""
+    from ntnxvision_core.diagrams.scene import scene_json
+    from ntnxvision_core.exporters.content import SceneFigure, build_report
+
+    env = design_envs[name]
+    report = build_report(env, ExportOptions.coerce({}), eyebrow="Architecture design document")
+    figs: dict[str, list[Any]] = {}
+    for ch in report.chapters:
+        for b in [*ch.blocks, *(x for s in ch.sections for x in s.blocks)]:
+            if isinstance(b, SceneFigure):
+                figs.setdefault(b.scene.type, []).append(b.scene)
+    for t in ST.applicable(env):
+        view = ST.build_view(env, t.id, [])
+        assert [scene_json(s) for s in view.scenes] == \
+            [scene_json(s) for s in figs.get(t.id, [])], (name, t.id)
+
+
+@pytest.mark.parametrize("name", ["medium", "enterprise"])
+def test_every_editor_connector_is_in_the_report_or_flagged(design_envs: dict[str, Any],
+                                                           name: str) -> None:
+    """A connector the editor draws is drawn in the report; one it does not draw is
+    flagged in the editor (an issue on it, a note or its ends in different parts) and
+    named in the report's figure summary."""
+    from ntnxvision_core.exporters.content import SceneFigure, build_report
+
+    env = design_envs[name]
+    models, views = {}, {}
+    for t in ST.applicable(env):
+        ops = _sweep_ops(env, t.id)
+        v0 = ST.build_view(env, t.id, [])
+        if len(v0.scenes) > 1:  # a connector across two parts
+            out = E.outline(v0.payload, v0.generated, TYPES[t.id].edit_spec)
+            ids = {o["id"] for o in out}
+            a = next((n.id for n in v0.scenes[0].nodes if n.id in ids and n.kind == "box"), None)
+            b = next((n.id for n in v0.scenes[-1].nodes if n.id in ids and n.kind == "box"
+                      and n.id not in {x.id for x in v0.scenes[0].nodes}), None)
+            if a and b:
+                with contextlib.suppress(E.EditError):
+                    ops = E.clean_ops([*ops, {"op": "connect", "id": "user:apart", "a": a,
+                                              "b": b}])
+        views[t.id] = ST.build_view(env, t.id, ops)
+        models[t.id] = t.from_doc(E.apply_ops(ST.generated(env, t.id), ops,
+                                              t.edit_spec).payload)
+    report = build_report(env, ExportOptions.coerce({"diagram_models": models}),
+                          eyebrow="Architecture design document")
+    figs = [b for ch in report.chapters for s in ch.sections for b in s.blocks
+            if isinstance(b, SceneFigure)]
+    for type_id, view in views.items():
+        in_editor = {e.id for s in view.scenes for e in s.edges if e.id.startswith("user:")}
+        mine = [f for f in figs if f.scene.type == type_id]
+        in_report = {e.id for f in mine for e in f.scene.edges}
+        assert in_editor <= in_report, (name, type_id, in_editor - in_report)
+        conns = {c["id"]: c for c in ST.connector_outline(view, E.outline(
+            view.payload, view.generated, TYPES[type_id].edit_spec))}
+        for ident, c in conns.items():
+            if ident.startswith("user:") and ident not in in_editor:
+                assert c["issue"] in ("parts", "route"), (name, type_id, ident, c["issue"])
+                assert any("not drawn" in " ".join(f.summary) for f in mine), (name, type_id)
+
+
+def test_label_with_no_room_is_disclosed() -> None:
+    from ntnxvision_core.diagrams.scene import Scene
+    from ntnxvision_core.exporters.content import SceneFigure, _disclose_tally
+
+    f = SceneFigure(Scene(id="s", type="t", title="t", caption="c", width=1, height=1), "c",
+                    summary=["Figure edited on the Diagrams page: 2 connectors added by the "
+                             "author. Counts are as collected."])
+    _disclose_tally(f, {"user:parts": 1, "user:label": 1})
+    assert f.summary[0] == ("Figure edited on the Diagrams page: 2 connectors added by the "
+                            "author (1 not drawn: its ends are in different parts of the "
+                            "figure); 1 connector label not drawn: no room beside the line. "
+                            "Counts are as collected.")
+
+
+def test_parts_are_named_after_their_zone_or_profile(design_envs: dict[str, Any],
+                                                   tmp_path: Path) -> None:
+    from ntnxvision_core.store import SnapshotStore
+
+    env = design_envs["enterprise"]
+    snap = SnapshotStore(tmp_path).save(env.model_copy(deep=True), "parts")
+    listed = {d["type"]: d for d in ST.list_result(snap, env)}
+    labels = [p["label"] for p in listed["network"]["parts"]]
+    assert all(lab and "part 1 of 1" not in lab.lower() for lab in labels)
+    assert len(set(labels)) == len(labels)
+
+
+def test_one_stem_for_every_file_of_an_export(tmp_path: Path) -> None:
+    from datetime import date
+
+    from ntnxvision_core.exporters.naming import export_stem
+
+    day = date(2026, 10, 20)
+    assert export_stem(tmp_path, "pc01", ["pdf", "docx"], "Acme", True, day) == \
+        "Acme-pc01-2026-10-20"
+    (tmp_path / "Acme-pc01-2026-10-20.pdf").write_bytes(b"")
+    (tmp_path / "Acme-pc01-2026-10-20-2_diagrams.zip").write_bytes(b"")
+    # -2 is taken by a bundle: the PDF, the Word file and the bundle all move to -3.
+    assert export_stem(tmp_path, "pc01", ["pdf", "docx"], "Acme", True, day) == \
+        "Acme-pc01-2026-10-20-3"

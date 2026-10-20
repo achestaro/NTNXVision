@@ -34,7 +34,11 @@ lane offset applied and any ``issue`` ("side", "route", "label").
 from __future__ import annotations
 
 import bisect
+import copy
+import hashlib
 import heapq
+import json
+from collections import OrderedDict
 from collections.abc import Iterable
 from dataclasses import dataclass, field
 from typing import Any
@@ -50,7 +54,7 @@ from .check import (
     side_of,
 )
 from .route import HOP_H, HOP_W
-from .scene import Edge, EdgeLabel, Node, Scene, Style, q
+from .scene import Edge, EdgeLabel, Node, Scene, Style, q, to_doc
 
 #: A user-added connector: dashed amber, like every other user-added item.
 USER_LINK = Style(stroke=K.AMBER, stroke_w=0.9, dash=(2.4, 1.8))
@@ -241,12 +245,18 @@ class Field:
     nodes: dict[str, Node]
     parents: dict[str, str | None]
     containers: list[Node]
+    #: The scene's boxes, hashed (route memo key).
+    key: str = ""
 
     @staticmethod
     def of(sc: Scene) -> Field:
         nodes = {n.id: n for n in sc.nodes}
+        shape = repr([(n.id, n.kind, n.x, n.y, n.w, n.h, n.parent,
+                       [(t.x, t.baseline, t.width, t.size) for t in n.lines])
+                      for n in sc.nodes]) + repr((sc.width, sc.height))
         return Field(sc, nodes, {n.id: n.parent for n in sc.nodes},
-                     [n for n in sc.nodes if n.kind == "container"])
+                     [n for n in sc.nodes if n.kind == "container"],
+                     hashlib.sha256(shape.encode("utf-8")).hexdigest())
 
     def ancestors(self, ident: str) -> set[str]:
         out: set[str] = set()
@@ -453,6 +463,27 @@ def route(f: Field, a: Node, b: Node, a_side: str = "auto", b_side: str = "auto"
     is tried again without the zones kept clear around other connectors' ends, then with
     a closer clearance to boxes (never through one)."""
     others = [o for o in (others or []) if o.points]
+    memo = hashlib.sha256(repr((f.key, a.id, b.id, a_side, b_side, straight, [
+        (o.id, o.src, o.dst, o.points, [(lb.x, lb.y, lb.w, lb.h) for lb in o.labels])
+        for o in others])).encode("utf-8")).hexdigest()
+    if memo in _ROUTES:
+        _ROUTES.move_to_end(memo)
+        got = _ROUTES[memo]
+    else:
+        got = _route_all(f, a, b, a_side, b_side, others, straight)
+        _ROUTES[memo] = got
+        while len(_ROUTES) > 4096:
+            _ROUTES.popitem(last=False)
+    return None if got is None else Route(list(got.points), got.a_side, got.b_side, got.score)
+
+
+#: Routes by (scene boxes, ends, sides, other connectors): a new connector re-routes
+#: only itself; the ones placed before it are found here.
+_ROUTES: OrderedDict[str, Route | None] = OrderedDict()
+
+
+def _route_all(f: Field, a: Node, b: Node, a_side: str, b_side: str, others: list[Edge],
+               straight: bool) -> Route | None:
     labels = [Box.of(lb) for o in others for lb in o.labels]
     strict = f.obstacles(a, b, others)[0] + labels
     loose = f.obstacles(a, b, ())[0] + labels
@@ -824,12 +855,44 @@ def _longer_with_label(sc: Scene, f: Field, j: _Job, e: Edge, labels: list[EdgeL
 # ─── the overlay ───────────────────────────────────────────────────────
 
 
+#: Overlay results by (scene, the edits that concern it): a report lays one figure out
+#: several times (fitting a part under its summary, then again with cross references),
+#: and an edit touches one part; the other parts reuse their routes.
+_CACHE: OrderedDict[str, tuple[list[Edge], dict[str, Any]]] = OrderedDict()
+_CACHE_MAX = 256
+
+
+def _key(sc: Scene, extra: Extra) -> tuple[str, bool]:
+    """A cache key for `sc` and the edits that concern it (and whether any do)."""
+    nodes = {n.id for n in sc.nodes}
+    edges = {e.id for e in sc.edges}
+    mine = [c for c in extra.connectors if str(c.get("a")) in nodes and str(c.get("b")) in nodes]
+    edits = {k: v for k, v in extra.edits.items() if k in edges}
+    if not mine and not edits:
+        return "", False
+    doc = json.dumps({"scene": to_doc(sc), "connectors": mine, "edits": edits},
+                     sort_keys=True, separators=(",", ":"), default=str)
+    return hashlib.sha256(doc.encode("utf-8")).hexdigest(), True
+
+
 def overlay(scenes: list[Scene], extra: Extra) -> None:
     """Apply the connector edits of a model to its laid-out `scenes` (in place)."""
     if not extra:
         return
     for sc in scenes:
+        key, concerned = _key(sc, extra)
+        if not concerned:
+            continue
+        hit = _CACHE.get(key)
+        if hit is not None:
+            _CACHE.move_to_end(key)
+            sc.edges = copy.deepcopy(hit[0])
+            sc.meta = copy.deepcopy(hit[1])
+            continue
         _overlay(sc, extra)
+        _CACHE[key] = (copy.deepcopy(sc.edges), copy.deepcopy(sc.meta))
+        while len(_CACHE) > _CACHE_MAX:
+            _CACHE.popitem(last=False)
 
 
 @dataclass

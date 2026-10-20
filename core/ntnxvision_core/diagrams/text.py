@@ -54,14 +54,23 @@ def metrics(bold: bool) -> FontMetrics:
                        default_adv=hmtx[".notdef"][0])
 
 
+@lru_cache(maxsize=262144)
+def _units(text: str, bold: bool) -> int:
+    """The advance of `text` in font units (cached: layouts measure the same strings
+    over and over while fitting)."""
+    m = metrics(bold)
+    adv = m.advances
+    return sum(adv.get(ord(ch), m.default_adv) for ch in text)
+
+
 def natural(text: str, size: float, bold: bool = False) -> float:
     """The drawn width of `text` (no safety margin)."""
-    return q(metrics(bold).width(text, size))
+    return q(_units(text, bold) * size / metrics(bold).upm)
 
 
 def width(text: str, size: float, bold: bool = False) -> float:
     """The width `text` needs when fitting (with the safety margin)."""
-    return q(metrics(bold).width(text, size) * SAFETY)
+    return q(_units(text, bold) * size / metrics(bold).upm * SAFETY)
 
 
 def line_height(size: float) -> float:
@@ -146,7 +155,21 @@ def clean(text: str) -> str:
 def fit(text: str, size: float, bold: bool, max_w: float, max_lines: int = 1,
         min_size: float | None = None) -> tuple[float, list[str]]:
     """Shrink in 0.25 pt steps (never below `min_size`, never below `MIN_SIZE`) before
-    wrapping past `max_lines`; ellipsise what still does not fit. Returns (size, lines)."""
+    wrapping past `max_lines`; ellipsise what still does not fit. Returns (size, lines).
+    Pure, so cached: layouts fit the same texts many times over."""
+    s, lines = _fit(text, size, bold, max_w, max_lines, min_size)
+    return s, list(lines)
+
+
+@lru_cache(maxsize=131072)
+def _fit(text: str, size: float, bold: bool, max_w: float, max_lines: int,
+         min_size: float | None) -> tuple[float, tuple[str, ...]]:
+    s, lines = _fit_uncached(text, size, bold, max_w, max_lines, min_size)
+    return s, tuple(lines)
+
+
+def _fit_uncached(text: str, size: float, bold: bool, max_w: float, max_lines: int = 1,
+                  min_size: float | None = None) -> tuple[float, list[str]]:
     text = clean(text)
     floor = max(MIN_SIZE, min_size if min_size is not None else size)
     s = size

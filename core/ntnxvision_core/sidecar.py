@@ -63,7 +63,7 @@ from ntnxvision_core.engine import (
     combine_environments,
 )
 from ntnxvision_core.exporters import export_environment, extension_for
-from ntnxvision_core.exporters.naming import diagrams_stem, report_path
+from ntnxvision_core.exporters.naming import diagrams_stem, export_stem
 from ntnxvision_core.lcm_inventory import (
     DEFAULT_TIMEOUT_S,
     MAX_TIMEOUT_S,
@@ -395,21 +395,24 @@ def _file_prefix(params: dict[str, Any]) -> str:
 
 def _write_reports(env: Any, name: str, formats: list[str], out_dir: Path,
                    options: dict[str, Any], tracker: RunTracker | CombinedTracker | None = None,
-                   prefix: str = "", snapshot: Path | None = None
+                   prefix: str = "", snapshot: Path | None = None, stem: str | None = None
                    ) -> tuple[list[dict[str, Any]], dict[str, str]]:
     """Write each format as ``<prefix>-<name>-<YYYY-MM-DD>.<ext>`` (see exporters.naming),
-    never overwriting an existing file. The figures of a saved `snapshot` draw the
-    diagram edits saved on the Diagrams page."""
+    one stem for all of them (`stem`, else `naming.export_stem`), never overwriting an
+    existing file. The figures of a saved `snapshot` draw the diagram edits saved on
+    the Diagrams page."""
     if snapshot is not None:
         options = _with_diagram_edits(options, snapshot, env)
     files: list[dict[str, Any]] = []
     errors: dict[str, str] = {}
+    exts = [e for e in (extension_for(f) for f in formats) if e]
+    common = stem or export_stem(out_dir, name, exts, prefix)
     for fmt in formats:
         if tracker is not None:
             tracker.phase("export", f"Writing {_FORMAT_LABELS.get(fmt, fmt)}…")
         try:
             ext = extension_for(fmt)
-            stem = report_path(out_dir, name, ext, prefix).stem if ext else name
+            stem = common if ext else name
             path, detail = export_environment(env, fmt, out_dir, stem, options=options,
                                               with_detail=True)
             files.append(_report_file(fmt, Path(path), detail))
@@ -1003,25 +1006,30 @@ def _m_export(_req_id: Any, params: dict[str, Any]) -> dict[str, Any]:
     out_dir = _export_dir_from(params)
     # The saved diagram edits, resolved once for the reports and the bundle alike.
     options = _with_diagram_edits(_export_options(params), snap_path, env)
+    # One stem for the reports and the bundle: the files of one export share a name.
+    stem = export_stem(out_dir, name, [e for e in (extension_for(f) for f in formats) if e],
+                       _file_prefix(params), want_diagrams)
     files, errors = _write_reports(env, name, list(formats), out_dir, options,
-                                   prefix=_file_prefix(params))
+                                   prefix=_file_prefix(params), stem=stem)
     if files:
         snapstore.record_exports(snap_path, files)
     paths = {f["format"]: f["path"] for f in files}
     bundle = None
     if want_diagrams:
-        bundle = _write_diagrams(env, name, out_dir, options, _file_prefix(params), errors)
+        bundle = _write_diagrams(env, name, out_dir, options, _file_prefix(params), errors,
+                                 stem)
     return {"paths": paths, "errors": errors,
             "path": next(iter(paths.values()), bundle["path"] if bundle else None),
             "files": files, "diagrams": bundle}
 
 
 def _write_diagrams(env: Any, name: str, out_dir: Path, options: dict[str, Any], prefix: str,
-                    errors: dict[str, str]) -> dict[str, Any] | None:
+                    errors: dict[str, str], stem: str | None = None) -> dict[str, Any] | None:
     """The editable diagrams bundle ``<prefix>-<name>-<YYYY-MM-DD>_diagrams.zip`` next to
-    the reports; a failure lands in ``errors["diagrams"]`` and never fails the reports."""
+    the reports (their stem); a failure lands in ``errors["diagrams"]`` and never fails
+    the reports."""
     try:
-        stem = diagrams_stem(out_dir, name, prefix)
+        stem = stem or diagrams_stem(out_dir, name, prefix)
         path, detail = export_environment(env, "diagrams", out_dir, stem, options=options,
                                           with_detail=True)
     except Exception as exc:  # noqa: BLE001 — the reports are already written
@@ -1110,9 +1118,12 @@ def _m_export_preview(_req_id: Any, params: dict[str, Any]) -> dict[str, Any]:
     meta = snapstore.read_meta(snap_path, _cache)
     est = _estimates(meta.get("summary") or {}, meta.get("kind"))
     last = {f.get("format"): f for f in meta.get("exports") or [] if f.get("size_bytes")}
+    want_bundle = params.get("diagrams") is True and bool({"pdf", "word"} & set(formats))
+    common = export_stem(out_dir, name, [e for e in (extension_for(f) for f in formats) if e],
+                         prefix, want_bundle)
     files = []
     for fmt in formats:
-        path = report_path(out_dir, name, extension_for(fmt) or fmt, prefix)
+        path = out_dir / f"{common}.{extension_for(fmt) or fmt}"
         # A report's size is only known once it has been written: the last export of
         # this snapshot in that format, else unknown (the estimates were far off).
         size = last.get(fmt, {}).get("size_bytes")
@@ -1122,7 +1133,7 @@ def _m_export_preview(_req_id: Any, params: dict[str, Any]) -> dict[str, Any]:
     bundle = None
     if params.get("diagrams") is True and {"pdf", "word"} & set(formats):
         package = "folder" if params.get("diagrams_package") == "folder" else "zip"
-        stem = diagrams_stem(out_dir, name, prefix) + DIAGRAMS_SUFFIX
+        stem = common + DIAGRAMS_SUFFIX
         scenes = _preview_scenes(snap_path, env, params)
         tags, stale = _diagram_tags(snap_path, env)
         if scenes:
@@ -1130,9 +1141,8 @@ def _m_export_preview(_req_id: Any, params: dict[str, Any]) -> dict[str, Any]:
             bundle["name"] = stem if package == "folder" else f"{stem}.zip"
             bundle["stale"] = stale
             bundle["edited"] = sorted(tags)
-    from ntnxvision_core.exporters.naming import report_stem
 
-    return {"files": files, "diagrams": bundle, "stem": report_stem(name, prefix)}
+    return {"files": files, "diagrams": bundle, "stem": common}
 
 
 _DIAGRAM_FORMATS = ("vsdx", "drawio", "svg", "png")
@@ -1526,7 +1536,7 @@ def _m_layout_diagram(_req_id: Any, params: dict[str, Any]) -> dict[str, Any]:
     snap_path = _resolve_snapshot_path(params["snapshot"])
     env = _cache.get(snap_path)
     return _diagram_call(lambda: diagram_store.layout_result(
-        env, _diagram_type(params), edits.clean_ops(params.get("ops") or [])))
+        env, _diagram_type(params), edits.clean_ops(params.get("ops") or []), snap_path))
 
 
 def _m_save_diagram(_req_id: Any, params: dict[str, Any]) -> dict[str, Any]:
