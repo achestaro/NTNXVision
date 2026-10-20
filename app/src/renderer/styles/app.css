@@ -1684,7 +1684,7 @@ dl {
 /* Export dialog: the form, and beside it what lands in the export folder. */
 .exp-grid {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(340px, 440px);
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   gap: 24px;
   margin-top: 20px;
   align-items: start;
@@ -1724,7 +1724,7 @@ dl {
 .exp-tree-head,
 .exp-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 84px 100px;
+  grid-template-columns: minmax(0, 1fr) 96px 112px;
   gap: 8px;
   align-items: center;
   padding: 6px 10px;
@@ -1768,6 +1768,19 @@ dl {
 }
 .exp-kind {
   color: var(--ink-2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* The export dialog keeps its buttons in view on short windows. */
+.dialog.w1080 .dialog-foot {
+  position: sticky;
+  bottom: -24px;
+  margin: 0 -24px -24px;
+  padding: 12px 24px;
+  background: var(--surface-raised);
+  border-top: 1px solid var(--rule-2);
+  z-index: 1;
 }
 .exp-toggle {
   min-width: 0;
@@ -2498,6 +2511,8 @@ h1 .imported-badge {
 }
 .dg-sheet svg {
   display: block;
+  /* Selection outlines and handles at the canvas edge stay whole. */
+  overflow: visible;
   user-select: none;
   touch-action: none;
 }
@@ -2625,16 +2640,31 @@ h1 .imported-badge {
   stroke-dasharray: 3 2;
 }
 .dg-tip.warn {
-  background: var(--warn);
+  /* Amber-800 with white: about 7:1 in light and dark themes alike. */
+  background: #7a4a00;
   color: #ffffff;
   white-space: normal;
   max-width: 320px;
 }
+.dg-ins-issue {
+  margin: 0;
+  padding: 8px 10px;
+  border-left: 3px solid var(--warn);
+  background: var(--warn-tint);
+  color: var(--ink);
+  font-size: 12px;
+  line-height: 17px;
+}
 .dg-conn:focus {
   outline: none;
 }
-.dg-conn:focus-visible polyline:first-of-type {
-  stroke: color-mix(in srgb, var(--accent) 35%, transparent);
+.dg-conn:focus polyline:first-of-type {
+  /* The wide hit line doubles as the focus ring. */
+  stroke: color-mix(in srgb, var(--accent) 40%, transparent);
+}
+.dg-el:focus > rect:first-of-type {
+  stroke: var(--accent);
+  stroke-width: 1.4;
 }
 .dg-sides {
   display: grid;

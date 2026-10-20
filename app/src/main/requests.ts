@@ -335,8 +335,11 @@ export function asDiagramOps(v: unknown): DiagramOp[] {
       else if (field === 'a_side' || field === 'b_side') value = oneOf(o.value, `ops[${i}].value`, DIAGRAM_SIDES);
       else if (field === 'arrow') value = oneOf(o.value, `ops[${i}].value`, DIAGRAM_ARROWS);
       else if (field === 'bend') value = num(o.value, `ops[${i}].value`, -MAX_DIAGRAM_BEND, MAX_DIAGRAM_BEND);
+      else if (field === 'route') value = oneOf(o.value, `ops[${i}].value`, ['auto'] as const);
       else value = bool(o.value, `ops[${i}].value`);
-      return { op, id, ends, field, value };
+      const edge: DiagramOp = { op, id, ends, field, value };
+      if ((field === 'a' || field === 'b') && o.side !== undefined && o.side !== null) edge.side = oneOf(o.side, `ops[${i}].side`, DIAGRAM_SIDES);
+      return edge;
     }
     return { op, id };
   });

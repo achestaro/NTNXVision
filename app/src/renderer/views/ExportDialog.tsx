@@ -292,7 +292,7 @@ function ExportDialog({
   const desc = (f: (typeof FORMATS)[number]) => {
     const e = est[f.id];
     if (!e) return f.desc;
-    return [e.detail, e.bytes ? `≈ ${fmtBytes(e.bytes)}` : null].filter(Boolean).join(' · ') || f.desc;
+    return [e.detail?.replace(/^≈ /, 'about '), e.bytes ? `about ${fmtBytes(e.bytes)}` : null].filter(Boolean).join(' · ') || f.desc;
   };
 
   return (
@@ -495,7 +495,14 @@ function ExportDialog({
           )}
         </div>
 
-        <FilePrefixField id="exp-prefix" value={prefix} onChange={setPrefix} names={previewNames} more={previewMore} />
+        <FilePrefixField
+          id="exp-prefix"
+          value={prefix}
+          onChange={setPrefix}
+          // The sidecar's names when known (they carry the -2 a taken name gets), else the local guess.
+          names={preview && !many ? [...preview.files.map((f) => f.name), ...(preview.diagrams ? [preview.diagrams.name] : [])] : previewNames}
+          more={previewMore}
+        />
 
         <div>
           <label className="lbl" htmlFor="exp-dest">

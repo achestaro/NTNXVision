@@ -122,3 +122,14 @@ test('one-diagram downloads and the bundle package are checked', () => {
   assert.equal(ok.diagramsPackage, 'folder');
   assert.throws(() => asExportRequest({ snapshotPath: `${ABS}a.ntnxsnap.json`, formats: ['pdf'], diagrams: true, diagramsPackage: 'tar' }));
 });
+
+test('a route reset and a dropped end side are checked', () => {
+  const [reset, drop] = asDiagramOps([
+    { op: 'edge', id: 'flow:a->b', ends: ['x', 'y'], field: 'route', value: 'auto' },
+    { op: 'edge', id: 'flow:a->b', ends: ['x', 'y'], field: 'b', value: 'z', side: 'top', evil: 1 },
+  ]);
+  assert.deepEqual(reset, { op: 'edge', id: 'flow:a->b', ends: ['x', 'y'], field: 'route', value: 'auto' });
+  assert.deepEqual(drop, { op: 'edge', id: 'flow:a->b', ends: ['x', 'y'], field: 'b', value: 'z', side: 'top' });
+  assert.throws(() => asDiagramOps([{ op: 'edge', id: 'e', ends: ['x', 'y'], field: 'route', value: 'left' }]));
+  assert.throws(() => asDiagramOps([{ op: 'edge', id: 'e', ends: ['x', 'y'], field: 'a', value: 'z', side: 'up' }]));
+});

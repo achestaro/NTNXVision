@@ -10,8 +10,13 @@ import { Badge, Icon, InlineEmpty } from '../components';
 import { fmtBytes, fmtCount } from '../lib/format';
 
 function size(f: { size_bytes: number | null; approx: boolean }): string {
-  if (f.size_bytes === null || f.size_bytes === undefined) return 'N/A';
+  if (f.size_bytes === null || f.size_bytes === undefined) return 'after export';
   return f.approx ? `about ${fmtBytes(f.size_bytes)}` : fmtBytes(f.size_bytes);
+}
+
+/** A file name with the shared stem shown once above the table: "…-2.pdf". */
+function short(name: string, stem: string | undefined): string {
+  return stem && name.startsWith(stem) && name.length > stem.length ? `…${name.slice(stem.length)}` : name;
 }
 
 function Tags({ tags }: { tags?: string[] }): JSX.Element | null {
@@ -24,14 +29,14 @@ function Tags({ tags }: { tags?: string[] }): JSX.Element | null {
   );
 }
 
-function Row({ f, depth, hl }: { f: ExportPreviewFile; depth: number; hl?: boolean }): JSX.Element {
+function Row({ f, depth, hl, stem }: { f: ExportPreviewFile; depth: number; hl?: boolean; stem?: string }): JSX.Element {
   const [open, setOpen] = useState(false);
   const kids = f.children ?? [];
   const name = (
     <>
       <Icon icon={f.folder ? FolderIcon : FileIcon} size={14} />
       <span className="t" title={f.name}>
-        {f.name}
+        {short(f.name, stem)}
       </span>
       <Tags tags={f.tags} />
     </>
@@ -56,7 +61,7 @@ function Row({ f, depth, hl }: { f: ExportPreviewFile; depth: number; hl?: boole
           {f.detail && !f.folder ? `${f.kind}, ${f.detail}` : f.folder ? f.detail ?? f.kind : f.kind}
         </span>
       </div>
-      {open && kids.map((k) => <Row key={k.name} f={k} depth={depth + 1} />)}
+      {open && kids.map((k) => <Row key={k.name} f={k} depth={depth + 1} stem={stem} />)}
     </>
   );
 }
@@ -70,6 +75,7 @@ const CARDS: { title: string; text: string }[] = [
 
 export function ExportPreviewPanel({ preview, loading, error }: { preview: Preview | null; loading: boolean; error: string | null }): JSX.Element {
   const d = preview?.diagrams ?? null;
+  const stem = preview?.stem;
   const head = d?.name ?? preview?.files[0]?.name ?? null;
   return (
     <aside className="exp-preview" aria-label="What lands in the export folder" aria-busy={loading} data-testid="export-preview">
@@ -78,7 +84,12 @@ export function ExportPreviewPanel({ preview, loading, error }: { preview: Previ
       <p className="hint" style={{ margin: 0 }}>
         {d
           ? `Written next to the report with the same name stem${d.package === 'folder' ? ', as a folder' : ''}. Every file is built from the same scene as the report figure, so they match one to one.`
-          : 'Names follow the prefix, the snapshot and today’s date. An existing file is never overwritten: -2, -3 is added.'}
+          : 'Names follow the prefix, the snapshot and today’s date. An existing file is never overwritten: -2, -3 is added.'}{' '}
+        {stem ? (
+          <>
+            Every name starts <span className="mono">{stem}</span>, shown as … below.
+          </>
+        ) : null}
         {loading ? ' Updating…' : ''}
       </p>
       {error && <InlineEmpty>{error}</InlineEmpty>}
@@ -92,7 +103,7 @@ export function ExportPreviewPanel({ preview, loading, error }: { preview: Previ
             <span role="columnheader">Kind</span>
           </div>
           {preview.files.map((f) => (
-            <Row key={f.name} f={f} depth={0} />
+            <Row key={f.name} f={f} depth={0} stem={stem} />
           ))}
           {d && (
             <>
@@ -100,7 +111,7 @@ export function ExportPreviewPanel({ preview, loading, error }: { preview: Previ
                 <span className="exp-name" role="cell">
                   <Icon icon={d.package === 'folder' ? FolderIcon : FileZipIcon} size={14} />
                   <span className="t" title={d.name}>
-                    {d.name}
+                    {short(d.name, stem)}
                   </span>
                 </span>
                 <span className="exp-size" role="cell">
@@ -111,7 +122,7 @@ export function ExportPreviewPanel({ preview, loading, error }: { preview: Previ
                 </span>
               </div>
               {d.entries.map((e) => (
-                <Row key={e.name} f={e} depth={1} />
+                <Row key={e.name} f={e} depth={1} stem={stem} />
               ))}
             </>
           )}

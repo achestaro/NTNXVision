@@ -1118,6 +1118,50 @@ try {
     await page.waitForFunction((n) => document.querySelectorAll('[data-conn^="user:"]').length === n, before, { timeout: 15_000 });
   });
 
+  await run('diagrams-connector-end-side', async () => {
+    // Dropping an end handle on another side of the element it ends on pins that side.
+    const conn = page.locator('[data-conn^="user:"]').first();
+    await conn.focus();
+    const ins = page.getByTestId('dg-connector-inspector');
+    await ins.waitFor();
+    const used = (await ins.locator('#dg-side-b option[value="auto"]').innerText()).trim();
+    const handle = page.locator('[data-handle="end-b"]');
+    const h = await handle.boundingBox();
+    const id = await conn.getAttribute('data-conn');
+    const dst = await page.evaluate((cid) => {
+      const g = document.querySelector(`[data-conn="${CSS.escape(cid)}"] title`);
+      return g ? g.textContent : '';
+    }, id);
+    const target = page.locator('[data-el^="cluster:"]').first();
+    const t = await target.boundingBox();
+    // Aim at the side of the end element the connector does not use now.
+    const want = used.includes('top') ? 'bottom' : 'top';
+    await page.mouse.move(h.x + h.width / 2, h.y + h.height / 2);
+    await page.mouse.down();
+    const x = t.x + t.width / 2;
+    const y = want === 'top' ? t.y + 3 : t.y + t.height - 3;
+    await page.mouse.move(x, y, { steps: 8 });
+    await page.getByText(/^Connect to /).waitFor();
+    await page.mouse.up();
+    await page.waitForFunction((w) => document.querySelector('#dg-side-b')?.value === w, want, { timeout: 15_000 }).catch(async () => {
+      // The end may have moved to that element instead: then its side is pinned too.
+      const v = await page.locator('#dg-side-b').inputValue();
+      if (v === 'auto') throw new Error(`the dropped side was not kept (${dst})`);
+    });
+  });
+
+  await run('diagrams-arrow-keys', async () => {
+    // One tab stop for the canvas; the arrow keys walk its elements and connectors.
+    const first = page.locator('[data-el]').first();
+    await first.focus();
+    const before = await page.evaluate(() => document.activeElement?.getAttribute('data-el') || document.activeElement?.getAttribute('data-conn'));
+    await page.keyboard.press('ArrowRight');
+    const after = await page.evaluate(() => document.activeElement?.getAttribute('data-el') || document.activeElement?.getAttribute('data-conn'));
+    if (!after || after === before) throw new Error('the arrow key did not move to the next element');
+    const stops = await page.locator('.dg-sheet [tabindex="0"]').count();
+    if (stops !== 1) throw new Error(`the canvas has ${stops} tab stops, expected 1`);
+  });
+
   await run('diagrams-generated-connector', async () => {
     const gen = page.locator('[data-conn]:not([data-conn^="user:"])').first();
     if (!(await gen.count())) return; // a figure without generated connectors

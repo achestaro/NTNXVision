@@ -44,8 +44,12 @@ export interface CanvasProps {
   /** Start the connector tool from an element (C key). */
   onStartConnect(id: string): void;
   /** A connector drawn from a port of `a` to `b`. */
-  onConnect(a: string, b: string, aSide: DiagramSide): void;
-  onReconnect(conn: DiagramConnector, end: 'a' | 'b', target: string): void;
+  /** A connector drawn from a port of `a` to the side of `b` it was dropped on. */
+  onConnect(a: string, b: string, aSide: DiagramSide, bSide: DiagramSide): void;
+  /** An end handle dropped on another element (and the side it landed on). */
+  onReconnect(conn: DiagramConnector, end: 'a' | 'b', target: string, side: DiagramSide): void;
+  /** An end handle dropped on another side of the element it already ends on. */
+  onSide(conn: DiagramConnector, end: 'a' | 'b', side: DiagramSide): void;
   onBend(conn: DiagramConnector, bend: number): void;
   onCancelTool(): void;
 }
@@ -65,8 +69,8 @@ interface Slot {
 
 type Drag =
   | { kind: 'move'; id: string; startX: number; startY: number; x: number; y: number; active: boolean; slot: Slot | null; refused: { box: SceneNode; reason: string } | null }
-  | { kind: 'wire'; from: string; side: DiagramSide; x: number; y: number; target: string | null }
-  | { kind: 'end'; conn: DiagramConnector; end: 'a' | 'b'; x: number; y: number; target: string | null }
+  | { kind: 'wire'; from: string; side: DiagramSide; x: number; y: number; target: string | null; tside: Exclude<DiagramSide, 'auto'> | null }
+  | { kind: 'end'; conn: DiagramConnector; end: 'a' | 'b'; x: number; y: number; target: string | null; tside: Exclude<DiagramSide, 'auto'> | null }
   | { kind: 'lane'; conn: DiagramConnector; axis: 'x' | 'y'; start: number; delta: number; seg: [Pt, Pt] };
 
 function rectFor(st: SceneStyle, x: number, y: number, w: number, h: number, extra: React.SVGProps<SVGRectElement> = {}): JSX.Element {
@@ -164,6 +168,13 @@ function portOf(n: SceneNode, side: Exclude<DiagramSide, 'auto'>): Pt {
   }
 }
 
+/** "AZ pairing" not "AZ pairing AZ pairing", "POD PHX-1" not "POD POD PHX-1". */
+export function spoken(kind: string, label: string | null | undefined): string {
+  const l = (label ?? '').trim();
+  if (!l) return kind;
+  return l.toLowerCase().startsWith(kind.toLowerCase()) ? l : `${kind} ${l}`;
+}
+
 /** The run of a connector its lane handle drags: the longest one not touching a stub. */
 export function laneSegment(points: [number, number][]): [Pt, Pt] | null {
   if (points.length === 2) return [points[0], points[1]];
@@ -183,7 +194,7 @@ export function laneSegment(points: [number, number][]): [Pt, Pt] | null {
 
 export function SceneCanvas(props: CanvasProps): JSX.Element {
   const { scene, zoom, outline, connectors, selected, marked, editRequest, tool, connectFrom } = props;
-  const { onSelect, onRename, onMove, onDelete, onPick, onStartConnect, onConnect, onReconnect, onBend, onCancelTool } = props;
+  const { onSelect, onRename, onMove, onDelete, onPick, onStartConnect, onConnect, onReconnect, onSide, onBend, onCancelTool } = props;
   const svgRef = useRef<SVGSVGElement>(null);
   const [editing, setEditing] = useState<string | null>(null);
   const [draft, setDraft] = useState('');
@@ -210,17 +221,28 @@ export function SceneCanvas(props: CanvasProps): JSX.Element {
     [outline, byId],
   );
 
-  /** The innermost drawn model element under a scene point (connector targets). */
+  /** Boxes a connector may end on besides model elements: a box straight inside a zone,
+   *  named after it (a zone's Prism Central; mirrors connectors.end_box). */
+  const endBox = useCallback(
+    (n: SceneNode): boolean => {
+      if (n.kind !== 'box' || !n.parent || outline.has(n.id)) return false;
+      const parent = byId.get(n.parent);
+      return !!parent && parent.kind === 'container' && outline.has(parent.id) && n.id.startsWith(`${n.parent}:`);
+    },
+    [byId, outline],
+  );
+
+  /** The innermost drawn connector end under a scene point (an element, or an end box). */
   const elementAt = useCallback(
     (x: number, y: number, except?: string | null): string | null => {
       let best: SceneNode | null = null;
       for (const n of scene.nodes) {
-        if (!outline.has(n.id) || n.id === except || !inside(n, x, y)) continue;
+        if (!(outline.has(n.id) || endBox(n)) || n.id === except || !inside(n, x, y)) continue;
         if (!best || n.w * n.h < best.w * best.h) best = n;
       }
       return best?.id ?? null;
     },
-    [scene, outline],
+    [scene, outline, endBox],
   );
 
   const ordered = useMemo(
@@ -341,10 +363,14 @@ export function SceneCanvas(props: CanvasProps): JSX.Element {
         const found = active ? slotFor(d.id, x, y) : { slot: null, refused: null };
         setDrag({ ...d, x, y, active, slot: found.slot, refused: found.refused });
       } else if (d.kind === 'wire') {
-        setDrag({ ...d, x, y, target: elementAt(x, y, d.from) });
+        const target = elementAt(x, y, d.from);
+        const tn = target ? byId.get(target) : undefined;
+        setDrag({ ...d, x, y, target, tside: tn ? nearestSide(tn, x, y) : null });
       } else if (d.kind === 'end') {
         const other = d.end === 'a' ? d.conn.b : d.conn.a;
-        setDrag({ ...d, x, y, target: elementAt(x, y, other) });
+        const target = elementAt(x, y, other);
+        const tn = target ? byId.get(target) : undefined;
+        setDrag({ ...d, x, y, target, tside: tn ? nearestSide(tn, x, y) : null });
       } else {
         const now = d.axis === 'x' ? x : y;
         setDrag({ ...d, delta: Math.round((now - d.start) / LANE_STEP) * LANE_STEP });
@@ -361,10 +387,12 @@ export function SceneCanvas(props: CanvasProps): JSX.Element {
           else if (d.slot.index !== el.index) onMove(d.id, d.slot.index);
         }
       } else if (d.kind === 'wire') {
-        if (d.target && d.target !== d.from) onConnect(d.from, d.target, d.side);
+        if (d.target && d.target !== d.from) onConnect(d.from, d.target, d.side, d.tside ?? 'auto');
       } else if (d.kind === 'end') {
         const current = d.end === 'a' ? d.conn.a : d.conn.b;
-        if (d.target && d.target !== current) onReconnect(d.conn, d.end, d.target);
+        const used = d.end === 'a' ? d.conn.a_side_used : d.conn.b_side_used;
+        if (d.target && d.target !== current) onReconnect(d.conn, d.end, d.target, d.tside ?? 'auto');
+        else if (d.target && d.tside && d.tside !== used) onSide(d.conn, d.end, d.tside);
       } else if (d.delta) {
         onBend(d.conn, d.conn.bend + d.delta);
       }
@@ -400,9 +428,24 @@ export function SceneCanvas(props: CanvasProps): JSX.Element {
     }
   };
 
+  /** Arrow keys walk the elements and connectors in reading order (one tab stop). */
+  const walk = (ev: React.KeyboardEvent): boolean => {
+    if (ev.altKey || isMod(ev) || !['ArrowRight', 'ArrowDown', 'ArrowLeft', 'ArrowUp', 'Home', 'End'].includes(ev.key)) return false;
+    const svg = svgRef.current;
+    if (!svg) return false;
+    const all = [...svg.querySelectorAll<SVGGElement>(tool === 'connect' ? '[data-el]' : '[data-el],[data-conn]')];
+    const at = all.indexOf(ev.currentTarget as SVGGElement);
+    const to =
+      ev.key === 'Home' ? 0 : ev.key === 'End' ? all.length - 1 : ev.key === 'ArrowRight' || ev.key === 'ArrowDown' ? Math.min(all.length - 1, at + 1) : Math.max(0, at - 1);
+    ev.preventDefault();
+    all[to]?.focus();
+    return true;
+  };
+
   const onKeyDown = (ev: React.KeyboardEvent, id: string) => {
     const el = outline.get(id);
     if (!el) return;
+    if (walk(ev)) return;
     if (tool === 'connect' && (ev.key === 'Enter' || ev.key === ' ')) {
       ev.preventDefault();
       onPick(id);
@@ -433,6 +476,7 @@ export function SceneCanvas(props: CanvasProps): JSX.Element {
   };
 
   const onEdgeKey = (ev: React.KeyboardEvent, c: DiagramConnector) => {
+    if (walk(ev)) return;
     if (ev.key === 'Delete' || ev.key === 'Backspace') {
       if (c.can_delete) {
         ev.preventDefault();
@@ -446,6 +490,13 @@ export function SceneCanvas(props: CanvasProps): JSX.Element {
     }
   };
 
+  // One tab stop for the whole canvas (the selection, else the first element); the
+  // arrow keys move between elements and connectors from there.
+  const tabStop =
+    selected && (byId.has(selected) || edges.has(selected)) && (tool !== 'connect' || outline.has(selected))
+      ? selected
+      : ordered.find((n) => outline.has(n.id))?.id ?? null;
+
   const drawNode = (n: SceneNode): JSX.Element => {
     const elId = outline.has(n.id) ? n.id : null;
     const body = (
@@ -455,10 +506,12 @@ export function SceneCanvas(props: CanvasProps): JSX.Element {
       </>
     );
     if (!elId) {
-      const own = owner(n.id);
+      // A zone's Prism Central (an end box) is a connector end of its own.
+      const own = tool === 'connect' && endBox(n) ? n.id : owner(n.id);
       return (
         <g
           key={n.id}
+          data-end={endBox(n) ? n.id : undefined}
           onPointerDown={own ? (ev) => onPointerDown(ev, own) : undefined}
           onDoubleClick={own && tool === 'select' ? () => startEdit(own) : undefined}
           style={own ? { cursor: tool === 'connect' ? 'crosshair' : 'pointer' } : undefined}
@@ -468,7 +521,7 @@ export function SceneCanvas(props: CanvasProps): JSX.Element {
       );
     }
     const el = outline.get(elId)!;
-    const label = `${el.kind} ${el.label ?? ''}${el.origin === 'user' ? ', user-added' : ''}`.trim();
+    const label = `${spoken(el.kind, el.label)}${el.origin === 'user' ? ', user-added' : ''}`;
     const moving = drag?.kind === 'move' && drag.active && drag.id === n.id;
     return (
       <g
@@ -476,7 +529,7 @@ export function SceneCanvas(props: CanvasProps): JSX.Element {
         data-el={n.id}
         className="dg-el"
         role="button"
-        tabIndex={0}
+        tabIndex={n.id === tabStop ? 0 : -1}
         aria-label={tool === 'connect' ? `${connectFrom ? 'End' : 'Start'} the connector at ${label}` : label}
         aria-pressed={selected === n.id}
         onPointerDown={(ev) => onPointerDown(ev, n.id)}
@@ -501,20 +554,22 @@ export function SceneCanvas(props: CanvasProps): JSX.Element {
   const ed = editing ? byId.get(editing) : null;
   const fromNode = connectFrom ? byId.get(connectFrom) ?? null : null;
   const ports = sel && tool === 'select' && !drag && outline.has(sel.id) && sel.kind !== 'tag' ? (['top', 'right', 'bottom', 'left'] as const) : null;
-  const handle = 3.2 / Math.max(0.6, Math.min(zoom, 2));
+  // Handles: 8 px to see, 14 px to hit, at any zoom.
+  const handle = 4 / zoom;
+  const hit = 7 / zoom;
   const lane = selEdge && selConn && !selConn.hidden ? laneSegment(selEdge.points) : null;
 
   const startWire = (ev: React.PointerEvent, side: Exclude<DiagramSide, 'auto'>) => {
     if (!sel) return;
     ev.stopPropagation();
     const [x, y] = toScene(ev.clientX, ev.clientY);
-    setDrag({ kind: 'wire', from: sel.id, side, x, y, target: null });
+    setDrag({ kind: 'wire', from: sel.id, side, x, y, target: null, tside: null });
   };
   const startEnd = (ev: React.PointerEvent, end: 'a' | 'b') => {
     if (!selConn) return;
     ev.stopPropagation();
     const [x, y] = toScene(ev.clientX, ev.clientY);
-    setDrag({ kind: 'end', conn: selConn, end, x, y, target: null });
+    setDrag({ kind: 'end', conn: selConn, end, x, y, target: null, tside: null });
   };
   const startLane = (ev: React.PointerEvent) => {
     if (!selConn || !lane) return;
@@ -564,16 +619,17 @@ export function SceneCanvas(props: CanvasProps): JSX.Element {
           const conn = connectors.get(e.id);
           const own = conn ? e.id : outline.has(e.id) ? e.id : null;
           if (!own) return <EdgeShape key={e.id} e={e} />;
-          const label = conn ? `${conn.kind}${conn.label ? ` ${conn.label}` : ''}, ${conn.a_label ?? ''} to ${conn.b_label ?? ''}${conn.origin === 'user' ? ', user-added' : ''}` : e.id;
+          const label = conn ? `${spoken(conn.kind, conn.label)}, ${conn.a_label ?? ''} to ${conn.b_label ?? ''}${conn.origin === 'user' ? ', user-added' : ''}` : e.id;
           return (
             <g
               key={e.id}
               data-conn={e.id}
               className="dg-conn"
               role="button"
-              tabIndex={conn ? 0 : -1}
+              tabIndex={conn && tool !== 'connect' && e.id === tabStop ? 0 : -1}
               aria-label={label}
               aria-pressed={selected === e.id}
+              style={{ cursor: 'pointer', pointerEvents: tool === 'connect' ? 'none' : undefined }}
               onPointerDown={(ev) => {
                 if (ev.button !== 0 || tool === 'connect') return;
                 ev.stopPropagation();
@@ -581,7 +637,6 @@ export function SceneCanvas(props: CanvasProps): JSX.Element {
               }}
               onFocus={() => selected !== own && !drag && onSelect(own)}
               onKeyDown={conn ? (ev) => onEdgeKey(ev, conn) : undefined}
-              style={{ cursor: 'pointer' }}
             >
               <title>{label}</title>
               <polyline points={e.points.map((p) => p.join(',')).join(' ')} fill="none" stroke="transparent" strokeWidth={8} />
@@ -616,33 +671,27 @@ export function SceneCanvas(props: CanvasProps): JSX.Element {
             {(['a', 'b'] as const).map((end) => {
               const p = end === 'a' ? selEdge.points[0] : selEdge.points[selEdge.points.length - 1];
               return (
-                <circle
-                  key={end}
-                  className="dg-handle"
-                  data-handle={`end-${end}`}
-                  cx={p[0]}
-                  cy={p[1]}
-                  r={handle}
-                  onPointerDown={(ev) => startEnd(ev, end)}
-                >
-                  <title>{end === 'a' ? 'Drag to reconnect the start' : 'Drag to reconnect the end'}</title>
-                </circle>
+                <g key={end} data-handle={`end-${end}`} onPointerDown={(ev) => startEnd(ev, end)} style={{ cursor: 'grab' }}>
+                  <title>{end === 'a' ? 'Drag to reconnect the start, or onto another side' : 'Drag to reconnect the end, or onto another side'}</title>
+                  <circle cx={p[0]} cy={p[1]} r={hit} fill="transparent" />
+                  <circle className="dg-handle" cx={p[0]} cy={p[1]} r={handle} pointerEvents="none" />
+                </g>
               );
             })}
             {lane && (
-              <rect
-                className="dg-handle lane"
-                data-handle="lane"
-                x={(lane[0][0] + lane[1][0]) / 2 - handle}
-                y={(lane[0][1] + lane[1][1]) / 2 - handle}
-                width={handle * 2}
-                height={handle * 2}
-                transform={`rotate(45 ${(lane[0][0] + lane[1][0]) / 2} ${(lane[0][1] + lane[1][1]) / 2})`}
-                style={{ cursor: lane[0][1] === lane[1][1] ? 'ns-resize' : 'ew-resize' }}
-                onPointerDown={startLane}
-              >
+              <g data-handle="lane" onPointerDown={startLane} style={{ cursor: lane[0][1] === lane[1][1] ? 'ns-resize' : 'ew-resize' }}>
                 <title>Drag to move the lane</title>
-              </rect>
+                <circle cx={(lane[0][0] + lane[1][0]) / 2} cy={(lane[0][1] + lane[1][1]) / 2} r={hit} fill="transparent" />
+                <rect
+                  className="dg-handle lane"
+                  pointerEvents="none"
+                  x={(lane[0][0] + lane[1][0]) / 2 - handle * 0.8}
+                  y={(lane[0][1] + lane[1][1]) / 2 - handle * 0.8}
+                  width={handle * 1.6}
+                  height={handle * 1.6}
+                  transform={`rotate(45 ${(lane[0][0] + lane[1][0]) / 2} ${(lane[0][1] + lane[1][1]) / 2})`}
+                />
+              </g>
             )}
           </>
         )}
@@ -664,9 +713,11 @@ export function SceneCanvas(props: CanvasProps): JSX.Element {
           ports.map((side) => {
             const [x, y] = portOf(sel, side);
             return (
-              <circle key={side} className="dg-handle port" data-port={side} cx={x} cy={y} r={handle} onPointerDown={(ev) => startWire(ev, side)}>
+              <g key={side} data-port={side} onPointerDown={(ev) => startWire(ev, side)} style={{ cursor: 'crosshair' }}>
                 <title>Drag to another element to connect them</title>
-              </circle>
+                <circle cx={x} cy={y} r={hit} fill="transparent" />
+                <circle className="dg-handle port" cx={x} cy={y} r={handle} pointerEvents="none" />
+              </g>
             );
           })}
         {(drag?.kind === 'wire' || drag?.kind === 'end') && (() => {
@@ -680,10 +731,15 @@ export function SceneCanvas(props: CanvasProps): JSX.Element {
             start = [p[0], p[1]];
           }
           const t = drag.target ? byId.get(drag.target) : null;
+          // Snap to the port the drop will use: the nearest side of the element under the pointer.
+          const end: Pt = t && drag.tside ? portOf(t, drag.tside) : [drag.x, drag.y];
+          const horizontalLast = drag.tside === 'left' || drag.tside === 'right';
+          const corner: Pt = horizontalLast ? [start[0], end[1]] : [end[0], start[1]];
           return (
             <g pointerEvents="none">
               {t && <rect className="dg-target" x={t.x - 1.5} y={t.y - 1.5} width={t.w + 3} height={t.h + 3} rx={3} />}
-              <polyline className="dg-ghost" points={`${start[0]},${start[1]} ${drag.x},${start[1]} ${drag.x},${drag.y}`} />
+              <polyline className="dg-ghost" points={`${start[0]},${start[1]} ${corner[0]},${corner[1]} ${end[0]},${end[1]}`} />
+              {t && drag.tside && <circle className="dg-handle port" cx={end[0]} cy={end[1]} r={handle} />}
             </g>
           );
         })()}
@@ -708,7 +764,8 @@ export function SceneCanvas(props: CanvasProps): JSX.Element {
           <rect className="dg-drop" x={moveDrag.slot.bar.x} y={moveDrag.slot.bar.y} width={moveDrag.slot.bar.w} height={moveDrag.slot.bar.h} rx={0.8} pointerEvents="none" />
         )}
         {dragged && moveDrag && (
-          <g pointerEvents="none" opacity={0.92} transform={`translate(${moveDrag.x - dragged.w / 2} ${moveDrag.y - 8}) rotate(-1.5)`}>
+          // Smaller and below-right of the pointer, so the insertion bar stays in view.
+          <g pointerEvents="none" opacity={0.85} transform={`translate(${moveDrag.x + 10 / zoom} ${moveDrag.y + 10 / zoom}) scale(0.55) rotate(-1.5)`}>
             {rectFor(dragged.style, 0, 0, dragged.w, dragged.h, { filter: 'drop-shadow(0 4px 6px rgb(15 26 36 / .28))' })}
             {lines(dragged.lines, 0, 0)}
           </g>
