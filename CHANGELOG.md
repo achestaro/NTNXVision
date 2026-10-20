@@ -6,6 +6,38 @@ format older builds can't read. Windows shows the version as X.Y.Z.0 in Installe
 Every pull request that changes shipped code raises it with `node scripts/bump-version.mjs`
 and adds a section here (CI checks both).
 
+## 0.13.0 (2026-10-20)
+
+### Added
+- Diagrams editor: add your own connectors between elements (drawn dashed amber with an
+  optional label) and edit the diagrams' own connectors: move either end to another element
+  or side, relabel, change arrowheads, shift the route, hide or restore. Routes stay
+  square-cornered and clear of boxes and labels; anything a figure cannot draw is noted in
+  the editor and disclosed in the report.
+- Diagrams editor: drag elements into layout slots, including into another container where
+  the design allows (refusals say why); full-window editing (Shift+Cmd/Ctrl+F); Prism
+  Central, Storage array and Switch in the palette; per-diagram Visio, draw.io, SVG and PNG
+  downloads.
+- The editor lays out every diagram exactly as the report does, so what you see is what
+  exports.
+- Export dialog: "What lands in the export folder" preview with file names, sizes, Edited and
+  Stale tags, and a Zip or Folder choice; the editable diagrams bundle now includes 200 dpi
+  PNGs.
+- Releases: tagged versions publish unsigned installers to the Releases page until
+  code-signing certificates are added.
+
+### Changed
+- Inventory opens with nothing selected and no details panel; details open when you click a
+  row or press Enter (a ⌘K jump still opens that object).
+- Diagrams sits above Compare in the navigation.
+- README rewritten with the top features, install options and screenshots.
+- Dependency updates: GitHub Actions (checkout, upload/download-artifact, setup-node,
+  setup-python), ESLint 10, typescript-eslint, globals, Vite 8 with @vitejs/plugin-react 6,
+  wait-on 9, rich up to 15; follow-redirects advisory fixed.
+
+### Fixed
+- One export uses one file name stem for every file it writes.
+
 ## 0.12.0 (2026-10-20)
 
 ### Added
