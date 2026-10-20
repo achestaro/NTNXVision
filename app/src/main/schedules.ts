@@ -24,10 +24,11 @@ import type {
   ScheduleSaveRequest,
   ScheduleTrigger,
 } from '../shared/ipc';
-import { SCHEDULES_TAMPERED_MESSAGE } from '../shared/ipc';
+import { SCHEDULE_REVIEW_MESSAGE } from '../shared/ipc';
 import {
   HISTORY_MAX,
   TargetRef,
+  collectionFailureReason,
   dueSlot,
   isCatchUp,
   nextRunAfter,
@@ -102,6 +103,7 @@ export function normalizeDefinition(raw: Partial<ScheduleDefinition>): ScheduleD
     subject: str(raw.subject, 400).replace(/[\r\n]+/g, ' ').trim(),
     body: str(raw.body, 10000),
     frequency: frequency(raw.frequency),
+    notifyOnFailure: raw.notifyOnFailure !== false,
   };
 }
 
@@ -109,6 +111,7 @@ const sameTiming = (a: ScheduleFrequency, b: ScheduleFrequency) => JSON.stringif
 
 export class ScheduleStore {
   private file: SchedulesFile | null = null;
+  /** The file on disk failed its integrity check and nothing has been written since. */
   private changedOutside = false;
 
   constructor(
@@ -119,15 +122,19 @@ export class ScheduleStore {
   private load(): SchedulesFile {
     if (this.file) return this.file;
     const raw = this.io.read() as Partial<SchedulesFile> | undefined;
-    // Edited outside the app: keep the data to review, but nothing in it may run.
+    // Edited outside the app: keep the data to review, but nothing in it may run. Every
+    // schedule is flagged needsReview; the flag is stored (and signed) with the file, so
+    // saving one schedule, deleting one or a bookkeeping write never vouches for the others.
     this.changedOutside = this.io.tampered?.() ?? false;
     const now = this.deps.now().toISOString();
     const schedules: Schedule[] = [];
     for (const s of Array.isArray(raw?.schedules) ? raw!.schedules : []) {
       if (!s || typeof s !== 'object' || typeof s.id !== 'string' || !s.id) continue;
+      const needsReview = this.changedOutside || s.needsReview === true;
       schedules.push({
         ...normalizeDefinition(s),
-        enabled: this.changedOutside ? false : normalizeDefinition(s).enabled,
+        enabled: needsReview ? false : normalizeDefinition(s).enabled,
+        ...(needsReview ? { needsReview: true } : {}),
         id: s.id,
         createdAt: str(s.createdAt) || now,
         updatedAt: str(s.updatedAt) || now,
@@ -139,10 +146,27 @@ export class ScheduleStore {
     return this.file;
   }
 
-  /** The file was changed outside the app: schedules are shown but never run until re-saved. */
+  /** Some schedules came from a file changed outside the app: shown, but off until each is saved. */
   get tampered(): boolean {
+    return this.load().schedules.some((s) => s.needsReview);
+  }
+
+  /**
+   * Re-check schedules.json now (before every tick, Run now and change): a file edited
+   * outside the app while it runs is noticed at once, not at the next launch. Returns
+   * true when it was found changed (every schedule is then off and needs review).
+   */
+  revalidate(): boolean {
+    if (!this.file) {
+      this.load();
+      return this.changedOutside;
+    }
+    if (this.changedOutside) return false;
+    this.io.read();
+    if (!this.io.tampered?.()) return false;
+    this.file = null;
     this.load();
-    return this.changedOutside;
+    return true;
   }
 
   /** Bookkeeping writes (anchors, run history) never re-sign a file changed outside the app. */
@@ -152,7 +176,10 @@ export class ScheduleStore {
     this.io.write(file);
   }
 
-  /** A deliberate change by the user: the current content, all switched off, becomes the baseline. */
+  /**
+   * A deliberate change by the user. Schedules still flagged needsReview stay off and
+   * flagged in what is written, so the write vouches only for what the user saved.
+   */
   private saveByUser(): void {
     this.load();
     this.changedOutside = false;
@@ -172,6 +199,7 @@ export class ScheduleStore {
     req: ScheduleSaveRequest,
     targets: TargetRef[],
   ): { ok: boolean; errors?: Partial<Record<ScheduleField, string>>; schedule?: Schedule } {
+    this.revalidate();
     const file = this.load();
     const existing = req.id ? file.schedules.find((s) => s.id === req.id) : undefined;
     if (req.id && !existing) return { ok: false, errors: { form: 'That schedule no longer exists.' } };
@@ -184,6 +212,8 @@ export class ScheduleStore {
       // New timing or a schedule switched back on: slots before now are not owed.
       const reanchor = !sameTiming(existing.frequency, def.frequency) || (def.enabled && !existing.enabled);
       Object.assign(existing, def, { updatedAt: now, anchor: reanchor ? now : existing.anchor });
+      // Saved in the editor: the user has seen its targets and recipients.
+      delete existing.needsReview;
       this.saveByUser();
       return { ok: true, schedule: existing };
     }
@@ -194,6 +224,7 @@ export class ScheduleStore {
   }
 
   delete(id: string): boolean {
+    this.revalidate();
     const file = this.load();
     const before = file.schedules.length;
     file.schedules = file.schedules.filter((s) => s.id !== id);
@@ -202,15 +233,29 @@ export class ScheduleStore {
     return true;
   }
 
+  /** Throws for a schedule that needs review: only saving it in the editor turns it on. */
   setEnabled(id: string, enabled: boolean): boolean {
+    this.revalidate();
     const s = this.get(id);
     if (!s) return false;
+    if (enabled && s.needsReview) throw new Error(SCHEDULE_REVIEW_MESSAGE);
     if (s.enabled === enabled) return true;
     s.enabled = enabled;
     s.updatedAt = this.deps.now().toISOString();
     if (enabled) s.anchor = s.updatedAt;
     this.saveByUser();
     return true;
+  }
+
+  /** Switch every enabled schedule off (email settings removed). Returns their names. */
+  disableAll(): string[] {
+    this.revalidate();
+    const on = this.load().schedules.filter((s) => s.enabled);
+    if (!on.length) return [];
+    const now = this.deps.now().toISOString();
+    for (const s of on) Object.assign(s, { enabled: false, updatedAt: now });
+    this.saveByUser();
+    return on.map((s) => s.name);
   }
 
   setAnchor(id: string, iso: string): void {
@@ -269,6 +314,7 @@ export function scheduleInfo(
   targets: TargetRef[],
 ): ScheduleInfo {
   const problems: string[] = [];
+  if (s.needsReview) problems.push(SCHEDULE_REVIEW_MESSAGE);
   const missing = s.targetIds.filter((id) => !targets.some((t) => t.id === id)).length;
   if (missing) problems.push(missing === 1 ? 'A target of this schedule was deleted. Edit it to choose another.' : `${missing} targets of this schedule were deleted. Edit it to choose others.`);
   const next = nextRun(s);
@@ -292,10 +338,25 @@ export interface Job {
 }
 
 export interface RunOutcome {
-  status: 'ok' | 'failed';
+  /** warning: the email went out, but a target was not collected or some recipients were refused. */
+  status: 'ok' | 'warning' | 'failed';
   stage?: 'collect' | 'email' | null;
   message: string;
+  /** The raw error when `message` is a simplified reason. */
+  detail?: string | null;
   snapshots?: string[];
+  /** With an email-stage failure: the EmailStatus, which decides whether a notice can help. */
+  emailStatus?: string | null;
+}
+
+/** Email-stage failures where the mail server works, so a short notice can still get through. */
+const NOTICE_EMAIL_STATUSES = new Set(['too_large', 'error']);
+
+/** Should a failed run email its failure notice? (Opt-out per schedule; never for mail-server problems.) */
+export function wantsFailureNotice(schedule: Pick<Schedule, 'notifyOnFailure'>, outcome: RunOutcome): boolean {
+  if (outcome.status !== 'failed' || schedule.notifyOnFailure === false) return false;
+  if (outcome.stage !== 'email') return true;
+  return NOTICE_EMAIL_STATUSES.has(outcome.emailStatus ?? '');
 }
 
 /** Thrown by an executor that found the sidecar busy: the job goes back to the queue. */
@@ -317,6 +378,11 @@ export interface RunnerDeps {
   changed(): void;
   /** A run finished (for OS notifications). */
   finished?(schedule: Schedule, record: ScheduleRunRecord): void;
+  /**
+   * Email the failure notice of a failed run (once: never retried, its own failure is only
+   * recorded). Null when it was not sent because email is not set up.
+   */
+  notifyFailure?(schedule: Schedule, record: ScheduleRunRecord): Promise<{ sent: boolean; message: string } | null>;
 }
 
 export class ScheduleRunner {
@@ -356,6 +422,8 @@ export class ScheduleRunner {
    * when the computer wakes.
    */
   tick(): number {
+    // A schedules.json edited while the app runs switches everything off at once.
+    if (this.deps.store.revalidate()) this.queue = [];
     const now = this.deps.now();
     let queued = 0;
     for (const s of this.deps.store.list()) {
@@ -374,8 +442,10 @@ export class ScheduleRunner {
 
   /** Run a schedule now (enabled or not). False when it is already queued or running. */
   runNow(id: string): boolean {
-    if (this.deps.store.tampered) throw new Error(SCHEDULES_TAMPERED_MESSAGE);
-    if (!this.deps.store.get(id)) throw new Error('That schedule no longer exists.');
+    if (this.deps.store.revalidate()) this.queue = [];
+    const s = this.deps.store.get(id);
+    if (!s) throw new Error('That schedule no longer exists.');
+    if (s.needsReview) throw new Error(SCHEDULE_REVIEW_MESSAGE);
     const ok = this.enqueue({ scheduleId: id, trigger: 'manual', slot: null });
     if (ok) this.deps.changed();
     void this.pump();
@@ -395,8 +465,8 @@ export class ScheduleRunner {
       while (this.queue.length && !this.current && !this.deps.busy()) {
         const job = this.queue.shift()!;
         const schedule = this.deps.store.get(job.scheduleId);
-        // Deleted, or switched off after its slot was queued: nothing to do.
-        if (!schedule || (job.trigger !== 'manual' && !schedule.enabled)) continue;
+        // Deleted, switched off after its slot was queued, or flagged for review: nothing to do.
+        if (!schedule || schedule.needsReview || (job.trigger !== 'manual' && !schedule.enabled)) continue;
         if (!(await this.runOne(schedule, job))) break;
       }
     } finally {
@@ -430,15 +500,24 @@ export class ScheduleRunner {
         this.deps.changed();
         return false;
       }
-      outcome = { status: 'failed', stage: 'collect', message: err instanceof Error ? err.message : String(err) };
+      const reason = collectionFailureReason(err instanceof Error ? err.message : String(err));
+      outcome = { status: 'failed', stage: 'collect', message: reason.message, detail: reason.detail };
     }
     const patch: Partial<ScheduleRunRecord> = {
       status: outcome.status,
       stage: outcome.status === 'ok' ? null : outcome.stage ?? null,
       message: outcome.message,
+      detail: outcome.detail ?? null,
       snapshots: outcome.snapshots ?? [],
-      finishedAt: this.deps.now().toISOString(),
     };
+    if (this.deps.notifyFailure && wantsFailureNotice(schedule, outcome)) {
+      try {
+        patch.failureNotice = await this.deps.notifyFailure(schedule, { ...record, ...patch });
+      } catch (err) {
+        patch.failureNotice = { sent: false, message: err instanceof Error ? err.message : String(err) };
+      }
+    }
+    patch.finishedAt = this.deps.now().toISOString();
     this.deps.store.updateRun(schedule.id, record.id, patch);
     this.current = null;
     this.deps.changed();

@@ -7,6 +7,9 @@
 2. Unless --ping-only: a tiny synthetic snapshot is exported to Excel, PDF and Word through
    the frozen binary. This is what catches missing PyInstaller data files (python-docx
    templates, fpdf2 font metrics, openpyxl resources) that a ping never touches.
+2b. Always: ``<binary> --tls-check`` must report a usable verified-TLS trust store (the OS
+   store on macOS / Windows, else certifi), with OpenSSL's own CA paths pointed at nothing
+   as on a user's machine. No network use.
 3. Unless --ping-only: in demo mode (NTNXVISION_DEMO=1) a connection test against the
    bundled mock Prism Central must succeed — which needs the demo TLS files packaged.
 
@@ -58,6 +61,27 @@ def rpc(proc: subprocess.Popen, req_id: int, method: str, params: dict) -> dict:
             return msg["result"]
 
 
+def tls_check(binary: Path, env: dict[str, str], tmp: Path) -> bool:
+    """The frozen TLS helper finds a non-empty trust store (no network)."""
+    env = dict(env, SSL_CERT_FILE=str(tmp / "no-such-ca.pem"), SSL_CERT_DIR=str(tmp / "none"))
+    env.pop("REQUESTS_CA_BUNDLE", None)
+    env.pop("CURL_CA_BUNDLE", None)
+    out = subprocess.run([str(binary), "--tls-check"], capture_output=True, text=True,
+                         encoding="utf-8", env=env, timeout=60)
+    try:
+        summary = json.loads(out.stdout.strip().splitlines()[-1])
+    except (IndexError, ValueError):
+        print(f"FAIL: --tls-check gave no summary (exit {out.returncode}): "
+              f"{out.stdout[-300:]} {out.stderr[-300:]}")
+        return False
+    if out.returncode != 0 or not summary.get("ok"):
+        print(f"FAIL: verified TLS has no usable trust store: {summary}")
+        return False
+    print(f"ok   tls trust store -> {summary['backend']}, os roots {summary['os_roots']}, "
+          f"certifi roots {summary['certifi_roots']}")
+    return True
+
+
 def main() -> int:
     if len(sys.argv) < 2:
         print(__doc__)
@@ -87,6 +111,8 @@ def main() -> int:
                 print(f"FAIL: unexpected ping result {pong}")
                 return 1
             print(f"ok   ping -> {pong}")
+            if not tls_check(binary, env, home):
+                return 1
             if not ping_only:
                 res = rpc(proc, 2, "export", {
                     "snapshot": "smoke.ntnxsnap.json",

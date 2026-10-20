@@ -7,7 +7,7 @@
 // turns the saved settings plus the keychain password into the sidecar's `smtp` params.
 
 import type { SmtpField, SmtpSaveRequest, SmtpSaveResult, SmtpSecurity, SmtpSettings, SmtpSettingsInfo, SmtpTestRequest } from '../shared/ipc';
-import { DEFAULT_SMTP } from '../shared/ipc';
+import { DEFAULT_SMTP, SMTP_MAX_ATTACHMENT_MB, SMTP_MIN_ATTACHMENT_MB } from '../shared/ipc';
 import { isValidEmail } from '../shared/schedule';
 import { endpointHash, type SecretsIO } from './targets';
 
@@ -41,6 +41,11 @@ function str(v: unknown, max = 320): string {
   return typeof v === 'string' ? v.trim().slice(0, max) : '';
 }
 
+/** A whole number of MB in the Settings > Email range (no fractions, as the form enforces). */
+export function validLimit(limit: number): boolean {
+  return Number.isInteger(limit) && limit >= SMTP_MIN_ATTACHMENT_MB && limit <= SMTP_MAX_ATTACHMENT_MB;
+}
+
 /** Whatever is on disk (or in a request) reduced to clean settings. */
 export function normalizeSmtp(raw: unknown): SmtpSettings {
   const r = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>;
@@ -57,7 +62,7 @@ export function normalizeSmtp(raw: unknown): SmtpSettings {
     allowUntrusted: r.allowUntrusted === true,
     // A pin only means something while untrusted certificates are allowed (R2-03).
     pinnedSha256: r.allowUntrusted === true ? fingerprint(r.pinnedSha256) : '',
-    maxAttachmentMb: Number.isFinite(limit) && limit >= 1 && limit <= 500 ? Math.round(limit) : DEFAULT_SMTP.maxAttachmentMb,
+    maxAttachmentMb: validLimit(limit) ? limit : DEFAULT_SMTP.maxAttachmentMb,
     zipAttachments: r.zipAttachments === true,
   };
 }
@@ -74,7 +79,7 @@ export function validateSmtp(raw: Partial<SmtpSettings>): Partial<Record<SmtpFie
   if (!from) errors.fromAddress = 'Enter the address reports are sent from.';
   else if (!isValidEmail(from)) errors.fromAddress = 'Enter an email address, like reports@example.com.';
   const limit = Number(raw.maxAttachmentMb);
-  if (!Number.isFinite(limit) || limit < 1 || limit > 500) errors.maxAttachmentMb = 'Enter a limit from 1 to 500 MB.';
+  if (!validLimit(limit)) errors.maxAttachmentMb = `Enter a whole number from ${SMTP_MIN_ATTACHMENT_MB} to ${SMTP_MAX_ATTACHMENT_MB} MB.`;
   if (str(raw.username, 400).length > 320) errors.username = 'Use at most 320 characters.';
   return errors;
 }
@@ -144,7 +149,16 @@ export class SmtpStore {
       next.port === saved.port &&
       next.security === saved.security &&
       next.username === saved.username;
-    if (!sameServer && next.pinnedSha256 === saved.pinnedSha256) next.pinnedSha256 = '';
+    // A pin survives a changed server only when the user trusted it for exactly this one
+    // (host, port and security) in the form being saved. Comparing it with the old pin is
+    // not enough: one certificate often serves several ports (Gmail on 465 and 587).
+    const trustedHere =
+      !!req.pinnedFor &&
+      typeof req.pinnedFor.host === 'string' &&
+      req.pinnedFor.host.trim().toLowerCase() === next.host.toLowerCase() &&
+      Number(req.pinnedFor.port) === next.port &&
+      req.pinnedFor.security === next.security;
+    if (!sameServer && !trustedHere) next.pinnedSha256 = '';
     try {
       const savedAcct = smtpPasswordAccount(saved);
       const nextAcct = smtpPasswordAccount(next);
@@ -168,6 +182,23 @@ export class SmtpStore {
     }
     this.io.write(next);
     return { ok: true, settings: await this.info() };
+  }
+
+  /**
+   * Remove email settings: the server, the From address, the trusted certificate and every
+   * saved SMTP password. email.json is rewritten with the defaults (nothing configured).
+   */
+  async clear(): Promise<SmtpSettingsInfo> {
+    const saved = this.settings();
+    for (const a of new Set([smtpPasswordAccount(saved), SMTP_PASSWORD_ACCOUNT])) {
+      try {
+        await this.secrets.delete(a);
+      } catch {
+        /* a locked keychain keeps a password nobody can reach without the settings */
+      }
+    }
+    this.io.write(normalizeSmtp(DEFAULT_SMTP));
+    return this.info();
   }
 
   /**

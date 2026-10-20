@@ -12,7 +12,7 @@ import { createRequire } from 'node:module';
 
 const require = createRequire(import.meta.url);
 const sched = require('../dist/shared/schedule.js');
-const { ScheduleStore, ScheduleRunner, RetryLater, normalizeDefinition, nextRun, scheduleInfo } = require('../dist/main/schedules.js');
+const { ScheduleStore, ScheduleRunner, RetryLater, normalizeDefinition, nextRun, scheduleInfo, wantsFailureNotice } = require('../dist/main/schedules.js');
 const { SmtpStore, SMTP_PASSWORD_ACCOUNT, smtpPasswordAccount, normalizeSmtp, smtpParams, validateSmtp } = require('../dist/main/mail.js');
 
 const local = (y, m, d, hh = 0, mm = 0) => new Date(y, m - 1, d, hh, mm);
@@ -295,7 +295,7 @@ test('scheduleInfo: next run, last run, deleted target problems', () => {
 
 // ─── the runner ─────────────────────────────────────────────────────────
 
-function harness({ start = local(2026, 10, 17, 9), outcome } = {}) {
+function harness({ start = local(2026, 10, 17, 9), outcome, notifyFailure } = {}) {
   const c = clock(start);
   const st = new ScheduleStore(memIO(undefined), { newId: ids(), now: c.now });
   const h = {
@@ -314,6 +314,7 @@ function harness({ start = local(2026, 10, 17, 9), outcome } = {}) {
     busy: () => h.busy,
     changed: () => (h.changes += 1),
     finished: (s, r) => h.finished.push(r),
+    notifyFailure,
     execute: async (s, job) => {
       h.runs.push({ name: s.name, trigger: job.trigger, slot: job.slot });
       if (h.pending) await h.pending;
@@ -573,6 +574,10 @@ test('smtp: validation', () => {
   const e = validateSmtp(smtpReq({ host: 'smtp://x/y', port: 0, fromAddress: 'nope', maxAttachmentMb: 0 }));
   assert.deepEqual(Object.keys(e).sort(), ['fromAddress', 'host', 'maxAttachmentMb', 'port']);
   assert.equal(validateSmtp(smtpReq({ host: '' })).host, 'Enter the mail server address.');
+  // One shared range, whole MB only (the form, main and mailer.py agree).
+  for (const bad of [0, 101, 500, 2.5, NaN]) assert.ok(validateSmtp(smtpReq({ maxAttachmentMb: bad })).maxAttachmentMb, String(bad));
+  for (const ok of [1, 20, 100]) assert.equal(validateSmtp(smtpReq({ maxAttachmentMb: ok })).maxAttachmentMb, undefined);
+  assert.equal(normalizeSmtp(smtpReq({ maxAttachmentMb: 300 })).maxAttachmentMb, 20);
   assert.deepEqual(validateSmtp(smtpReq({ host: '192.0.2.25', port: 465, security: 'ssl' })), {});
 });
 
@@ -596,11 +601,13 @@ test('smtp: the saved password needs the same port, security and certificate set
 });
 
 const PIN = 'ab'.repeat(32);
+/** The form's "Trust this certificate" for the server in `req`. */
+const trusted = (req) => ({ ...req, pinnedFor: { host: req.host, port: req.port, security: req.security } });
 
 test('smtp: the certificate pin is kept only with untrusted allowed, and normalized', async () => {
   const st = new SmtpStore(memIO(undefined), fakeSecrets());
   const colon = PIN.toUpperCase().replace(/(..)(?!$)/g, '$1:');
-  const r = await st.save(smtpReq({ allowUntrusted: true, pinnedSha256: colon }));
+  const r = await st.save(trusted(smtpReq({ allowUntrusted: true, pinnedSha256: colon })));
   assert.equal(r.settings.pinnedSha256, PIN);
   assert.equal(smtpParams(st.settings(), '').pinned_sha256, PIN);
   assert.equal((await st.save(smtpReq({ allowUntrusted: true, pinnedSha256: 'nope' }))).settings.pinnedSha256, '');
@@ -611,7 +618,7 @@ test('smtp: changing host, port, security or username drops the saved password a
   for (const change of [{ host: 'other.example.lab' }, { port: 2525 }, { security: 'ssl' }, { username: 'else@example.com' }]) {
     const secrets = fakeSecrets();
     const st = new SmtpStore(memIO(undefined), secrets);
-    await st.save(smtpReq({ password: 'saved-example', allowUntrusted: true, pinnedSha256: PIN }));
+    await st.save(trusted(smtpReq({ password: 'saved-example', allowUntrusted: true, pinnedSha256: PIN })));
     assert.equal(await st.password(), 'saved-example');
     // Same pin carried over to the changed server: dropped, and so is the password.
     const r = await st.save(smtpReq({ ...change, allowUntrusted: true, pinnedSha256: PIN }));
@@ -621,9 +628,9 @@ test('smtp: changing host, port, security or username drops the saved password a
   }
   // Retyping the password keeps it; a freshly trusted (different) pin is kept; an unchanged server keeps both.
   const st = new SmtpStore(memIO(undefined), fakeSecrets());
-  await st.save(smtpReq({ password: 'saved-example', allowUntrusted: true, pinnedSha256: PIN }));
+  await st.save(trusted(smtpReq({ password: 'saved-example', allowUntrusted: true, pinnedSha256: PIN })));
   const other = 'cd'.repeat(32);
-  const moved = await st.save(smtpReq({ host: 'other.example.lab', password: 'new-pw', allowUntrusted: true, pinnedSha256: other }));
+  const moved = await st.save(trusted(smtpReq({ host: 'other.example.lab', password: 'new-pw', allowUntrusted: true, pinnedSha256: other })));
   assert.equal(moved.settings.pinnedSha256, other);
   assert.equal(await st.password(), 'new-pw');
   const same = await st.save(smtpReq({ host: 'other.example.lab', password: '', allowUntrusted: true, pinnedSha256: other }));
@@ -672,4 +679,151 @@ test('R4: smtp migration is discarded on fresh integrity, old deleted when bound
   // Another field changes without a password: dropped.
   await st.save(smtpReq({ allowUntrusted: true, host: 'other.example.lab' }));
   assert.equal(secrets.map.size, 0);
+});
+
+
+// ─── QA round: pins, clearing ───────────────────────────────────────────
+
+test('G: a pin trusted for the new port survives the save, even when it is the same certificate', async () => {
+  const st = new SmtpStore(memIO(undefined), fakeSecrets());
+  await st.save(trusted(smtpReq({ password: 'pw-example', allowUntrusted: true, pinnedSha256: PIN })));
+  // Gmail serves one certificate on 587 and 465: the user switches to SSL/TLS on 465,
+  // tests, trusts the (same) certificate and saves.
+  const moved = await st.save(trusted(smtpReq({ port: 465, security: 'ssl', password: 'pw-example', allowUntrusted: true, pinnedSha256: PIN })));
+  assert.equal(moved.settings.pinnedSha256, PIN);
+  // Trusted for another server than the one saved: dropped.
+  const wrong = await st.save({ ...smtpReq({ port: 2525, allowUntrusted: true, pinnedSha256: PIN }), pinnedFor: { host: 'smtp.example.lab', port: 465, security: 'ssl' } });
+  assert.equal(wrong.settings.pinnedSha256, '');
+});
+
+test('clear: removes the server, the password and the pin', async () => {
+  const secrets = fakeSecrets();
+  const io = memIO(undefined);
+  const st = new SmtpStore(io, secrets);
+  await st.save(trusted(smtpReq({ password: 'pw-example', allowUntrusted: true, pinnedSha256: PIN })));
+  assert.equal((await st.info()).configured, true);
+  const info = await st.clear();
+  assert.equal(info.configured, false);
+  assert.equal(info.host, '');
+  assert.equal(info.pinnedSha256, '');
+  assert.equal(info.hasPassword, false);
+  assert.equal(await st.password(), '');
+  assert.equal(secrets.map.size, 0);
+});
+
+
+// ─── QA round: failure notices, warnings, classified reasons ────────────
+
+test('failure notice: sent once for a failed collection, recorded, never retried', async () => {
+  const notices = [];
+  const h = harness({
+    outcome: () => ({ status: 'failed', stage: 'collect', message: 'Collection failed: x', detail: 'raw x' }),
+    notifyFailure: async (s, r) => {
+      notices.push({ name: s.name, stage: r.stage, message: r.message, detail: r.detail });
+      return { sent: false, message: 'Failure notice not sent: The server rejected the username or password.' };
+    },
+  });
+  const a = st_add(h, def());
+  h.runner.runNow(a.id);
+  await settle();
+  await settle();
+  assert.deepEqual(notices, [{ name: 'Weekly PC01', stage: 'collect', message: 'Collection failed: x', detail: 'raw x' }]);
+  const rec = h.store.get(a.id).history[0];
+  assert.equal(rec.status, 'failed');
+  assert.equal(rec.detail, 'raw x');
+  assert.deepEqual(rec.failureNotice, { sent: false, message: 'Failure notice not sent: The server rejected the username or password.' });
+  assert.ok(rec.finishedAt);
+});
+
+test('failure notice: off per schedule, never for mail-server problems or successful runs', () => {
+  const failed = (stage, emailStatus) => ({ status: 'failed', stage, message: 'm', emailStatus });
+  assert.equal(normalizeDefinition({}).notifyOnFailure, true);
+  assert.equal(normalizeDefinition({ notifyOnFailure: false }).notifyOnFailure, false);
+  assert.equal(wantsFailureNotice({}, failed('collect')), true);
+  assert.equal(wantsFailureNotice({ notifyOnFailure: false }, failed('collect')), false);
+  assert.equal(wantsFailureNotice({}, failed('email', 'too_large')), true);
+  assert.equal(wantsFailureNotice({}, failed('email', 'error')), true);
+  for (const st of ['auth_failed', 'unreachable', 'timeout', 'tls_error', 'not_configured', 'recipient_rejected']) {
+    assert.equal(wantsFailureNotice({}, failed('email', st)), false, st);
+  }
+  assert.equal(wantsFailureNotice({}, { status: 'warning', stage: 'collect', message: 'm' }), false);
+  assert.equal(wantsFailureNotice({}, { status: 'ok', message: 'm' }), false);
+});
+
+test('failure notice: a throwing sender is recorded, the run still finishes', async () => {
+  const h = harness({
+    outcome: () => ({ status: 'failed', stage: 'collect', message: 'Collection failed: x' }),
+    notifyFailure: async () => {
+      throw new Error('Python core exited');
+    },
+  });
+  const a = st_add(h, def({ notifyOnFailure: true }));
+  h.runner.runNow(a.id);
+  await settle();
+  await settle();
+  const rec = h.store.get(a.id).history[0];
+  assert.equal(rec.status, 'failed');
+  assert.deepEqual(rec.failureNotice, { sent: false, message: 'Python core exited' });
+  assert.equal(h.runner.isActive(), false);
+});
+
+test('warning runs: mail sent with a target missing or recipients refused is not failed', async () => {
+  const h = harness({ outcome: () => ({ status: 'warning', stage: 'collect', message: 'Emailed 2 reports to 1 recipient. Not collected: pc02: down.', detail: 'raw' }) });
+  const a = st_add(h, def());
+  h.runner.runNow(a.id);
+  await settle();
+  await settle();
+  const rec = h.store.get(a.id).history[0];
+  assert.equal(rec.status, 'warning');
+  assert.equal(rec.detail, 'raw');
+  assert.equal(rec.failureNotice, undefined);
+  assert.equal(h.finished[0].status, 'warning');
+});
+
+test('Run now on a queued or running schedule says so (false), and queues nothing', async () => {
+  const h = harness();
+  let release;
+  h.pending = new Promise((r) => (release = r));
+  const a = st_add(h, def());
+  assert.equal(h.runner.runNow(a.id), true);
+  await settle();
+  assert.equal(h.runner.state(a.id), 'running');
+  assert.equal(h.runner.runNow(a.id), false);
+  assert.equal(h.runner.queued().length, 0);
+  release();
+  await settle();
+  await settle();
+  assert.equal(h.runs.length, 1);
+});
+
+test('collectionFailureReason: one plain sentence, the raw text as detail', () => {
+  const raw =
+    "Could not reach Prism Central at down.demo.local:9440 (HTTPSConnectionPool(host='down.demo.local', port=9440): Max retries exceeded (Caused by NameResolutionError(\"Failed to resolve 'down.demo.local' ([Errno 8] nodename nor servname provided, or not known)\")))";
+  const r = sched.collectionFailureReason(raw);
+  assert.equal(r.message, 'Could not reach Prism Central at down.demo.local:9440: the host name could not be resolved. Check the target address and DNS.');
+  assert.equal(r.detail, raw);
+  assert.ok(!r.message.includes('Errno'));
+  assert.match(sched.collectionFailureReason('Could not connect to pc (Connection refused)').message, /refused/);
+  assert.match(sched.collectionFailureReason('Read timed out (x)').message, /did not answer in time/);
+  assert.match(sched.collectionFailureReason('HTTP 401 Unauthorized from pc').message, /username or password/);
+  const plain = sched.collectionFailureReason('Python core exited (code 1)');
+  assert.equal(plain.message, 'Python core exited.');
+  assert.ok(sched.collectionFailureReason('x'.repeat(1000)).message.length <= 240);
+  for (const t of [raw, 'a', 'Read timed out (x)']) assert.ok(!sched.collectionFailureReason(t).message.includes('\u2014'));
+});
+
+test('failureNotice: subject, schedule, targets, stage and reason; no em dashes', () => {
+  const n = sched.failureNotice({ name: 'Weekly' }, ['PC01', 'PC02'], {
+    startedAt: local(2026, 10, 17, 7, 5).toISOString(),
+    stage: 'collect',
+    message: 'Collection failed: pc01 did not answer in time.',
+    detail: 'raw',
+  });
+  assert.equal(n.subject, 'NTNXVision schedule failed: Weekly');
+  assert.match(n.body, /Targets: PC01, PC02/);
+  assert.match(n.body, /Started: 2026-10-17 07:05/);
+  assert.match(n.body, /Stage: Collection/);
+  assert.match(n.body, /Reason: Collection failed: pc01 did not answer in time\./);
+  assert.match(n.body, /Detail: raw/);
+  assert.ok(!n.body.includes('\u2014'));
 });
