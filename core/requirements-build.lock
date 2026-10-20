@@ -76,7 +76,9 @@ ast-serialize==0.13.1 \
 certifi==2026.7.22 \
     --hash=sha256:62f22742b58a1a33014a2b6b706588a8d7e2a88ae7bd1a6ebe8c992928483775 \
     --hash=sha256:741e2c3b351ddf169a738da9f2c048608ff7f2c5cc02f1ebc6b118bb090d5d55
-    # via requests
+    # via
+    #   ntnxvision-core (pyproject.toml)
+    #   requests
 cffi==2.1.1 ; platform_python_implementation != 'PyPy' \
     --hash=sha256:046bfc24911b37851ee1b51aab8bffe713d89c68c6a057b09484ce9fd5f69b4e \
     --hash=sha256:06c72bb76605a4b0cd0aad6930b69d4baf7dd5d806cfc409b824191099700e66 \
@@ -677,7 +679,9 @@ fonttools==4.65.0 ; python_full_version < '3.11' \
     --hash=sha256:fb53892b570f7f1f0055e75fc4de32673e32f749c4c8a606b63d5c436650e634 \
     --hash=sha256:fcf39949f56911348514b466714efa9118bec3d2be249e1c487263f7cda6edab \
     --hash=sha256:ffc918702661f1d74d2fbb2f5551036b64f6d2d743139e105289b694bcd16f54
-    # via fpdf2
+    # via
+    #   ntnxvision-core (pyproject.toml)
+    #   fpdf2
 fonttools==4.67.0 ; python_full_version >= '3.11' \
     --hash=sha256:0781fe22583529e1e98bb8a3a33040632e202a4c427ed7e65412c41a21b8ebcb \
     --hash=sha256:07a2f36b3263faadf5b7b548f62fd3cac401e490189c82b16f7139ac0df91cd4 \
@@ -737,7 +741,9 @@ fonttools==4.67.0 ; python_full_version >= '3.11' \
     --hash=sha256:fc6b6b03aa44f504c8734e62ccc3e4dcda9f4b8213a85aa80742e4d1cc9d96ef \
     --hash=sha256:fcb9743140419410161acfe7ec205fb0a8a703acfccb85b586becb5a97c047c9 \
     --hash=sha256:fd79e36c2968e9fc3e1b082f2ba7dc63ae88a161a3d8ceaa0746b906455f3617
-    # via fpdf2
+    # via
+    #   ntnxvision-core (pyproject.toml)
+    #   fpdf2
 fpdf2==2.8.9 \
     --hash=sha256:5b0b3786f5236a2b3cc83c1fee567df17ddd314f8c4e13d820d8f09b617ab4f0 \
     --hash=sha256:6e1d94af6d6311950a23dec7fb5fc84b000203eb59aee8e76c1e701b12a14976
@@ -1559,6 +1565,10 @@ tomli==2.5.0 ; python_full_version <= '3.11' \
     #   mypy
     #   pip-licenses
     #   pytest
+truststore==0.10.5 \
+    --hash=sha256:30d36967ccaded5cbb38d602c433f53600036c79d502f4533a49b60a03bbefcd \
+    --hash=sha256:9aaaedaefaf06d8b206278cf8b5012bc897f485a874503501e12d776df78951c
+    # via ntnxvision-core (pyproject.toml)
 typer==0.27.3 \
     --hash=sha256:d0396f770a560ab1b0a8504e13b5f254b728cedb05c61cf0359e944e50ce8901 \
     --hash=sha256:e50022f28b82a86313e54501317a1db64bf8f8d036ff8cfe5ca7e47675454aff

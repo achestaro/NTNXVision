@@ -30,12 +30,12 @@ from typing import Any
 from urllib.parse import urlsplit, urlunsplit
 
 import requests
-from requests.adapters import HTTPAdapter
 
 from ntnxvision_core.api import transport
 from ntnxvision_core.synthetic.mockapi import MockApi, Target
 from ntnxvision_core.synthetic.profiles import DEMO_DOMAIN, demo_targets, make_resolver
 from ntnxvision_core.synthetic.server import HOST_HEADER, MockNutanixServer, demo_ca
+from ntnxvision_core.tlsctx import TrustStoreAdapter
 
 DEFAULT_LATENCY_MS = 40.0
 
@@ -75,7 +75,7 @@ _state: DemoState | None = None
 _lock = threading.Lock()
 
 
-class DemoRouterAdapter(HTTPAdapter):
+class DemoRouterAdapter(TrustStoreAdapter):
     """Sends requests for demo hostnames to the local mock servers."""
 
     def send(self, request: requests.PreparedRequest, **kwargs: Any) -> requests.Response:  # type: ignore[override]

@@ -35,6 +35,7 @@ from typing import Any
 
 from ntnxvision_core.api import transport
 from ntnxvision_core.paths import demo_enabled
+from ntnxvision_core.tlsctx import verified_context
 
 SECURITY_MODES = ("none", "starttls", "ssl")
 LOOPBACK = {"127.0.0.1", "localhost", "::1"}
@@ -272,13 +273,15 @@ def prepared_attachments(cfg: SmtpConfig, files: list[Path], zip_name: str
 
 
 def _context(cfg: SmtpConfig) -> ssl.SSLContext:
-    ctx = ssl.create_default_context()
-    if cfg.cafile:
-        ctx.load_verify_locations(cafile=cfg.cafile)
     if cfg.allow_untrusted:
+        # Chain checks off; the leaf certificate is pinned instead (`_check_pin`).
+        ctx = ssl.create_default_context()
         ctx.check_hostname = False
         ctx.verify_mode = ssl.CERT_NONE
-    return ctx
+        return ctx
+    # Not ssl.create_default_context(): in the frozen sidecar OpenSSL's default CA paths
+    # do not exist. The OS trust store also covers a relay with an internal CA.
+    return verified_context(cafile=cfg.cafile)
 
 
 def _guard_demo(cfg: SmtpConfig) -> None:
