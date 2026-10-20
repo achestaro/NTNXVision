@@ -486,6 +486,48 @@ const SHOTS = [
     if (!ins || !canvas || ins.y > canvas.y + 10) throw new Error('the inspector wrapped below the canvas');
     await p.locator('#dg-pick').waitFor();
   }, 900, 1100],
+  // Diagrams editor v2: connectors, the connector tool, the full-window editor.
+  ['diagrams-connector', { diagrams: 'edited' }, async (p) => {
+    await rail(p, 'Diagrams');
+    await p.locator('.dg-sheet svg').waitFor();
+    await p.locator('[data-conn="user:backup-link"]').focus();
+    await p.getByTestId('dg-connector-inspector').waitFor();
+    await p.locator('[data-handle="lane"]').waitFor();
+    await cardsFit(p);
+  }],
+  ['diagrams-connect-mode', { diagrams: 'edited' }, async (p) => {
+    await rail(p, 'Diagrams');
+    await p.locator('.dg-sheet svg').waitFor();
+    await p.locator('[data-el="user:backup-appliance"]').click();
+    await p.locator('[data-port="right"]').waitFor();
+    await p.getByRole('button', { name: 'Connector', exact: true }).click();
+    await p.getByTestId('dg-connect-status').getByText('pick the end element').waitFor();
+  }],
+  ['diagrams-expanded', { diagrams: 'edited' }, async (p) => {
+    await rail(p, 'Diagrams');
+    await p.locator('.dg-sheet svg').waitFor();
+    await p.getByRole('button', { name: 'Expand the canvas' }).click();
+    await p.locator('.dg-expanded').waitFor();
+    await p.locator('[data-el^="cluster:"]').first().click();
+  }],
+  ['export-preview', { diagrams: 'stale' }, async (p) => {
+    await rail(p, 'Snapshots');
+    await p.getByRole('button', { name: 'Export pc01 Q4 review' }).click();
+    const dlg = p.getByRole('dialog');
+    await dlg.getByRole('checkbox', { name: /PDF/ }).check();
+    await dlg.getByRole('checkbox', { name: /Word/ }).check();
+    await dlg.getByTestId('export-preview').getByText('_diagrams.zip').first().waitFor();
+    await dlg.getByRole('button', { name: /svg\// }).click();
+    await dlg.getByText('edited diagram is stale').waitFor();
+  }, 1400],
+  ['export-preview-folder', {}, async (p) => {
+    await rail(p, 'Snapshots');
+    await p.getByRole('button', { name: 'Export pc01 Q4 review' }).click();
+    const dlg = p.getByRole('dialog');
+    await dlg.getByRole('checkbox', { name: /PDF/ }).check();
+    await dlg.getByRole('button', { name: 'Folder' }).click();
+    await dlg.getByTestId('export-preview').getByText('Folder,').waitFor();
+  }, 1300, 1000],
   ['snapshots-empty', { empty: true }, async (p) => rail(p, 'Snapshots')],
   ['settings', {}, async (p) => rail(p, 'Settings')],
   ['settings-section-order-off', {}, async (p) => {
