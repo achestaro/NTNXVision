@@ -124,7 +124,13 @@ class _Session(socketserver.StreamRequestHandler):
                     self._send("503 AUTH not available")
                     continue
                 authed = self._auth(arg)
+                if not authed and sink.auth_fail_closes:
+                    # Gmail answers a bad sign-in with 535 and hangs up.
+                    return
             elif verb == "MAIL":
+                if sink.require_tls and not tls_active:
+                    self._send("530 5.7.0 Must issue a STARTTLS command first.")
+                    continue
                 if sink.username and not authed:
                     self._send("530 5.7.0 Authentication required")
                     continue
@@ -226,7 +232,8 @@ class SmtpSink:
 
     def __init__(self, *, port: int = 0, tls: str = "none", cert: str = "ca",
                  username: str = "", password: str = "", reject: list[str] | None = None,
-                 max_size: int = 50 * 1024 * 1024, out_dir: str | Path | None = None) -> None:
+                 max_size: int = 50 * 1024 * 1024, out_dir: str | Path | None = None,
+                 auth_fail_closes: bool = False, require_tls: bool = False) -> None:
         if tls not in ("none", "starttls", "ssl"):
             raise ValueError(f"tls must be none, starttls or ssl, not {tls!r}")
         self.port = port
@@ -236,6 +243,10 @@ class SmtpSink:
         self.password = password
         self.reject = {r.casefold() for r in reject or []}
         self.max_size = max_size
+        #: Close the connection after a rejected sign-in (as Gmail does).
+        self.auth_fail_closes = auth_fail_closes
+        #: Refuse MAIL FROM before STARTTLS with Gmail's 530 reply.
+        self.require_tls = require_tls
         self.out_dir = Path(out_dir) if out_dir else None
         self.messages: list[dict[str, Any]] = []
         self._lock = threading.Condition()

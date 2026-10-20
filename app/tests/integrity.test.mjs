@@ -147,7 +147,7 @@ test('an edit outside the app disables every schedule, keeps the data, and nothi
   assert.equal(executed, 0);
 });
 
-test('re-saving a schedule clears the warning; the others stay switched off', async () => {
+test('re-saving a schedule clears its flag only; the others stay off and flagged, across restarts', async () => {
   const disk = fakeDisk();
   const secrets = fakeSecrets();
   const a = await boot(disk, secrets);
@@ -162,12 +162,21 @@ test('re-saving a schedule clears the warning; the others stay switched off', as
   const first = b.store.list()[0];
   const res = b.store.saveSchedule({ ...request(), id: first.id, name: first.name, to: ['ops@example.lab'], enabled: true }, targets);
   assert.ok(res.ok);
-  assert.equal(b.store.tampered, false);
+  // The other schedule was not reviewed: still flagged, so the store still says so.
+  assert.equal(b.store.tampered, true);
   const c = await boot(disk, secrets);
-  assert.equal(c.store.tampered, false);
+  assert.equal(c.file.tampered(), false, 'the file is signed again');
   const after = c.store.list();
   assert.equal(after.find((s) => s.id === first.id).enabled, true);
-  assert.equal(after.find((s) => s.id !== first.id).enabled, false);
+  assert.equal(after.find((s) => s.id === first.id).needsReview, undefined);
+  const other = after.find((s) => s.id !== first.id);
+  assert.equal(other.enabled, false);
+  assert.equal(other.needsReview, true);
+  assert.equal(c.store.tampered, true);
+  // Saving the second in the editor finishes the review.
+  assert.ok(c.store.saveSchedule({ ...request(), id: other.id, name: other.name }, targets).ok);
+  assert.equal(c.store.tampered, false);
+  assert.equal((await boot(disk, secrets)).store.tampered, false);
 });
 
 test('a missing MAC with an existing key counts as tampered', async () => {
@@ -341,4 +350,126 @@ test('R4-01: Integrity.freshlyAdopted is set only when a new key was created', a
   const off = mk();
   await off.init(secrets, false);
   assert.equal(off.freshlyAdopted, false);
+});
+
+
+// ─── QA round: toggles, delete and live tamper ─────────────────────────
+
+async function tamperedBoot() {
+  const disk = fakeDisk();
+  const secrets = fakeSecrets();
+  const a = await boot(disk, secrets);
+  a.store.saveSchedule(request(), targets);
+  a.store.saveSchedule(request({ name: 'Second' }), targets);
+  const raw = disk.read('schedules.json');
+  raw.schedules.push({ ...raw.schedules[0], id: 'evil', name: 'Evil', to: ['attacker@example.net'] });
+  disk.write('schedules.json', raw);
+  return { disk, secrets, b: await boot(disk, secrets) };
+}
+
+test('a flagged schedule cannot be switched on from the toggle', async () => {
+  const { disk, secrets, b } = await tamperedBoot();
+  assert.throws(() => b.store.setEnabled('evil', true), /changed outside NTNXVision/);
+  assert.equal(b.store.get('evil').enabled, false);
+  // Switching off is harmless and allowed (already off: nothing written).
+  assert.equal(b.store.setEnabled('evil', false), true);
+  assert.equal((await boot(disk, secrets)).store.tampered, true);
+});
+
+test('deleting one schedule never vouches for the others', async () => {
+  const { disk, secrets, b } = await tamperedBoot();
+  const keep = b.store.list().find((s) => s.name === 'Weekly');
+  assert.ok(b.store.delete(keep.id));
+  const c = await boot(disk, secrets);
+  const list = c.store.list();
+  assert.equal(list.length, 2);
+  assert.ok(list.every((s) => s.needsReview === true && s.enabled === false));
+  assert.throws(() => c.store.setEnabled('evil', true), /changed outside NTNXVision/);
+  const runner = new ScheduleRunner({
+    store: c.store,
+    now: () => new Date('2030-01-01T09:00:00Z'),
+    newId: () => 'r',
+    busy: () => false,
+    execute: async () => ({ status: 'ok', message: 'ok' }),
+    changed: () => {},
+  });
+  assert.equal(runner.tick(), 0);
+  assert.throws(() => runner.runNow('evil'), /changed outside NTNXVision/);
+});
+
+test('C: a schedules.json edited while the app runs is caught at the next tick, Run now or change', async () => {
+  const disk = fakeDisk();
+  const secrets = fakeSecrets();
+  const a = await boot(disk, secrets);
+  const saved = a.store.saveSchedule(request(), targets).schedule;
+  assert.equal(a.store.get(saved.id).enabled, true);
+  let executed = 0;
+  const runner = new ScheduleRunner({
+    store: a.store,
+    now: () => new Date('2030-01-01T09:00:00Z'),
+    newId: () => 'r',
+    busy: () => false,
+    execute: async () => {
+      executed += 1;
+      return { status: 'ok', message: 'ok' };
+    },
+    changed: () => {},
+  });
+  // Live edit: new recipient, no restart.
+  const raw = disk.read('schedules.json');
+  raw.schedules[0].to = ['attacker@example.net'];
+  disk.write('schedules.json', raw);
+  assert.equal(runner.tick(), 0);
+  assert.equal(a.store.tampered, true);
+  assert.equal(a.store.get(saved.id).enabled, false);
+  assert.deepEqual(a.store.get(saved.id).to, ['attacker@example.net']);
+  assert.throws(() => runner.runNow(saved.id), /changed outside NTNXVision/);
+  assert.throws(() => a.store.setEnabled(saved.id, true), /changed outside NTNXVision/);
+  assert.equal(executed, 0);
+});
+
+test('C: our own writes never trip the live check', async () => {
+  const disk = fakeDisk();
+  const secrets = fakeSecrets();
+  const a = await boot(disk, secrets);
+  const s = a.store.saveSchedule(request(), targets).schedule;
+  a.store.setAnchor(s.id, '2026-10-02T00:00:00.000Z');
+  assert.equal(a.store.revalidate(), false);
+  assert.equal(a.store.setEnabled(s.id, false), true);
+  assert.equal(a.store.revalidate(), false);
+  assert.equal(a.store.tampered, false);
+});
+
+test('disableAll (email settings removed) switches every enabled schedule off', async () => {
+  const disk = fakeDisk();
+  const secrets = fakeSecrets();
+  const a = await boot(disk, secrets);
+  a.store.saveSchedule(request(), targets);
+  a.store.saveSchedule(request({ name: 'Off', enabled: false }), targets);
+  assert.deepEqual(a.store.disableAll(), ['Weekly']);
+  const c = await boot(disk, secrets);
+  assert.ok(c.store.list().every((s) => !s.enabled));
+  assert.equal(c.store.tampered, false);
+});
+
+test('email: re-saving after a tamper drops the file pin and needs the password again', async () => {
+  const disk = fakeDisk();
+  const secrets = fakeSecrets();
+  const w = setup(disk, secrets);
+  await w.integrity.init(secrets);
+  const ef = w.guarded('email.json');
+  const keys = new Map();
+  const ks = { get: async (a) => keys.get(a) ?? null, set: async (a, v) => void keys.set(a, v), delete: async (a) => void keys.delete(a) };
+  const st = new SmtpStore({ read: ef.read, write: ef.write, tampered: ef.tampered }, ks);
+  const base = { host: 'smtp.example.lab', port: 465, security: 'ssl', username: 'u@example.lab', fromAddress: 'u@example.lab', fromName: 'N', allowUntrusted: true, pinnedSha256: 'ab'.repeat(32), maxAttachmentMb: 20, zipAttachments: false };
+  assert.ok((await st.save({ ...base, password: 'pw-example', pinnedFor: { host: base.host, port: 465, security: 'ssl' } })).ok);
+  const raw = disk.read('email.json');
+  raw.pinnedSha256 = 'ef'.repeat(32);
+  disk.write('email.json', raw);
+  assert.equal((await st.info()).tampered, true);
+  const r = await st.save({ ...base, pinnedSha256: 'ef'.repeat(32), password: '' });
+  assert.ok(r.ok);
+  assert.equal(r.settings.pinnedSha256, '', 'a planted pin is never adopted');
+  assert.equal(r.settings.hasPassword, false);
+  assert.equal(r.settings.tampered, undefined);
 });
