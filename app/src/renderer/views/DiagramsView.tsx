@@ -9,10 +9,14 @@ import {
   ArrowArcRightIcon,
   CaretLeftIcon,
   CaretRightIcon,
+  CornersInIcon,
+  CornersOutIcon,
   CubeIcon,
+  FlowArrowIcon,
   GlobeIcon,
   HardDrivesIcon,
   MinusIcon,
+  MonitorIcon,
   NoteIcon,
   PlusIcon,
   RectangleIcon,
@@ -25,13 +29,18 @@ import {
 } from '@phosphor-icons/react';
 import type { Icon as PhosphorIcon } from '@phosphor-icons/react';
 import type {
+  DiagramArrow,
+  DiagramConnector,
   DiagramDetail,
+  DiagramEdgeField,
   DiagramElement,
+  DiagramFileFormat,
   DiagramLayoutResult,
   DiagramList,
   DiagramOp,
   DiagramPaletteItem,
   DiagramProblem,
+  DiagramSide,
   DiagramStale,
   SnapshotList,
 } from '@shared/ipc';
@@ -46,9 +55,11 @@ import { NA, errorMessage, fmtAbs, fmtDay, plural } from '../lib/format';
 import { useExportDialog } from './ExportDialog';
 import { useSnapshotTransfer } from './SnapshotTransfer';
 import { SceneCanvas } from './diagrams/SceneCanvas';
+import type { CanvasTool } from './diagrams/SceneCanvas';
 
 const PALETTE_ICONS: Record<string, PhosphorIcon> = {
   cluster: CubeIcon,
+  pc: MonitorIcon,
   az: SquaresFourIcon,
   storage: HardDrivesIcon,
   switch: RectangleIcon,
@@ -89,18 +100,37 @@ const same = (a: DiagramOp[], b: DiagramOp[]) => JSON.stringify(a) === JSON.stri
 
 /** "Rename of PROD-E01", "Removal of VDI-01": what an edit was, for reports. */
 export function describeOp(op: DiagramOp, label?: string | null): string {
-  const name = label || ('id' in op ? op.id : op.element.name ?? 'an element');
+  const name = label || (op.op === 'add' ? op.element.name ?? 'an element' : op.op === 'connect' ? 'a connector' : op.id);
   switch (op.op) {
     case 'set':
       return op.field === 'label' ? `Rename of ${name}` : op.field === 'role' ? `Role of ${name}` : `Note on ${name}`;
     case 'move':
-      return `New position of ${name}`;
+      return op.parent ? `Move of ${name} to another container` : `New position of ${name}`;
     case 'delete':
       return `Removal of ${name}`;
     case 'add':
       return `Added ${op.element.name ?? 'element'}`;
+    case 'connect':
+      return op.label ? `Connector “${op.label}”` : 'Added connector';
+    case 'edge': {
+      const what = label || 'a connector';
+      if (op.field === 'hidden') return op.value ? `Removal of ${what}` : `Restore of ${what}`;
+      if (op.field === 'a' || op.field === 'b') return `Reconnection of ${what}`;
+      if (op.field === 'label') return `Label of ${what}`;
+      if (op.field === 'arrow') return `Arrowheads of ${what}`;
+      return `Route of ${what}`;
+    }
   }
 }
+
+const SIDE_LABELS: Record<DiagramSide, string> = { auto: 'Auto', top: 'Top', right: 'Right', bottom: 'Bottom', left: 'Left' };
+const ARROW_LABELS: Record<DiagramArrow, string> = { none: 'None', end: 'At the end', start: 'At the start', both: 'Both ends' };
+const DOWNLOADS: { format: DiagramFileFormat; label: string }[] = [
+  { format: 'vsdx', label: 'Visio' },
+  { format: 'drawio', label: 'draw.io' },
+  { format: 'svg', label: 'SVG' },
+  { format: 'png', label: 'PNG' },
+];
 
 const show = (x: unknown): string =>
   x === null || x === undefined || x === '' ? NA : typeof x === 'number' ? x.toLocaleString('en-US') : String(x);
@@ -197,6 +227,12 @@ export function DiagramsView({ snapshot: snapProp, type: typeProp, part: partPro
   const [confirmReset, setConfirmReset] = useState(false);
   const [pending, setPending] = useState<(() => void) | null>(null);
   const [editRequest, setEditRequest] = useState(0);
+  // Connector tool (palette "Connector", C on an element): start, then end.
+  const [tool, setTool] = useState<CanvasTool>('select');
+  const [connectFrom, setConnectFrom] = useState<string | null>(null);
+  // Full-window editor (⇧⌘F; Esc leaves).
+  const [expanded, setExpanded] = useState(false);
+  const [downloading, setDownloading] = useState<DiagramFileFormat | null>(null);
   const seq = useRef(0);
   // A re-layout is in flight: a just-added element is selected before it is in the outline.
   const laying = useRef(false);
@@ -216,6 +252,8 @@ export function DiagramsView({ snapshot: snapProp, type: typeProp, part: partPro
         setRedo([]);
         setSelected(null);
         setKept(false);
+        setTool('select');
+        setConnectFrom(null);
       },
       (e) => my === seq.current && setLoadError(errorMessage(e)),
     );
@@ -336,6 +374,10 @@ export function DiagramsView({ snapshot: snapProp, type: typeProp, part: partPro
   const guarded = (fn: () => void) => (dirty ? setPending(() => fn) : fn());
 
   // ─ shortcuts ─
+  const toolRef = useRef(tool);
+  toolRef.current = tool;
+  const expandedRef = useRef(expanded);
+  expandedRef.current = expanded;
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (document.querySelector('[role="dialog"][aria-modal="true"]')) return;
@@ -347,7 +389,19 @@ export function DiagramsView({ snapshot: snapProp, type: typeProp, part: partPro
         if (!busy && detail && !same(opsRef.current, detail.ops)) void save();
         return;
       }
+      if (isMod(e) && e.shiftKey && e.key.toLowerCase() === 'f') {
+        e.preventDefault();
+        setExpanded((v) => !v);
+        return;
+      }
       if (isTyping(e.target)) return;
+      if (e.key === 'Escape') {
+        if (toolRef.current === 'connect') {
+          setTool('select');
+          setConnectFrom(null);
+        } else if (expandedRef.current && !(e.target as HTMLElement | null)?.closest?.('[data-el],[data-conn]')) setExpanded(false);
+        return;
+      }
       if (isMod(e) && e.key.toLowerCase() === 'z') {
         e.preventDefault();
         if (e.shiftKey) redoOne();
@@ -363,10 +417,18 @@ export function DiagramsView({ snapshot: snapProp, type: typeProp, part: partPro
 
   // ─ derived ─
   const outline = useMemo(() => new Map((view?.outline ?? []).map((o) => [o.id, o])), [view]);
+  const connectors = useMemo(() => new Map((view?.connectors ?? []).map((c) => [c.id, c])), [view]);
   const scenes = view?.scenes ?? [];
   const partIndex = Math.min(cur?.part ?? 0, Math.max(0, scenes.length - 1));
   const scene = scenes[partIndex];
   const sel = selected ? outline.get(selected) ?? null : null;
+  const selConn = selected ? connectors.get(selected) ?? null : null;
+  /** Elements drawn in this part (the ends a connector can take here). */
+  const drawnHere = useMemo(() => {
+    const ids = new Set(scene?.nodes.map((n) => n.id) ?? []);
+    return [...outline.values()].filter((o) => ids.has(o.id));
+  }, [scene, outline]);
+  const partConnectors = useMemo(() => (view?.connectors ?? []).filter((c) => c.parts.includes(partIndex) && !c.hidden), [view, partIndex]);
   const stale = detail?.stale && !kept ? detail.stale : null;
   const marked = useMemo(() => new Set(stale ? stale.changes.filter((c) => c.kind !== 'removed').map((c) => c.id) : []), [stale]);
   const summary = diagrams.find((d) => d.type === curType);
@@ -391,8 +453,8 @@ export function DiagramsView({ snapshot: snapProp, type: typeProp, part: partPro
   }, [detail, all, snapPath, snap]);
 
   useEffect(() => {
-    if (selected && view && !laying.current && !outline.has(selected)) setSelected(null);
-  }, [selected, view, outline]);
+    if (selected && view && !laying.current && !outline.has(selected) && !connectors.has(selected)) setSelected(null);
+  }, [selected, view, outline, connectors]);
 
   // ─ zoom ─
   const deskRef = useRef<HTMLDivElement>(null);
@@ -412,10 +474,63 @@ export function DiagramsView({ snapshot: snapProp, type: typeProp, part: partPro
 
   // ─ edits from the canvas and inspector ─
   const rename = (id: string, label: string) => apply({ op: 'set', id, field: 'label', value: label });
-  const move = (id: string, index: number) => apply({ op: 'move', id, index });
+  const move = (id: string, index: number, parent?: string) => apply(parent ? { op: 'move', id, index, parent } : { op: 'move', id, index });
   const remove = (id: string) => {
+    const c = connectors.get(id);
     setSelected(null);
+    if (c && c.delete_op === 'hide') {
+      apply({ op: 'edge', id, ends: [c.ends[0], c.ends[1]], field: 'hidden', value: true });
+      return;
+    }
     apply({ op: 'delete', id });
+  };
+  const editConnector = (c: DiagramConnector, field: DiagramEdgeField, value: string | number | boolean | null) =>
+    apply({ op: 'edge', id: c.id, ends: [c.ends[0] ?? c.a ?? '', c.ends[1] ?? c.b ?? ''], field, value });
+  const connect = (a: string, b: string, aSide?: DiagramSide) => {
+    if (a === b) return;
+    const id = newId();
+    const op: DiagramOp = { op: 'connect', id, a, b, label: null };
+    if (aSide && aSide !== 'auto') op.a_side = aSide;
+    if (apply(op)) {
+      setSelected(id);
+      const pa = outline.get(a)?.label ?? a;
+      const pb = outline.get(b)?.label ?? b;
+      toast.show({ tone: 'ok', title: `Connected ${pa} to ${pb}.`, hint: 'Exports draw it dashed amber, marked as added by the author.' });
+    }
+    setTool('select');
+    setConnectFrom(null);
+  };
+  const pick = (id: string) => {
+    if (!connectFrom) {
+      setConnectFrom(id);
+      return;
+    }
+    if (id === connectFrom) {
+      setConnectFrom(null);
+      return;
+    }
+    connect(connectFrom, id);
+  };
+  const startConnect = (from: string | null) => {
+    setTool('connect');
+    setConnectFrom(from);
+  };
+  const download = async (format: DiagramFileFormat) => {
+    if (!snapPath || !curType) return;
+    setDownloading(format);
+    try {
+      const r = await window.ntnx.exportDiagram({ snapshotPath: snapPath, type: curType, format });
+      toast.show({
+        tone: 'ok',
+        title: `Saved ${r.name}${r.paths.length > 1 ? ` and ${plural(r.paths.length - 1, 'more file')}` : ''}.`,
+        hint: dirty ? 'The saved version: unsaved changes are not in it.' : undefined,
+        action: { label: 'Show', onClick: () => void window.ntnx.revealPath(r.path) },
+      });
+    } catch (e) {
+      toast.show({ tone: 'error', title: 'Couldn’t save the diagram.', detail: errorMessage(e) });
+    } finally {
+      setDownloading(null);
+    }
   };
   const add = (item: DiagramPaletteItem) => {
     let parent: string | null = null;
@@ -564,7 +679,7 @@ export function DiagramsView({ snapshot: snapProp, type: typeProp, part: partPro
           </select>
         </div>
       )}
-      <div className="dg-layout">
+      <div className={expanded ? 'dg-layout dg-expanded' : 'dg-layout'} data-testid="dg-layout">
         <Panel as="nav" className="dg-list" aria-label="Diagrams in this snapshot">
           <div className="phead">
             <span className="phead-title">Diagrams</span>
@@ -629,6 +744,16 @@ export function DiagramsView({ snapshot: snapProp, type: typeProp, part: partPro
             <Button size="sm" variant="ghost" onClick={() => setZoomMode('fit')} aria-pressed={zoomMode === 'fit'}>
               Fit
             </Button>
+            <Button
+              size="sm"
+              variant="ghost"
+              iconOnly
+              icon={expanded ? CornersInIcon : CornersOutIcon}
+              aria-label={expanded ? 'Leave the full-window editor' : 'Expand the canvas'}
+              aria-pressed={expanded}
+              title={expanded ? 'Leave the full-window editor (⇧⌘F or Esc)' : 'Expand the canvas to the full window (⇧⌘F)'}
+              onClick={() => setExpanded((v) => !v)}
+            />
             <span className="dg-sep" aria-hidden="true" />
             <span className="hint dg-dirty">
               <span className={`dg-glyph ${dirty ? 'dirty' : 'clean'}`} aria-hidden="true" />
@@ -650,11 +775,44 @@ export function DiagramsView({ snapshot: snapProp, type: typeProp, part: partPro
                 {p.label}
               </button>
             ))}
+            <button
+              type="button"
+              className={tool === 'connect' ? 'dg-tool on' : 'dg-tool'}
+              aria-pressed={tool === 'connect'}
+              title="Draw a connector: pick the start element, then the end (or drag from a port of the selected element). Press C on a focused element."
+              onClick={() => (tool === 'connect' ? (setTool('select'), setConnectFrom(null)) : startConnect(sel && drawnHere.some((o) => o.id === sel.id) ? sel.id : null))}
+              disabled={!view || drawnHere.length < 2}
+            >
+              <FlowArrowIcon size={14} aria-hidden="true" />
+              Connector
+            </button>
             <div className="spacer" />
-            <Button size="sm" variant="ghost" icon={TrashIcon} className="dg-del" disabled={!sel?.can_delete} onClick={() => sel && remove(sel.id)}>
+            <Button
+              size="sm"
+              variant="ghost"
+              icon={TrashIcon}
+              className="dg-del"
+              disabled={!(sel?.can_delete || (selConn?.can_delete && !selConn.hidden))}
+              onClick={() => selected && remove(selected)}
+            >
               Delete
             </Button>
           </div>
+          {tool === 'connect' && (
+            <div className="dg-mode" role="status" data-testid="dg-connect-status">
+              <FlowArrowIcon size={14} aria-hidden="true" />
+              <span>
+                {connectFrom
+                  ? `From ${outline.get(connectFrom)?.label ?? ''}: pick the end element.`
+                  : 'Pick the start element.'}{' '}
+                <span className="hint">Click it, or Tab to it and press Enter. Esc cancels.</span>
+              </span>
+              <div className="spacer" />
+              <Button size="sm" variant="ghost" onClick={() => (setTool('select'), setConnectFrom(null))}>
+                Cancel
+              </Button>
+            </div>
+          )}
 
           {stale && (
             <Callout
@@ -717,13 +875,22 @@ export function DiagramsView({ snapshot: snapProp, type: typeProp, part: partPro
                 scene={scene}
                 zoom={zoom}
                 outline={outline}
+                connectors={connectors}
                 selected={selected}
                 marked={marked}
                 editRequest={editRequest}
+                tool={tool}
+                connectFrom={connectFrom}
                 onSelect={setSelected}
                 onRename={rename}
                 onMove={move}
                 onDelete={remove}
+                onPick={pick}
+                onStartConnect={(id) => startConnect(id)}
+                onConnect={(a, b, side) => connect(a, b, side)}
+                onReconnect={(c, end, target) => editConnector(c, end, target)}
+                onBend={(c, bend) => editConnector(c, 'bend', Math.max(-600, Math.min(600, bend)))}
+                onCancelTool={() => (setTool('select'), setConnectFrom(null))}
               />
             ) : (
               list.data && diagrams.length > 0 && <InlineEmpty>Drawing…</InlineEmpty>
@@ -737,15 +904,47 @@ export function DiagramsView({ snapshot: snapProp, type: typeProp, part: partPro
                   ? `Edited ${fmtAbs(detail.saved_at)} · ${plural(savedOps.length, 'edit')} · exports use the saved version`
                   : `Generated from ${snap?.name ?? 'the snapshot'}. Exports draw it from the data.`}
             </span>
-            {scene && <span className="hint dg-caption">{scene.caption}</span>}
+            <span className="dg-dl" role="group" aria-label="Download this diagram">
+              <span className="hint">Download</span>
+              {DOWNLOADS.map((d) => (
+                <button
+                  key={d.format}
+                  type="button"
+                  className="textlink"
+                  disabled={!detail || downloading !== null}
+                  title={`${d.label} of the saved version, written to the export folder${dirty ? '. Unsaved changes are not in it.' : ''}`}
+                  onClick={() => void download(d.format)}
+                >
+                  {downloading === d.format ? `${d.label}…` : d.label}
+                </button>
+              ))}
+            </span>
           </div>
+          {scene && <div className="hint dg-caption">{scene.caption}</div>}
         </Panel>
 
         <Panel as="aside" className="dg-inspector" aria-label="Inspector">
           <div className="phead">
             <span className="phead-title">Selection</span>
           </div>
-          {sel ? (
+          {selConn ? (
+            <ConnectorInspector
+              key={selConn.id + JSON.stringify([selConn.label, selConn.a, selConn.b, selConn.a_side, selConn.b_side, selConn.bend, selConn.arrow])}
+              c={selConn}
+              ends={drawnHere}
+              onLabel={(v) => editConnector(selConn, 'label', v)}
+              onEnd={(end, v) => editConnector(selConn, end, v)}
+              onSide={(end, v) => editConnector(selConn, end === 'a' ? 'a_side' : 'b_side', v)}
+              onBend={(v) => editConnector(selConn, 'bend', v)}
+              onArrow={(v) => editConnector(selConn, 'arrow', v)}
+              onResetRoute={() => {
+                if (selConn.a_side !== 'auto') editConnector(selConn, 'a_side', 'auto');
+                if (selConn.b_side !== 'auto') editConnector(selConn, 'b_side', 'auto');
+                if (selConn.bend) editConnector(selConn, 'bend', 0);
+              }}
+              onDelete={() => remove(selConn.id)}
+            />
+          ) : sel ? (
             <Inspector
               key={sel.id + JSON.stringify([sel.label, sel.sublabel, sel.role])}
               el={sel}
@@ -753,11 +952,37 @@ export function DiagramsView({ snapshot: snapProp, type: typeProp, part: partPro
               onSublabel={(v) => apply({ op: 'set', id: sel.id, field: 'sublabel', value: v })}
               onRole={(v) => apply({ op: 'set', id: sel.id, field: 'role', value: v })}
               onMove={(i) => move(sel.id, i)}
+              onMoveTo={(parent) => move(sel.id, [...outline.values()].filter((o) => o.parent === parent && o.collection === sel.collection).length, parent)}
+              onConnect={() => startConnect(sel.id)}
               onDelete={() => remove(sel.id)}
               onEditInPlace={() => setEditRequest((n) => n + 1)}
             />
           ) : (
-            <p className="hint dg-ins-empty">Select an element on the canvas to edit its label, role and order. Double-click a label to edit it in place.</p>
+            <div className="dg-ins-empty">
+              <p className="hint">
+                Select an element on the canvas to edit its label, role and order, or a connector to change its ends, label and route. Double-click a label to edit it in place.
+              </p>
+              {partConnectors.length > 0 && (
+                <div className="dg-conns">
+                  <span className="eyebrow">Connectors in this figure</span>
+                  <ul>
+                    {partConnectors.map((c) => (
+                      <li key={c.id}>
+                        <button type="button" className="textlink" onClick={() => setSelected(c.id)}>
+                          {c.kind}
+                          {c.label ? `: ${c.label}` : ''}
+                        </button>
+                        <span className="hint">
+                          {' '}
+                          {c.a_label} to {c.b_label}
+                        </span>
+                        {c.origin === 'user' && <Badge className="warn">User-added</Badge>}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </div>
           )}
         </Panel>
       </div>
@@ -817,6 +1042,8 @@ function Inspector({
   onSublabel,
   onRole,
   onMove,
+  onMoveTo,
+  onConnect,
   onDelete,
   onEditInPlace,
 }: {
@@ -825,6 +1052,8 @@ function Inspector({
   onSublabel(v: string | null): void;
   onRole(v: string | null): void;
   onMove(index: number): void;
+  onMoveTo(parent: string): void;
+  onConnect(): void;
   onDelete(): void;
   onEditInPlace(): void;
 }): JSX.Element {
@@ -897,9 +1126,32 @@ function Inspector({
             <Button size="sm" iconOnly icon={CaretLeftIcon} aria-label="Move earlier" disabled={el.index === 0} onClick={() => onMove(el.index - 1)} />
             <Button size="sm" iconOnly icon={CaretRightIcon} aria-label="Move later" disabled={el.index >= el.count - 1} onClick={() => onMove(el.index + 1)} />
           </div>
-          <span className="hint">Or drag it within its container. Positions are re-laid out, never free-placed.</span>
+          <span className="hint">
+            {el.move_targets.length
+              ? 'Or drag it to a slot in this or another container. Positions are re-laid out, never free-placed.'
+              : 'Or drag it within its container. Positions are re-laid out, never free-placed.'}
+          </span>
         </div>
       )}
+      {(el.move_targets.length > 0 || (el.can_reorder && el.move_refusal)) && (
+        <Field
+          id="dg-in-parent"
+          label="Container"
+          hint={el.move_targets.length ? 'Moves it to the end of another container; drag it for an exact slot.' : el.move_refusal ?? undefined}
+        >
+          <select className="input" value={el.parent ?? ''} disabled={!el.move_targets.length} onChange={(e) => e.target.value && e.target.value !== el.parent && onMoveTo(e.target.value)}>
+            <option value={el.parent ?? ''}>{el.parent_label}</option>
+            {el.move_targets.map((t) => (
+              <option key={t.id} value={t.id}>
+                {t.label}
+              </option>
+            ))}
+          </select>
+        </Field>
+      )}
+      <button type="button" className="textlink dg-ins-inplace" style={{ alignSelf: 'flex-start' }} onClick={onConnect}>
+        Connect from here (C)
+      </button>
       <div className="dg-src">
         <span className="eyebrow">Source</span>
         {el.source}
@@ -910,6 +1162,147 @@ function Inspector({
             Delete from diagram
           </Button>
           <p className="hint dg-ins-note">{el.origin === 'user' ? 'Removes it from this diagram.' : 'Hides it in this diagram only. Tables and other diagrams still list it.'}</p>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ConnectorInspector({
+  c,
+  ends,
+  onLabel,
+  onEnd,
+  onSide,
+  onBend,
+  onArrow,
+  onResetRoute,
+  onDelete,
+}: {
+  c: DiagramConnector;
+  /** Elements drawn in this part: the ends it can take. */
+  ends: DiagramElement[];
+  onLabel(v: string | null): void;
+  onEnd(end: 'a' | 'b', id: string): void;
+  onSide(end: 'a' | 'b', side: DiagramSide): void;
+  onBend(v: number): void;
+  onArrow(v: DiagramArrow): void;
+  onResetRoute(): void;
+  onDelete(): void;
+}): JSX.Element {
+  const [label, setLabel] = useState(c.label ?? '');
+  const user = c.origin === 'user';
+  const commitLabel = () => {
+    const v = label.replace(/\s+/g, ' ').trim();
+    if (v === (c.label ?? '')) return;
+    // A user connector's empty label is no label; a generated one's is "no label here".
+    onLabel(v || (user ? null : ''));
+  };
+  const relabeled = !user && (c.label ?? '') !== (c.collected_label ?? '');
+  const sorted = [...ends].sort((x, y) => (x.label ?? '').localeCompare(y.label ?? ''));
+  const endSelect = (end: 'a' | 'b') => {
+    const cur = end === 'a' ? c.a : c.b;
+    const other = end === 'a' ? c.b : c.a;
+    return (
+      <Field id={`dg-conn-${end}`} label={end === 'a' ? 'From' : 'To'}>
+        <select className="input" value={cur ?? ''} onChange={(e) => e.target.value && e.target.value !== cur && onEnd(end, e.target.value)}>
+          {!sorted.some((o) => o.id === cur) && cur && <option value={cur}>{end === 'a' ? c.a_label : c.b_label}</option>}
+          {sorted
+            .filter((o) => o.id !== other)
+            .map((o) => (
+              <option key={o.id} value={o.id}>
+                {o.label ?? o.id} ({o.kind.toLowerCase()})
+              </option>
+            ))}
+        </select>
+      </Field>
+    );
+  };
+  const sideSelect = (end: 'a' | 'b') => (
+    <Field id={`dg-side-${end}`} label={end === 'a' ? 'Leaves by' : 'Enters by'}>
+      <select className="input" value={end === 'a' ? c.a_side : c.b_side} onChange={(e) => onSide(end, e.target.value as DiagramSide)}>
+        {(Object.keys(SIDE_LABELS) as DiagramSide[]).map((v) => (
+          <option key={v} value={v}>
+            {SIDE_LABELS[v]}
+          </option>
+        ))}
+      </select>
+    </Field>
+  );
+  return (
+    <div className="dg-ins" data-testid="dg-connector-inspector">
+      <div className="dg-ins-kind">
+        <span className="eyebrow">{c.kind}</span>
+        <Badge className={user ? 'warn' : undefined}>{user ? 'User-added' : 'Collected'}</Badge>
+        {c.edited && !user && <Badge className="acc">Edited</Badge>}
+      </div>
+      <div>
+        <Field id="dg-conn-label" label="Label">
+          <input
+            className="input"
+            value={label}
+            maxLength={200}
+            placeholder={user ? 'Optional' : 'No label'}
+            onChange={(e) => setLabel(e.target.value)}
+            onBlur={commitLabel}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                e.preventDefault();
+                commitLabel();
+              }
+            }}
+          />
+        </Field>
+        {relabeled && (
+          <p className="hint dg-ins-note">
+            Collected label: <span className="mono">{c.collected_label || NA}</span> ·{' '}
+            <button type="button" className="textlink" onClick={() => onLabel(null)}>
+              Revert
+            </button>
+          </p>
+        )}
+      </div>
+      {endSelect('a')}
+      {endSelect('b')}
+      <div className="dg-sides">
+        {sideSelect('a')}
+        {sideSelect('b')}
+      </div>
+      <div>
+        <span className="lbl">Lane</span>
+        <div className="dg-order">
+          <span className="mono">{c.bend > 0 ? `+${c.bend}` : c.bend} pt</span>
+          <Button size="sm" iconOnly icon={MinusIcon} aria-label="Move the lane back 6 pt" onClick={() => onBend(c.bend - 6)} />
+          <Button size="sm" iconOnly icon={PlusIcon} aria-label="Move the lane on 6 pt" onClick={() => onBend(c.bend + 6)} />
+        </div>
+        <span className="hint">Or drag the lane handle. The router keeps the route orthogonal and clear of boxes.</span>
+        {(c.a_side !== 'auto' || c.b_side !== 'auto' || c.bend !== 0) && (
+          <p className="hint dg-ins-note">
+            <button type="button" className="textlink" onClick={onResetRoute}>
+              Reset route
+            </button>
+          </p>
+        )}
+      </div>
+      <Field id="dg-conn-arrow" label="Arrowheads">
+        <select className="input" value={c.arrow} onChange={(e) => onArrow(e.target.value as DiagramArrow)}>
+          {(Object.keys(ARROW_LABELS) as DiagramArrow[]).map((v) => (
+            <option key={v} value={v}>
+              {ARROW_LABELS[v]}
+            </option>
+          ))}
+        </select>
+      </Field>
+      <div className="dg-src">
+        <span className="eyebrow">Source</span>
+        {c.source}
+      </div>
+      {c.can_delete && (
+        <div>
+          <Button size="sm" variant="destructive" onClick={onDelete}>
+            {user ? 'Delete connector' : 'Remove from diagram'}
+          </Button>
+          <p className="hint dg-ins-note">{user ? 'Removes it from this diagram.' : 'Hides it in this diagram only. Tables still list what it stands for.'}</p>
         </div>
       )}
     </div>
