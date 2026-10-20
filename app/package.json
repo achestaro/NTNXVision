@@ -105,6 +105,7 @@
         ]
       }
     ],
+    "afterPack": "build/after-pack.js",
     "afterSign": "build/after-sign.js",
     "fileAssociations": [
       {
