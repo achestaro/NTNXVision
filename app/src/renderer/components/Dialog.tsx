@@ -49,7 +49,7 @@ export interface DialogProps {
   onClose(): void;
   title: React.ReactNode;
   subtitle?: React.ReactNode;
-  width?: 480 | 560 | 720;
+  width?: 480 | 560 | 720 | 1080;
   children?: React.ReactNode;
   /** Footer content; use DialogFooter for the standard Cancel-left / confirm-right layout. */
   footer?: React.ReactNode;
@@ -105,7 +105,7 @@ export function Dialog({
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
-        className={['dialog', width === 560 && 'w560', width === 720 && 'w720'].filter(Boolean).join(' ')}
+        className={['dialog', width === 560 && 'w560', width === 720 && 'w720', width === 1080 && 'w1080'].filter(Boolean).join(' ')}
         tabIndex={-1}
       >
         <Button variant="ghost" iconOnly icon={XIcon} aria-label="Close" className="dialog-close" onClick={onClose} />
