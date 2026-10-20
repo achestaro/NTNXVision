@@ -121,6 +121,7 @@ const api: NtnxApi = {
   saveSmtpSettings: (req: SmtpSaveRequest) => ipcRenderer.invoke(IPC.saveSmtpSettings, req),
   testSmtp: (req: SmtpTestRequest) => ipcRenderer.invoke(IPC.testSmtp, req),
   emailSnapshot: (req: EmailSnapshotRequest) => ipcRenderer.invoke(IPC.emailSnapshot, req),
+  clearSmtpSettings: () => ipcRenderer.invoke(IPC.clearSmtpSettings),
 
   listSchedules: () => ipcRenderer.invoke(IPC.listSchedules),
   saveSchedule: (req: ScheduleSaveRequest) => ipcRenderer.invoke(IPC.saveSchedule, req),

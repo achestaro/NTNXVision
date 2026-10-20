@@ -5,6 +5,7 @@ import type { EmailStatus } from '@shared/ipc';
 
 export const EMAIL_STATUS_TITLE: Record<EmailStatus, string> = {
   ok: 'Sent',
+  sent_with_warnings: 'Sent with warnings',
   auth_failed: 'Sign-in failed',
   auth_required: 'The server requires sign-in',
   tls_error: 'Secure connection failed',

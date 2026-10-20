@@ -27,6 +27,9 @@ hiddenimports = (
     + collect_submodules("docx")
     + collect_submodules("fpdf")
     + collect_submodules("pydantic")
+    # Verified TLS (ntnxvision_core.tlsctx): truststore picks its macOS / Windows backend
+    # at import time, so collect both.
+    + collect_submodules("truststore")
     + ["pydantic_core", "pydantic_core._pydantic_core", "annotated_types", "lxml.etree"]
 )
 
@@ -35,6 +38,9 @@ datas = (
     collect_data_files("docx")
     # fpdf2: bundled core-font metrics and data tables.
     + collect_data_files("fpdf")
+    # certifi's cacert.pem: the fallback CA bundle. The frozen OpenSSL's default CA paths
+    # point at the build machine, so without this (and the OS store) nothing verifies.
+    + collect_data_files("certifi")
     # openpyxl ships a few non-.py resources (e.g. VBA/theme XML).
     + collect_data_files("openpyxl")
     # The OFL fonts the PDF report embeds, with their license texts.
