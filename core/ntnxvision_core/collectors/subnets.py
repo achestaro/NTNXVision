@@ -44,6 +44,11 @@ class SubnetCollector(Collector):
                     ip_prefix=_prefix(ip_config),
                     gateway_ip=ip_config.get("default_gateway_ip"),
                     dhcp_enabled=dhcp,
+                    # External (Flow Virtual Networking uplink) subnets and their NAT:
+                    # v3 `is_external` / `enable_nat`, in status or spec resources
+                    # (confirmed on pc.7.5.1.1; absent on a subnet that is not external).
+                    is_external=_flag(resources, spec_res, "is_external"),
+                    nat_enabled=_flag(resources, spec_res, "enable_nat"),
                     api_source="v3",
                 )
             )
@@ -108,6 +113,14 @@ def _vswitch(
     )
     if uuid:
         return vswitch_names.get(uuid, uuid)
+    return None
+
+
+def _flag(resources: dict[str, Any], spec_res: dict[str, Any], key: str) -> bool | None:
+    for source in (resources, spec_res):
+        value = source.get(key)
+        if isinstance(value, bool):
+            return value
     return None
 
 

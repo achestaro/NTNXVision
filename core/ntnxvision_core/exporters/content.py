@@ -65,8 +65,6 @@ EDITED = " (edited)"
 
 GIB = 1024**3
 TIB = GIB * 1024
-#: Diagrams drawn per chapter before the rest are summarised in a sentence.
-MAX_CLUSTER_FIGURES = 8
 
 # ─── model ─────────────────────────────────────────────────────────────────────
 
@@ -969,12 +967,14 @@ class _Builder:
                 f.caption = f.caption.replace(EDITED, "", 1)
                 f.scene.caption = f.scene.caption.replace(EDITED, "", 1)
 
-    def design_sections(self, ch: Chapter) -> bool:
+    def design_sections(self, ch: Chapter, only: tuple[str, ...] | None = None) -> bool:
         """The architecture diagrams registered for this chapter (`diagrams.TYPES`), each
-        as its own section. Returns whether any was added."""
+        as its own section (`only`: just these type ids, so a chapter can place its
+        figures between its tables). Returns whether any was added."""
         added = False
         for dtype in TYPES.values():
-            if dtype.embedded or dtype.chapter != ch.key:
+            if dtype.embedded or dtype.chapter != ch.key or \
+                    (only is not None and dtype.id not in only):
                 continue
             # One figure that cannot be built never costs the report: its section says
             # so, the run gets a warning, and the other sections carry on.
@@ -1137,40 +1137,39 @@ class _Builder:
     def physical_design(self) -> Chapter:
         env = self.env
         ch = Chapter("physical_design", "Physical Design", "clusters_hosts")
-        figs: list[Block] = []
-        drawn = 0
-        for c in env.clusters:
-            if drawn >= MAX_CLUSTER_FIGURES:
-                break
-            d = diagrams.cluster_compute(env, c)
-            if d:
-                drawn += 1
-                figs.append(Figure(d, f"Cluster {c.name}: node composition and capacity."))
-        if len(env.clusters) > MAX_CLUSTER_FIGURES:
-            figs.append(Paragraph(
-                f"Compute diagrams are shown for the first {MAX_CLUSTER_FIGURES} of "
-                f"{plural(len(env.clusters), 'cluster')}; the hosts table lists every node.",
-                "note"))
+        # Node composition is drawn by the Logical Cluster Design (A2); this table
+        # lists every host.
+        from ntnxvision_core.diagrams.logical import in_maintenance
+
         ch.add("Nodes / Hosts", make_table(
             ["Host", "Cluster", "Hypervisor", "CPU Model", "Cores", "Memory (GiB)", "VMs",
-             "GPUs"],
+             "GPUs", "Maintenance"],
             [[h.name, self.cluster(h), h.hypervisor_type, h.cpu_model, h.num_cpu_cores,
-              gib(h.memory_bytes), h.num_vms, ", ".join(h.gpu_list)] for h in env.hosts],
-            "Physical hosts", self.src(env.hosts), prune=("GPUs",)), *figs)
+              gib(h.memory_bytes), h.num_vms, ", ".join(h.gpu_list),
+              h.maintenance_state if in_maintenance(h.maintenance_state) else None]
+             for h in env.hosts],
+            "Physical hosts", self.src(env.hosts), prune=("GPUs", "Maintenance")))
         cap = diagrams.storage_capacity_chart(env)
-        shown = len([c for c in env.storage_containers if c.max_capacity_bytes][:8])
-        total = len([c for c in env.storage_containers if c.max_capacity_bytes])
-        ch.add("Storage Containers", make_table(
+        shown, total = diagrams.capacity_containers(env)
+        ctr_table = make_table(
             ["Container", "Cluster", "RF", "Compression", "Dedup", "EC-X", "Max (GiB)",
              "Used (GiB)"],
             [[s.name, self.cluster(s), s.replication_factor,
               "On" if s.compression_enabled else "Off", _switch(s.deduplication),
               _switch(s.erasure_coding), gib(s.max_capacity_bytes), gib(s.used_bytes)]
              for s in env.storage_containers],
-            "Storage containers and data-reduction settings", self.src(env.storage_containers)),
-            Figure(cap, "Storage container capacity: used and free"
-                   + (f" (first {shown} of {total} containers)." if total > shown else "."))
-            if cap else None)
+            "Storage containers and data-reduction settings", self.src(env.storage_containers))
+        cap_fig = Figure(cap, "") if cap else None
+        if cap_fig is not None:
+            def caption(f: Figure = cap_fig, t: Table | None = ctr_table,
+                        n: int = len(shown), total: int = total) -> None:
+                ref = t.label.rstrip(".") if t is not None else "the containers table"
+                f.caption = ("User storage containers: used and free capacity"
+                             + (f" ({n:,} of {total:,}; {ref} lists every container)."
+                                if total > n else "."))
+            caption()
+            self.finalizers.append(caption)
+        ch.add("Storage Containers", ctr_table, cap_fig)
         self.design_sections(ch)
         self.capacity_section(ch)
         return ch
@@ -1262,14 +1261,23 @@ class _Builder:
                 f"{size_label(sum(v.memory_bytes or 0 for v in env.vms))} of memory "
                 "allocated. Nutanix system VMs (CVMs and Prism Central) are listed "
                 "separately. The Excel workbook lists every VM.")
+            per_cluster = _fig(diagrams.vms_per_cluster_chart(env),
+                               "Virtual machines per cluster.")
             charts = [f for f in (
                 _fig(diagrams.vm_power_state_chart(env), "VM power state distribution."),
-                _fig(diagrams.vms_per_cluster_chart(env), "Virtual machines per cluster."),
-            ) if f]
-            ch.add("Virtual Machine Distribution", lead, make_table(
+                per_cluster) if f]
+            vm_table = make_table(
                 ["Cluster", "VMs", "Powered On", "vCPU", "Memory (GiB)", "Provisioned (GiB)"],
-                rows, "User virtual machines per cluster", self.src(clusters)),
-                FigureRow(charts) if charts else None)
+                rows, "User virtual machines per cluster", self.src(clusters))
+            more = len(diagrams.vm_cluster_counts(env)) - diagrams.MAX_CLUSTERS
+            if per_cluster is not None and more > 0 and vm_table is not None:
+                def name_more(f: Figure = per_cluster, t: Table = vm_table,
+                              more: int = more) -> None:
+                    f.caption = (f"Virtual machines per cluster, top {diagrams.MAX_CLUSTERS:,}"
+                                 f" (+{more:,} more clusters in {t.label.rstrip('.')}).")
+                self.finalizers.append(name_more)
+            ch.add("Virtual Machine Distribution", lead, vm_table,
+                   FigureRow(charts) if charts else None)
         ch.add("Nutanix System VMs", make_table(
             ["Name", "Type", "Power", "Cluster", "vCPU", "Memory (GiB)"],
             [[v.name, v.vm_type, power_label(v.power_state), self.cluster(v), v.vcpu_total,
@@ -1330,36 +1338,35 @@ class _Builder:
     def networking(self) -> Chapter:
         env = self.env
         ch = Chapter("networking", "Networking", "security_networking")
-        figs: list[Block] = []
-        drawn = 0
-        for c in env.clusters:
-            if drawn >= MAX_CLUSTER_FIGURES:
-                break
-            d = diagrams.network_topology(env, c)
-            if d:
-                drawn += 1
-                figs.append(Figure(d, f"Cluster {c.name}: virtual switch and VLAN layout."))
+        # Network Segment Design per AZ (its tables list every VLAN subnet and port
+        # group), then the subnets no figure lists, the port groups, and the Flow
+        # Virtual Networking Design per AZ (VPCs and their overlay subnets).
+        segments = self.design_sections(ch, only=("segments",))
+        vpc_t = TYPES.get("vpc")
+        vpcs_drawn = bool(env.vpcs) and vpc_t is not None and vpc_t.applies(env)
+        rest = [s for s in env.subnets
+                if not (segments and _vlan_subnet(s))
+                and not (vpcs_drawn and (s.vpc_name or (s.subnet_type or "").upper()
+                                         == "OVERLAY"))]
         ch.add("Subnets", make_table(
             ["Subnet", "Cluster", "Type", "VLAN", "vSwitch", "IP Prefix", "VPC"],
             [[s.name, self.cluster(s), s.subnet_type, s.vlan_id, s.virtual_switch, s.ip_prefix,
-              s.vpc_name] for s in env.subnets],
-            "Subnets", self.src(env.subnets), prune=("VPC", "vSwitch", "IP Prefix")), *figs)
+              s.vpc_name] for s in rest],
+            "Subnets", self.src(rest), prune=("VPC", "vSwitch", "IP Prefix")))
         ch.add("ESXi Port Groups", make_table(
             ["Port Group", "Cluster", "VLAN", "Switch", "VMs"],
             [[p.name, self.cluster(p), p.vlan_id, switch_label(p.switch_type), p.vm_count]
              for p in env.port_groups],
             "vSphere port groups of the ESXi clusters", self.src(env.port_groups),
             prune=("Switch",)))
-        vpc_fig = diagrams.vpc_topology(env)
-        ch.add("Virtual Networking (VPCs)", make_table(
-            ["VPC", "Subnets", "External Subnets", "Routable Prefixes", "Routes",
-             "Routing Policies"],
-            [[v.name, ", ".join(v.subnet_names), ", ".join(v.external_subnets),
-              ", ".join(v.externally_routable_prefixes), v.route_count,
-              v.routing_policy_count] for v in env.vpcs],
-            "Flow virtual networking VPCs", self.src(env.vpcs)),
-            Figure(vpc_fig, "Flow Virtual Networking: VPCs with overlay and external subnets.")
-            if vpc_fig and env.vpcs else None)
+        if not self.design_sections(ch, only=("vpc",)):
+            ch.add("Virtual Networking (VPCs)", make_table(
+                ["VPC", "Subnets", "External Subnets", "Routable Prefixes", "Routes",
+                 "Routing Policies"],
+                [[v.name, ", ".join(v.subnet_names), ", ".join(v.external_subnets),
+                  ", ".join(v.externally_routable_prefixes), v.route_count,
+                  v.routing_policy_count] for v in env.vpcs],
+                "Flow virtual networking VPCs", self.src(env.vpcs)))
         return ch
 
     def data_protection(self) -> Chapter:
@@ -1424,7 +1431,9 @@ class _Builder:
     def security(self) -> Chapter:
         env = self.env
         ch = Chapter("security", "Security Posture (Flow)", "security_networking")
-        ch.add("Security Policies", make_table(
+        # The Microsegmentation Design sections carry the policies table per AZ.
+        designed = self.design_sections(ch, only=("flow",))
+        ch.add("Security Policies", None if designed else make_table(
             ["Policy", "Type", "State", "Inbound", "Outbound", "Secured Group"],
             [[p.name, p.policy_type, p.state, p.inbound_rule_count, p.outbound_rule_count,
               p.secured_group] for p in env.security_policies],
@@ -1609,6 +1618,12 @@ class _Builder:
                            [t.source_pc or "" for t in inv.targets] if env.is_combined
                            else None))
         return ch
+
+
+def _vlan_subnet(s: Any) -> bool:
+    """A VLAN subnet on a cluster: drawn and listed by the Network Segment Design."""
+    return bool(s.cluster_uuid or s.cluster_name) and not s.vpc_name and \
+        (s.subnet_type or "VLAN").upper() != "OVERLAY"
 
 
 def _switch(value: Any) -> str:

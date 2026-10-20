@@ -32,7 +32,9 @@ VSDX_FONT = "Calibri"
 
 #: Short tab names per diagram type (falls back to the type's title).
 TAB_NAMES = {"conceptual": "Conceptual", "logical": "Logical", "management": "Management",
-             "network": "Network", "dr": "Data protection", "estate": "Estate map"}
+             "network": "Network", "dr": "Data protection", "estate": "Estate map",
+             "segments": "Segments", "vpc": "Virtual networking",
+             "flow": "Microsegmentation"}
 _SLUG = re.compile(r"[^a-z0-9]+")
 
 

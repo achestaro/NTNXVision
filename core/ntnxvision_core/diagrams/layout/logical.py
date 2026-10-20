@@ -151,6 +151,13 @@ def _card(c: LCluster, x: float, y: float, w: float, parent: str, compact: bool 
         rows.append(Row(first, SIZE_GROUP, True, K.INK, 2, gap_before=1.0))
         if spec:
             rows.append(Row(spec, SIZE_NOTE, False, K.INK_2, 2))
+        if g.gpus:
+            rows.append(Row(f"GPU: {g.gpus} per node", SIZE_NOTE, False, K.INK_2, 2))
+        if g.maintenance:
+            rows.append(Row(f"{fmt.plural(g.maintenance, 'node')} in maintenance", SIZE_NOTE,
+                            False, K.INK_3, 1))
+        if g.note:
+            rows.append(Row(g.note, SIZE_NOTE, False, K.INK_3, 2))
     if len(c.groups) > 2:
         rows.append(Row(f"+{fmt.plural(len(c.groups) - 2, 'more node type')}, listed in "
                         "the hosts table", SIZE_NOTE, False, K.INK_3, 2))
@@ -163,8 +170,10 @@ def _card(c: LCluster, x: float, y: float, w: float, parent: str, compact: bool 
         rows = []
         for g in c.groups[:2]:
             first, spec = group_lines(g)
-            rows.append(Row(f"{first}, {spec}" if spec else first, SIZE_NOTE, False,
-                            K.INK_2, 2))
+            extra = [x for x in (spec, f"GPU: {g.gpus}" if g.gpus else None,
+                                 f"{g.maintenance:,} in maintenance" if g.maintenance
+                                 else None) if x]
+            rows.append(Row(", ".join([first, *extra]), SIZE_NOTE, False, K.INK_2, 2))
         if len(c.groups) > 2:
             rows.append(Row(f"+{fmt.plural(len(c.groups) - 2, 'more node type')}",
                             SIZE_NOTE, False, K.INK_3))

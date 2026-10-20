@@ -524,6 +524,9 @@ def subnet_v3(est: PcEstate, s: dict[str, Any]) -> dict[str, Any]:
         resources["vlan_id"] = s["vlan"]
     if s["vswitch_uuid"]:
         resources["virtual_switch_uuid"] = s["vswitch_uuid"]
+    if s.get("external"):
+        resources["is_external"] = True
+        resources["enable_nat"] = bool(s.get("nat"))
     if s["vpc"]:
         vpc = next(v for v in est.vpcs if v["name"] == s["vpc"])
         resources["vpc_reference"] = ref("vpc", vpc["uuid"], vpc["name"])
@@ -538,6 +541,8 @@ def subnet_v4(s: dict[str, Any]) -> dict[str, Any]:
         "extId": s["uuid"], "name": s["name"], "subnetType": s["type"],
         "networkId": s["vlan"], "clusterReference": s["cluster_uuid"],
         "virtualSwitchReference": s["vswitch_uuid"],
+        **({"isExternal": True, "isNatEnabled": bool(s.get("nat"))}
+           if s.get("external") else {}),
     })
 
 
@@ -1065,16 +1070,20 @@ def security_policy_v4(p: dict[str, Any], detail: bool = False) -> dict[str, Any
         rules: list[dict[str, Any]] = []
         secured = p["group_ids"][:1]
         for i in range(p["inbound"]):
+            peer = (p.get("in_peers") or [])[i:i + 1]
             rules.append({"type": "APPLICATION", "spec": {
                 "$objectType": "microseg.v4.config.ApplicationRuleSpec",
                 "securedGroupCategoryReferences": secured,
-                "srcAllowSpec" if i == 0 else "srcCategoryReferences":
-                    "ALL" if i == 0 else secured}})
-        for _ in range(p["outbound"]):
+                **(_v4_peer("src", peer[0]) if peer else {
+                    "srcAllowSpec" if i == 0 else "srcCategoryReferences":
+                        "ALL" if i == 0 else secured})}})
+        for j in range(p["outbound"]):
+            peer = (p.get("out_peers") or [])[j:j + 1]
             rules.append({"type": "APPLICATION", "spec": {
                 "$objectType": "microseg.v4.config.ApplicationRuleSpec",
                 "securedGroupCategoryReferences": secured,
-                "destCategoryReferences": secured}})
+                **(_v4_peer("dest", peer[0]) if peer else {
+                    "destCategoryReferences": secured})}})
         if p["type"] == "ISOLATION":
             rules.append({"type": "TWO_ENV_ISOLATION", "spec": {
                 "$objectType": "microseg.v4.config.TwoEnvIsolationRuleSpec",
@@ -1085,6 +1094,42 @@ def security_policy_v4(p: dict[str, Any], detail: bool = False) -> dict[str, Any
             "securedGroupAction": "ALLOW"}})
         body["rules"] = rules
     return _v4("microseg.v4.config.NetworkSecurityPolicy", body)
+
+
+def _v4_peer(side: str, peer: dict[str, Any]) -> dict[str, Any]:
+    """One v4 application rule's peer half (`src` or `dest`) and its services."""
+    out: dict[str, Any] = {}
+    if peer["kind"] == "ALL":
+        out[f"{side}AllowSpec"] = "ALL"
+    elif peer["kind"] == "AG":
+        out[f"{side}AddressGroupReferences"] = peer["ids"]
+    else:
+        out[f"{side}CategoryReferences"] = peer["ids"]
+    if peer.get("services"):
+        out["serviceGroupReferences"] = peer["services"]
+    return out
+
+
+def _v3_peer(peer: dict[str, Any]) -> dict[str, Any]:
+    if peer["kind"] == "ALL":
+        return {"peer_specification_type": "ALL"}
+    if peer["kind"] == "AG":
+        out: dict[str, Any] = {"address_group_inclusion_list": [
+            {"kind": "address_group", "uuid": u, "name": n}
+            for u, n in zip(peer["ids"], peer["names"], strict=True)]}
+    else:
+        params: dict[str, list[str]] = {}
+        for label in peer["labels"]:
+            k, _, v = label.partition(":")
+            params.setdefault(k, []).append(v)
+        out = {"peer_specification_type": "FILTER",
+               "filter": {"type": "CATEGORIES_MATCH_ALL", "kind_list": ["vm"],
+                          "params": params}}
+    if peer.get("services"):
+        out["service_group_list"] = [{"kind": "service_group", "uuid": u, "name": n}
+                                     for u, n in zip(peer["services"],
+                                                     peer["service_names"], strict=True)]
+    return out
 
 
 def security_policy_v3(p: dict[str, Any]) -> dict[str, Any]:
@@ -1111,8 +1156,10 @@ def security_policy_v3(p: dict[str, Any]) -> dict[str, Any]:
         resources["app_rule"] = {
             "action": action,
             "target_group": peer,
-            "inbound_allow_list": [{"peer_specification_type": "ALL"}] * p["inbound"],
-            "outbound_allow_list": [{"peer_specification_type": "ALL"}] * p["outbound"],
+            "inbound_allow_list": [_v3_peer(x) for x in p["in_peers"]] if "in_peers" in p
+            else [{"peer_specification_type": "ALL"}] * p["inbound"],
+            "outbound_allow_list": [_v3_peer(x) for x in p["out_peers"]] if "out_peers" in p
+            else [{"peer_specification_type": "ALL"}] * p["outbound"],
         }
     return _v3("network_security_rule", p["uuid"], p["name"], resources)
 

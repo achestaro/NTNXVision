@@ -123,3 +123,27 @@ VCENTER = Style(fill=WHITE, stroke=INK_2, stroke_w=0.6, radius=2.25)
 PAIR_GLYPH = Style(stroke=IRIS, stroke_w=0.8, radius=7.5)
 #: Version strip at the foot of a management-plane column ("LCM 3.1.2 · NCC 5.1.1").
 FOOT_STRIP = Style(fill=WHITE, stroke=RULE_2, stroke_w=0.6, radius=1.5)
+
+# ─── network segments (N1), virtual networking (N2), microsegmentation (N3) ────
+#: A VLAN subnet or port group row, its VLAN chip and the IPAM pills.
+SEGMENT = Style(fill=WHITE, stroke=RULE, stroke_w=0.6, radius=1.9)
+VLAN_CHIP = Style(fill=INK_2, radius=1.5)
+IPAM_PILL = Style(fill=IRIS_TINT, radius=1.5)
+NOIPAM_PILL = Style(fill=WHITE, stroke=RULE, stroke_w=0.45, radius=1.5)
+#: The vSphere port groups bar of an ESXi cluster (switch not reported).
+PORTGROUP_BAR = Style(fill=SURFACE, stroke=INK_3, stroke_w=0.6, radius=2.25)
+VPC = Style(fill=IRIS_TINT, stroke=IRIS, stroke_w=0.8, radius=3.0)
+EXTERNAL_NET = Style(fill=WHITE, stroke=INK_2, stroke_w=0.75, radius=2.25)
+OVERLAY = Style(fill=WHITE, stroke=IRIS, stroke_w=0.5, radius=1.9)
+UPLINK = Style(stroke=INK_2, stroke_w=0.8)
+NAT_LINK = Style(stroke=INK_2, stroke_w=0.8, dash=(2.0, 1.6))
+LANE = Style(fill=WHITE, stroke=RULE_2, stroke_w=0.6, radius=3.0)
+POLICY = Style(fill=WHITE, stroke=IRIS, stroke_w=0.7, radius=3.0)
+POLICY_MONITOR = Style(fill=WHITE, stroke=IRIS, stroke_w=0.7, dash=(2.6, 1.9), radius=3.0)
+POLICY_SAVED = Style(fill=SURFACE, stroke=RULE_STRONG, stroke_w=0.6, dash=(1.2, 1.5),
+                     radius=3.0)
+GROUP = Style(fill=IRIS_TINT, stroke=IRIS, stroke_w=0.45, radius=4.0)
+STATE_ENFORCE = Style(fill=INK, radius=1.9)
+STATE_MONITOR = Style(fill=WHITE, stroke=INK_2, stroke_w=0.6, radius=1.9)
+RULE_IN = Style(stroke=IRIS, stroke_w=0.9)
+ISOLATE = Style(stroke=INK, stroke_w=1.1)
