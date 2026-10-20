@@ -14,7 +14,8 @@ by PyInstaller into a **one-folder** sidecar, bundled as the `extraResource`
 
 Each script creates `core/.venv`, installs the core with `[dev]`, runs `pytest`, freezes the
 sidecar, smoke-tests it (`scripts/smoke-sidecar.py`: `ping` plus an Excel/PDF/Word export of
-a synthetic snapshot, which catches missing python-docx / fpdf2 / openpyxl data files), runs
+a synthetic snapshot, which catches missing python-docx / fpdf2 / openpyxl data files, and
+`--tls-check`, which fails when verified TLS has no trust store), runs
 `npm ci`, lint and build, calls electron-builder, and finally launches the packaged app with
 `--smoke`. Flags: `--skip-tests` / `--no-smoke` (macOS), `-SkipTests` / `-NoSmoke` /
 `-X64Only` / `-Nsis` (Windows).
@@ -52,6 +53,17 @@ cd ../app && npm ci && npm run package:mac      # or: npm run package:win (Windo
   overrides the path for debugging in an unpackaged app only (a packaged app ignores every
   `NTNXVISION_*` test override except demo mode, and starts the sidecar with an allowlisted
   environment).
+
+## App icon
+
+`npm run icons` (from `app/`, on macOS with Xcode 26+) regenerates every icon from
+`app/build/art/icon.svg`; commit the outputs. Windows (`icon.ico`), Linux and the tray use the
+full-bleed tile. macOS gets two: `icon.icns`, drawn on Apple's icon grid (824 px squircle body
+centred on the 1024 canvas, standard drop shadow) for macOS 11 to 15, and `Assets.car`,
+compiled by actool from the Icon Composer source `app/build/AppIcon.icon`, which
+`app/build/after-pack.js` copies into `Contents/Resources` and names in `CFBundleIconName`, so
+macOS 26+ renders it natively (Liquid Glass, dark and tinted modes). Packaging only needs the
+committed `Assets.car`, not Xcode.
 
 ## File association (`.ntnxsnap`)
 
@@ -161,6 +173,13 @@ pip, npm, and the Electron and electron-builder (WiX) download caches are cached
 ## Smoke testing
 
 * Sidecar: `python scripts/smoke-sidecar.py <path to ntnxvision-sidecar[.exe]> [--ping-only]`
+  (both modes include the trust store check below)
+* Sidecar trust store: `ntnxvision-sidecar --tls-check` prints a JSON summary of what verified
+  TLS trusts and exits 0 only when it is usable (macOS / Windows: the OS trust store through
+  `truststore`, with at least one root; elsewhere the bundled certifi CAs). No network use.
+  The frozen OpenSSL's own CA directory points at the build machine's Python install, so
+  every verifying client builds its context through `ntnxvision_core/tlsctx.py`, never
+  `ssl.create_default_context()`.
 * Packaged app: `NTNXVision --smoke` (or `NTNXVISION_SMOKE=1`). It loads the keyring module, pings the
   sidecar through the normal `SidecarClient`, prints a JSON line and exits 0 or 1 without
   opening a window. From source: `npm run build && npm run smoke`.

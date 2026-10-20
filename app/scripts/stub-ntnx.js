@@ -901,6 +901,13 @@
         if (opt.email && opt.email !== 'ok') return emailFail(opt.email, { files });
         return { ok: true, status: 'ok', message: `Sent to ${req.to.length + req.cc.length} recipients`, recipients: [...req.to, ...req.cc], attachments: files.map((f) => ({ name: f.name, size_bytes: f.size_bytes })), files };
       }, 600),
+    clearSmtpSettings: () => {
+      smtp = { ...smtp, host: '', fromAddress: '', username: '', pinnedSha256: '', hasPassword: false, configured: false };
+      const off = schedules.filter((x) => x.enabled).map((x) => x.name);
+      schedules = schedules.map((x) => ({ ...x, enabled: false, nextRun: null }));
+      pushSched();
+      return delay(() => ({ settings: { ...smtp }, disabledSchedules: off }));
+    },
     listSchedules: () => delay(schedState),
     saveSchedule: (req) => {
       const errors = {};
@@ -926,9 +933,10 @@
     runScheduleNow: (id) => {
       const s = schedules.find((x) => x.id === id);
       if (!s) return fail('That schedule no longer exists.');
+      if (s.state !== 'idle') return delay(() => ({ ...schedState(), queued: false }));
       s.state = 'running';
       s.lastRun = { id: 'r-now', trigger: 'manual', status: 'running', stage: 'collect', startedAt: new Date().toISOString(), message: 'Collecting…' };
-      return delay(pushSched);
+      return delay(() => ({ ...pushSched(), queued: true }));
     },
     onSchedulesChanged: (cb) => (schedListeners.add(cb), () => schedListeners.delete(cb)),
     getSettings: () => delay(() => ({ ...settings })),
