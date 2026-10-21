@@ -7,6 +7,8 @@ import type {
   CollectionRequest,
   CompareExportRequest,
   DiagramCarryRequest,
+  DiagramEdgeField,
+  DiagramFileRequest,
   DiagramOp,
   ExportRequest,
   ListClustersRequest,
@@ -20,7 +22,15 @@ import type {
   UnsavedChangesRequest,
   VcenterRequest,
 } from '../shared/ipc';
-import { MAX_DIAGRAM_OPS, MAX_DIAGRAM_TEXT } from '../shared/ipc';
+import {
+  DIAGRAM_ARROWS,
+  DIAGRAM_EDGE_FIELDS,
+  DIAGRAM_FILE_FORMATS,
+  DIAGRAM_SIDES,
+  MAX_DIAGRAM_BEND,
+  MAX_DIAGRAM_OPS,
+  MAX_DIAGRAM_TEXT,
+} from '../shared/ipc';
 import {
   ValidationError,
   bool,
@@ -184,6 +194,7 @@ export function asExportRequest(v: unknown): ExportRequest {
   }
   if (r.vcpuRatio !== undefined && r.vcpuRatio !== null) num(r.vcpuRatio, 'vcpuRatio', RATIO_MIN, RATIO_MAX);
   optBool(r.diagrams, 'diagrams');
+  if (r.diagramsPackage !== undefined && r.diagramsPackage !== null) oneOf(r.diagramsPackage, 'diagramsPackage', ['zip', 'folder'] as const);
   // The bundle carries the report's figures: it needs a PDF or Word report.
   if (r.diagrams === true && !(r.formats as string[]).some((f) => f === 'pdf' || f === 'word')) {
     throw new ValidationError('diagrams needs a pdf or word report');
@@ -258,7 +269,7 @@ export function cleanSettings(v: unknown): AppSettings {
 
 // ─── diagrams ───────────────────────────────────────────────────────────
 
-const DIAGRAM_OPS = ['set', 'move', 'add', 'delete'] as const;
+const DIAGRAM_OPS = ['set', 'move', 'add', 'delete', 'connect', 'edge'] as const;
 const DIAGRAM_FIELDS = ['label', 'sublabel', 'role'] as const;
 const ID_MAX = 512;
 
@@ -300,7 +311,38 @@ export function asDiagramOps(v: unknown): DiagramOp[] {
       if (field === 'label' && !value?.trim()) throw new ValidationError(`ops[${i}].value must not be empty`);
       return { op, id, field, value };
     }
-    if (op === 'move') return { op, id, index: int(o.index, `ops[${i}].index`, 0, 100000) };
+    if (op === 'move') {
+      const index = int(o.index, `ops[${i}].index`, 0, 100000);
+      if (o.parent === undefined || o.parent === null) return { op, id, index };
+      return { op, id, index, parent: str(o.parent, `ops[${i}].parent`, ID_MAX) };
+    }
+    if (op === 'connect') {
+      if (!id.startsWith('user:') || id.length > 80) throw new ValidationError(`ops[${i}].id must start with user:`);
+      const a = str(o.a, `ops[${i}].a`, ID_MAX);
+      const b = str(o.b, `ops[${i}].b`, ID_MAX);
+      if (a === b) throw new ValidationError(`ops[${i}] needs two different ends`);
+      const label = o.label === null || o.label === undefined ? null : str(o.label, `ops[${i}].label`, MAX_DIAGRAM_TEXT);
+      const out: DiagramOp = { op, id, a, b, label };
+      if (o.a_side !== undefined && o.a_side !== null) out.a_side = oneOf(o.a_side, `ops[${i}].a_side`, DIAGRAM_SIDES);
+      if (o.b_side !== undefined && o.b_side !== null) out.b_side = oneOf(o.b_side, `ops[${i}].b_side`, DIAGRAM_SIDES);
+      return out;
+    }
+    if (op === 'edge') {
+      if (!Array.isArray(o.ends) || o.ends.length !== 2) throw new ValidationError(`ops[${i}].ends must name two elements`);
+      const ends: [string, string] = [str(o.ends[0], `ops[${i}].ends`, ID_MAX), str(o.ends[1], `ops[${i}].ends`, ID_MAX)];
+      const field: DiagramEdgeField = oneOf(o.field, `ops[${i}].field`, DIAGRAM_EDGE_FIELDS);
+      let value: string | number | boolean | null;
+      if (field === 'a' || field === 'b') value = str(o.value, `ops[${i}].value`, ID_MAX);
+      else if (field === 'label') value = o.value === null || o.value === undefined ? null : str(o.value, `ops[${i}].value`, MAX_DIAGRAM_TEXT);
+      else if (field === 'a_side' || field === 'b_side') value = oneOf(o.value, `ops[${i}].value`, DIAGRAM_SIDES);
+      else if (field === 'arrow') value = oneOf(o.value, `ops[${i}].value`, DIAGRAM_ARROWS);
+      else if (field === 'bend') value = num(o.value, `ops[${i}].value`, -MAX_DIAGRAM_BEND, MAX_DIAGRAM_BEND);
+      else if (field === 'route') value = oneOf(o.value, `ops[${i}].value`, ['auto'] as const);
+      else value = bool(o.value, `ops[${i}].value`);
+      const edge: DiagramOp = { op, id, ends, field, value };
+      if ((field === 'a' || field === 'b') && o.side !== undefined && o.side !== null) edge.side = oneOf(o.side, `ops[${i}].side`, DIAGRAM_SIDES);
+      return edge;
+    }
     return { op, id };
   });
 }
@@ -320,6 +362,21 @@ export function asUnsavedChangesRequest(v: unknown): UnsavedChangesRequest {
 export function closeAction(s: { quitting: boolean; hides: boolean; unsaved: boolean }): 'hide' | 'ask' | 'close' {
   if (!s.quitting && s.hides) return 'hide';
   return s.unsaved ? 'ask' : 'close';
+}
+
+/** The Diagrams page's Download links (one diagram as a file). */
+export function asDiagramFileRequest(v: unknown): DiagramFileRequest {
+  const r = obj(v, 'request');
+  const out: DiagramFileRequest = {
+    snapshotPath: snapshotPath(r.snapshotPath, 'snapshotPath'),
+    type: asDiagramType(r.type),
+    format: oneOf(r.format, 'format', DIAGRAM_FILE_FORMATS),
+  };
+  const dir = optStr(r.exportDir, 'exportDir');
+  const prefix = optStr(r.filePrefix, 'filePrefix', 200);
+  if (dir !== undefined) out.exportDir = dir;
+  if (prefix !== undefined) out.filePrefix = prefix;
+  return out;
 }
 
 export function asDiagramCarryRequest(v: unknown): DiagramCarryRequest {

@@ -10,7 +10,7 @@ NDB is optional and runs against a separate Era endpoint when credentials are su
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from functools import partial
 from typing import Any
 
@@ -108,7 +108,7 @@ def collect_environment(
         run_areas = [a for a in run_areas if a.id != "lcm"] + \
             [a for a in run_areas if a.id == "lcm"]
     env = Environment(
-        collected_at=datetime.now(timezone.utc).isoformat(),
+        collected_at=datetime.now(UTC).isoformat(),
         prism_central=PrismCentral(host=creds.host),
     )
 
@@ -306,7 +306,7 @@ def collect_element_environment(
     platform services (DR, Flow, Files, NDB, …) are Prism-Central-scoped.
     """
     env = Environment(
-        collected_at=datetime.now(timezone.utc).isoformat(),
+        collected_at=datetime.now(UTC).isoformat(),
         source_type="prism_element",
         prism_central=PrismCentral(host=creds.host),
     )
@@ -436,7 +436,7 @@ def combine_environments(envs: list[Environment]) -> Environment:
         return envs[0]
 
     combined = Environment(
-        collected_at=datetime.now(timezone.utc).isoformat(),
+        collected_at=datetime.now(UTC).isoformat(),
         prism_central=PrismCentral(host=f"{len(envs):,} Prism Centrals (combined)"),
     )
 

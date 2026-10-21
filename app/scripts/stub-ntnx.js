@@ -777,7 +777,7 @@
     layoutDiagram: (_p, _t, ops) => {
       const D = window.__STUB_DIAGRAMS__;
       const src = ops.length ? D.edited : D.generated;
-      return delay({ type: src.type, model: src.model, scenes: src.scenes, outline: src.outline, problems: [] }, 20);
+      return delay({ type: src.type, model: src.model, scenes: src.scenes, outline: src.outline, connectors: src.connectors || [], problems: [], notes: src.notes || [] }, 20);
     },
     saveDiagram: (_p, _t, ops) => {
       const D = window.__STUB_DIAGRAMS__;
@@ -785,6 +785,45 @@
     },
     resetDiagram: () => delay(window.__STUB_DIAGRAMS__.generated, 120),
     carryDiagrams: () => delay({ diagrams: window.__STUB_DIAGRAMS__.carry }, 200),
+    exportDiagram: (req) => {
+      const s = find(req.snapshotPath);
+      const name = `${s ? s.name : 'snapshot'}-2026-10-20_solution-conceptual-overview.${req.format}`;
+      return delay({ path: `${EXPORT_DIR}${sep}${name}`, paths: [`${EXPORT_DIR}${sep}${name}`], name, detail: '1 file' }, 200);
+    },
+    // What lands in the export folder (Export dialog): synthetic names and sizes.
+    previewExport: (req) => {
+      const s = find(req.snapshotPath);
+      const stem = `${req.filePrefix ? `${req.filePrefix}-` : ''}${s ? s.name : 'snapshot'}-2026-10-20`;
+      const KIND = { excel: ['Excel', 'xlsx', 1.1], pdf: ['PDF', 'pdf', 3.1], word: ['Word ADD', 'docx', 2.4] };
+      // A report's size is known after its first export (pc01 has exported a PDF before).
+      const files = req.formats.map((f) => ({ format: f, name: `${stem}${f === 'excel' ? '-2' : ''}.${KIND[f][1]}`, kind: KIND[f][0], size_bytes: f === 'pdf' ? KIND[f][2] * MB : null, approx: f === 'pdf', detail: null }));
+      const docs = req.formats.includes('pdf') || req.formats.includes('word');
+      const figs = ['solution-conceptual-overview', 'logical-design-pc01', 'logical-design-pc02', 'management-plane', 'host-network-profile-a', 'data-protection'];
+      const mode = opt.diagrams || 'generated';
+      const tagged = (i) => (i === 0 && (mode === 'edited' || mode === 'stale') ? (mode === 'stale' ? ['edited', 'stale'] : ['edited']) : []);
+      const svg = figs.map((f, i) => ({ name: `0${i + 1}-${f}.svg`, kind: 'SVG', size_bytes: (9 + i * 2) * 1024, approx: false, tags: tagged(i) }));
+      const png = figs.map((f, i) => ({ name: `0${i + 1}-${f}.png`, kind: 'PNG', size_bytes: (180 + i * 30) * 1024, approx: false, tags: tagged(i) }));
+      const folder = req.diagramsPackage === 'folder';
+      const diagrams =
+        req.diagrams && docs
+          ? {
+              name: `${stem}_diagrams${folder ? '' : '.zip'}`,
+              package: folder ? 'folder' : 'zip',
+              count: figs.length,
+              size_bytes: 1.6 * MB,
+              approx: true,
+              edited: mode === 'generated' ? [] : ['conceptual'],
+              stale: mode === 'stale' ? [{ type: 'conceptual', title: 'Solution conceptual overview' }] : [],
+              entries: [
+                { name: `${stem}_diagrams.vsdx`, kind: 'Visio', detail: `${figs.length} pages`, size_bytes: 212 * 1024, approx: false },
+                { name: `${stem}_diagrams.drawio`, kind: 'draw.io', detail: `${figs.length} tabs`, size_bytes: 96 * 1024, approx: false },
+                { name: 'svg/', kind: 'SVG', detail: 'Live text', folder: true, size_bytes: 80 * 1024, approx: false, children: svg },
+                { name: 'png/', kind: 'PNG', detail: '200 dpi', folder: true, size_bytes: 1.4 * MB, approx: false, children: png },
+              ],
+            }
+          : null;
+      return delay({ files, diagrams, stem }, 120);
+    },
     setUnsavedChanges: () => delay(undefined, 0),
     getReportSections: (p) =>
       find(p)

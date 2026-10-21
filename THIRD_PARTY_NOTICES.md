@@ -64,7 +64,7 @@ Modules that Vite compiles into the renderer bundle (determined from the actual 
 | [react](#r-react) | 18.3.1 | MIT |
 | [react-dom](#r-react-dom) | 18.3.1 | MIT |
 | [scheduler](#r-scheduler) | 0.23.2 | MIT |
-| [vite](#r-vite) | 6.4.4 | MIT |
+| [vite](#r-vite) | 8.3.4 | MIT |
 
 <a id="r-phosphor-icons-react"></a>
 #### @phosphor-icons/react 2.1.10
@@ -183,7 +183,7 @@ SOFTWARE.
 ```
 
 <a id="r-vite"></a>
-#### vite 6.4.4
+#### vite 8.3.4
 
 License: **MIT** · <https://vite.dev>
 
@@ -1331,7 +1331,7 @@ SOFTWARE.
 |---|---|---|
 | [annotated-doc](#py-annotated-doc) | 0.0.5 | MIT |
 | [annotated-types](#py-annotated-types) | 0.8.0 | MIT |
-| [certifi](#py-certifi) | 2026.7.22 | Mozilla Public License 2.0 (MPL 2.0) |
+| [certifi](#py-certifi) | 2026.10.19 | Mozilla Public License 2.0 (MPL 2.0) |
 | [cffi](#py-cffi) | 2.1.1 | MIT-0 |
 | [charset-normalizer](#py-charset-normalizer) | 3.5.2 | MIT |
 | [cryptography](#py-cryptography) | 50.0.2 | Apache-2.0 OR BSD-3-Clause |
@@ -1344,7 +1344,7 @@ SOFTWARE.
 | [markdown-it-py](#py-markdown-it-py) | 4.2.0 | MIT License |
 | [mdurl](#py-mdurl) | 0.1.2 | MIT License |
 | [openpyxl](#py-openpyxl) | 3.1.5 | MIT License |
-| [pillow](#py-pillow) | 12.3.0 | MIT-CMU |
+| [pillow](#py-pillow) | 13.0.0 | MIT-CMU |
 | [pycparser](#py-pycparser) | 3.11 | BSD-3-Clause |
 | [pydantic](#py-pydantic) | 2.14.1 | MIT |
 | [pydantic_core](#py-pydantic-core) | 2.50.1 | MIT |
@@ -1418,7 +1418,7 @@ SOFTWARE.
 ```
 
 <a id="py-certifi"></a>
-#### certifi 2026.7.22
+#### certifi 2026.10.19
 
 License: **Mozilla Public License 2.0 (MPL 2.0)** · <https://github.com/certifi/python-certifi>
 
@@ -2271,9 +2271,9 @@ SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ```
 
 <a id="py-pillow"></a>
-#### pillow 12.3.0
+#### pillow 13.0.0
 
-License: **MIT-CMU** · <https://python-pillow.github.io>
+License: **MIT-CMU** · <https://python-pillow.org>
 
 ~~~~text
 The Python Imaging Library (PIL) is

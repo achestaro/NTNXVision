@@ -67,7 +67,7 @@ import time
 import uuid
 from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from ntnxvision_core.api.errors import AuthenticationError, NutanixApiError, ReadOnlyViolation
@@ -165,7 +165,7 @@ def task_ref(raw: str) -> str:
 
 
 def _now() -> str:
-    return datetime.now(timezone.utc).isoformat(timespec="seconds")
+    return datetime.now(UTC).isoformat(timespec="seconds")
 
 
 Update = Callable[[LcmInventoryRun], None]
@@ -827,4 +827,4 @@ def _utc_label(value: str) -> str:
         dt = datetime.fromisoformat(value.replace("Z", "+00:00"))
     except ValueError:
         return value
-    return dt.astimezone(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+    return dt.astimezone(UTC).strftime("%Y-%m-%d %H:%M UTC")

@@ -33,7 +33,7 @@ import json
 import threading
 import time
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from ntnxvision_core.synthetic import render as r
@@ -48,7 +48,7 @@ _SEEDED_MIN_SECONDS = 2.0
 
 
 def _iso(ts: float) -> str:
-    return datetime.fromtimestamp(ts, timezone.utc).isoformat().replace("+00:00", "Z")
+    return datetime.fromtimestamp(ts, UTC).isoformat().replace("+00:00", "Z")
 
 
 class MockLcm:

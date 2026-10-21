@@ -28,6 +28,7 @@ import zipfile
 from collections.abc import Iterable, Iterator
 from contextlib import contextmanager, suppress
 from dataclasses import dataclass, field
+from datetime import UTC
 from email.message import EmailMessage
 from email.utils import formataddr, formatdate, make_msgid
 from pathlib import Path
@@ -362,7 +363,7 @@ def _peer_der(server: smtplib.SMTP) -> bytes:
 
 def describe_der(der: bytes) -> dict[str, Any]:
     """Subject, issuer, expiry and SHA-256 of a DER certificate, for the trust prompt."""
-    from datetime import datetime, timezone
+    from datetime import datetime
 
     from ntnxvision_core import connectivity
 
@@ -379,7 +380,7 @@ def describe_der(der: bytes) -> dict[str, Any]:
         if not_after:
             with suppress(ValueError):
                 ts = ssl.cert_time_to_seconds(not_after)
-                out["not_after"] = datetime.fromtimestamp(ts, timezone.utc).strftime(
+                out["not_after"] = datetime.fromtimestamp(ts, UTC).strftime(
                     "%Y-%m-%dT%H:%M:%SZ")
     return out
 

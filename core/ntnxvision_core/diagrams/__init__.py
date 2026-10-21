@@ -16,10 +16,12 @@ Models travel in one envelope (`model.envelope`), so a store handles every type 
 
 from __future__ import annotations
 
+import copy
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
+from . import connectors as _connectors
 from . import dr as _dr
 from . import edit_designs as _edits
 from . import estate as _estate
@@ -27,7 +29,7 @@ from . import management as _management
 from . import network as _network
 from .check import check_scene
 from .edit_conceptual import SPEC as CONCEPTUAL_EDIT
-from .edits import GENERIC, EditSpec
+from .edits import CONNECTORS, EDGE_EDITS, GENERIC, EditSpec
 from .facts import conceptual_model
 from .layout.conceptual import Page, Refs
 from .layout.conceptual import layout as conceptual_layout
@@ -72,6 +74,75 @@ class DiagramType:
     @property
     def edit_spec(self) -> EditSpec:
         return self.edit or GENERIC
+
+    def __post_init__(self) -> None:
+        # Connector edits (Diagrams editor: user connectors, changed generated ones) live
+        # beside the type's own model: `from_doc` keeps them on the model object,
+        # `to_doc` writes them back, and `layout` draws them over the type's scenes. So
+        # every caller (editor, report sections, per-AZ figures, bundle) draws them.
+        object.__setattr__(self, "to_doc", _with_extra_doc(self.to_doc))
+        object.__setattr__(self, "from_doc", _with_extra_model(self.from_doc))
+        object.__setattr__(self, "layout", _with_overlay(self.layout))
+
+
+#: Attribute holding a model's connector edits (`connectors.Extra`).
+_EXTRA = "_ntnx_connectors"
+
+
+def connector_extra(model: Any) -> _connectors.Extra | None:
+    """The connector edits a model carries (None: none)."""
+    return getattr(model, _EXTRA, None)
+
+
+def _with_extra_doc(fn: Callable[[Any], dict[str, Any]]) -> Callable[[Any], dict[str, Any]]:
+    if getattr(fn, "_ntnx_wrapped", False):
+        return fn
+
+    def to_doc(model: Any) -> dict[str, Any]:
+        doc = fn(model)
+        extra = connector_extra(model)
+        if extra:
+            if extra.connectors:
+                doc[CONNECTORS] = copy.deepcopy(extra.connectors)
+            if extra.edits:
+                doc[EDGE_EDITS] = copy.deepcopy(extra.edits)
+        return doc
+
+    to_doc._ntnx_wrapped = True  # type: ignore[attr-defined]
+    return to_doc
+
+
+def _with_extra_model(fn: Callable[[dict[str, Any]], Any]) -> Callable[[dict[str, Any]], Any]:
+    if getattr(fn, "_ntnx_wrapped", False):
+        return fn
+
+    def from_doc(doc: dict[str, Any]) -> Any:
+        if not any(k in doc for k in (CONNECTORS, EDGE_EDITS)):
+            return fn(doc)
+        model = fn({k: v for k, v in doc.items() if k not in (CONNECTORS, EDGE_EDITS)})
+        extra = _connectors.Extra(copy.deepcopy(list(doc.get(CONNECTORS) or [])),
+                                  copy.deepcopy(dict(doc.get(EDGE_EDITS) or {})))
+        if extra:
+            object.__setattr__(model, _EXTRA, extra)
+        return model
+
+    from_doc._ntnx_wrapped = True  # type: ignore[attr-defined]
+    return from_doc
+
+
+def _with_overlay(fn: Callable[..., list[Scene]]) -> Callable[..., list[Scene]]:
+    if getattr(fn, "_ntnx_wrapped", False):
+        return fn
+
+    def layout(model: Any, *args: Any, **kwargs: Any) -> list[Scene]:
+        scenes = fn(model, *args, **kwargs)
+        extra = connector_extra(model)
+        if extra:
+            _connectors.overlay(scenes, extra)
+        return scenes
+
+    layout._ntnx_wrapped = True  # type: ignore[attr-defined]
+    return layout
 
 
 TYPES: dict[str, DiagramType] = {
@@ -137,7 +208,8 @@ def conceptual_scenes(env: Any, page: Page | None = None, refs: Refs | None = No
 
 
 __all__ = [
-    "TYPES", "ConceptualModel", "DiagramType", "EditSpec", "Page", "Refs", "Scene", "check_scene",
+    "TYPES", "ConceptualModel", "DiagramType", "EditSpec", "Page", "Refs", "Scene",
+    "check_scene", "connector_extra",
     "conceptual_layout", "conceptual_model", "conceptual_scenes", "from_doc",
     "model_envelope", "model_from_envelope", "scene_json", "to_doc",
 ]

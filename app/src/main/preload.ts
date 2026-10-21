@@ -8,6 +8,7 @@ import {
   CollectionRequest,
   CompareExportRequest,
   DiagramCarryRequest,
+  DiagramFileRequest,
   DiagramOp,
   ExportRequest,
   FileFilter,
@@ -94,6 +95,8 @@ const api: NtnxApi = {
     ipcRenderer.invoke(IPC.saveDiagram, path, type, ops),
   resetDiagram: (path: string, type: string) => ipcRenderer.invoke(IPC.resetDiagram, path, type),
   carryDiagrams: (req: DiagramCarryRequest) => ipcRenderer.invoke(IPC.carryDiagrams, req),
+  previewExport: (req: ExportRequest) => ipcRenderer.invoke(IPC.previewExport, req),
+  exportDiagram: (req: DiagramFileRequest) => ipcRenderer.invoke(IPC.exportDiagram, req),
 
   revealPath: (path: string) => ipcRenderer.invoke(IPC.revealPath, path),
   openPath: (path: string) => ipcRenderer.invoke(IPC.openPath, path),

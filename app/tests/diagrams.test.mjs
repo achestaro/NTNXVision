@@ -5,13 +5,13 @@ import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 
 const require = createRequire(import.meta.url);
-const { asDiagramOps, asDiagramType, asDiagramCarryRequest, asUnsavedChangesRequest, closeAction } = require('../dist/main/requests.js');
+const { asDiagramOps, asDiagramType, asDiagramCarryRequest, asDiagramFileRequest, asExportRequest, asUnsavedChangesRequest, closeAction } = require('../dist/main/requests.js');
 const { IPC, MAX_DIAGRAM_OPS } = require('../dist/shared/ipc.js');
 
 const ABS = process.platform === 'win32' ? 'C:\\snaps\\' : '/tmp/snaps/';
 
 test('diagram channels are part of the contract', () => {
-  for (const k of ['listDiagrams', 'getDiagram', 'layoutDiagram', 'saveDiagram', 'resetDiagram', 'carryDiagrams']) {
+  for (const k of ['listDiagrams', 'getDiagram', 'layoutDiagram', 'saveDiagram', 'resetDiagram', 'carryDiagrams', 'previewExport', 'exportDiagram']) {
     assert.match(IPC[k], /^core:/);
   }
 });
@@ -80,4 +80,56 @@ test('closing the window: hide to the tray, ask about unsaved work, or close', (
   assert.equal(closeAction({ quitting: false, hides: false, unsaved: true }), 'ask');
   assert.equal(closeAction({ quitting: false, hides: false, unsaved: false }), 'close');
   assert.equal(closeAction({ quitting: true, hides: true, unsaved: false }), 'close');
+});
+
+test('connector edits and moves across containers pass with their known keys', () => {
+  const ops = asDiagramOps([
+    { op: 'connect', id: 'user:c1', a: 'cluster:1', b: 'cluster:2', label: 'Backup', extra: 1 },
+    { op: 'connect', id: 'user:c2', a: 'cluster:1', b: 'cluster:2', label: null, a_side: 'right' },
+    { op: 'edge', id: 'flow:a->b', ends: ['cluster:1', 'cluster:2'], field: 'bend', value: 12 },
+    { op: 'edge', id: 'flow:a->b', ends: ['cluster:1', 'cluster:2'], field: 'hidden', value: true },
+    { op: 'edge', id: 'flow:a->b', ends: ['cluster:1', 'cluster:2'], field: 'a', value: 'cluster:3' },
+    { op: 'edge', id: 'flow:a->b', ends: ['cluster:1', 'cluster:2'], field: 'label', value: null },
+    { op: 'move', id: 'cluster:1', index: 0, parent: 'pod:2' },
+  ]);
+  assert.deepEqual(ops[0], { op: 'connect', id: 'user:c1', a: 'cluster:1', b: 'cluster:2', label: 'Backup' });
+  assert.equal(ops[1].a_side, 'right');
+  assert.equal(ops[2].value, 12);
+  assert.equal(ops[3].value, true);
+  assert.deepEqual(ops[6], { op: 'move', id: 'cluster:1', index: 0, parent: 'pod:2' });
+});
+
+test('malformed connector edits are refused', () => {
+  const bad = [
+    [{ op: 'connect', id: 'c1', a: 'x', b: 'y' }],
+    [{ op: 'connect', id: 'user:c1', a: 'x', b: 'x' }],
+    [{ op: 'connect', id: 'user:c1', a: 'x', b: 'y', a_side: 'up' }],
+    [{ op: 'edge', id: 'e', ends: ['x'], field: 'label', value: 'a' }],
+    [{ op: 'edge', id: 'e', ends: ['x', 'y'], field: 'points', value: [] }],
+    [{ op: 'edge', id: 'e', ends: ['x', 'y'], field: 'bend', value: 9000 }],
+    [{ op: 'edge', id: 'e', ends: ['x', 'y'], field: 'hidden', value: 'yes' }],
+    [{ op: 'edge', id: 'e', ends: ['x', 'y'], field: 'arrow', value: 'sideways' }],
+  ];
+  for (const v of bad) assert.throws(() => asDiagramOps(v), undefined, JSON.stringify(v));
+});
+
+test('one-diagram downloads and the bundle package are checked', () => {
+  const r = asDiagramFileRequest({ snapshotPath: `${ABS}a.ntnxsnap.json`, type: 'dr', format: 'vsdx', evil: 1 });
+  assert.deepEqual(r, { snapshotPath: `${ABS}a.ntnxsnap.json`, type: 'dr', format: 'vsdx' });
+  assert.throws(() => asDiagramFileRequest({ snapshotPath: `${ABS}a.ntnxsnap.json`, type: 'dr', format: 'exe' }));
+  assert.throws(() => asDiagramFileRequest({ snapshotPath: 'relative.json', type: 'dr', format: 'svg' }));
+  const ok = asExportRequest({ snapshotPath: `${ABS}a.ntnxsnap.json`, formats: ['pdf'], diagrams: true, diagramsPackage: 'folder' });
+  assert.equal(ok.diagramsPackage, 'folder');
+  assert.throws(() => asExportRequest({ snapshotPath: `${ABS}a.ntnxsnap.json`, formats: ['pdf'], diagrams: true, diagramsPackage: 'tar' }));
+});
+
+test('a route reset and a dropped end side are checked', () => {
+  const [reset, drop] = asDiagramOps([
+    { op: 'edge', id: 'flow:a->b', ends: ['x', 'y'], field: 'route', value: 'auto' },
+    { op: 'edge', id: 'flow:a->b', ends: ['x', 'y'], field: 'b', value: 'z', side: 'top', evil: 1 },
+  ]);
+  assert.deepEqual(reset, { op: 'edge', id: 'flow:a->b', ends: ['x', 'y'], field: 'route', value: 'auto' });
+  assert.deepEqual(drop, { op: 'edge', id: 'flow:a->b', ends: ['x', 'y'], field: 'b', value: 'z', side: 'top' });
+  assert.throws(() => asDiagramOps([{ op: 'edge', id: 'e', ends: ['x', 'y'], field: 'route', value: 'left' }]));
+  assert.throws(() => asDiagramOps([{ op: 'edge', id: 'e', ends: ['x', 'y'], field: 'a', value: 'z', side: 'up' }]));
 });

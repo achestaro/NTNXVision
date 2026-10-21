@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import importlib
 import logging
+import re
 from collections.abc import Callable, Collection, Sequence
 from dataclasses import dataclass, field
 from typing import Any
@@ -529,6 +530,8 @@ class _Builder:
         #: The figures (parts) of each diagram type, for cross references from other
         #: chapters.
         self.design_figures: dict[str, list[SceneFigure]] = {}
+        #: Only these diagram types get their sections (`figure_scenes`); None: all.
+        self.only_types: set[str] | None = None
         #: The chapters that made it into the report, in their final order (set before
         #: the finalizers run), so cross references name only chapters that are there.
         self.chapters: list[Chapter] = []
@@ -941,6 +944,58 @@ class _Builder:
         return disclosure(dtype.to_doc(generated), dtype.to_doc(drawn), dtype.edit_spec,
                           origins.get(dtype.id), scope)
 
+    def disclose_undrawn_connectors(self, chapters: Sequence[Chapter]) -> None:
+        """Say in a figure's summary which connector edits it could not draw: a
+        connector whose ends are in different parts or zone figures, one with no clear
+        route left, and a label with no room beside its line. The note goes on each
+        part that holds an end of it (else the first part), so it sits where the
+        connector would have been."""
+        from ntnxvision_core.diagrams import connector_extra
+
+        models = getattr(self.opts, "diagram_models", None) or {}
+        every = [blk for ch in chapters
+                 for blk in [*ch.blocks, *(b for s in ch.sections for b in s.blocks)]
+                 if isinstance(blk, SceneFigure)]
+        for type_id, model in sorted(models.items()):
+            extra = connector_extra(model)
+            figs = [f for f in every if f.scene.type == type_id]
+            if not extra or not figs:
+                continue
+            drawn = {e.id for f in figs for e in f.scene.edges}
+            issue = {k: str(n.get("issue")) for f in figs
+                     for k, n in (f.scene.meta.get("connectors") or {}).items()
+                     if n.get("issue") in ("route", "label")}
+            ends: dict[str, list[str]] = {}
+            user: set[str] = set()
+            for c in extra.connectors:
+                ends[str(c.get("id"))] = [str(c.get("a")), str(c.get("b"))]
+                user.add(str(c.get("id")))
+            for k, v in sorted(extra.edits.items()):
+                if not v.get("hidden") and ("a" in v or "b" in v):
+                    pair = list(v.get("ends") or [])
+                    for i, f_ in enumerate(("a", "b")):
+                        if f_ in v and i < len(pair):
+                            pair[i] = v[f_]
+                    ends[k] = [str(x) for x in pair]
+            # Per figure part: (user, reconnected, no route, label) counts to disclose.
+            notes: dict[int, dict[str, int]] = {}
+            for ident, pair in ends.items():
+                kind = issue.get(ident)
+                if ident in drawn and kind != "label":
+                    continue
+                if ident not in drawn and kind is None:
+                    kind = "parts"
+                holders = [i for i, f in enumerate(figs)
+                           if any(n.id in pair for n in f.scene.nodes)] or [0]
+                for i in holders:
+                    tally = notes.setdefault(i, {})
+                    key = "label" if kind == "label" else ("route" if kind == "route"
+                                                           else "parts")
+                    who = "user" if ident in user else "moved"
+                    tally[f"{who}:{key}"] = tally.get(f"{who}:{key}", 0) + 1
+            for i, tally in sorted(notes.items()):
+                _disclose_tally(figs[i], tally)
+
     @staticmethod
     def part_scope(model: Any, scene: Scene) -> set[str]:
         """The element ids one part of a figure draws, for `scope_edit_marks`: its
@@ -974,7 +1029,8 @@ class _Builder:
         added = False
         for dtype in TYPES.values():
             if dtype.embedded or dtype.chapter != ch.key or \
-                    (only is not None and dtype.id not in only):
+                    (only is not None and dtype.id not in only) or \
+                    (self.only_types is not None and dtype.id not in self.only_types):
                 continue
             # One figure that cannot be built never costs the report: its section says
             # so, the run gets a warning, and the other sections carry on.
@@ -1648,6 +1704,84 @@ _ORDER: tuple[str, ...] = (
 )
 
 
+def _disclose_tally(f: SceneFigure, tally: dict[str, int]) -> None:
+    """Fold the undrawn connectors of one figure part into its edit bullet. A connector
+    with both ends here but no clear route is one of the part's added connectors:
+    "2 connectors added by the author (1 not drawn: no clear route was left)". One
+    with an end elsewhere is not counted there, so it gets its own clause: "1 more
+    connector not drawn here: its other end is in another part of the figure". Labels:
+    "1 connector label not drawn: no room beside the line"."""
+    lead = "Figure edited on the Diagrams page"
+    idx = next((i for i, b in enumerate(f.summary) if b.startswith(lead)), None)
+    bullet = f.summary[idx] if idx is not None else f"{lead}: . Counts are as collected."
+    extra: list[str] = []
+    added = re.search(r"(\d[\d,]*) connectors? added by the author", bullet)
+    blocked = tally.get("user:route", 0)
+    if blocked and added:
+        bullet = bullet.replace(added.group(0), f"{added.group(0)} ({blocked:,} not drawn: "
+                                "no clear route was left)", 1)
+    elif blocked:
+        extra.append(f"{blocked:,} connector{'s' * (blocked != 1)} not drawn: no clear "
+                     "route was left")
+    for who, what in (("user", "connector"), ("moved", "reconnected connector")):
+        n = tally.get(f"{who}:parts", 0)
+        if n:
+            more = "more " if who == "user" and added else ""
+            whose = "its other end is" if n == 1 else "their other ends are"
+            extra.append(f"{n:,} {more}{what}{'s' * (n != 1)} not drawn here: {whose} in "
+                         "another part of the figure")
+    moved_blocked = tally.get("moved:route", 0)
+    if moved_blocked:
+        extra.append(f"{moved_blocked:,} reconnected connector{'s' * (moved_blocked != 1)} "
+                     "not drawn: no clear route was left")
+    labels = tally.get("user:label", 0) + tally.get("moved:label", 0)
+    if labels:
+        extra.append(f"{labels:,} connector label{'s' * (labels != 1)} not drawn: no room "
+                     "beside the line")
+    if extra:
+        joined = "; ".join(extra)
+        bullet = bullet.replace(": . Counts", f": {joined}. Counts", 1) if \
+            ": . Counts" in bullet else bullet.replace(
+                ". Counts are as collected.", f"; {joined}. Counts are as collected.", 1)
+    if idx is None:
+        f.summary.append(bullet)
+    else:
+        f.summary[idx] = bullet
+
+
+def figure_scenes(env: Environment, opts: Any, type_id: str) -> list[Scene]:
+    """The figures of one diagram type exactly as the report draws them (its section's
+    budgets, parts per zone, cross references and edit marks), built from that
+    chapter alone: the Diagrams page shows what every export will draw. Empty when
+    the type has no figure in this snapshot."""
+    from ntnxvision_core.diagrams import TYPES
+
+    t = TYPES.get(type_id)
+    if t is None:
+        return []
+    from ntnxvision_core.exporters import ExportOptions
+
+    b = _Builder(env, ExportOptions.coerce(opts))
+    b.only_types = {type_id}
+    build: Callable[[], Chapter | None] | None = getattr(b, t.chapter, None)
+    ch = build() if build is not None else None
+    if ch is None:
+        return []
+    # Numbered where the default report puts it ("listed in Table 4-3" reads alike).
+    avail = {a["id"]: a["available"] for a in report_sections.availability(env)}
+    before = _ORDER[:_ORDER.index(t.chapter)] if t.chapter in _ORDER else ()
+    _number([ch], start=sum(1 for name in before if avail.get(name, True)))
+    b.chapters = [ch]
+    for finalize in b.finalizers:
+        try:
+            finalize()
+        except Exception as exc:  # noqa: BLE001 - cross references are best effort
+            _log.warning("Figure cross reference not resolved: %s", exc, exc_info=exc)
+    b.disclose_undrawn_connectors([ch])
+    return [blk.scene for blk in [*ch.blocks, *(x for s in ch.sections for x in s.blocks)]
+            if isinstance(blk, SceneFigure) and blk.scene.type == type_id]
+
+
 def build_report(env: Environment, opts: Any, eyebrow: str) -> Report:
     """The full report for `env`, filtered to `opts.sections`, numbered."""
     b = _Builder(env, opts)
@@ -1673,6 +1807,7 @@ def build_report(env: Environment, opts: Any, eyebrow: str) -> Report:
         except Exception as exc:  # noqa: BLE001 - cross references are best effort
             _log.warning("Report cross reference not resolved: %s", exc, exc_info=exc)
             b.warnings.append(f"Cross reference not resolved ({type(exc).__name__}: {exc})")
+    b.disclose_undrawn_connectors(chapters)
     if env.is_combined:
         scope = f"{fmt_count(len(env.source_environments))} Prism Centrals (combined)"
     else:
@@ -1698,10 +1833,11 @@ def _included(opts: Any, ch: Chapter) -> bool:
     return check(ch.key, ch.group) if check else bool(opts.includes(ch.group))
 
 
-def _number(chapters: list[Chapter]) -> None:
+def _number(chapters: list[Chapter], start: int = 0) -> None:
     """Assign chapter, section, table and figure numbers so skipped chapters leave no
-    gaps; both renderers print exactly these."""
-    n = 0
+    gaps; both renderers print exactly these. `start`: chapters numbered before these
+    (`figure_scenes` numbers one chapter where the default report puts it)."""
+    n = start
     appendix = 0
     for ch in chapters:
         if ch.appendix:

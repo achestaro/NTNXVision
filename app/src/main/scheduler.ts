@@ -427,8 +427,8 @@ export class Scheduler {
     const runId = randomUUID();
     this.runIds.add(runId);
 
-    let snapshotPaths: string[] = [];
-    let snapshotNames: string[] = [];
+    let snapshotPaths: string[];
+    let snapshotNames: string[];
     let partial: string | null = null;
     let partialDetail: string | null = null;
     try {

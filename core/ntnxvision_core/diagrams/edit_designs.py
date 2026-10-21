@@ -37,11 +37,24 @@ def _palette(parent: str, where: str) -> tuple[PaletteItem, ...]:
         PaletteItem("cluster", "Cluster", "clusters",
                     {"name": "New cluster", "kind": "user", "note": NOT_COLLECTED},
                     parents=(parent,), hint=f"A cluster that is not in this snapshot, in {where}."),
+        PaletteItem("pc", "Prism Central", "clusters",
+                    {"name": "Prism Central", "kind": "user",
+                     "note": "Management plane, not collected"},
+                    parents=(parent,), hint="A Prism Central the snapshot does not hold."),
+        PaletteItem("storage", "Storage array", "clusters",
+                    {"name": "Storage array", "kind": "user",
+                     "note": "External storage, not collected"},
+                    parents=(parent,), hint="An array the APIs do not report."),
+        PaletteItem("switch", "Switch", "clusters",
+                    {"name": "Network switch", "kind": "user",
+                     "note": "Network, not collected"},
+                    parents=(parent,), hint="A switch or network device."),
+        # Before 0.12 the palette had one generic "Component": saved edits still replay.
         PaletteItem("component", "Component", "clusters",
                     {"name": "New component", "kind": "user",
                      "note": "Not collected"},
                     parents=(parent,), hint="An appliance, array or switch the APIs do not "
-                                            "report."),
+                                            "report.", listed=False),
         PaletteItem("note", "Note", "clusters", {"name": "Note", "kind": "note"},
                     parents=(parent,), hint=f"Free text in {where}."),
     )
@@ -80,7 +93,9 @@ def _normalize_management(doc: dict[str, Any]) -> None:
 MANAGEMENT = EditSpec(
     collections=(
         Collection("sites", "Prism Central"),
-        Collection("clusters", "Cluster", sublabel="note", kind_of=_kind),
+        Collection("clusters", "Cluster", sublabel="note", kind_of=_kind, cross="user",
+                   cross_reason="A collected cluster stays with the Prism Central it is "
+                   "registered to."),
         Collection("remotes", "Remote availability zone"),
         Collection("links", "AZ pairing", label=None, reorder=False,
                    title_of=lambda lk: f"AZ pairing: {_ends(lk)}"),
@@ -113,7 +128,9 @@ def _flow_title(f: dict[str, Any]) -> str:
 DR = EditSpec(
     collections=(
         Collection("sites", "Availability zone"),
-        Collection("clusters", "Cluster", sublabel="note", kind_of=_kind),
+        Collection("clusters", "Cluster", sublabel="note", kind_of=_kind, cross="user",
+                   cross_reason="A collected cluster stays in the availability zone that "
+                   "manages it."),
         Collection("remotes", "Remote availability zone"),
         Collection("flows", "Replication", label=None, reorder=False, title_of=_flow_title),
         Collection("plans", "Recovery plans", label=None, reorder=False,
@@ -143,7 +160,11 @@ LOGICAL = EditSpec(
         Collection("sites", "Availability zone", reorder=False, delete=False),
         Collection("pods", "POD", label=None, reorder=False, delete=False,
                    title_of=lambda p: f"POD {p['name']}" if p.get("name") else "Clusters"),
-        Collection("clusters", "Cluster", sublabel="note", kind_of=_kind),
+        # A POD comes from the cluster's category or name (the card says which), so a
+        # collected cluster keeps it; added components and notes move freely.
+        Collection("clusters", "Cluster", sublabel="note", kind_of=_kind, cross="user",
+                   cross_reason="A collected cluster stays in the POD its category or "
+                   "name puts it in."),
         # Node groups (model, CPU, memory, GPUs): a note line only, collected values.
         Collection("groups", "Node group", label=None, sublabel="note", reorder=False,
                    delete=False, title_of=lambda g: f"{g.get('count', 0):,} x "

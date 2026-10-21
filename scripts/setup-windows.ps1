@@ -3,7 +3,7 @@
     NTNXVision - one-shot Windows setup (mirror of scripts/setup-macos.sh).
 
 .DESCRIPTION
-    Creates the Python venv with a *supported* interpreter (3.10-3.13), installs only the
+    Creates the Python venv with a *supported* interpreter (3.11-3.13), installs only the
     runtime dependencies (fast, wheel-only - no mypy/ruff/pyinstaller), then installs the
     Electron app. Run from the repo root:
 
@@ -19,12 +19,12 @@ $Root = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 
 Write-Host "==> NTNXVision setup (repo: $Root)"
 
-# --- 1. Pick a supported Python (3.10-3.13) ---------------------------------
+# --- 1. Pick a supported Python (3.11-3.13) ---------------------------------
 # Prefer the py launcher, which can enumerate every installed interpreter.
 $pyExe = $null
 $pyArgs = @()
 if (Get-Command py -ErrorAction SilentlyContinue) {
-    foreach ($v in '3.13', '3.12', '3.11', '3.10') {
+    foreach ($v in '3.13', '3.12', '3.11') {
         & py "-$v" -c "import sys" 2>$null
         if ($LASTEXITCODE -eq 0) { $pyExe = 'py'; $pyArgs = @("-$v"); break }
     }
@@ -36,7 +36,7 @@ if (-not $pyExe -and (Get-Command python -ErrorAction SilentlyContinue)) {
 }
 if (-not $pyExe) {
     Write-Error @"
-No supported Python found (need 3.10-3.13).
+No supported Python found (need 3.11-3.13).
 Install one, e.g.:  winget install Python.Python.3.12
 (Python 3.14 is not yet supported - some deps lack wheels.)
 "@

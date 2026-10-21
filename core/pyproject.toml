@@ -4,13 +4,13 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "ntnxvision-core"
-version = "0.12.0"
+version = "0.13.0"
 description = "Inventory & documentation core for Nutanix Prism Central (NTNXVision)"
 readme = "README.md"
 # Cap the upper bound: brand-new Python releases (e.g. 3.14) often lack prebuilt wheels
 # for pydantic-core/lxml, which forces pip into a long backtracking search that can end
 # in ResolutionImpossible. 3.10–3.13 all have wheels for every runtime dep.
-requires-python = ">=3.10,<3.14"
+requires-python = ">=3.11,<3.14"
 authors = [{ name = "Alberto Chestaro" }]
 license = { text = "MIT" }
 classifiers = [
@@ -30,11 +30,11 @@ dependencies = [
     "truststore>=0.10,<1",   # verified TLS through the OS trust store (macOS / Windows)
     "pydantic>=2.6,<3",      # normalized, version-independent data model
     "typer>=0.12,<1",        # CLI / sidecar entrypoint
-    "rich>=13.7,<15",        # pretty CLI output & progress
+    "rich>=13.7,<16",        # pretty CLI output & progress
     "openpyxl>=3.1,<4",      # Excel export
     "fpdf2>=2.7,<3",         # PDF export — pure Python, no native GTK/Pango deps
     "python-docx>=1.1,<2",   # Word Architecture Design Document
-    "pillow>=10.1,<13",      # diagram and chart rasters (also required by fpdf2)
+    "pillow>=10.1,<14",      # diagram and chart rasters (also required by fpdf2)
     "fonttools>=4.40,<5",    # diagram text measurement from the bundled fonts (fpdf2 uses it too)
     "cryptography>=48.0.1,<51",  # build lock: 50.x, 48.0.1 on macOS x86_64 (no newer wheel); optional password encryption of .ntnxsnap files (AES-256-GCM, scrypt)
 ]
@@ -81,13 +81,13 @@ include = ["ntnxvision_core*"]
 
 [tool.ruff]
 line-length = 100
-target-version = "py310"
+target-version = "py311"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "SIM"]
 
 [tool.mypy]
-python_version = "3.10"
+python_version = "3.11"
 warn_unused_ignores = true
 plugins = ["pydantic.mypy"]
 

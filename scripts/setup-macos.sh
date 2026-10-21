@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # NTNXVision — one-shot macOS setup.
 #
-# Creates the Python venv with a *supported* interpreter (3.10–3.13), installs only the
+# Creates the Python venv with a *supported* interpreter (3.11–3.13), installs only the
 # runtime dependencies (fast, wheel-only — no mypy/ruff/pyinstaller), then installs the
 # Electron app. Run from the repo root:
 #
@@ -17,9 +17,9 @@ DEV=0
 
 echo "==> NTNXVision setup (repo: $ROOT)"
 
-# ─── 1. Pick a supported Python (3.10–3.13) ────────────────────────────
+# ─── 1. Pick a supported Python (3.11–3.13) ────────────────────────────
 PY=""
-for cand in python3.13 python3.12 python3.11 python3.10 python3; do
+for cand in python3.13 python3.12 python3.11 python3; do
   if command -v "$cand" >/dev/null 2>&1; then
     ver="$("$cand" -c 'import sys; print("%d.%d" % sys.version_info[:2])')"
     major="${ver%%.*}"; minor="${ver##*.}"
@@ -30,7 +30,7 @@ for cand in python3.13 python3.12 python3.11 python3.10 python3; do
 done
 
 if [[ -z "$PY" ]]; then
-  echo "ERROR: No supported Python found (need 3.10–3.13)."
+  echo "ERROR: No supported Python found (need 3.11–3.13)."
   echo "       Install one, e.g.:  brew install python@3.12"
   echo "       (Python 3.14 is not yet supported — some deps lack wheels.)"
   exit 1

@@ -114,7 +114,7 @@ export class SmtpStore {
   async info(): Promise<SmtpSettingsInfo> {
     const s = this.settings();
     if (this.io.tampered?.()) return { ...s, hasPassword: false, configured: false, tampered: true };
-    let hasPassword = false;
+    let hasPassword: boolean;
     try {
       hasPassword = !!(await this.secrets.get(smtpPasswordAccount(s)));
     } catch {

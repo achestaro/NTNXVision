@@ -17,7 +17,7 @@ const DEV_WS = 'ws://localhost:5273';
  * Development (Vite dev server): HMR needs the dev server origin, its websocket, and the
  * inline module that the React Fast Refresh plugin injects.
  */
-export function cspFor(mode: 'production' | 'development'): string {
+function cspFor(mode: 'production' | 'development'): string {
   const directives =
     mode === 'production'
       ? [

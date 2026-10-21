@@ -27,7 +27,7 @@ import json
 import os
 import threading
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -209,7 +209,7 @@ def reset(snapshot: Path, type_id: str) -> None:
 
 
 def _now() -> str:
-    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    return datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 # ─── models ────────────────────────────────────────────────────────────
@@ -282,14 +282,194 @@ class View:
     scenes: list[Scene]
     problems: list[E.Problem]
 
+    @property
+    def notes(self) -> list[dict[str, Any]]:
+        return layout_notes(self.scenes)
+
 
 def build_view(env: Any, type_id: str, ops: list[dict[str, Any]],
-               gen: dict[str, Any] | None = None) -> View:
+               gen: dict[str, Any] | None = None, origin: str | None = None) -> View:
+    """The diagram with `ops` replayed, laid out exactly as the report draws it
+    (`content.figure_scenes`: the same parts, budgets, zones and cross references), so
+    the Diagrams page shows what every export draws. `origin`: the snapshot the edits
+    were carried from automatically (it lengthens the disclosure bullet, which can move
+    a part break)."""
+    from ntnxvision_core.exporters.content import figure_scenes
+
     t = dtype(type_id)
     gen = gen if gen is not None else generated(env, type_id)
     applied = E.apply_ops(gen, ops, t.edit_spec)
-    scenes = t.layout(t.from_doc(applied.payload), t.page)
-    return View(type_id, applied.payload, gen, scenes, applied.problems)
+    model = t.from_doc(applied.payload)
+    opts: dict[str, Any] = {"diagram_models": {type_id: model} if ops else {}}
+    if origin and ops:
+        opts["diagram_origins"] = {type_id: origin}
+    scenes = figure_scenes(env, opts, type_id) or t.layout(model, t.page)
+    problems = sorted([*applied.problems, *_layout_problems(ops, scenes, applied.problems)],
+                      key=lambda p: p.index)
+    return View(type_id, applied.payload, gen, scenes, problems)
+
+
+#: Why a connector edit was not drawn as asked, by the overlay's issue.
+ISSUES = {
+    "side": "this side forces the route through other boxes; Auto is used",
+    "route": "there is no clear route for this connector here; it is not drawn",
+    "label": "there is no room for this label beside its line; it is not drawn",
+}
+
+
+def _layout_problems(ops: list[dict[str, Any]], scenes: list[Scene],
+                     known: list[E.Problem]) -> list[E.Problem]:
+    """Edits of a generated connector that no part of the figure draws (the data no
+    longer has it): problems, like an edit whose element is gone."""
+    seen = {e.id for sc in scenes for e in sc.edges} | \
+        {i for sc in scenes for i in (sc.meta.get("connectors") or {})}
+    bad = {p.index for p in known}
+    return [E.Problem(i, op, "the connector is not in this figure")
+            for i, op in enumerate(ops)
+            if op["op"] == "edge" and i not in bad and not op["id"].startswith(E.USER_PREFIX)
+            and op["id"] not in seen]
+
+
+def layout_notes(scenes: list[Scene]) -> list[dict[str, Any]]:
+    """How the layout drew connector edits differently from what was asked (never an
+    edit that fails: the edit stays, the figure says what it did): a pinned side that
+    forced a bad route (Auto is used), a connector with no clear route (not drawn), a
+    label with no room (not drawn). One note per connector, in part order."""
+    out: dict[str, dict[str, Any]] = {}
+    for i, sc in enumerate(scenes):
+        for ident, note in (sc.meta.get("connectors") or {}).items():
+            kind = note.get("issue")
+            if kind in ISSUES and ident not in out:
+                out[ident] = {"id": ident, "kind": kind, "reason": ISSUES[kind], "part": i}
+    return list(out.values())
+
+
+def _end_label(nodes: dict[str, Any], ident: str, labels: dict[str, str]) -> str:
+    """How an end reads: its element's label, or "Prism Central of pc01" for a box in a
+    zone."""
+    if ident in labels:
+        return labels[ident]
+    n = nodes.get(ident)
+    first = n.lines[0].text if n is not None and n.lines else ident
+    holder = labels.get(n.parent, "") if n is not None and n.parent else ""
+    return f"{first} of {holder}" if holder else first
+
+
+def connector_outline(view: View, elements: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """What the inspector shows for each connector of the figure: the generated ones the
+    author may change and the user-added ones, with their ends (element ids, or a box a
+    connector may end on, `connectors.end_box`), label, the sides asked for and used,
+    the lane offset asked for and applied, arrowheads, the parts that draw them and
+    why one is not drawn."""
+    from .check import side_of
+    from .connectors import KIND_NAMES, editable, end_box
+
+    labels = {o["id"]: str(o["label"] or o["id"]) for o in elements}
+    asked = {c["id"]: c for c in view.payload.get(E.CONNECTORS) or []}
+    asked.update(view.payload.get(E.EDGE_EDITS) or {})
+    out: dict[str, dict[str, Any]] = {}
+    for i, sc in enumerate(view.scenes):
+        nodes = {n.id: n for n in sc.nodes}
+
+        def owner(ident: str, nodes: dict[str, Any] = nodes) -> str | None:
+            seen: set[str] = set()
+            cur: str | None = ident
+            while cur is not None and cur not in seen:
+                if cur in labels:
+                    return cur
+                seen.add(cur)
+                n = nodes.get(cur)
+                cur = n.parent if n is not None else None
+            return None
+
+        def end(ident: str, nodes: dict[str, Any] = nodes) -> str | None:
+            return ident if ident in labels or end_box(nodes, ident) else owner(ident)
+
+        info = sc.meta.get("connectors") or {}
+        for e in sc.edges:
+            if not editable(e, nodes):
+                continue
+            a, b = end(e.src), end(e.dst)
+            if a is None or b is None or a == b:
+                continue
+            if e.id in out:
+                out[e.id]["parts"].append(i)
+                continue
+            user = e.id.startswith(E.USER_PREFIX)
+            note = info.get(e.id, {})
+            want = asked.get(e.id, {})
+            ca = owner(str(note.get("collected_src") or e.src)) or a
+            cb = owner(str(note.get("collected_dst") or e.dst)) or b
+            label = " ".join(t.text for lab in e.labels for t in lab.lines)
+            kind = KIND_NAMES.get(str(e.data.get("kind")), "Connector")
+            arrow = ("both" if e.arrow_start and e.arrow_end else "end" if e.arrow_end
+                     else "start" if e.arrow_start else "none")
+            out[e.id] = {
+                "id": e.id, "origin": "user" if user else "collected", "kind": kind,
+                "label": label or None,
+                "collected_label": None if user else note.get("collected_label", label) or None,
+                "a": a, "b": b, "a_label": _end_label(nodes, a, labels),
+                "b_label": _end_label(nodes, b, labels),
+                "ends": [ca, cb],
+                "a_side": want.get("a_side", "auto"), "b_side": want.get("b_side", "auto"),
+                "a_side_used": side_of(nodes[e.src], e.points[0]) or "auto",
+                "b_side_used": side_of(nodes[e.dst], e.points[-1]) or "auto",
+                "bend": note.get("bend", 0), "bend_asked": want.get("bend", 0),
+                "arrow": arrow, "parts": [i],
+                "edited": user or bool(want), "hidden": False, "issue": note.get("issue"),
+                "can_delete": True,
+                "delete_op": "delete" if user or e.id in labels else "hide",
+                "source": ("Added on the Diagrams page. Exports draw it dashed amber; it "
+                           "never appears in the tables.") if user else
+                f"{kind} from the snapshot, {labels.get(ca, ca)} to {labels.get(cb, cb)}.",
+            }
+        for ident, note in info.items():
+            if note.get("hidden") and ident not in out:
+                ca = owner(str(note.get("collected_src") or "")) or ""
+                cb = owner(str(note.get("collected_dst") or "")) or ""
+                out[ident] = {"id": ident, "origin": "collected", "kind": "Connector",
+                              "label": note.get("collected_label") or None,
+                              "collected_label": note.get("collected_label") or None,
+                              "a": ca or None, "b": cb or None,
+                              "a_label": labels.get(ca), "b_label": labels.get(cb),
+                              "ends": [ca, cb], "a_side": "auto", "b_side": "auto",
+                              "a_side_used": "auto", "b_side_used": "auto", "bend": 0,
+                              "bend_asked": 0, "arrow": "none", "parts": [i],
+                              "edited": True, "hidden": True, "issue": None,
+                              "can_delete": False, "delete_op": "hide",
+                              "source": "Removed from this figure on the Diagrams page. "
+                                        "Restore brings it back."}
+    seen = {e.id for sc in view.scenes for e in sc.edges} | \
+        {k for sc in view.scenes for k in (sc.meta.get("connectors") or {})}
+    for ident, want in asked.items():
+        if ident in out:
+            continue
+        user = ident.startswith(E.USER_PREFIX)
+        if not user and (ident not in seen or (not want.get("a") and not want.get("b"))):
+            continue  # a connector no part has (the data changed): its edits are problems
+        a = str(want.get("a") or "")
+        b = str(want.get("b") or "")
+        issue = next((note.get("issue") for sc in view.scenes
+                      for k, note in (sc.meta.get("connectors") or {}).items()
+                      if k == ident and note.get("issue")), None)
+        why = ("Not drawn: there is no clear route between its ends here."
+               if issue == "route" else
+               "Not drawn: its ends are in different parts of this figure (the report "
+               "splits it the same way and says so in the summary of each part that "
+               "holds an end).")
+        out[ident] = {
+            "id": ident, "origin": "user" if user else "collected", "kind": "Connector",
+            "label": want.get("label") or None, "collected_label": None,
+            "a": a or None, "b": b or None, "a_label": labels.get(a), "b_label": labels.get(b),
+            "ends": list(want.get("ends") or [a, b]),
+            "a_side": want.get("a_side", "auto"), "b_side": want.get("b_side", "auto"),
+            "a_side_used": "auto", "b_side_used": "auto",
+            "bend": 0, "bend_asked": want.get("bend", 0),
+            "arrow": want.get("arrow", "end"), "parts": [], "edited": True,
+            "hidden": False, "issue": issue or "parts", "can_delete": True,
+            "delete_op": "delete" if user else "hide", "source": why,
+        }
+    return [out[k] for k in sorted(out, key=lambda k: (out[k]["parts"][:1] or [10**6], k))]
 
 
 def _scene_docs(scenes: list[Scene]) -> list[dict[str, Any]]:
@@ -300,18 +480,30 @@ def _problem_docs(view: View) -> list[dict[str, Any]]:
     return [p.to_doc() for p in view.problems]
 
 
-def layout_result(env: Any, type_id: str, ops: list[dict[str, Any]]) -> dict[str, Any]:
+def layout_result(env: Any, type_id: str, ops: list[dict[str, Any]],
+                  snapshot: Path | None = None) -> dict[str, Any]:
     """Re-layout with `ops` (unsaved edits): scenes, outline and the operations that did
     not apply."""
     t = dtype(type_id)
-    view = build_view(env, type_id, ops)
+    entry = load(snapshot).get(type_id) if snapshot is not None else None
+    view = build_view(env, type_id, ops, None, _origin(entry))
+    elements = E.outline(view.payload, view.generated, t.edit_spec)
     return {
         "type": type_id,
         "model": envelope(type_id, view.payload),
         "scenes": _scene_docs(view.scenes),
-        "outline": E.outline(view.payload, view.generated, t.edit_spec),
+        "outline": elements,
+        "connectors": connector_outline(view, elements),
         "problems": _problem_docs(view),
+        "notes": view.notes,
     }
+
+
+def _origin(entry: dict[str, Any] | None) -> str | None:
+    """The snapshot an entry's edits were carried from automatically (its disclosure
+    names it)."""
+    src = (entry or {}).get("carried_from") or {}
+    return str(src["name"]) if src.get("auto") and src.get("name") else None
 
 
 def stale_info(type_id: str, entry: dict[str, Any], gen: dict[str, Any],
@@ -333,8 +525,9 @@ def get_result(snapshot: Path, env: Any, type_id: str) -> dict[str, Any]:
     entry = load(snapshot).get(type_id)
     ops = entry["ops"] if entry else []
     gen = generated(env, type_id)
-    view = build_view(env, type_id, ops, gen)
+    view = build_view(env, type_id, ops, gen, _origin(entry))
     stale = stale_info(t.id, entry, gen, t.edit_spec) if entry else None
+    elements = E.outline(view.payload, gen, t.edit_spec)
     return {
         "type": type_id,
         "title": t.title,
@@ -347,12 +540,14 @@ def get_result(snapshot: Path, env: Any, type_id: str) -> dict[str, Any]:
         "carried_from": entry.get("carried_from") if entry else None,
         "stale": stale,
         "scenes": _scene_docs(view.scenes),
-        "outline": E.outline(view.payload, gen, t.edit_spec),
+        "outline": elements,
+        "connectors": connector_outline(view, elements),
         "problems": _problem_docs(view),
+        "notes": view.notes,
         "palette": [{"id": p.id, "label": p.label, "collection": p.collection,
                      "parents": list(p.parents), "hint": p.hint,
                      "template": {k: v for k, v in p.template.items() if k != "cards"}}
-                    for p in t.edit_spec.palette],
+                    for p in t.edit_spec.palette if p.listed],
     }
 
 
@@ -364,18 +559,43 @@ def list_result(snapshot: Path, env: Any) -> list[dict[str, Any]]:
         entry = entries.get(t.id)
         ops = entry["ops"] if entry else []
         gen = generated(env, t.id)
-        view = build_view(env, t.id, ops, gen)
+        view = build_view(env, t.id, ops, gen, _origin(entry))
         stale = stale_info(t.id, entry, gen, t.edit_spec) if entry else None
         out.append({
             "type": t.id,
             "title": t.title,
-            "parts": [{"index": i, "id": sc.id, "caption": sc.caption,
-                       "part": list(sc.part)} for i, sc in enumerate(view.scenes)],
+            "parts": part_list(view.scenes),
             "edited": entry is not None,
             "edits": len(ops),
             "saved_at": entry.get("saved_at") if entry else None,
             "stale": stale is not None,
         })
+    return out
+
+
+def part_list(scenes: list[Scene]) -> list[dict[str, Any]]:
+    """The parts of a figure as the Diagrams page lists them: named after their zone or
+    profile ("pc02, part 2 of 3", "Profile A"), "part i of n" only when there is more
+    than one."""
+    from ntnxvision_core.diagrams.facts import short_name
+
+    out = []
+    for i, sc in enumerate(scenes):
+        # The zone or profile as it reads ("Profile A", "pc02"); file names drop the
+        # word "Profile" (`bundle._group`), the list keeps it.
+        raw = str(sc.meta.get("group_name") or sc.meta.get("group") or "")
+        name = raw if raw.lower().startswith("profile ") else (short_name(raw) if raw else "")
+        many = sc.part[1] > 1
+        if name and many:
+            label = f"{name}, part {sc.part[0]:,} of {sc.part[1]:,}"
+        elif name:
+            label = name
+        elif many:
+            label = f"Part {sc.part[0]:,} of {sc.part[1]:,}"
+        else:
+            label = ""
+        out.append({"index": i, "id": sc.id, "caption": sc.caption, "part": list(sc.part),
+                    "label": label})
     return out
 
 
@@ -413,13 +633,13 @@ def carry_report(src: Path, dst_env: Any, types: list[str] | None = None
                 not t.applies(dst_env):
             continue
         gen = generated(dst_env, type_id)
-        applied = E.apply_ops(gen, entry["ops"], t.edit_spec)
+        view = build_view(dst_env, type_id, entry["ops"], gen)
         names = _labels(entry["base_model"], t.edit_spec)
         out.append({
             "type": type_id, "title": t.title, "edits": len(entry["ops"]),
-            "applies": len(entry["ops"]) - len(applied.problems),
+            "applies": len(entry["ops"]) - len(view.problems),
             "problems": [{**p.to_doc(), "label": names.get(str(p.op.get("id")), None)}
-                         for p in applied.problems],
+                         for p in view.problems],
         })
     return out
 

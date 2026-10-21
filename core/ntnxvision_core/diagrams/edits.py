@@ -9,7 +9,15 @@ model generated from the snapshot, then lays the result out with the same engine
 * ``{"op": "move", "id", "index"}``: reorder an element within its container;
 * ``{"op": "add", "parent", "field", "index", "element"}``: add a user element (its id
   starts with ``user:``) to a container (``parent`` None: the model's top level);
-* ``{"op": "delete", "id"}``: remove an element from this diagram.
+* ``{"op": "delete", "id"}``: remove an element (or a user connector) from this diagram;
+* ``{"op": "move", "id", "index", "parent"}``: with ``parent``, move into another
+  container of the same kind where the type allows it (`Collection.cross`);
+* ``{"op": "connect", "id", "a", "b", "label"}``: a user-added connector between two
+  elements (stored in ``payload["connectors"]``);
+* ``{"op": "edge", "id", "ends", "field", "value"}``: change a connector, user-added or
+  generated (by its stable scene edge id; stored in ``payload["edge_edits"]``): reconnect
+  an end, relabel, choose a side, offset its lane, set arrowheads, or remove it. The
+  router (`connectors.py`) turns these into geometry; nothing is free-placed.
 
 Replaying is pure and deterministic: the same model and the same operations give the same
 document, byte for byte. An operation whose element is gone (a cluster no longer in a
@@ -38,7 +46,17 @@ from .scene import dumps
 MAX_OPS = 2000
 MAX_TEXT = 200
 USER_PREFIX = "user:"
-OPS = ("set", "move", "add", "delete")
+OPS = ("set", "move", "add", "delete", "connect", "edge")
+#: Payload keys holding connector edits (never collections of model elements).
+CONNECTORS = "connectors"
+EDGE_EDITS = "edge_edits"
+CONNECTOR_KEYS = (CONNECTORS, EDGE_EDITS)
+#: What an ``edge`` operation may change.
+EDGE_FIELDS = ("a", "b", "label", "a_side", "b_side", "bend", "arrow", "hidden", "route")
+SIDES = ("auto", "top", "right", "bottom", "left")
+ARROWS = ("none", "end", "start", "both")
+#: Largest lane offset (pt) a connector may carry.
+MAX_BEND = 600.0
 
 
 @dataclass(frozen=True)
@@ -62,6 +80,13 @@ class Collection:
     title_of: Callable[[dict[str, Any]], str] | None = None
     #: Per element: whether `roles` apply to it (None: to every element).
     has_role: Callable[[dict[str, Any]], bool] | None = None
+    #: Moving to another container of the same kind (drag across, "Container" select):
+    #: "none" (never), "user" (user-added elements and notes only), "sibling" (also a
+    #: collected element, within the same grandparent: a cluster to another POD of its
+    #: availability zone).
+    cross: str = "none"
+    #: Why a collected element cannot move there (shown on refusal).
+    cross_reason: str = "A collected element stays in the container the data puts it in."
 
 
 @dataclass(frozen=True)
@@ -75,6 +100,8 @@ class PaletteItem:
     #: Container kinds (collection field of the parent) it can go into; () = top level.
     parents: tuple[str, ...] = ()
     hint: str = ""
+    #: Offered on the palette (False: kept so older saved edits still replay).
+    listed: bool = True
 
 
 @dataclass(frozen=True)
@@ -135,6 +162,8 @@ def walk(payload: dict[str, Any], spec: EditSpec) -> dict[str, Slot]:
 
     def visit(node: dict[str, Any], owner: str | None, owner_label: str) -> None:
         for key in sorted(node):
+            if node is payload and key in CONNECTOR_KEYS:
+                continue  # connector edits, not model elements (see `connectors.py`)
             value = node[key]
             if key in known and isinstance(value, list) or _is_collection(value):
                 if not all(isinstance(x, dict) for x in value):
@@ -227,6 +256,25 @@ def clean_ops(raw: Any) -> list[dict[str, Any]]:
         ident = op.get("id")
         if not isinstance(ident, str) or not ident or len(ident) > 512:
             raise EditError(f"Edit {i + 1}: id must be text")
+        if kind == "connect":
+            if not ident.startswith(USER_PREFIX) or len(ident) > 80:
+                raise EditError(f"Edit {i + 1}: a new connector id starts with {USER_PREFIX}")
+            a, b = _ref(op.get("a"), i, "a"), _ref(op.get("b"), i, "b")
+            if a == b:
+                raise EditError(f"Edit {i + 1}: a connector needs two different ends")
+            conn: dict[str, Any] = {"op": "connect", "id": ident, "a": a, "b": b,
+                                    "label": _text(op.get("label"), f"Edit {i + 1} label",
+                                                   allow_none=True)}
+            for side in ("a_side", "b_side"):  # the port it was drawn from (optional)
+                if op.get(side) not in (None, "auto"):
+                    if op[side] not in SIDES:
+                        raise EditError(f"Edit {i + 1}: a side is one of {', '.join(SIDES)}")
+                    conn[side] = op[side]
+            out.append(conn)
+            continue
+        if kind == "edge":
+            out.append(_clean_edge(op, ident, i))
+            continue
         if kind == "set":
             if op.get("field") not in ("label", "sublabel", "role"):
                 raise EditError(f"Edit {i + 1}: only label, sublabel and role can be set")
@@ -234,9 +282,64 @@ def clean_ops(raw: Any) -> list[dict[str, Any]]:
                         "value": _text(op.get("value"), f"Edit {i + 1} value",
                                        allow_none=op["field"] != "label")})
         elif kind == "move":
-            out.append({"op": "move", "id": ident, "index": _index(op.get("index"), i)})
+            mv: dict[str, Any] = {"op": "move", "id": ident, "index": _index(op.get("index"), i)}
+            if op.get("parent") is not None:
+                mv["parent"] = _ref(op.get("parent"), i, "parent")
+            out.append(mv)
         else:
             out.append({"op": "delete", "id": ident})
+    return out
+
+
+def _ref(v: Any, i: int, what: str) -> str:
+    if not isinstance(v, str) or not v or len(v) > 512:
+        raise EditError(f"Edit {i + 1}: {what} must be an element id")
+    return v
+
+
+def _clean_edge(op: dict[str, Any], ident: str, i: int) -> dict[str, Any]:
+    ends = op.get("ends")
+    if not isinstance(ends, list) or len(ends) != 2:
+        raise EditError(f"Edit {i + 1}: ends must name the two elements the connector joins")
+    clean_ends = [_ref(e, i, "ends") for e in ends]
+    fld = op.get("field")
+    if fld not in EDGE_FIELDS:
+        raise EditError(f"Edit {i + 1}: a connector's {fld!r} cannot be changed")
+    v = op.get("value")
+    value: Any
+    if fld in ("a", "b"):
+        value = _ref(v, i, "value")
+    elif fld == "label":
+        value = _text(v, f"Edit {i + 1} label", allow_none=True)
+    elif fld in ("a_side", "b_side"):
+        if v not in SIDES:
+            raise EditError(f"Edit {i + 1}: a side is one of {', '.join(SIDES)}")
+        value = v
+    elif fld == "arrow":
+        if v not in ARROWS:
+            raise EditError(f"Edit {i + 1}: arrowheads are one of {', '.join(ARROWS)}")
+        value = v
+    elif fld == "bend":
+        if isinstance(v, bool) or not isinstance(v, (int, float)) or abs(v) > MAX_BEND:
+            raise EditError(f"Edit {i + 1}: a lane offset is a number of points up to "
+                            f"{MAX_BEND:,.0f}")
+        value = round(float(v) * 2) / 2
+        value = int(value) if value == int(value) else value
+    elif fld == "route":  # back to Auto sides and no lane offset, in one edit
+        if v != "auto":
+            raise EditError(f"Edit {i + 1}: a route resets to auto")
+        value = v
+    else:  # hidden
+        if not isinstance(v, bool):
+            raise EditError(f"Edit {i + 1}: hidden is true or false")
+        value = v
+    out: dict[str, Any] = {"op": "edge", "id": ident, "ends": clean_ends, "field": fld,
+                           "value": value}
+    side = op.get("side")
+    if fld in ("a", "b") and side not in (None, "auto"):
+        if side not in SIDES:
+            raise EditError(f"Edit {i + 1}: a side is one of {', '.join(SIDES)}")
+        out["side"] = side  # the side of the new end it was dropped on
     return out
 
 
@@ -278,6 +381,7 @@ def apply_ops(payload: dict[str, Any], ops: list[dict[str, Any]], spec: EditSpec
             problems.append(Problem(i, op, reason))
     if spec.normalize is not None:
         spec.normalize(doc)
+    normalize_connectors(doc, spec)
     # A model type with an `edited` flag learns that an edit was replayed (captions).
     if "edited" in doc and len(problems) < len(ops):
         doc["edited"] = True
@@ -322,11 +426,24 @@ def _apply_one(doc: dict[str, Any], op: dict[str, Any], slots: dict[str, Slot],
         items.insert(min(op["index"], len(items)), new)
         return None
 
+    if kind == "connect":
+        return _connect(doc, op, slots)
+    if kind == "edge":
+        return _edge(doc, op, slots)
+    if kind == "delete" and op["id"].startswith(USER_PREFIX):
+        links = doc.get(CONNECTORS)
+        if isinstance(links, list) and any(c.get("id") == op["id"] for c in links):
+            doc[CONNECTORS] = [c for c in links if c.get("id") != op["id"]]
+            if not doc[CONNECTORS]:
+                del doc[CONNECTORS]
+            return None
     found = _find(slots, op["id"])
     if found is None:
         return "the element is not in this snapshot"
     slot, pos, elem = found
     col = _collection(spec, slot.field)
+    if kind == "move" and op.get("parent") is not None and op["parent"] != slot.parent:
+        return _move_across(op, slots, slot, pos, elem, col)
     if kind == "delete":
         if not col.delete and not op["id"].startswith(USER_PREFIX):
             return "this element cannot be removed"
@@ -350,6 +467,201 @@ def _apply_one(doc: dict[str, Any], op: dict[str, Any], slots: dict[str, Slot],
     if op["field"] == "label" and not op["value"]:
         return "a label cannot be empty"
     elem[target] = op["value"] if op["field"] == "label" else (op["value"] or None)
+    return None
+
+
+# ─── connectors and moves across containers ────────────────────────────
+
+
+def owner_of(end: str, slots: Collection_[str]) -> str | None:
+    """The element a connector end belongs to: the end itself, or for a box drawn in
+    an element (``site:pc01:pc``, a zone's Prism Central) the element its id starts
+    with; None when neither is in the diagram."""
+    cur = end
+    while cur:
+        if cur in slots:
+            return cur
+        if ":" not in cur:
+            return None
+        cur = cur.rsplit(":", 1)[0]
+    return None
+
+
+#: Why a connector cannot join an element to one it holds (a zone and its cluster).
+NESTED = "a connector cannot join an element to one it holds"
+
+
+def nested(slots: dict[str, Slot], a: str, b: str) -> bool:
+    """Whether one end holds the other (a zone and a cluster in it): such a line would
+    have to cross its own end, so it is refused."""
+    oa, ob = owner_of(a, slots), owner_of(b, slots)
+    if oa is None or ob is None:
+        return False
+    if a in slots and b in slots:
+        return a == b or _inside(slots, a, b) or _inside(slots, b, a)
+    if a in slots:  # b is a box drawn in element ob (a zone's Prism Central)
+        return _inside(slots, ob, a)
+    if b in slots:
+        return _inside(slots, oa, b)
+    return a == b
+
+
+def _connector_ids(doc: dict[str, Any]) -> set[str]:
+    return {str(c.get("id")) for c in doc.get(CONNECTORS) or [] if isinstance(c, dict)}
+
+
+def _connect(doc: dict[str, Any], op: dict[str, Any], slots: dict[str, Slot]) -> str | None:
+    if op["id"] in slots or op["id"] in _connector_ids(doc):
+        return "an element with this id is already in the diagram"
+    for end in (op["a"], op["b"]):
+        if owner_of(end, slots) is None:
+            return "an end of the connector is not in this snapshot"
+    if nested(slots, op["a"], op["b"]):
+        return NESTED
+    links = doc.get(CONNECTORS)
+    if not isinstance(links, list):
+        links = doc[CONNECTORS] = []
+    links.append({"id": op["id"], "a": op["a"], "b": op["b"], "label": op.get("label"),
+                  "a_side": op.get("a_side", "auto"), "b_side": op.get("b_side", "auto"),
+                  "bend": 0, "arrow": "end",
+                  "data": {"origin": "user"}})
+    return None
+
+
+def _edge(doc: dict[str, Any], op: dict[str, Any], slots: dict[str, Slot]) -> str | None:
+    fld, value = op["field"], op["value"]
+    if fld in ("a", "b") and owner_of(value, slots) is None:
+        return "the new end is not in this snapshot"
+    if op["id"].startswith(USER_PREFIX):
+        conn = next((c for c in doc.get(CONNECTORS) or [] if c.get("id") == op["id"]), None)
+        if conn is None:
+            return "the connector is not in this diagram"
+        if fld == "hidden":
+            if value:
+                doc[CONNECTORS] = [c for c in doc[CONNECTORS] if c is not conn]
+                if not doc[CONNECTORS]:
+                    del doc[CONNECTORS]
+            return None
+        if fld in ("a", "b") and value == conn["b" if fld == "a" else "a"]:
+            return "a connector needs two different ends"
+        if fld in ("a", "b") and nested(slots, value, conn["b" if fld == "a" else "a"]):
+            return NESTED
+        if fld == "route":
+            conn.update(a_side="auto", b_side="auto", bend=0)
+            return None
+        conn[fld] = value
+        if fld in ("a", "b") and op.get("side"):
+            conn[f"{fld}_side"] = op["side"]
+        return None
+    for end in op["ends"]:
+        if owner_of(end, slots) is None:
+            return "an end of the connector is not in this snapshot"
+    edits = doc.get(EDGE_EDITS)
+    if not isinstance(edits, dict):
+        edits = doc[EDGE_EDITS] = {}
+    entry = dict(edits.get(op["id"]) or {})
+    entry["ends"] = list(op["ends"])
+    if fld in ("a", "b"):
+        other = entry.get("b" if fld == "a" else "a") or op["ends"][1 if fld == "a" else 0]
+        if value == other:
+            return "a connector needs two different ends"
+        if nested(slots, value, other):
+            return NESTED
+    if fld == "route":
+        for k in ("a_side", "b_side", "bend"):
+            entry.pop(k, None)
+    elif (fld == "label" and value is None) or (fld == "hidden" and not value) or \
+            (fld in ("a_side", "b_side") and value == "auto") or (fld == "bend" and not value):
+        entry.pop(fld, None)
+    else:
+        entry[fld] = value
+        if fld in ("a", "b") and op.get("side"):
+            entry[f"{fld}_side"] = op["side"]
+    if set(entry) == {"ends"}:
+        edits.pop(op["id"], None)
+    else:
+        edits[op["id"]] = entry
+    if not edits:
+        del doc[EDGE_EDITS]
+    return None
+
+
+def normalize_connectors(doc: dict[str, Any], spec: EditSpec) -> None:
+    """Drop connector edits an edit left dangling (an end removed later in the list)."""
+    if not any(k in doc for k in CONNECTOR_KEYS):
+        return
+    ids = set(walk(doc, spec))
+
+    def live(end: Any) -> bool:
+        return isinstance(end, str) and owner_of(end, ids) is not None
+
+    links = [c for c in doc.get(CONNECTORS) or []
+             if isinstance(c, dict) and live(c.get("a")) and live(c.get("b"))]
+    if links:
+        doc[CONNECTORS] = links
+    else:
+        doc.pop(CONNECTORS, None)
+    edits = {k: v for k, v in sorted((doc.get(EDGE_EDITS) or {}).items())
+             if isinstance(v, dict) and all(live(e) for e in v.get("ends", []))
+             and all(live(v[f]) for f in ("a", "b") if f in v)}
+    if edits:
+        doc[EDGE_EDITS] = edits
+    else:
+        doc.pop(EDGE_EDITS, None)
+
+
+def _is_user(ident: str, elem: dict[str, Any]) -> bool:
+    return ident.startswith(USER_PREFIX) or elem.get("kind") == "note"
+
+
+def cross_refusal(slots: dict[str, Slot], ident: str, elem: dict[str, Any],
+                  col: Collection, target: str) -> str | None:
+    """Why `ident` may not move into container `target` (None: it may)."""
+    slot = slots.get(ident)
+    tslot = slots.get(target)
+    if slot is None or tslot is None:
+        return "its new container is not in the diagram"
+    if target == ident or _inside(slots, target, ident):
+        return "an element cannot go inside itself"
+    pslot = slots.get(slot.parent or "")
+    if pslot is None or tslot.field != pslot.field:
+        return "it cannot go into that kind of container"
+    if col.cross == "none" or not col.reorder:
+        return f"{col.kind.lower()}s keep their container"
+    if _is_user(ident, elem):
+        return None
+    if col.cross == "sibling" and tslot.parent == pslot.parent:
+        return None
+    return col.cross_reason
+
+
+def _inside(slots: dict[str, Slot], ident: str, owner: str) -> bool:
+    seen: set[str] = set()
+    cur: str | None = ident
+    while cur is not None and cur not in seen:
+        if cur == owner:
+            return True
+        seen.add(cur)
+        s = slots.get(cur)
+        cur = s.parent if s is not None else None
+    return False
+
+
+def _move_across(op: dict[str, Any], slots: dict[str, Slot], slot: Slot, pos: int,
+                 elem: dict[str, Any], col: Collection) -> str | None:
+    reason = cross_refusal(slots, op["id"], elem, col, op["parent"])
+    if reason:
+        return reason.rstrip(".")[0].lower() + reason.rstrip(".")[1:]
+    found = _find(slots, op["parent"])
+    assert found is not None
+    parent = found[2]
+    items = parent.get(slot.field)
+    if items is None:
+        items = parent[slot.field] = []
+    if not isinstance(items, list):
+        return "its new container is not a list"
+    slot.items.pop(pos)
+    items.insert(min(op["index"], len(items)), elem)
     return None
 
 
@@ -471,11 +783,13 @@ def disclosure(generated: dict[str, Any], edited: dict[str, Any], spec: EditSpec
     discloses that zone's edits, and None when it has none."""
     if generated == edited:
         return None
+    links = _connector_parts(edited, spec, scope)
     if scope is None:
         gen, ed = _elements(generated, spec), _elements(edited, spec)
     else:
         gen, ed = _scoped(generated, spec, scope), _scoped(edited, spec, scope)
-        if [(i, e) for i, (e, _) in gen.items()] == [(i, e) for i, (e, _) in ed.items()]:
+        if [(i, e) for i, (e, _) in gen.items()] == [(i, e) for i, (e, _) in ed.items()] \
+                and not links:
             return None
     parts: list[str] = []
     removed: dict[str, list[str]] = {}
@@ -487,7 +801,8 @@ def disclosure(generated: dict[str, Any], edited: dict[str, Any], spec: EditSpec
         if up is not None and up not in ed:  # inside a removed container: named there
             continue
         kind = (col.kind_of(elem) if col.kind_of else col.kind).lower()
-        name = str(elem.get(col.label) if col.label else _label_of(elem))
+        name = str(elem.get(col.label) if col.label else
+                   (col.title_of(elem) if col.title_of else _label_of(elem)))
         nodes = elem.get("nodes")
         removed.setdefault(kind, []).append(
             f"{name}, {_count(nodes, 'node')}" if isinstance(nodes, int) else name)
@@ -508,6 +823,11 @@ def disclosure(generated: dict[str, Any], edited: dict[str, Any], spec: EditSpec
             roles += 1
         if col.sublabel and elem.get(col.sublabel) != before.get(col.sublabel):
             notes += 1
+    moved = _moved_across(generated, edited, spec, gen, ed)
+    if moved:
+        parts.append(", ".join(moved) if len(moved) <= 3 else
+                     f"{len(moved):,} moved to another container, including "
+                     f"{', '.join(moved[:2])}")
     if renamed:
         parts.append(", ".join(renamed) if len(renamed) <= 3 else
                      f"{len(renamed):,} renamed, including {', '.join(renamed[:2])}")
@@ -515,6 +835,7 @@ def disclosure(generated: dict[str, Any], edited: dict[str, Any], spec: EditSpec
         parts.append(f"{_count(roles, 'role')} set by the author")
     if notes:
         parts.append(f"{_count(notes, 'note')} added")
+    parts += links
     if not parts:
         parts.append("elements reordered")
     origin = f" (edits carried from {carried_from})" if carried_from else ""
@@ -522,9 +843,86 @@ def disclosure(generated: dict[str, Any], edited: dict[str, Any], spec: EditSpec
             "Counts are as collected.")
 
 
+def _moved_across(generated: dict[str, Any], edited: dict[str, Any], spec: EditSpec,
+                  gen: dict[str, Any], ed: dict[str, Any]) -> list[str]:
+    """"VDI-01 moved to POD B" for each collected element now in another container."""
+    before = walk(generated, spec)
+    after = walk(edited, spec)
+    if not any(i in before and i in after and before[i].parent != after[i].parent
+               for i in ed if i in gen):
+        return []
+    labels = {i: _label_of(e) for i, (e, _) in ed.items()}
+    titles = {o["id"]: o["label"] for o in outline(edited, edited, spec)}
+    out = []
+    for ident, (elem, col) in ed.items():
+        if ident not in gen or ident not in before or ident not in after:
+            continue
+        if before[ident].parent != after[ident].parent:
+            where = after[ident].parent or ""
+            name = elem.get(col.label) if col.label else labels.get(ident)
+            out.append(f"{name} moved to {titles.get(where) or after[ident].parent_label}")
+    return out
+
+
+def _connector_parts(edited: dict[str, Any], spec: EditSpec,
+                     scope: Collection_[str] | None) -> list[str]:
+    """The connector edits of `edited` in words. With `scope`, only those whose ends
+    are all inside it: a figure of one zone or part draws a connector only when both
+    its ends are there, so only those mark it edited (the report says separately which
+    connectors no figure part could draw)."""
+    slots = walk(edited, spec)
+
+    def inside(ident: Any) -> bool:
+        if scope is None:
+            return True
+        own = owner_of(ident, slots) if isinstance(ident, str) else None
+        return own is not None and any(_inside(slots, own, s) for s in scope)
+
+    added = [c for c in edited.get(CONNECTORS) or []
+             if inside(c.get("a")) and inside(c.get("b"))]
+    counts = {"removed": 0, "reconnected": 0, "relabeled": 0, "with the label removed": 0,
+              "rerouted": 0, "with new arrowheads": 0}
+    for entry in (edited.get(EDGE_EDITS) or {}).values():
+        ends = list(entry.get("ends", []))
+        for i, f in enumerate(("a", "b")):
+            if f in entry and i < len(ends):
+                ends[i] = entry[f]
+        if entry.get("hidden"):
+            ends = list(entry.get("ends", []))  # drawn as removed where it was
+        if not ends or not all(inside(e) for e in ends):
+            continue
+        if entry.get("hidden"):
+            counts["removed"] += 1
+            continue
+        if "a" in entry or "b" in entry:
+            counts["reconnected"] += 1
+        if "label" in entry:
+            counts["with the label removed" if not entry["label"] else "relabeled"] += 1
+        if any(k in entry for k in ("a_side", "b_side", "bend")):
+            counts["rerouted"] += 1
+        if "arrow" in entry:
+            counts["with new arrowheads"] += 1
+    parts = []
+    if added:
+        parts.append(f"{_count(len(added), 'connector')} added by the author")
+    for word, n in counts.items():
+        if n:
+            parts.append(f"{_count(n, 'connector')} {word}")
+    return parts
+
+
 def touched(op: dict[str, Any]) -> set[str]:
-    """Element ids an operation depends on."""
-    ids = {op[k] for k in ("id", "parent") if isinstance(op.get(k), str)}
+    """Element ids an operation depends on (its ends, for a connector edit; for an end
+    on a box inside an element, that element too)."""
+    ids = {op[k] for k in ("id", "parent", "a", "b") if isinstance(op.get(k), str)}
+    ids |= {e for e in op.get("ends") or [] if isinstance(e, str)}
+    if op.get("op") == "edge" and op.get("field") in ("a", "b") and \
+            isinstance(op.get("value"), str):
+        ids.add(op["value"])
+    for ident in list(ids):
+        while ":" in ident:
+            ident = ident.rsplit(":", 1)[0]
+            ids.add(ident)
     return ids
 
 
@@ -537,12 +935,37 @@ def outline(payload: dict[str, Any], generated: dict[str, Any], spec: EditSpec
     label, sublabel, role, container and position, and what may be done with it."""
     gen = _flat(generated, spec)
     out: list[dict[str, Any]] = []
-    for ident, slot in walk(payload, spec).items():
+    slots = walk(payload, spec)
+    titles: dict[str, str] = {}
+    for ident, slot in slots.items():
+        found = _find({ident: slot}, ident)
+        if found is not None:
+            col = _collection(spec, slot.field)
+            elem = found[2]
+            titles[ident] = str(elem.get(col.label) if col.label and elem.get(col.label)
+                                else (col.title_of(elem) if col.title_of
+                                      else _label_of(elem)))
+    for ident, slot in slots.items():
         found = _find({ident: slot}, ident)
         if found is None:
             continue
         _, pos, elem = found
         col = _collection(spec, slot.field)
+        targets: list[dict[str, str]] = []
+        refusal: str | None = None
+        pslot = slots.get(slot.parent or "")
+        if pslot is not None and col.reorder and col.cross != "none":
+            for other, oslot in slots.items():
+                if other == slot.parent or oslot.field != pslot.field:
+                    continue
+                why = cross_refusal(slots, ident, elem, col, other)
+                if why is None:
+                    targets.append({"id": other, "label": titles.get(other, other)})
+                elif refusal is None:
+                    refusal = why
+        elif pslot is not None:
+            refusal = cross_refusal(slots, ident, elem, col, slot.parent or "") \
+                if col.cross == "none" else None
         user = ident.startswith(USER_PREFIX)
         collected = gen.get(ident, {})
         roles = col.roles if col.has_role is None or col.has_role(elem) else ()
@@ -568,6 +991,8 @@ def outline(payload: dict[str, Any], generated: dict[str, Any], spec: EditSpec
             "can_sublabel": col.sublabel is not None,
             "can_reorder": col.reorder and len(slot.items) > 1,
             "can_delete": col.delete or user,
+            "move_targets": targets,
+            "move_refusal": refusal,
         })
     return out
 

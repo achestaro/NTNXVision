@@ -1678,6 +1678,142 @@ dl {
 .dialog.w720 {
   width: 720px;
 }
+.dialog.w1080 {
+  width: 1080px;
+}
+/* Export dialog: the form, and beside it what lands in the export folder. */
+.exp-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 24px;
+  margin-top: 20px;
+  align-items: start;
+}
+@media (max-width: 1100px) {
+  .exp-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+.exp-preview {
+  border-left: 1px solid var(--rule-2);
+  padding-left: 20px;
+  min-width: 0;
+}
+@media (max-width: 1100px) {
+  .exp-preview {
+    border-left: 0;
+    padding-left: 0;
+    border-top: 1px solid var(--rule-2);
+    padding-top: 16px;
+  }
+}
+.exp-preview h3 {
+  margin: 4px 0 4px;
+  font-size: 16px;
+  line-height: 22px;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.exp-tree {
+  margin-top: 12px;
+  border: 1px solid var(--rule-2);
+  border-radius: 3px;
+  font-size: 12px;
+  line-height: 16px;
+}
+.exp-tree-head,
+.exp-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 96px 112px;
+  gap: 8px;
+  align-items: center;
+  padding: 6px 10px;
+}
+.exp-tree-head {
+  color: var(--ink-3);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  border-bottom: 1px solid var(--rule-2);
+}
+.exp-row + .exp-row {
+  border-top: 1px solid var(--rule-2);
+}
+.exp-row.hl {
+  background: color-mix(in srgb, var(--accent) 8%, var(--surface));
+}
+.exp-name {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  font-family: var(--font-mono);
+}
+.exp-name > span.t,
+.exp-toggle > span.t {
+  min-width: 64px;
+  flex: 0 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.exp-name .badge {
+  flex: none;
+}
+.exp-size {
+  white-space: nowrap;
+  text-align: right;
+  font-family: var(--font-mono);
+  color: var(--ink-2);
+}
+.exp-kind {
+  color: var(--ink-2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* The export dialog keeps its buttons in view on short windows. */
+.dialog.w1080 .dialog-foot {
+  position: sticky;
+  bottom: -24px;
+  margin: 0 -24px -24px;
+  padding: 12px 24px;
+  background: var(--surface-raised);
+  border-top: 1px solid var(--rule-2);
+  z-index: 1;
+}
+.exp-toggle {
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  padding: 0;
+  color: inherit;
+  font: inherit;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+}
+.exp-cards {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-top: 12px;
+}
+.exp-card {
+  border: 1px solid var(--rule-2);
+  border-radius: 3px;
+  padding: 10px;
+  font-size: 12px;
+  line-height: 17px;
+  color: var(--ink-2);
+}
+.exp-card strong {
+  display: block;
+  color: var(--ink);
+  font-size: 13px;
+  margin-bottom: 2px;
+}
 .dialog-close {
   position: absolute;
   right: 12px;
@@ -2375,6 +2511,8 @@ h1 .imported-badge {
 }
 .dg-sheet svg {
   display: block;
+  /* Selection outlines and handles at the canvas edge stay whole. */
+  overflow: visible;
   user-select: none;
   touch-action: none;
 }
@@ -2430,7 +2568,162 @@ h1 .imported-badge {
   border-top: 1px solid var(--rule-2);
 }
 .dg-caption {
+  padding: 0 12px 8px;
+}
+.dg-dl {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
   margin-left: auto;
+  font-size: 13px;
+}
+.dg-dl .textlink:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.dg-tool.on {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 10%, var(--surface));
+}
+.dg-mode {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--rule-2);
+  background: color-mix(in srgb, var(--accent) 8%, var(--surface));
+  color: var(--ink);
+  font-size: 12px;
+  line-height: 17px;
+  flex-shrink: 0;
+}
+.dg-sheet.connecting svg {
+  cursor: crosshair;
+}
+.dg-handle {
+  fill: #ffffff;
+  stroke: var(--accent);
+  stroke-width: 1.2;
+  cursor: grab;
+}
+.dg-handle.port {
+  cursor: crosshair;
+}
+.dg-handle.lane {
+  fill: var(--accent);
+}
+.dg-handle:hover {
+  fill: var(--accent);
+}
+.dg-ghost {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 1.2;
+  stroke-dasharray: 3 2;
+}
+.dg-target {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 1.5;
+  stroke-dasharray: 3 2;
+}
+.dg-into {
+  fill: color-mix(in srgb, var(--accent) 6%, transparent);
+  stroke: var(--accent);
+  stroke-width: 1.4;
+}
+.dg-refuse {
+  fill: color-mix(in srgb, var(--warn) 8%, transparent);
+  stroke: var(--warn);
+  stroke-width: 1.4;
+  stroke-dasharray: 3 2;
+}
+.dg-tip.warn {
+  /* Amber-800 with white: about 7:1 in light and dark themes alike. */
+  background: #7a4a00;
+  color: #ffffff;
+  white-space: normal;
+  max-width: 320px;
+}
+.dg-ins-issue {
+  margin: 0;
+  padding: 8px 10px;
+  border-left: 3px solid var(--warn);
+  background: var(--warn-tint);
+  color: var(--ink);
+  font-size: 12px;
+  line-height: 17px;
+}
+.dg-conn:focus {
+  outline: none;
+}
+.dg-conn:focus polyline:first-of-type {
+  /* The wide hit line doubles as the focus ring. */
+  stroke: color-mix(in srgb, var(--accent) 40%, transparent);
+}
+.dg-el:focus > rect:first-of-type {
+  stroke: var(--accent);
+  stroke-width: 1.4;
+}
+.dg-inspector {
+  container-type: inline-size;
+}
+.dg-sides {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 8px;
+}
+/* A narrow inspector stacks the two side selects, so "Bottom" is never cut short. */
+@container (max-width: 360px) {
+  .dg-sides {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+.dg-ghost.kept {
+  stroke-dasharray: none;
+  stroke-width: 1.4;
+}
+.dg-conns {
+  margin-top: 12px;
+}
+.dg-conns ul {
+  list-style: none;
+  margin: 6px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 12px;
+  line-height: 17px;
+}
+.dg-conns li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+}
+/* Full-window editor (⇧⌘F): the canvas and the inspector fill the window. */
+.dg-layout.dg-expanded {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  padding: 12px;
+  background: var(--body);
+  flex-wrap: nowrap;
+}
+.dg-layout.dg-expanded .dg-list {
+  display: none;
+}
+.dg-layout.dg-expanded .dg-canvas {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+.dg-layout.dg-expanded .dg-desk {
+  min-height: 0;
+}
+.dg-layout.dg-expanded .dg-inspector {
+  overflow-y: auto;
 }
 .dg-inspector {
   flex: 0 0 272px;
@@ -2440,6 +2733,9 @@ h1 .imported-badge {
 .dg-ins-empty {
   margin: 0;
   padding: 16px 12px;
+}
+.dg-ins-empty > p {
+  margin: 0;
 }
 .dg-ins {
   padding: 12px;

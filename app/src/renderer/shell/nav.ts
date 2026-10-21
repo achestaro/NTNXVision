@@ -41,8 +41,8 @@ export const NAV_GROUPS: { label: string; items: NavItem[] }[] = [
     items: [
       { screen: 'inventory', label: 'Inventory', icon: TableIcon, key: 'i' },
       { screen: 'snapshots', label: 'Snapshots', icon: ArchiveIcon, key: 's' },
-      { screen: 'compare', label: 'Compare', icon: ArrowsDownUpIcon, key: 'c' },
       { screen: 'diagrams', label: 'Diagrams', icon: TreeStructureIcon, key: 'd' },
+      { screen: 'compare', label: 'Compare', icon: ArrowsDownUpIcon, key: 'c' },
     ],
   },
 ];

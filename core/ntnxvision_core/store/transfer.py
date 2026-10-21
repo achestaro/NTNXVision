@@ -52,7 +52,7 @@ import zipfile
 import zlib
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -147,13 +147,13 @@ def utc_iso(value: Any) -> str | None:
     except ValueError:
         return str(value)
     if dt.tzinfo is None:
-        dt = dt.replace(tzinfo=timezone.utc)
+        dt = dt.replace(tzinfo=UTC)
     # Full precision: truncating would reorder snapshots collected within one second.
-    return dt.astimezone(timezone.utc).isoformat()
+    return dt.astimezone(UTC).isoformat()
 
 
 def now_utc() -> str:
-    return datetime.now(timezone.utc).isoformat(timespec="seconds")
+    return datetime.now(UTC).isoformat(timespec="seconds")
 
 
 def clean_note(note: Any) -> str | None:
@@ -356,7 +356,7 @@ def export_file(items: list[ExportItem], dest: str | Path, *, password: str | No
     if not dest.parent.is_dir():
         raise TransferError(f"The folder {dest.parent.name or dest.parent} does not exist.")
     exported_at = now_utc()
-    when = datetime.now(timezone.utc)
+    when = datetime.now(UTC)
     encryption, key = (_new_encryption(password) if password else (None, None))
     app_version = str(app_version or __version__)
 

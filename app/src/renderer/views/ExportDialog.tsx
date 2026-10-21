@@ -2,7 +2,7 @@
 
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import { CaretDownIcon, CaretRightIcon } from '@phosphor-icons/react';
-import type { ExportFormat, ExportResult, ReportSectionId, SnapshotDetail } from '@shared/ipc';
+import type { DiagramsPackage, ExportFormat, ExportPreview, ExportRequest, ExportResult, ReportSectionId, SnapshotDetail } from '@shared/ipc';
 import { MOVABLE_SECTION_IDS, REPORT_SECTION_IDS, normalizeSectionOrder } from '@shared/reportSections';
 import {
   Badge,
@@ -16,6 +16,7 @@ import {
   FormatCard,
   Icon,
   Loading,
+  Segmented,
   SelectAllLink,
   Switch,
   useToast,
@@ -26,6 +27,8 @@ import { REPORT_EXT, diagramsFileName, errorMessage, fmtAbs, fmtBytes, fmtCount,
 import { revealLabel, useSettings } from '../lib/settings';
 import { useRun } from '../lib/run';
 import { useEmailDialog } from './EmailDialog';
+import { ExportPreviewPanel } from './ExportPreview';
+import { useRouter } from '../lib/router';
 
 interface OpenOptions {
   formats?: ExportFormat[];
@@ -125,6 +128,9 @@ function ExportDialog({
   // only offered with a PDF or Word report, whose figures it carries. The last choice
   // is remembered (settings.exportDiagrams).
   const [diagrams, setDiagrams] = useState(settings.exportDiagrams ?? true);
+  // Zip (default) or a folder of the same files.
+  const [pkg, setPkg] = useState<DiagramsPackage>('zip');
+  const { navigate } = useRouter();
   // Sections and order: collapsed by default, applies to this export only. The order
   // starts from Settings > Reports when its custom order is on.
   const [sectionsOpen, setSectionsOpen] = useState(false);
@@ -197,6 +203,49 @@ function ExportDialog({
     if (d) setDir(d);
   };
 
+  /** The export request for one snapshot (the export and its preview alike). */
+  const requestFor = (p: string): ExportRequest => ({
+    snapshotPath: p,
+    formats: chosen,
+    exportDir: dir || undefined,
+    filePrefix: prefix,
+    // Sent only when something is unticked. With every section that has data picked,
+    // omitting it gives the default report exactly, and a section that later gains
+    // data (a re-export of another snapshot, a newer catalogue) is never silently
+    // dropped by a list that predates it. Sections with no data are not in `picked`.
+    chapters: allPicked ? undefined : picked,
+    // Off here while the Settings order is on: null asks for the default order.
+    sectionOrder: customOrder ? order : settings.customSectionOrder === true ? null : undefined,
+    word: fmt.word ? { template: template === 'custom' && templatePath ? templatePath : 'standard', preparedFor, author } : undefined,
+    diagrams: withDiagrams,
+    diagramsPackage: pkg,
+  });
+
+  // What lands in the export folder: re-asked (debounced) whenever an option changes.
+  const [preview, setPreview] = useState<ExportPreview | null>(null);
+  const [previewBusy, setPreviewBusy] = useState(false);
+  const [previewErr, setPreviewErr] = useState<string | null>(null);
+  const previewKey = JSON.stringify([snapshotPath, chosen, dir, prefix, allPicked ? null : picked, customOrder ? order : null, withDiagrams, pkg]);
+  useEffect(() => {
+    if (!picked.length) return undefined;
+    let live = true;
+    setPreviewBusy(true);
+    const t = setTimeout(() => {
+      window.ntnx
+        .previewExport(requestFor(snapshotPath))
+        .then(
+          (r) => live && (setPreview(r), setPreviewErr(null)),
+          (e) => live && setPreviewErr(errorMessage(e)),
+        )
+        .finally(() => live && setPreviewBusy(false));
+    }, 300);
+    return () => {
+      live = false;
+      clearTimeout(t);
+    };
+  }, [previewKey]);
+  const stale = withDiagrams ? preview?.diagrams?.stale ?? [] : [];
+
   const doExport = async () => {
     if (!n || busy || !picked.length) return;
     setBusy(true);
@@ -204,23 +253,7 @@ function ExportDialog({
     try {
       const merged: ExportResult = { paths: {}, errors: {}, path: null };
       for (const p of snapshotPaths) {
-        const one = await window.ntnx.exportSnapshot({
-          snapshotPath: p,
-          formats: chosen,
-          exportDir: dir || undefined,
-          filePrefix: prefix,
-          // Sent only when something is unticked. With every section that has data picked,
-          // omitting it gives the default report exactly, and a section that later gains
-          // data (a re-export of another snapshot, a newer catalogue) is never silently
-          // dropped by a list that predates it. Sections with no data are not in `picked`.
-          chapters: allPicked ? undefined : picked,
-          // Off here while the Settings order is on: null asks for the default order.
-          sectionOrder: customOrder ? order : settings.customSectionOrder === true ? null : undefined,
-          word: fmt.word
-            ? { template: template === 'custom' && templatePath ? templatePath : 'standard', preparedFor, author }
-            : undefined,
-          diagrams: withDiagrams,
-        });
+        const one = await window.ntnx.exportSnapshot(requestFor(p));
         const tag = many ? `${snapName(p)} ` : '';
         for (const [f, v] of Object.entries(one.paths ?? {})) merged.paths[`${tag}${f}`] = v;
         if (one.diagrams) merged.paths[`${tag}diagrams`] = one.diagrams.path;
@@ -259,14 +292,14 @@ function ExportDialog({
   const desc = (f: (typeof FORMATS)[number]) => {
     const e = est[f.id];
     if (!e) return f.desc;
-    return [e.detail, e.bytes ? `≈ ${fmtBytes(e.bytes)}` : null].filter(Boolean).join(' · ') || f.desc;
+    return [e.detail?.replace(/^≈ /, 'about '), e.bytes ? `about ${fmtBytes(e.bytes)}` : null].filter(Boolean).join(' · ') || f.desc;
   };
 
   return (
     <Dialog
       open
       onClose={onClose}
-      width={720}
+      width={1080}
       title={`Export ${name}`}
       subtitle={
         many
@@ -304,7 +337,8 @@ function ExportDialog({
         </div>
       }
     >
-      <div style={{ marginTop: 20, display: 'flex', flexDirection: 'column', gap: 20 }}>
+      <div className="exp-grid">
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 20, minWidth: 0 }}>
         {loadErr && (
           <Callout tone="warn" title="Couldn’t read the snapshot details.">
             You can still export. <span className="mono t12">{loadErr}</span>
@@ -324,18 +358,54 @@ function ExportDialog({
             ))}
             <FormatCard
               title="Editable diagrams"
-              description={docs ? 'Visio, draw.io and SVG of every architecture figure' : 'Needs the PDF or Word report'}
+              description={docs ? 'Visio, draw.io, SVG and PNG for every figure' : 'Needs the PDF or Word report'}
               checked={withDiagrams}
               disabled={!docs}
               onChange={setDiagrams}
             />
           </div>
-          {withDiagrams && (
-            <p className="hint" style={{ margin: '6px 0 0' }}>
-              One .zip next to the report: a .vsdx with a page per figure, a .drawio with a tab per figure and an .svg of each. It follows the chosen sections.
-            </p>
-          )}
         </fieldset>
+
+        {withDiagrams && (
+          <div className="cols-2" style={{ padding: 12, border: '1px solid var(--rule-2)', borderRadius: 3 }} data-testid="export-diagrams">
+            <div className="eyebrow span-all">Editable diagrams</div>
+            <div className="span-all" style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+              <span className="lbl" id="exp-pkg" style={{ margin: 0 }}>
+                Package
+              </span>
+              <Segmented<DiagramsPackage>
+                aria-labelledby="exp-pkg"
+                options={[
+                  { value: 'zip', label: 'Zip' },
+                  { value: 'folder', label: 'Folder' },
+                ]}
+                value={pkg}
+                onChange={setPkg}
+              />
+              <span className="hint" style={{ flex: '1 1 260px' }}>
+                {pkg === 'zip'
+                  ? 'One .zip next to the report: a .vsdx with a page per figure, a .drawio with a tab per figure, and an .svg and a .png of each.'
+                  : 'A folder next to the report with the same files: the .vsdx, the .drawio, svg/ and png/.'}{' '}
+                It follows the chosen sections.
+              </span>
+            </div>
+            {stale.length > 0 && (
+              <Callout tone="warn" className="span-all" title={`${stale.length === 1 ? '1 edited diagram is' : `${fmtCount(stale.length)} edited diagrams are`} stale.`}>
+                {stale.map((d) => d.title).join(', ')} {stale.length === 1 ? 'was' : 'were'} edited before this snapshot’s data changed. The export uses your saved edit.{' '}
+                <button
+                  type="button"
+                  className="textlink"
+                  onClick={() => {
+                    onClose();
+                    navigate({ screen: 'diagrams', snapshot: snapshotPath, type: stale[0].type });
+                  }}
+                >
+                  Review in Diagrams
+                </button>
+              </Callout>
+            )}
+          </div>
+        )}
 
         {fmt.word && (
           <div className="cols-2" style={{ padding: 12, border: '1px solid var(--rule-2)', borderRadius: 3 }}>
@@ -425,7 +495,14 @@ function ExportDialog({
           )}
         </div>
 
-        <FilePrefixField id="exp-prefix" value={prefix} onChange={setPrefix} names={previewNames} more={previewMore} />
+        <FilePrefixField
+          id="exp-prefix"
+          value={prefix}
+          onChange={setPrefix}
+          // The sidecar's names when known (they carry the -2 a taken name gets), else the local guess.
+          names={preview && !many ? [...preview.files.map((f) => f.name), ...(preview.diagrams ? [preview.diagrams.name] : [])] : previewNames}
+          more={previewMore}
+        />
 
         <div>
           <label className="lbl" htmlFor="exp-dest">
@@ -445,6 +522,8 @@ function ExportDialog({
             <span className="mono t12">{error}</span>
           </Callout>
         )}
+      </div>
+      <ExportPreviewPanel preview={picked.length ? preview : null} loading={previewBusy} error={previewErr} />
       </div>
     </Dialog>
   );

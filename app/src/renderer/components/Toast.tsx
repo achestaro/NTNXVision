@@ -17,6 +17,8 @@ export interface ToastInput {
   /** Tooltip on the toast body, e.g. the full technical message behind a short hint. */
   tooltip?: string;
   action?: { label: string; onClick(): void };
+  /** A toast with the same key replaces the one showing (repeated actions stack no toasts). */
+  key?: string;
 }
 
 interface ToastItem extends ToastInput {
@@ -52,7 +54,17 @@ export function ToastProvider({ children }: { children: React.ReactNode }): JSX.
   const show = useCallback(
     (t: ToastInput) => {
       const id = nextId.current++;
-      setItems((xs) => [...xs.slice(-3), { ...t, id }]);
+      setItems((xs) => {
+        const kept = t.key ? xs.filter((x) => x.key !== t.key) : xs;
+        for (const x of xs) {
+          if (!kept.includes(x)) {
+            const h = timers.current.get(x.id);
+            if (h) window.clearTimeout(h);
+            timers.current.delete(x.id);
+          }
+        }
+        return [...kept.slice(-3), { ...t, id }];
+      });
       arm(id, t.tone);
     },
     [arm],

@@ -19,6 +19,7 @@ The renderer mirrors `sanitize_prefix` for its live preview (``app/src/renderer/
 
 from __future__ import annotations
 
+import contextlib
 from datetime import date
 from pathlib import Path
 
@@ -102,19 +103,49 @@ DIAGRAMS_SUFFIX = "_diagrams"
 
 def diagrams_stem(directory: str | Path, snapshot_name: str, prefix: str | None = None,
                   on: date | None = None) -> str:
-    """The report stem for a diagrams bundle: ``<stem>_diagrams.zip`` does not exist yet
-    (``-2``, ``-3``, ... is added to the stem, as for the other reports)."""
+    """The report stem for a diagrams bundle: neither ``<stem>_diagrams.zip`` nor a
+    ``<stem>_diagrams`` folder exists yet (``-2``, ``-3``, ... is added to the stem, as
+    for the other reports)."""
     folder = Path(directory)
     room = _max_stem_for(folder, "zip") - len(DIAGRAMS_SUFFIX)
     stem = report_stem(snapshot_name, prefix, on, max_len=max(_MIN_STEM, room))
-    suffix = f"{DIAGRAMS_SUFFIX}.zip".casefold()
-    try:
-        taken = [p.name[: -len(suffix)] for p in folder.iterdir()
-                 if p.name.casefold().endswith(suffix)]
-    except OSError:
-        taken = []
+    taken: list[str] = []
+    for suffix in (f"{DIAGRAMS_SUFFIX}.zip".casefold(), DIAGRAMS_SUFFIX.casefold()):
+        with contextlib.suppress(OSError):
+            taken += [p.name[: -len(suffix)] for p in folder.iterdir()
+                      if p.name.casefold().endswith(suffix)]
     return unique_name(stem, taken, max_len=_MAX_STEM + _SUFFIX_ROOM)
 
 
-__all__ = ["DIAGRAMS_SUFFIX", "PREFIX_MAX", "diagrams_stem", "export_date", "report_path",
-           "report_stem", "sanitize_prefix", "unique_report_path"]
+def export_stem(directory: str | Path, snapshot_name: str, exts: list[str],
+                prefix: str | None = None, diagrams: bool = False,
+                on: date | None = None) -> str:
+    """One stem for every file of one export: ``<stem>.<ext>`` for each of `exts` (and,
+    with `diagrams`, ``<stem>_diagrams.zip`` and a ``<stem>_diagrams`` folder) are all
+    free in `directory`, so a report and its bundle always share a name (``-2``, ``-3``,
+    ... is added once, for all of them)."""
+    folder = Path(directory)
+    longest = max([len(e) for e in exts] + [3])
+    room = _max_stem_for(folder, "x" * longest) - (len(DIAGRAMS_SUFFIX) + 4 if diagrams else 0)
+    base = report_stem(snapshot_name, prefix, on, max_len=max(_MIN_STEM, room))
+    try:
+        taken = {p.name.casefold() for p in folder.iterdir()}
+    except OSError:
+        taken = set()
+
+    def free(stem: str) -> bool:
+        names = [f"{stem}.{e.lstrip('.')}" for e in exts]
+        if diagrams:
+            names += [f"{stem}{DIAGRAMS_SUFFIX}.zip", f"{stem}{DIAGRAMS_SUFFIX}"]
+        return not any(n.casefold() in taken for n in names)
+
+    if free(base):
+        return base
+    n = 2
+    while not free(f"{base}-{n}"):
+        n += 1
+    return f"{base}-{n}"
+
+
+__all__ = ["DIAGRAMS_SUFFIX", "PREFIX_MAX", "diagrams_stem", "export_date", "export_stem",
+           "report_path", "report_stem", "sanitize_prefix", "unique_report_path"]
