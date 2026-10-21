@@ -185,7 +185,7 @@ jobs:
           EOF
           export NTNXVISION_DATA_DIR="$RUNNER_TEMP/warmup-data"
           echo '{"jsonrpc":"2.0","id":1,"method":"ping","params":{}}' \
-            | .venv/bin/python -m ntnxvision_core sidecar | tee "$RUNNER_TEMP/ping.json"
+            | .venv/bin/python -c "import faulthandler, runpy, sys; faulthandler.dump_traceback_later(5, repeat=True); sys.argv = ['ntnxvision_core', 'sidecar']; runpy.run_module('ntnxvision_core', run_name='__main__')" | tee "$RUNNER_TEMP/ping.json"
           grep -q '"pong": true' "$RUNNER_TEMP/ping.json"
       - name: e2e
         working-directory: app
