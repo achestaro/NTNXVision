@@ -162,30 +162,16 @@ jobs:
           python -m venv .venv
           .venv/bin/python -m pip install --require-hashes -r requirements-build.lock
           .venv/bin/python -m pip install --no-deps -e .
-      # macOS scans each freshly installed native library the first time a process loads it
-      # (here 287 of them, about 15 s locally and longer on a runner; a second load takes
-      # under a second). Pay that once here, not inside the sidecar's first answer to the
-      # app, then check the dev sidecar answers a ping the way the app starts it.
-      - name: Warm up and ping the core
+      # The dev sidecar must answer a ping the way the app starts it (demo mode), before
+      # the e2e run depends on it.
+      - name: Ping the core sidecar
         working-directory: core
         env:
           NTNXVISION_DEMO: "1"
         run: |
-          .venv/bin/python - <<'EOF'
-          import ctypes, pathlib, sys
-          libs = [p for p in pathlib.Path(sys.prefix).rglob("*") if p.suffix in (".so", ".dylib")]
-          loaded = 0
-          for lib in libs:
-              try:
-                  ctypes.CDLL(str(lib))
-                  loaded += 1
-              except OSError:
-                  pass
-          print(f"loaded {loaded} of {len(libs)} native libraries")
-          EOF
-          export NTNXVISION_DATA_DIR="$RUNNER_TEMP/warmup-data"
+          export NTNXVISION_DATA_DIR="$RUNNER_TEMP/ping-data"
           echo '{"jsonrpc":"2.0","id":1,"method":"ping","params":{}}' \
-            | .venv/bin/python -c "import faulthandler, runpy, sys; faulthandler.dump_traceback_later(5, repeat=True); sys.argv = ['ntnxvision_core', 'sidecar']; runpy.run_module('ntnxvision_core', run_name='__main__')" | tee "$RUNNER_TEMP/ping.json"
+            | .venv/bin/python -m ntnxvision_core sidecar | tee "$RUNNER_TEMP/ping.json"
           grep -q '"pong": true' "$RUNNER_TEMP/ping.json"
       - name: e2e
         working-directory: app

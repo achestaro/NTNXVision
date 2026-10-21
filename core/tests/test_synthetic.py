@@ -238,3 +238,25 @@ def test_generated_demo_certificates(tmp_path: Any, monkeypatch: pytest.MonkeyPa
     assert ("DNS", "localhost") in decoded["subjectAltName"]
     assert ("IP Address", "127.0.0.1") in decoded["subjectAltName"]
     assert certgen.ensure() == directory  # cached, not regenerated
+
+
+def test_mock_server_starts_without_a_reverse_dns_lookup(monkeypatch: pytest.MonkeyPatch) -> None:
+    """HTTPServer's own bind resolves socket.getfqdn(), which can block for ~30 s (macOS CI
+    runners); the mock binds 127.0.0.1 without it."""
+    import socket
+    import urllib.request
+
+    from ntnxvision_core.synthetic.server import MockNutanixServer
+
+    def no_lookup(*_args: Any) -> str:
+        raise AssertionError("socket.getfqdn called while starting the mock server")
+
+    monkeypatch.setattr(socket, "getfqdn", no_lookup)
+    with MockNutanixServer(MockApi(make_resolver(demo_targets())), tls="") as server:
+        assert server.port > 0
+        assert server._httpd is not None and server._httpd.server_name == "127.0.0.1"
+        try:  # any HTTP answer proves it serves
+            status = urllib.request.urlopen(f"http://127.0.0.1:{server.port}/", timeout=5).status
+        except urllib.error.HTTPError as exc:
+            status = exc.code
+        assert 100 <= status < 600
