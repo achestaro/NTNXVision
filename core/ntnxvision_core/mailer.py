@@ -24,6 +24,7 @@ import smtplib
 import socket
 import ssl
 import tempfile
+import threading
 import zipfile
 from collections.abc import Iterable, Iterator
 from contextlib import contextmanager, suppress
@@ -44,6 +45,9 @@ DEFAULT_TIMEOUT = 20.0
 #: Waiting for the server's greeting: a STARTTLS / None client on an implicit-TLS port (465)
 #: hears nothing, so it gives up sooner than the general timeout, with a Security/port hint.
 GREETING_TIMEOUT = 8.0
+#: How long the EHLO name lookup (socket.getfqdn) may take before the client names itself
+#: by its address instead.
+EHLO_NAME_TIMEOUT = 2.0
 DEFAULT_MAX_MB = 20.0
 #: The highest attachment limit the settings accept (shared with app/src/shared/ipc.ts).
 MAX_ATTACHMENT_MB = 100
@@ -406,16 +410,57 @@ def _check_pin(cfg: SmtpConfig, server: smtplib.SMTP) -> None:
             detail=f"{cfg.host}:{cfg.port}", certificate=describe_der(der))
 
 
+_ehlo_lock = threading.Lock()
+_ehlo_lookup: tuple[threading.Event, list[str]] | None = None
+
+
+def _ehlo_fqdn() -> str | None:
+    """socket.getfqdn(), the name smtplib says EHLO with, if it answers within
+    EHLO_NAME_TIMEOUT. On some Macs that reverse lookup blocks for 30 to 70 s, and smtplib
+    makes it before connecting, so every test or send stalled; looked up once, in the
+    background, and only names that are fully qualified count (as in smtplib)."""
+    global _ehlo_lookup
+    with _ehlo_lock:
+        if _ehlo_lookup is None:
+            done, result = threading.Event(), []
+
+            def lookup() -> None:
+                with suppress(OSError):
+                    result.append(socket.getfqdn())
+                done.set()
+
+            threading.Thread(target=lookup, name="ehlo-fqdn", daemon=True).start()
+            _ehlo_lookup = (done, result)
+        done, result = _ehlo_lookup
+    done.wait(EHLO_NAME_TIMEOUT)
+    name = result[0] if result else ""
+    return name if "." in name else None
+
+
+def _address_literal(sock: socket.socket | None) -> str:
+    """The RFC 5321 address literal of the local end of the connection."""
+    host = str(sock.getsockname()[0]) if sock is not None else "127.0.0.1"
+    return f"[IPv6:{host}]" if ":" in host else f"[{host}]"
+
+
+def _set_ehlo_name(server: smtplib.SMTP, fqdn: str | None) -> None:
+    server.local_hostname = fqdn or _address_literal(server.sock)
+
+
 def _open(cfg: SmtpConfig) -> smtplib.SMTP:
     """Connect and finish the TLS handshake (no pin check, no sign-in)."""
     _guard_cleartext_auth(cfg)
     ctx = _context(cfg)
     server: smtplib.SMTP
+    fqdn = _ehlo_fqdn()
     if cfg.security == "ssl":
-        server = smtplib.SMTP_SSL(cfg.host, cfg.port, timeout=cfg.timeout, context=ctx)
+        # local_hostname given: smtplib would otherwise call socket.getfqdn() itself.
+        server = smtplib.SMTP_SSL(cfg.host, cfg.port, timeout=cfg.timeout, context=ctx,
+                                  local_hostname=fqdn or "localhost")
     else:
-        server = _greet(cfg)
+        server = _greet(cfg, fqdn)
     try:
+        _set_ehlo_name(server, fqdn)
         server.ehlo()
         if cfg.security == "starttls":
             if not server.has_extn("starttls"):
@@ -429,14 +474,15 @@ def _open(cfg: SmtpConfig) -> smtplib.SMTP:
     return server
 
 
-def _greet(cfg: SmtpConfig) -> smtplib.SMTP:
+def _greet(cfg: SmtpConfig, fqdn: str | None = None) -> smtplib.SMTP:
     """Connect a plain / STARTTLS client and read the greeting within GREETING_TIMEOUT.
 
     A client on an implicit-TLS port (465) gets no greeting (the server waits for a TLS
     hello), so that case fails quickly and says to check the Security setting."""
     where = f"{cfg.host}:{cfg.port}"
     greet = min(cfg.timeout, GREETING_TIMEOUT)
-    server = smtplib.SMTP(timeout=greet)
+    # local_hostname given: smtplib would otherwise call socket.getfqdn() itself.
+    server = smtplib.SMTP(timeout=greet, local_hostname=fqdn or "localhost")
     try:
         server.connect(cfg.host, cfg.port)
     except smtplib.SMTPServerDisconnected as exc:

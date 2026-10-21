@@ -494,3 +494,57 @@ def test_send_notice_has_no_attachments(sink: SmtpSink) -> None:
     assert msg["Subject"] == "Schedule failed: weekly"
     assert not list(msg.iter_attachments())
     assert mailer.send_notice(cfg(sink.port), [], [], "s", "b")["status"] == "invalid"
+
+
+# ─── EHLO name (no stall on a slow reverse lookup) ─────────────────────
+
+@pytest.fixture
+def ehlo_names(monkeypatch: pytest.MonkeyPatch) -> list[str]:
+    """The name each EHLO carried; the mailer's one-time FQDN lookup starts afresh."""
+    import smtplib
+
+    names: list[str] = []
+    real = smtplib.SMTP.ehlo
+
+    def ehlo(self: smtplib.SMTP, name: str = "") -> Any:
+        names.append(name or self.local_hostname)
+        return real(self, name)
+
+    monkeypatch.setattr(smtplib.SMTP, "ehlo", ehlo)
+    monkeypatch.setattr(mailer, "_ehlo_lookup", None)
+    return names
+
+
+def test_slow_fqdn_lookup_does_not_stall_a_send(monkeypatch: pytest.MonkeyPatch,
+                                               ehlo_names: list[str]) -> None:
+    """socket.getfqdn() blocked for 30 to 70 s on macOS CI runners, and smtplib calls it
+    before connecting: the mailer waits EHLO_NAME_TIMEOUT at most, then names itself by
+    its address."""
+    import time
+
+    release = threading.Event()
+    monkeypatch.setattr(socket, "getfqdn", lambda *_a: release.wait(30) and "late.example.lab")
+    monkeypatch.setattr(mailer, "EHLO_NAME_TIMEOUT", 0.2)
+    try:
+        t0 = time.monotonic()
+        with SmtpSink() as s:
+            assert mailer.send_test(cfg(s.port), "user@example.com")["ok"]
+        with SmtpSink(tls="ssl") as s:
+            r = mailer.send_test(cfg(s.port, security="ssl", cafile=str(demo_ca_file())),
+                                 "user@example.com")
+            assert r["ok"], r
+        assert time.monotonic() - t0 < 10
+        assert ehlo_names and set(ehlo_names) == {"[127.0.0.1]"}
+    finally:
+        release.set()
+
+
+@pytest.mark.parametrize(("fqdn", "expected"), [("mailer.example.lab", "mailer.example.lab"),
+                                                ("mailer", "[127.0.0.1]")])
+def test_ehlo_name_is_the_fqdn_when_it_answers(monkeypatch: pytest.MonkeyPatch,
+                                               ehlo_names: list[str], sink: SmtpSink,
+                                               fqdn: str, expected: str) -> None:
+    """As smtplib: a fully qualified name when the lookup answers, else the address."""
+    monkeypatch.setattr(socket, "getfqdn", lambda *_a: fqdn)
+    assert mailer.send_test(cfg(sink.port), "user@example.com")["ok"]
+    assert ehlo_names and set(ehlo_names) == {expected}

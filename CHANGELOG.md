@@ -15,8 +15,10 @@ and adds a section here (CI checks both).
 - Local build scripts run the core tests in parallel.
 
 ### Fixed
-- Demo mode no longer stalls for about 30 seconds at start on Macs where a reverse DNS
-  lookup of 127.0.0.1 is slow: the local mock server skips that lookup.
+- On Macs where reverse DNS lookups are slow (30 to 70 seconds), demo mode no longer stalls
+  at start (the local mock server skips that lookup), and testing or sending email no longer
+  waits for it: the app gives its fully qualified name at most 2 seconds, then greets the
+  mail server with its address instead.
 
 ## 0.13.0 (2026-10-20)
 
