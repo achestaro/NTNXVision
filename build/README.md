@@ -156,19 +156,40 @@ Getting the Apple credentials (Apple Developer Program, $99/yr):
 Until then, an unsigned, browser-downloaded DMG shows **"NTNXVision.app is damaged"**. Run
 `xattr -cr /Applications/NTNXVision.app` to clear the quarantine flag.
 
-## CI: `.github/workflows/release.yml`
+## CI layout: `.github/workflows/release.yml`
 
-Triggers: tags `v*`, `workflow_dispatch`, and pushes to `feature/packaging-msi`.
+Triggers: pull requests into `main`, tags `v*`, and `workflow_dispatch`. Every job starts at
+once; packaging does not wait for the tests. Nothing is published unless every check passed:
+the tag-only `release` job needs all of them, and pull requests require them before a merge.
 
-1. `checks` (ubuntu): `pytest` + `npm run lint`.
-2. `build` matrix: `windows-latest` (MSI x64 + arm64), `macos-latest` (arm64),
-   `macos-15-intel` (x64). Each job runs the platform build script, which includes the
-   sidecar smoke test and the packaged-app `--smoke` launch. It then pings the sidecar
-   *inside* the packaged app and uploads the artifacts `NTNXVision-windows-msi`,
-   `NTNXVision-macos-arm64` and `NTNXVision-macos-x64`.
-3. On a `v*` tag, all installers are attached to a **draft** GitHub Release. If an artifact
-   upload fails (this repo has hit a stuck storage-quota error), the files go to a draft
-   `ci-build-<n>` prerelease instead.
+```
+t=0 ─┬─ core-tests ×4     "Core tests (shard I/4)"      ubuntu, pytest -n auto --shard I/4 ─┐
+     ├─ app-checks        "App lint, tests and audits"  eslint, npm test, version bump,     ├─ checks "Core tests + app lint"
+     │                                                  npm audit ×2, notices (non-blocking)│   (aggregate, fails unless all passed)
+     ├─ app-e2e           "App e2e (demo mode)"         macOS, npm run e2e ─────────────────┘
+     ├─ python-audit      "Python dependency audit"
+     ├─ secret-scan       "Secret scan (gitleaks)"
+     ├─ snapshot-export ×2 (macOS, Windows) ── snapshot-import ×2 (each file on the other OS)
+     └─ build ×3          "Package (windows-x64+arm64 | macos-arm64 | macos-x64)"
+                                │
+   tags only: release  needs every job above ─ SHA256SUMS, attestation, draft GitHub Release
+```
+
+* **Core test shards.** `pytest --shard I/N` (`core/tests/conftest.py`, `core/tests/sharding.py`)
+  keeps whole test files, balanced by the measured seconds in `core/tests/shard-weights.json`;
+  `test_sharding.py` proves every file runs in exactly one shard. Each shard runs
+  pytest-xdist on all of the runner's cores. Locally: `pytest -n auto` (or `-n 0` for serial).
+  Refresh the weights after big test changes (instructions in `sharding.py`).
+* **Required checks.** The ruleset requires "Core tests + app lint", which is now the
+  aggregate of the shards, app checks and e2e (a skipped or cancelled one fails it), so its
+  name did not change.
+* **Package jobs** run the platform build script with tests skipped (the shards run them),
+  which still includes the sidecar smoke test and the packaged-app `--smoke` launch, then
+  verify the fuses, ping the sidecar inside the packaged app and upload
+  `NTNXVision-windows-msi`, `NTNXVision-macos-arm64` and `NTNXVision-macos-x64`.
+* **Critical path** (pull request): the slowest of the Package jobs (macOS x64, about 9 min
+  plus any runner queue) and a core test shard; before this layout it was the 51 min serial
+  pytest followed by packaging.
 
 pip, npm, and the Electron and electron-builder (WiX) download caches are cached between runs.
 

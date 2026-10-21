@@ -55,7 +55,7 @@ case "$ARCH" in arm64|aarch64) EB_ARCH=--arm64 ;; x86_64) EB_ARCH=--x64 ;; *) ec
 
 if [[ $SKIP_TESTS -eq 0 ]]; then
   step "Core tests"
-  .venv/bin/python -m pytest -q
+  .venv/bin/python -m pytest -q -n auto
 fi
 
 step "Freeze sidecar (PyInstaller, $ARCH)"

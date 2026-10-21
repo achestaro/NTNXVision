@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "ntnxvision-core"
-version = "0.13.0"
+version = "0.13.1"
 description = "Inventory & documentation core for Nutanix Prism Central (NTNXVision)"
 readme = "README.md"
 # Cap the upper bound: brand-new Python releases (e.g. 3.14) often lack prebuilt wheels
@@ -59,6 +59,7 @@ ntnx-v4 = [
 dev = [
     "pytest>=8.0",
     "pytest-cov>=4.1",
+    "pytest-xdist>=3.6",   # parallel test run (CI and local: pytest -n auto)
     "ruff>=0.3",
     "mypy>=1.9",
     "types-requests",

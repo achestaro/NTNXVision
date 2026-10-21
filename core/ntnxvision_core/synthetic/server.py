@@ -16,6 +16,7 @@ router), falling back to the request's Host header.
 from __future__ import annotations
 
 import json
+import socketserver
 import ssl
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -96,6 +97,15 @@ class _Server(ThreadingHTTPServer):
     daemon_threads = True
     allow_reuse_address = True
     api: MockApi
+
+    def server_bind(self) -> None:
+        # HTTPServer.server_bind looks up socket.getfqdn() for a server name nothing here
+        # uses. That reverse DNS lookup of 127.0.0.1 can block for about 30 s (seen on
+        # macOS CI runners), delaying every demo-mode start; bind without it.
+        socketserver.TCPServer.server_bind(self)
+        host, port = self.server_address[:2]
+        self.server_name = str(host)
+        self.server_port = int(port)
 
     def handle_error(self, request: Any, client_address: Any) -> None:
         # Clients that drop the connection (a refused self-signed cert, a cancelled run)

@@ -9,6 +9,34 @@ from typing import Any
 import pytest
 
 
+def pytest_addoption(parser: pytest.Parser) -> None:
+    parser.addoption(
+        "--shard", default=None, metavar="I/N",
+        help="run only shard I of N (whole test files, balanced by tests/shard-weights.json)")
+
+
+def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
+    """``--shard I/N`` keeps the tests of the files assigned to shard I (tests/sharding.py).
+    Every xdist worker computes the same assignment, so their collections agree."""
+    value = config.getoption("--shard")
+    if not value:
+        return
+    from . import sharding
+
+    index, total = sharding.parse_shard(value)
+    tests_dir = Path(__file__).parent
+
+    def key(item: pytest.Item) -> str:
+        return "tests/" + Path(item.path).relative_to(tests_dir).as_posix()
+
+    plan = sharding.assign(sorted({key(item) for item in items}), total, sharding.load_weights())
+    keep = [item for item in items if plan[key(item)] == index]
+    dropped = [item for item in items if plan[key(item)] != index]
+    if dropped:
+        config.hook.pytest_deselected(items=dropped)
+    items[:] = keep
+
+
 @pytest.fixture(scope="session", autouse=True)
 def _demo_cert_dir(tmp_path_factory: pytest.TempPathFactory) -> Iterator[None]:
     """Generated demo TLS material goes to a session temp dir, not the user's cache
