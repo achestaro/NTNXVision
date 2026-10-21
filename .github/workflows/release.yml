@@ -36,25 +36,50 @@ env:
   NODE_VERSION: "22"
 
 jobs:
-  checks:
-    name: Core tests + app lint
+  # Job graph (build/README.md "CI layout"): every job below starts at once. Packaging does
+  # not wait for the tests; the quality gate is instead that the tag `release` job needs
+  # every check, and that pull requests require every check to pass before a merge.
+
+  # The core suite in four shards (whole test files, balanced by measured duration:
+  # core/tests/sharding.py), each run with pytest-xdist on all of the runner's cores.
+  # test_sharding.py proves every test file lands in exactly one shard.
+  core-tests:
+    name: Core tests (shard ${{ matrix.shard }}/4)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: core/requirements-build.lock
+      - name: Install the core (hash-locked)
+        working-directory: core
+        run: |
+          python -m pip install --require-hashes -r requirements-build.lock
+          python -m pip install --no-deps -e .
+      # --durations lists the slowest tests, to refresh core/tests/shard-weights.json.
+      - name: pytest (shard ${{ matrix.shard }}/4)
+        working-directory: core
+        env:
+          SHARD: ${{ matrix.shard }}
+        run: python -m pytest -q -n auto --shard "$SHARD/4" --durations=25
+
+  app-checks:
+    name: App lint, tests and audits
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
           fetch-depth: 0   # the version check diffs against the base branch
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
-        with:
-          python-version: ${{ env.PYTHON_VERSION }}
-          cache: pip
-          cache-dependency-path: core/requirements-build.lock
-      - name: pytest
-        working-directory: core
-        run: |
-          python -m pip install --require-hashes -r requirements-build.lock
-          python -m pip install --no-deps -e .
-          python -m pytest -q
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: ${{ env.NODE_VERSION }}
@@ -63,8 +88,11 @@ jobs:
       - name: eslint
         working-directory: app
         run: |
-          npm ci --ignore-scripts --no-audit --no-fund   # lint needs no native module
+          npm ci --ignore-scripts --no-audit --no-fund   # lint and unit tests need no native module
           npm run lint
+      - name: Main-process unit tests
+        working-directory: app
+        run: npm test
       # Shipped code changed: the version must go up (and CHANGELOG.md must say why), so
       # every installed build tells which fixes and features it has. Dependabot PRs exempt.
       - name: Version raised for shipped changes
@@ -83,6 +111,17 @@ jobs:
       - name: npm audit (full tree, moderate)
         working-directory: app
         run: npm audit --audit-level=moderate
+      # The notices list the core's Python packages, so the core is installed for this step.
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: core/requirements-build.lock
+      - name: Install the core (hash-locked)
+        working-directory: core
+        run: |
+          python -m pip install --require-hashes -r requirements-build.lock
+          python -m pip install --no-deps -e .
       # Python deps float within ranges, so a new upstream release can legitimately drift the
       # file; flag it here (non-blocking). Each build regenerates the copy it ships.
       - name: Third-party notices up to date
@@ -91,6 +130,68 @@ jobs:
         env:
           NTNXVISION_PYTHON: python
         run: npm run notices:check
+
+  # The real app end to end in demo mode (scripts/e2e-demo.mjs): built Electron main and
+  # renderer, the real Python sidecar from core/.venv, the synthetic estate, no network.
+  app-e2e:
+    name: App e2e (demo mode)
+    runs-on: macos-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: core/requirements-build.lock
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+      # npm ci downloads the Electron binary (its install script); cache it.
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ~/Library/Caches/electron
+          key: electron-e2e-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('app/package-lock.json') }}
+      - name: Core venv (hash-locked)
+        working-directory: core
+        run: |
+          python -m venv .venv
+          .venv/bin/python -m pip install --require-hashes -r requirements-build.lock
+          .venv/bin/python -m pip install --no-deps -e .
+      - name: e2e
+        working-directory: app
+        run: |
+          npm ci --no-audit --no-fund
+          npm run e2e
+      - name: Upload e2e screenshots (on failure)
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: e2e-screenshots
+          path: app/screenshots/
+          if-no-files-found: ignore
+          retention-days: 3
+
+  # Keeps the long-standing required status check name: passes only when every core test
+  # shard, the app checks and the e2e run passed (a skipped or cancelled one fails it).
+  checks:
+    name: Core tests + app lint
+    if: always()
+    needs: [core-tests, app-checks, app-e2e]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Every test and lint job passed
+        env:
+          RESULTS: ${{ join(needs.*.result, ' ') }}
+        run: |
+          echo "core-tests, app-checks, app-e2e: $RESULTS"
+          for r in $RESULTS; do
+            [ "$r" = "success" ] || { echo "::error::A test or lint job did not pass ($r)."; exit 1; }
+          done
 
   # Known-vulnerability scan of every platform's pins in the hash-locked Python set that is
   # frozen into the sidecar. The lock holds per-platform pins (environment markers), and
@@ -147,7 +248,6 @@ jobs:
   # encrypted) on macOS and on Windows, then import each on the other one.
   snapshot-export:
     name: Snapshot file export (${{ matrix.os }})
-    needs: checks
     strategy:
       fail-fast: false
       matrix:
@@ -203,7 +303,6 @@ jobs:
 
   build:
     name: Package (${{ matrix.name }})
-    needs: checks
     strategy:
       fail-fast: false
       matrix:
@@ -383,11 +482,21 @@ jobs:
           compression-level: 0
 
   # Tags only: collect every installer, checksum them, attest provenance and create the draft
-  # GitHub Release. The only job with a write-scoped token.
+  # GitHub Release. The only job with a write-scoped token. It needs every check, not just
+  # the builds (which run alongside the tests): nothing is published unless all passed.
   release:
     name: Publish draft release
     if: startsWith(github.ref, 'refs/tags/')
-    needs: build
+    needs:
+      - checks
+      - core-tests
+      - app-checks
+      - app-e2e
+      - python-audit
+      - secret-scan
+      - snapshot-export
+      - snapshot-import
+      - build
     runs-on: ubuntu-latest
     # Attached only to read whether signing secrets exist, so the release can say so.
     environment: release
