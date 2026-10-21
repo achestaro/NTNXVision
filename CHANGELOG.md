@@ -6,6 +6,14 @@ format older builds can't read. Windows shows the version as X.Y.Z.0 in Installe
 Every pull request that changes shipped code raises it with `node scripts/bump-version.mjs`
 and adds a section here (CI checks both).
 
+## 0.13.1 (2026-10-20)
+
+### Changed
+- Faster CI and release builds: core tests run in parallel across four shards, app checks and
+  the end-to-end run have their own jobs, and the installers build alongside the tests. A
+  release still publishes only when every check passes.
+- Local build scripts run the core tests in parallel.
+
 ## 0.13.0 (2026-10-20)
 
 ### Added
