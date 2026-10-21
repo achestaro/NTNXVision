@@ -65,7 +65,7 @@ Invoke-Checked $venvPy -m pip install --quiet --no-deps -e .
 
 if (-not $SkipTests) {
   Step 'Core tests'
-  Invoke-Checked $venvPy -m pytest -q
+  Invoke-Checked $venvPy -m pytest -q -n auto
 }
 
 Step 'Freeze sidecar (PyInstaller)'

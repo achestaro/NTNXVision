@@ -59,6 +59,7 @@ ntnx-v4 = [
 dev = [
     "pytest>=8.0",
     "pytest-cov>=4.1",
+    "pytest-xdist>=3.6",   # parallel test run (CI and local: pytest -n auto)
     "ruff>=0.3",
     "mypy>=1.9",
     "types-requests",
