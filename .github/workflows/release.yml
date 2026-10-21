@@ -162,16 +162,43 @@ jobs:
           python -m venv .venv
           .venv/bin/python -m pip install --require-hashes -r requirements-build.lock
           .venv/bin/python -m pip install --no-deps -e .
+      # macOS scans each freshly installed native library the first time a process loads it
+      # (here 287 of them, about 15 s locally and longer on a runner; a second load takes
+      # under a second). Pay that once here, not inside the sidecar's first answer to the
+      # app, then check the dev sidecar answers a ping the way the app starts it.
+      - name: Warm up and ping the core
+        working-directory: core
+        env:
+          NTNXVISION_DEMO: "1"
+        run: |
+          .venv/bin/python - <<'EOF'
+          import ctypes, pathlib, sys
+          libs = [p for p in pathlib.Path(sys.prefix).rglob("*") if p.suffix in (".so", ".dylib")]
+          loaded = 0
+          for lib in libs:
+              try:
+                  ctypes.CDLL(str(lib))
+                  loaded += 1
+              except OSError:
+                  pass
+          print(f"loaded {loaded} of {len(libs)} native libraries")
+          EOF
+          export NTNXVISION_DATA_DIR="$RUNNER_TEMP/warmup-data"
+          echo '{"jsonrpc":"2.0","id":1,"method":"ping","params":{}}' \
+            | .venv/bin/python -m ntnxvision_core sidecar | tee "$RUNNER_TEMP/ping.json"
+          grep -q '"pong": true' "$RUNNER_TEMP/ping.json"
       - name: e2e
         working-directory: app
         run: |
           npm ci --no-audit --no-fund
           npm run e2e
-      - name: Upload e2e screenshots (on failure)
+      # Screenshots of every step so far plus app.log (everything the app and the sidecar
+      # printed).
+      - name: Upload e2e screenshots and app log (on failure)
         if: failure()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: e2e-screenshots
+          name: e2e-screenshots-and-log
           path: app/screenshots/
           if-no-files-found: ignore
           retention-days: 3
