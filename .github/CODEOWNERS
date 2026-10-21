@@ -1,0 +1,16 @@
+# Changes to these paths need the maintainer's review.
+# CI, release and signing configuration
+/.github/                @achestaro
+/build/                  @achestaro
+/app/build/              @achestaro
+/scripts/                @achestaro
+# Security-sensitive code: IPC hardening, credentials, the read-only guard
+/app/src/main/security.ts    @achestaro
+/app/src/main/secrets.ts     @achestaro
+/app/src/main/keychain.ts    @achestaro
+/app/src/main/integrity.ts   @achestaro
+/core/ntnxvision_core/api/transport.py  @achestaro
+/core/ntnxvision_core/tlsctx.py         @achestaro
+# Dependency locks
+/core/requirements-build.lock  @achestaro
+/app/package-lock.json         @achestaro
