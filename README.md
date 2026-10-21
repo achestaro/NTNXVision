@@ -14,10 +14,7 @@ Document and editable design diagrams. Windows and macOS.
   <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-yellow.svg"></a>
 </p>
 
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset=".github/readme/overview-dark.png">
-  <img alt="NTNXVision Overview page: estate figures, recent snapshots and saved targets (demo data)" src=".github/readme/overview.png">
-</picture>
+<img alt="NTNXVision Overview page: estate figures, recent snapshots and saved targets (demo data)" src=".github/readme/overview.png">
 
 <sub>Every screenshot on this page comes from the real app in demo mode, against a synthetic estate (`pc01.demo.local` and friends). No customer or lab data.</sub>
 
@@ -27,7 +24,6 @@ Document and editable design diagrams. Windows and macOS.
 - [More features](#more-features)
 - [Install](#install)
 - [Try it without a lab (demo mode)](#try-it-without-a-lab-demo-mode)
-- [Build from source](#build-from-source)
 - [How it works](#how-it-works)
 - [Safety and security](#safety-and-security)
 - [Contributing and versioning](#contributing-and-versioning)
@@ -220,7 +216,7 @@ the title bar says "Demo data".
 open -a NTNXVision --args --demo                     # macOS
 "C:\Program Files\NTNXVision\NTNXVision.exe" --demo  # Windows
 
-# From source (after the setup below)
+# From source (a development checkout)
 cd app && npm run demo
 ```
 
@@ -237,45 +233,6 @@ so a second run gives Compare a believable change list.
 | `ndb.demo.local` | NDB (Era API) |
 | `large1.demo.local` to `large3.demo.local` | about 6,700 VMs each (a 20,000-VM multi-PC estate) |
 | `selfsigned.demo.local` / `down.demo.local` | self-signed certificate; unreachable host |
-
-## Build from source
-
-Prerequisites: Python 3.11 to 3.13 (3.13 pinned in `.python-version`) and Node.js 20 or later
-(22 pinned in `.nvmrc`).
-
-```bash
-git clone https://github.com/achestaro/NTNXVision.git && cd NTNXVision
-./scripts/setup-macos.sh --dev                                             # macOS
-powershell -ExecutionPolicy Bypass -File .\scripts\setup-windows.ps1 -Dev  # Windows
-```
-
-Python core (`core/`):
-
-```bash
-cd core
-python -m venv .venv && source .venv/bin/activate   # Windows: .venv\Scripts\activate
-pip install -e ".[dev]"
-pytest                 # tests
-ruff check .           # lint
-mypy ntnxvision_core   # types
-ntnxvision --demo inventory --host pc01.demo.local --username admin --password demo
-```
-
-Electron app (`app/`):
-
-```bash
-cd app
-npm install            # prebuilt native keyring module, no compiler needed
-npm run dev            # Vite + Electron with hot reload (npm run dev:demo for demo mode)
-npm run lint
-npm test               # main-process unit tests
-npm run e2e            # drives the real app and Python core end to end in demo mode
-npm run readme:shots   # regenerates the images on this page (demo mode)
-```
-
-Installers: `./scripts/build-macos.sh` or `.\scripts\build-windows.ps1` run the tests, freeze the
-Python core with PyInstaller, smoke-test it, package the app with electron-builder and launch it
-once with `--smoke`. See [`build/README.md`](build/README.md) for signing, notarization and CI.
 
 ## How it works
 
