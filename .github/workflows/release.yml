@@ -162,6 +162,16 @@ jobs:
           python -m venv .venv
           .venv/bin/python -m pip install --require-hashes -r requirements-build.lock
           .venv/bin/python -m pip install --no-deps -e .
+      # On macOS runners socket.getfqdn() (a reverse lookup of the runner's own .local name)
+      # blocks for about 30 s, and smtplib calls it for its EHLO name, so every email step of
+      # the e2e run would time out. Resolve the runner's hostname locally (timed before and
+      # after, as evidence in the log).
+      - name: Resolve the runner hostname locally
+        run: |
+          fqdn_time() { python -c 'import socket, time; t = time.time(); n = socket.getfqdn(); print(f"getfqdn() = {n} in {time.time() - t:.1f} s")'; }
+          fqdn_time
+          printf '127.0.0.1 %s\n::1 %s\n' "$(hostname)" "$(hostname)" | sudo tee -a /etc/hosts
+          fqdn_time
       # The dev sidecar must answer a ping the way the app starts it (demo mode), before
       # the e2e run depends on it.
       - name: Ping the core sidecar
