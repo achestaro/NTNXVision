@@ -36,7 +36,7 @@
 import { _electron as electron } from 'playwright-core';
 import electronPath from 'electron';
 import { spawn, spawnSync } from 'node:child_process';
-import { existsSync } from 'node:fs';
+import { createWriteStream, existsSync } from 'node:fs';
 import { mkdtemp, mkdir, readFile, readdir, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
@@ -86,7 +86,12 @@ const app = await electron.launch({
   },
   timeout: 60_000,
 });
+// Everything the app prints (main process and, through it, the sidecar's stderr) goes to
+// <outDir>/app.log, which CI uploads when the run fails; errors are echoed here as well.
+const appLog = createWriteStream(join(outDir, 'app.log'));
+app.process().stdout?.on('data', (d) => appLog.write(d));
 app.process().stderr?.on('data', (d) => {
+  appLog.write(d);
   const text = d.toString();
   if (/Traceback|Error/.test(text)) process.stderr.write(`[app] ${text}`);
 });
