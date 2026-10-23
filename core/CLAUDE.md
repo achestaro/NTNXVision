@@ -7,7 +7,9 @@ Single test: `pytest tests/test_excel_export.py -k foo`. CLI: `ntnxvision --help
 
 - `api/`: `connection.py` (Prism Central, v3 REST + version negotiation), `element_client.py`
   (direct Prism Element, v2.0 REST), `ndb_client.py` (Era API, separate base URL and auth),
-  `transport.py` (read-only guard, demo routing).
+  `transport.py` (read-only guard, demo routing), `v4_client.py` (per-target v4 capability
+  probing behind `PrismConnection.v4_ready(area)`: collectors take the v4 path only when it
+  answers yes), `vcenter_client.py` (optional read-only vCenter enrichment for ESXi clusters).
 - `collectors/`: one module per product/feature area; each takes a connection and populates the
   shared `Environment`. Failures are isolated in `engine.py`: one broken collector never aborts
   the run, its error lands in `env.collection_notes`.
