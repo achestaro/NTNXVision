@@ -860,7 +860,10 @@ export function DiagramsView({ snapshot: snapProp, type: typeProp, part: partPro
     // A nested icon takes the size its parent's slots give it; a frame grows to hold.
     const sized = (w !== icon.w || h !== icon.h) && !(plan.mode === 'into' && icon.container) ? { w, h } : {};
     const nesting = plan.mode === 'into' ? { parent: plan.parent } : plan.mode === 'wrap' ? { wraps: [plan.target] } : {};
-    if (apply({ op: 'place', id, icon: icon.id, scene: scene.id, x, y, ...sized, ...nesting })) {
+    const placed: DiagramOp = { op: 'place', id, icon: icon.id, scene: scene.id, x, y, ...sized, ...nesting };
+    // A frame drawn around a placed icon on its own takes it in: one step, one undo.
+    const ops: DiagramOp[] = plan.mode === 'adopt' ? [placed, { op: 'position', id: plan.child, x, y, parent: id }] : [placed];
+    if (apply(ops)) {
       setNestHint(plan.mode === 'free' ? null : plan.hint);
       setSelected(id);
       afterLayout.current = () =>
