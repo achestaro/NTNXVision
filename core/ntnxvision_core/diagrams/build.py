@@ -151,19 +151,23 @@ def _legend_rows(widths: list[float], gap: float, max_w: float) -> list[int]:
     return greedy
 
 
-#: Legend row height and swatch / line sample length (pt).
-LEGEND_ROW = 8.5
+#: Legend text size, row height and swatch / line sample length (pt). Compact (short
+#: swatches, tight rows) but legible at the editor's fit and in print: a step above the
+#: cards' detail text (6 pt), below their titles (7.2 pt).
+LEGEND_SIZE = 7.0
+LEGEND_ROW = 9.5
 LEGEND_SAMPLE = 11.0
+#: Space between a figure's content and the legend under it (pt).
+LEGEND_GAP = 12.0
 
 
 def legend(scene: Scene, items: list[tuple[str, Style, str]], x: float, y: float,
            max_w: float) -> float:
     """Append a legend (swatch + label per item, in balanced rows within `max_w`) as
     ordinary nodes and edges; returns its height."""
-    # Compact: 6 pt text (the smallest the engine draws), short swatches, tight rows.
     row_h = LEGEND_ROW
     gap = 8.0
-    widths = [LEGEND_SAMPLE + 3 + tx.width(label, K.SIZE_SMALL) for _, _, label in items]
+    widths = [LEGEND_SAMPLE + 3 + tx.width(label, LEGEND_SIZE) for _, _, label in items]
     rows = _legend_rows(widths, gap, max_w)
     i = 0
     cy = y
@@ -171,17 +175,17 @@ def legend(scene: Scene, items: list[tuple[str, Style, str]], x: float, y: float
         cx = x
         for _ in range(count):
             kind, style, label = items[i]
-            lw = tx.width(label, K.SIZE_SMALL)
+            lw = tx.width(label, LEGEND_SIZE)
             sid = f"legend:{i}"
             mid = cy + (row_h - 0.5) / 2
             if kind == "box":
-                scene.nodes.append(Node(id=sid, kind="swatch", x=q(cx), y=q(mid - 2.75),
-                                        w=LEGEND_SAMPLE, h=5.5, style=style))
+                scene.nodes.append(Node(id=sid, kind="swatch", x=q(cx), y=q(mid - 3),
+                                        w=LEGEND_SAMPLE, h=6.0, style=style))
             else:
                 scene.edges.append(edge(sid, "", "", [(cx, mid), (cx + LEGEND_SAMPLE, mid)],
                                         style, arrow_end=False))
             scene.nodes.append(box(f"{sid}:label", "label", cx + LEGEND_SAMPLE + 3, cy, lw + 1,
-                                   [Row(label, K.SIZE_SMALL, False, K.INK_2)], K.LABEL,
+                                   [Row(label, LEGEND_SIZE, False, K.INK_2)], K.LABEL,
                                    pad_x=0, pad_y=0, align="left", h=row_h - 0.5,
                                    valign="middle"))
             cx = q(cx + widths[i] + gap)

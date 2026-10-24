@@ -19,7 +19,7 @@ from collections.abc import Callable
 
 from .. import text as tx
 from .. import tokens as K
-from ..build import CHIP_H, Row, box, chip, edge, legend, measure, place_lines, text_h
+from ..build import CHIP_H, LEGEND_GAP, Row, box, chip, edge, legend, measure, place_lines, text_h
 from ..network import (
     MAX_DRAWN,
     Neighbour,
@@ -301,8 +301,8 @@ def _part(m: NetworkModel, p: Profile, switches: list[VSwitch], width: float,
                                           ("box", K.NET_BOND, "Bond, NIC or switch (reported)")]
     if with_esxi and m.esxi:
         items.append(("box", K.NOT_REPORTED, "Not reported"))
-    lh = legend(sc, items, MX, y + 9, cont_w)
-    sc.height = q(y + 9 + lh + 1)
+    lh = legend(sc, items, MX, y + LEGEND_GAP, cont_w)
+    sc.height = q(y + LEGEND_GAP + lh + 1)
     what = "virtual switches, bonds, uplinks and MTU"
     if used_neighbour:
         what = "virtual switches, bonds, uplinks, MTU and LLDP neighbours"

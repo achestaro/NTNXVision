@@ -27,7 +27,7 @@ from typing import Any
 
 from . import text as tx
 from . import tokens as K
-from .build import CHIP_H, Row, chip, chip_w, measure, place_lines
+from .build import CHIP_H, LEGEND_GAP, Row, chip, chip_w, measure, place_lines
 from .netcommon import tag_at
 from .scene import Node, Scene, Style, TextLine, q
 
@@ -121,7 +121,7 @@ GROUPS = ("Infrastructure", "Storage", "Networking", "Security", "Data protectio
           "Annotations")
 
 CATALOG: tuple[Icon, ...] = (
-    Icon("az", "Availability zone", "Infrastructure", 220, 120, "Availability zone",
+    Icon("az", "Availability zone", "Infrastructure", 150, 64, "Availability zone",
          "Not collected", "az site datacenter zone", "A zone frame with its AZ chip."),
     Icon("remote", "Remote availability zone", "Infrastructure", 130, 34,
          "Remote zone", "Outside this inventory", "remote az site dr target cloud",
@@ -132,7 +132,7 @@ CATALOG: tuple[Icon, ...] = (
          "cluster prism element pe aos", "A cluster card."),
     Icon("node", "Node", "Infrastructure", 90, 24, "Node", "Host", "host node server",
          "A host or node box."),
-    Icon("pod", "POD", "Infrastructure", 180, 90, "POD", "", "pod group block",
+    Icon("pod", "POD", "Infrastructure", 140, 56, "POD", "", "pod group block",
          "A POD frame with its POD chip."),
     Icon("vcenter", "vCenter Server", "Infrastructure", 100, 24, "vCenter Server", "",
          "vcenter vmware esxi", "The vCenter box under an ESXi cluster."),
@@ -270,6 +270,7 @@ def place(scenes: list[Scene], placed: Iterable[dict[str, Any]]) -> None:
             continue
         frames: list[Node] = []
         rest: list[Node] = []
+        tall = sc.height
         for item in items:
             nodes = draw(item)
             (frames if nodes[0].kind == "container" else rest).extend(nodes)
@@ -281,6 +282,33 @@ def place(scenes: list[Scene], placed: Iterable[dict[str, Any]]) -> None:
         # over what was laid out.
         sc.nodes = frames + sc.nodes + rest
         _nest(sc, {str(i["id"]) for i in items})
+        _legend_last(sc, frames + rest, tall)
+
+
+def _legend_last(sc: Scene, placed: list[Node], tall: float) -> None:
+    """Keep a legend drawn under the figure the last thing in it: placed icons that reach
+    down to it (or below it) move it under them, `LEGEND_GAP` clear, and the figure grows
+    by as much (`tall`: its height before the icons were placed)."""
+    nodes = [n for n in sc.nodes if _is_legend(n.id)]
+    edges = [e for e in sc.edges if _is_legend(e.id)]
+    if not placed or not (nodes or edges):
+        return
+    top = min([n.y for n in nodes] + [p[1] for e in edges for p in e.points])
+    bottom = max([n.y + n.h for n in nodes] + [p[1] for e in edges for p in e.points])
+    ids = {n.id for n in placed}
+    laid = [n.y + n.h for n in sc.nodes if not _is_legend(n.id) and n.id not in ids]
+    if laid and top < max(laid) - 0.5:
+        return  # a legend beside the content stays where it is
+    need = max(n.y + n.h for n in placed) + LEGEND_GAP
+    if need <= top:
+        return
+    dy = q(need - top)
+    for n in nodes:
+        n.y = q(n.y + dy)
+    for e in edges:
+        e.points = [(x, q(y + dy)) for x, y in e.points]
+    tail = max(0.0, tall - bottom)
+    sc.height = q(min(MAX_EXTENT, max(sc.height, bottom + dy + tail)))
 
 
 def _contains(o: Node, n: Node) -> bool:

@@ -107,12 +107,12 @@
    "labels": [],
    "points": [
     [
-     256.31,
-     207.4
+     287.94,
+     210.9
     ],
     [
-     267.31,
-     207.4
+     298.94,
+     210.9
     ]
    ],
    "src": "",
@@ -136,12 +136,12 @@
    "labels": [],
    "points": [
     [
-     307.65,
-     207.4
+     344.17,
+     210.9
     ],
     [
-     318.65,
-     207.4
+     355.17,
+     210.9
     ]
    ],
    "src": "",
@@ -154,7 +154,7 @@
    }
   }
  ],
- "height": 212.9,
+ "height": 216.9,
  "id": "management",
  "meta": {
   "drawn": [
@@ -570,7 +570,7 @@
   },
   {
    "data": {},
-   "h": 5.5,
+   "h": 6.0,
    "id": "legend:0",
    "kind": "swatch",
    "lines": [],
@@ -584,21 +584,21 @@
    },
    "w": 11.0,
    "x": 0.5,
-   "y": 204.65
+   "y": 207.9
   },
   {
    "data": {},
-   "h": 8.0,
+   "h": 9.0,
    "id": "legend:0:label",
    "kind": "label",
    "lines": [
     {
-     "baseline": 6.1,
+     "baseline": 6.95,
      "bold": false,
      "color": "#3E4C59",
-     "size": 6.0,
+     "size": 7.0,
      "text": "Prism Central (PCVMs)",
-     "width": 61.44,
+     "width": 71.68,
      "x": 0.0
     }
    ],
@@ -610,13 +610,13 @@
     "stroke": null,
     "stroke_w": 0.75
    },
-   "w": 66.13,
+   "w": 76.98,
    "x": 14.5,
-   "y": 203.4
+   "y": 206.4
   },
   {
    "data": {},
-   "h": 5.5,
+   "h": 6.0,
    "id": "legend:1",
    "kind": "swatch",
    "lines": [],
@@ -629,22 +629,22 @@
     "stroke_w": 0.7
    },
    "w": 11.0,
-   "x": 87.63,
-   "y": 204.65
+   "x": 98.48,
+   "y": 207.9
   },
   {
    "data": {},
-   "h": 8.0,
+   "h": 9.0,
    "id": "legend:1:label",
    "kind": "label",
    "lines": [
     {
-     "baseline": 6.1,
+     "baseline": 6.95,
      "bold": false,
      "color": "#3E4C59",
-     "size": 6.0,
+     "size": 7.0,
      "text": "Prism Element cluster",
-     "width": 58.19,
+     "width": 67.89,
      "x": 0.0
     }
    ],
@@ -656,13 +656,13 @@
     "stroke": null,
     "stroke_w": 0.75
    },
-   "w": 62.68,
-   "x": 101.63,
-   "y": 203.4
+   "w": 72.96,
+   "x": 112.48,
+   "y": 206.4
   },
   {
    "data": {},
-   "h": 5.5,
+   "h": 6.0,
    "id": "legend:2",
    "kind": "swatch",
    "lines": [],
@@ -678,22 +678,22 @@
     "stroke_w": 0.75
    },
    "w": 11.0,
-   "x": 171.31,
-   "y": 204.65
+   "x": 192.44,
+   "y": 207.9
   },
   {
    "data": {},
-   "h": 8.0,
+   "h": 9.0,
    "id": "legend:2:label",
    "kind": "label",
    "lines": [
     {
-     "baseline": 6.1,
+     "baseline": 6.95,
      "bold": false,
      "color": "#3E4C59",
-     "size": 6.0,
+     "size": 7.0,
      "text": "Outside this inventory",
-     "width": 59.44,
+     "width": 69.34,
      "x": 0.0
     }
    ],
@@ -705,23 +705,23 @@
     "stroke": null,
     "stroke_w": 0.75
    },
-   "w": 64.0,
-   "x": 185.31,
-   "y": 203.4
+   "w": 74.5,
+   "x": 206.44,
+   "y": 206.4
   },
   {
    "data": {},
-   "h": 8.0,
+   "h": 9.0,
    "id": "legend:3:label",
    "kind": "label",
    "lines": [
     {
-     "baseline": 6.1,
+     "baseline": 6.95,
      "bold": false,
      "color": "#3E4C59",
-     "size": 6.0,
+     "size": 7.0,
      "text": "AZ pairing",
-     "width": 27.68,
+     "width": 32.29,
      "x": 0.0
     }
    ],
@@ -733,23 +733,23 @@
     "stroke": null,
     "stroke_w": 0.75
    },
-   "w": 30.34,
-   "x": 270.31,
-   "y": 203.4
+   "w": 35.23,
+   "x": 301.94,
+   "y": 206.4
   },
   {
    "data": {},
-   "h": 8.0,
+   "h": 9.0,
    "id": "legend:4:label",
    "kind": "label",
    "lines": [
     {
-     "baseline": 6.1,
+     "baseline": 6.95,
      "bold": false,
      "color": "#3E4C59",
-     "size": 6.0,
+     "size": 7.0,
      "text": "Runs on",
-     "width": 21.56,
+     "width": 25.15,
      "x": 0.0
     }
    ],
@@ -761,9 +761,9 @@
     "stroke": null,
     "stroke_w": 0.75
    },
-   "w": 23.85,
-   "x": 321.65,
-   "y": 203.4
+   "w": 27.66,
+   "x": 358.17,
+   "y": 206.4
   }
  ],
  "part": [

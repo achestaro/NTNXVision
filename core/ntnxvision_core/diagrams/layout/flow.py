@@ -21,7 +21,7 @@ from collections.abc import Callable
 
 from .. import text as tx
 from .. import tokens as K
-from ..build import CHIP_H, Row, box, chip, edge, legend, measure, place_lines
+from ..build import CHIP_H, LEGEND_GAP, Row, box, chip, edge, legend, measure, place_lines
 from ..flow import (
     LANE_TITLES,
     STATE_WORDS,
@@ -231,8 +231,8 @@ def _scene(site: FSite, lanes: list[Lane], part: tuple[int, int], app_rows: int,
         sc.nodes.append(user_chip(sc.node(p.id)))
     cont.h = q(y - LANE_GAP + P - cont.y)
     y = cont.y + cont.h
-    lh = legend(sc, _legend_items(lanes), MX, y + 9, width - 2 * MX)
-    sc.height = q(y + 9 + lh + 1)
+    lh = legend(sc, _legend_items(lanes), MX, y + LEGEND_GAP, width - 2 * MX)
+    sc.height = q(y + LEGEND_GAP + lh + 1)
     where = head
     sc.caption = (f"Microsegmentation design, {where}: Flow security policies by type, "
                   "secured groups and enforcement state"

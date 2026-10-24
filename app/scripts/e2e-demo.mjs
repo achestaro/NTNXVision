@@ -1100,7 +1100,7 @@ try {
     await page.locator('#dg-snap').selectOption({ label: (await page.locator('#dg-snap option', { hasText: 'pc01-week1' }).first().innerText()).trim() });
     await page.locator('.dg-sheet svg').waitFor({ timeout: 60_000 });
     await page.getByRole('button', { name: /Solution conceptual overview/ }).first().waitFor();
-    await page.getByText('No unsaved changes').waitFor();
+    await page.getByTestId('dg-dirty').waitFor({ state: 'detached' }); // nothing to save: no save state shown
     generatedDocx = await exportWordFromDiagrams();
   });
 
@@ -1120,12 +1120,13 @@ try {
     if ((await cards.count()) < 2) throw new Error('need two cluster cards to reorder');
     const second = cards.nth(1);
     const label = await second.getAttribute('aria-label');
-    // Drag the second card onto the left half of the first: it becomes first.
+    // Drag the second card onto the leading corner of the first (its left half in a row,
+    // its top half in a column): it becomes first.
     const a = await second.boundingBox();
     const b = await cards.nth(0).boundingBox();
     await page.mouse.move(a.x + a.width / 2, a.y + a.height / 2);
     await page.mouse.down();
-    await page.mouse.move(b.x + 10, b.y + b.height / 2, { steps: 8 });
+    await page.mouse.move(b.x + 10, b.y + b.height / 4, { steps: 8 });
     await page.getByText(/^Drop to move .* to position 1 of/).waitFor();
     await page.mouse.up();
     await page.waitForFunction((l) => document.querySelector('[data-el^="cluster:"]')?.getAttribute('aria-label') === l, label, { timeout: 15_000 });
@@ -1330,6 +1331,9 @@ try {
   });
 
   await run('diagrams-edit-any-text', async () => {
+    // Close the inspector first: it covers the figure's right side, where the legend ends.
+    await page.getByRole('button', { name: 'Close the inspector (clears the selection)' }).click();
+    await page.getByRole('complementary', { name: 'Inspector' }).waitFor({ state: 'detached' });
     // A legend label: not an element, still editable in place.
     const legendText = page.locator('.dg-sheet svg text', { hasText: /^Manages$/ });
     await legendText.first().dblclick();
@@ -1379,7 +1383,7 @@ try {
   await run('diagrams-delete-undo-redo', async () => {
     const before = await el('cluster:').count();
     await el('cluster:').last().click();
-    await page.getByRole('toolbar', { name: 'Add to diagram' }).getByRole('button', { name: 'Delete' }).click();
+    await page.getByRole('complementary', { name: 'Inspector' }).getByRole('button', { name: 'Delete from diagram' }).click();
     await page.waitForFunction((n) => document.querySelectorAll('[data-el^="cluster:"]').length === n - 1, before, { timeout: 15_000 });
     await page.locator('.dg-canvas .phead').click({ position: { x: 5, y: 5 } }); // focus off the inputs
     await page.keyboard.press('ControlOrMeta+z');
@@ -1418,7 +1422,7 @@ try {
   await run('diagrams-save', async () => {
     await page.getByRole('button', { name: /^Save/ }).click();
     await page.getByText('Diagram saved.').first().waitFor({ timeout: 30_000 });
-    await page.getByText('No unsaved changes').waitFor();
+    await page.getByTestId('dg-dirty').waitFor({ state: 'detached' }); // nothing to save: no save state shown
     const snaps = await readdir(join(dataDir, 'snapshots'));
     if (!snaps.includes('pc01-week1.ntnxdiagrams.json')) throw new Error(`no saved diagram edits: ${snaps.join(', ')}`);
     await page.getByRole('button', { name: /Solution conceptual overview/ }).first().getByText(/Edited · saved/).waitFor();
@@ -1513,7 +1517,7 @@ try {
     await page.locator('[data-el^="subnet:"]', { hasText: 'E2E web segment' }).waitFor({ timeout: 15_000 });
     await page.getByRole('button', { name: /^Save/ }).click();
     await page.getByText('Diagram saved.').first().waitFor({ timeout: 30_000 });
-    await page.getByText('No unsaved changes').waitFor();
+    await page.getByTestId('dg-dirty').waitFor({ state: 'detached' }); // nothing to save: no save state shown
     const docx = await exportWordFromDiagrams();
     const disclosed = 'renamed to \u201cE2E web segment\u201d';
     const before = docxFacts(editedDocx, disclosed);

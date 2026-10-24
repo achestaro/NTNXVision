@@ -604,6 +604,28 @@ const SHOTS = [
     await p.getByRole('textbox', { name: 'Search icons' }).fill('clu');
     await list.getByRole('option', { name: 'Cluster', exact: true }).waitFor();
   }],
+  // The figure fitted to the canvas, no selection: no inspector column, the canvas fills
+  // the window to its bottom edge.
+  ['diagrams-1100', { diagrams: 'edited' }, async (p) => {
+    await rail(p, 'Diagrams');
+    await p.locator('.dg-sheet svg').waitFor();
+    if (await p.getByRole('complementary', { name: 'Inspector' }).count()) throw new Error('the inspector shows with nothing selected');
+    const gap = await p.evaluate(() => window.innerHeight - document.querySelector('.dg-canvas').getBoundingClientRect().bottom);
+    if (gap > 40) throw new Error(`the canvas ends ${Math.round(gap)}px above the window bottom`);
+    await cardsFit(p);
+  }, 1000, 1100],
+  ['diagrams-connectors-menu', { diagrams: 'edited' }, async (p) => {
+    await rail(p, 'Diagrams');
+    await p.locator('.dg-sheet svg').waitFor();
+    await p.getByRole('button', { name: /^Connectors \(\d+\)/ }).click();
+    await p.getByRole('dialog', { name: 'Connectors in this figure' }).waitFor();
+  }],
+  ['diagrams-menu', { diagrams: 'edited' }, async (p) => {
+    await rail(p, 'Diagrams');
+    await p.locator('.dg-sheet svg').waitFor();
+    await p.getByRole('button', { name: 'More diagram actions' }).click();
+    await p.getByRole('menuitem', { name: /Reset to generated/ }).waitFor();
+  }],
   ['diagrams-legend-off', { diagrams: 'edited' }, async (p) => {
     await rail(p, 'Diagrams');
     await p.locator('.dg-sheet svg').waitFor();

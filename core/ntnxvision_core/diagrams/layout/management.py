@@ -27,6 +27,7 @@ from .. import text as tx
 from .. import tokens as K
 from ..build import (
     CHIP_H,
+    LEGEND_GAP,
     LabelText,
     Row,
     box,
@@ -401,12 +402,12 @@ def _layout_part(model: ManagementModel, plan: _Plan, page: Page, refs: Refs,
     if used["runs_on"] or used["vcenter"]:
         items.append(("line", K.MANAGES, "Runs on" if used["runs_on"] else "Manages"))
     content_w = max(nd.x + nd.w for nd in sc.nodes)
-    lh = legend(sc, items, MX, bottom + 9, min(page.width - 2 * MX, max(content_w, 300.0)))
+    lh = legend(sc, items, MX, bottom + LEGEND_GAP, min(page.width - 2 * MX, max(content_w, 300.0)))
     right = max(max(nd.x + nd.w for nd in sc.nodes),
                 max((max(p[0] for p in e.points) for e in sc.edges), default=0.0),
                 max((lb.x + lb.w for e in sc.edges for lb in e.labels), default=0.0))
     sc.width = q(min(page.width, right + MX))
-    sc.height = q(bottom + 9 + lh + 1)
+    sc.height = q(bottom + LEGEND_GAP + lh + 1)
     sc.meta = {"drawn": drawn, "summarised": summarised, "sites": [s.id for s in sites],
                "hops": sc.meta.get("hops", 0)}
     return sc
