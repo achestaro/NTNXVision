@@ -1332,6 +1332,77 @@ try {
     }, b.width, { timeout: 15_000 });
   });
 
+  // Nesting: add into the selection (a hybrid example: a datacenter around the collected
+  // zone, NC2 on AWS > region > NC2 cluster > bare-metal node > NIC), a quiet hint when
+  // the selection cannot hold the new icon, drop into a container (one undo step), and
+  // resize a container by its edge.
+  await run('diagrams-nest', async () => {
+    const selectedId = () => page.locator('[data-el][aria-pressed="true"]').first().getAttribute('data-el');
+    const hint = page.getByTestId('dg-nest-hint');
+    const box = async (id) => page.locator(`[data-el="${id}"]`).boundingBox();
+    const inside = (o, n) => n.x >= o.x - 1 && n.y >= o.y - 1 && n.x + n.width <= o.x + o.width + 1 && n.y + n.height <= o.y + o.height + 1;
+    const free0 = await page.locator('.dg-free').count();
+    const added = async (n) => page.waitForFunction((k) => document.querySelectorAll('.dg-free').length >= k, free0 + n, { timeout: 15_000 });
+    // A datacenter around the collected zone.
+    await el('site:').first().click({ position: { x: 30, y: 12 } });
+    const site = await el('site:').first().getAttribute('data-el');
+    await addFromPicker('Datacenter', 'datacenter');
+    await added(1);
+    await hint.getByText(/Datacenter drawn around/).waitFor({ timeout: 15_000 });
+    await page.getByRole('button', { name: 'Release' }).waitFor({ timeout: 15_000 });
+    const dc = await selectedId();
+    if (!inside(await box(dc), await box(site))) throw new Error('the datacenter does not wrap the zone');
+    // NC2 on AWS, then each level added into the one selected.
+    await page.getByRole('button', { name: 'Close the inspector (clears the selection)' }).click();
+    await addFromPicker('NC2 on AWS', 'aws');
+    await added(2);
+    const aws = await selectedId();
+    const chain = [aws];
+    for (const [name, search] of [['Cloud region / AZ', 'region'], ['NC2 cluster', 'nc2 cluster'], ['Bare-metal node', 'bare metal'], ['Physical NIC', 'nic']]) {
+      const n = await page.locator('.dg-free').count();
+      await addFromPicker(name, search);
+      await page.waitForFunction((k) => document.querySelectorAll('.dg-free').length === k + 1, n, { timeout: 15_000 });
+      await hint.getByText(/added into/).waitFor({ timeout: 15_000 });
+      await page.waitForFunction((prev) => document.querySelector('[data-el][aria-pressed="true"]')?.getAttribute('data-el') !== prev, chain[chain.length - 1], { timeout: 15_000 });
+      chain.push(await selectedId());
+    }
+    for (let i = 1; i < chain.length; i++) {
+      await page.locator(`[data-el="${chain[i]}"]`).waitFor();
+      if (!inside(await box(chain[i - 1]), await box(chain[i]))) throw new Error(`${chain[i]} is not inside ${chain[i - 1]}`);
+    }
+    // The NIC: a small badge in its node's bottom-right corner.
+    const nic = await box(chain[4]);
+    const node = await box(chain[3]);
+    if (node.x + node.width - (nic.x + nic.width) > 12 || node.y + node.height - (nic.y + nic.height) > 12) throw new Error('the NIC is not in the node corner');
+    // The selected NIC cannot hold a Direct Connect: placed beside it, a quiet hint.
+    await addFromPicker('AWS Direct Connect', 'direct connect');
+    await added(7);
+    await hint.getByText(/can’t go inside a physical NIC, so it is placed beside it/).waitFor({ timeout: 15_000 });
+    const dx = await selectedId();
+    // Dropped into the datacenter: nested there, and one undo takes it back out.
+    const dcBox = await box(dc);
+    const dxBox = await box(dx);
+    await page.mouse.move(dxBox.x + dxBox.width / 2, dxBox.y + dxBox.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(dcBox.x + 14, dcBox.y + dcBox.height - 6, { steps: 10 });
+    await page.getByText(/^Drop into /).waitFor();
+    await page.mouse.up();
+    await page.getByText('Take out').waitFor({ timeout: 15_000 });
+    if (!inside(await box(dc), await box(dx))) throw new Error('the Direct Connect is not inside the datacenter');
+    await page.keyboard.press(process.platform === 'darwin' ? 'Meta+z' : 'Control+z');
+    await page.getByText('Take out').waitFor({ state: 'detached', timeout: 15_000 });
+    // The AWS frame resized by its right edge: wider, its children still inside.
+    await page.locator(`[data-el="${aws}"]`).click({ position: { x: 30, y: 12 } });
+    const edge = await page.locator('[data-handle="resize-r"]').boundingBox();
+    const w0 = (await box(aws)).width;
+    await page.mouse.move(edge.x + edge.width / 2, edge.y + edge.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(edge.x + edge.width / 2 + 60, edge.y + edge.height / 2, { steps: 6 });
+    await page.mouse.up();
+    await page.waitForFunction(([id, w]) => document.querySelector(`[data-el="${id}"]`)?.getBoundingClientRect().width > w + 20, [aws, w0], { timeout: 15_000 });
+    if (!inside(await box(aws), await box(chain[1]))) throw new Error('the region left the resized AWS frame');
+  });
+
   await run('diagrams-edit-any-text', async () => {
     // Close the inspector first: it covers the figure's right side, where the legend ends.
     await page.getByRole('button', { name: 'Close the inspector (clears the selection)' }).click();
@@ -1438,6 +1509,8 @@ try {
     await page.locator('.dg-free', { hasText: 'E2E colo site' }).waitFor({ timeout: 60_000 });
     await page.locator('.dg-sheet svg text', { hasText: 'Manages (E2E)' }).waitFor();
     await page.locator('.dg-sheet svg text', { hasText: 'E2E zone line' }).waitFor();
+    // The nesting survives too: the datacenter, the NC2 chain, the Direct Connect.
+    for (const t of ['DATACENTER', 'NC2 on AWS', 'BARE METAL', 'Direct Connect']) await page.locator('.dg-sheet svg text', { hasText: t }).first().waitFor();
   });
 
   await run('diagrams-export-word', async () => {
@@ -1497,7 +1570,7 @@ try {
     };
     const shown = await download();
     // The saved edits are in the download: the placed icon and the rewritten text.
-    for (const want of ['E2E colo site', 'Manages (E2E)', 'E2E zone line']) if (!shown.includes(want)) throw new Error(`the SVG has no "${want}"`);
+    for (const want of ['E2E colo site', 'Manages (E2E)', 'E2E zone line', 'DATACENTER', 'NC2 on AWS', 'Direct Connect']) if (!shown.includes(want)) throw new Error(`the SVG has no "${want}"`);
     // The Legend switch off: the download has no legend.
     await page.getByTestId('dg-legend').uncheck();
     const bare = await download();

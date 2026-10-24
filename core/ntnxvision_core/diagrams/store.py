@@ -473,6 +473,17 @@ def connector_outline(view: View, elements: list[dict[str, Any]]) -> list[dict[s
     return [out[k] for k in sorted(out, key=lambda k: (out[k]["parts"][:1] or [10**6], k))]
 
 
+def nest_kinds(scenes: list[Scene]) -> dict[str, str]:
+    """Collected scene node id -> its kind in the nesting hierarchy (`nesting.py`), so
+    the editor knows what an icon added into the selection may go into."""
+    from .nesting import collected_kinds
+
+    out: dict[str, str] = {}
+    for sc in scenes:
+        out.update(collected_kinds(sc))
+    return dict(sorted(out.items()))
+
+
 def _scene_docs(scenes: list[Scene]) -> list[dict[str, Any]]:
     return [scene_doc(sc) for sc in scenes]
 
@@ -495,6 +506,7 @@ def layout_result(env: Any, type_id: str, ops: list[dict[str, Any]],
         "scenes": _scene_docs(view.scenes),
         "outline": elements,
         "connectors": connector_outline(view, elements),
+        "nest_kinds": nest_kinds(view.scenes),
         "problems": _problem_docs(view),
         "notes": view.notes,
     }
@@ -543,6 +555,7 @@ def get_result(snapshot: Path, env: Any, type_id: str) -> dict[str, Any]:
         "scenes": _scene_docs(view.scenes),
         "outline": elements,
         "connectors": connector_outline(view, elements),
+        "nest_kinds": nest_kinds(view.scenes),
         "problems": _problem_docs(view),
         "notes": view.notes,
         "palette": [{"id": p.id, "label": p.label, "collection": p.collection,

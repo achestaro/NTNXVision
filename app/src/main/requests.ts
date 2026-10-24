@@ -283,7 +283,9 @@ export function cleanSettings(v: unknown): AppSettings {
 const DIAGRAM_OPS = ['set', 'move', 'add', 'delete', 'connect', 'edge', 'place', 'position', 'text'] as const;
 /** Placed icon coordinates and sizes, points (mirrors MAX_COORD / MAX_SIZE). */
 const DIAGRAM_COORD_MAX = 20000;
-const DIAGRAM_SIZE_MAX = 1600;
+const DIAGRAM_SIZE_MAX = 8000;
+/** Most collected frames one placed frame wraps (mirrors MAX_WRAPS). */
+const DIAGRAM_WRAPS_MAX = 16;
 const DIAGRAM_FIELDS = ['label', 'sublabel', 'role'] as const;
 const ID_MAX = 512;
 
@@ -348,8 +350,13 @@ export function asDiagramOps(v: unknown): DiagramOp[] {
       const size: { w?: number; h?: number } = {};
       if (o.w !== undefined && o.w !== null) size.w = num(o.w, `ops[${i}].w`, 4, DIAGRAM_SIZE_MAX);
       if (o.h !== undefined && o.h !== null) size.h = num(o.h, `ops[${i}].h`, 4, DIAGRAM_SIZE_MAX);
-      if (op === 'position') return { op, id, x, y, ...size };
-      const out: DiagramOp = { op, id, icon: str(o.icon, `ops[${i}].icon`, 200), scene: str(o.scene, `ops[${i}].scene`, 200), x, y, ...size };
+      // Nesting: the icon or collected element it goes into (null: free again), the
+      // collected frames a placed frame wraps.
+      const nest: { parent?: string | null; wraps?: string[] } = {};
+      if (o.parent !== undefined) nest.parent = o.parent === null || o.parent === '' ? null : str(o.parent, `ops[${i}].parent`, ID_MAX);
+      if (o.wraps !== undefined) nest.wraps = strArray(o.wraps, `ops[${i}].wraps`, DIAGRAM_WRAPS_MAX, ID_MAX);
+      if (op === 'position') return { op, id, x, y, ...size, ...nest };
+      const out: DiagramOp = { op, id, icon: str(o.icon, `ops[${i}].icon`, 200), scene: str(o.scene, `ops[${i}].scene`, 200), x, y, ...size, ...nest };
       if (o.label !== undefined) out.label = o.label === null ? null : str(o.label, `ops[${i}].label`, MAX_DIAGRAM_TEXT);
       if (o.sub !== undefined) out.sub = o.sub === null ? null : str(o.sub, `ops[${i}].sub`, MAX_DIAGRAM_TEXT);
       return out;

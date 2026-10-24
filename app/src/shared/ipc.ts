@@ -979,9 +979,13 @@ export type DiagramOp =
     }
   | { op: 'delete'; id: string }
   /** Put an icon of the catalog (DiagramIcon) on one figure scene at (x, y), in points. */
-  | { op: 'place'; id: string; icon: string; scene: string; x: number; y: number; w?: number; h?: number; label?: string | null; sub?: string | null }
-  /** Move or resize a placed icon. */
-  | { op: 'position'; id: string; x: number; y: number; w?: number; h?: number }
+  | { op: 'place'; id: string; icon: string; scene: string; x: number; y: number; w?: number; h?: number; label?: string | null; sub?: string | null; parent?: string | null; wraps?: string[] }
+  /**
+   * Move or resize a placed icon. `parent`: nest it in a placed icon or a collected
+   * element (null: free on the figure again); `wraps`: the collected top-level frames a
+   * placed frame wraps. A nested icon's place follows the slot rules (diagrams/nesting.py).
+   */
+  | { op: 'position'; id: string; x: number; y: number; w?: number; h?: number; parent?: string | null; wraps?: string[] }
   /**
    * Rewrite one text line of the figure: `id` is a scene node id, or "<edge id>#<label
    * index>" for an edge label; `value` null puts the generated text back.
@@ -1092,6 +1096,10 @@ export interface DiagramElement {
   move_refusal: string | null;
   /** A placed icon (op `place`): dragged anywhere on its figure, resized, never laid out. */
   free?: boolean;
+  /** Placed icon: the placed icon or collected element it is nested in (null: free). */
+  nest_parent?: string | null;
+  /** Placed frame: the collected top-level frames it wraps. */
+  wraps?: string[];
   /** Placed icon: its catalog id, the scene it is on and its box (points). */
   icon?: string;
   scene?: string;
@@ -1119,6 +1127,23 @@ export interface DiagramIcon {
   style: SceneStyle;
   chip: { label: string; fill: string | null } | null;
   ink: string;
+  /** The kinds it may hold (diagrams/nesting.py CHILDREN): icon ids. */
+  children?: string[];
+}
+
+/** Per placed icon on a scene (`scene.meta.placed`), from the nesting arrangement. */
+export interface DiagramPlacedMeta {
+  /** The placed icon or collected element it sits in (null: free on the figure). */
+  parent: string | null;
+  /** top | flow | strip | badge_br | badge_bl | free */
+  slot: string;
+  /** Smallest size a resize may give it (its children still fit). */
+  min_w: number;
+  min_h: number;
+  /** Its place follows the collected frames it wraps: resized, never dragged. */
+  anchored: boolean;
+  wraps: string[];
+  kind: string;
 }
 
 /** What the inspector knows about one connector (generated or user-added). */
@@ -1243,6 +1268,8 @@ export interface DiagramLayoutResult {
   outline: DiagramElement[];
   /** The figure's editable connectors (diagrams editor v2). */
   connectors: DiagramConnector[];
+  /** Collected scene node id -> its kind in the nesting hierarchy (az, pod, cluster, ...). */
+  nest_kinds?: Record<string, string>;
   problems: DiagramProblem[];
   /** Connector edits the layout drew differently (the edit stays): one per connector. */
   notes: DiagramLayoutNote[];

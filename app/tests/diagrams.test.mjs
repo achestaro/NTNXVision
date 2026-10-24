@@ -162,3 +162,20 @@ test('placed icons, their moves and text edits are checked', () => {
   ];
   for (const v of bad) assert.throws(() => asDiagramOps([v]), undefined, JSON.stringify(v));
 });
+
+test('nesting a placed icon: parent and wraps are checked', () => {
+  const [into, out, wrap] = asDiagramOps([
+    { op: 'place', id: 'user:n', icon: 'nic', scene: 's', x: 1, y: 1, parent: 'user:node' },
+    { op: 'position', id: 'user:n', x: 5, y: 6, parent: null },
+    { op: 'position', id: 'user:dc', x: 0, y: 0, wraps: ['site:pc01.example.lab'] },
+  ]);
+  assert.equal(into.parent, 'user:node');
+  assert.deepEqual(out, { op: 'position', id: 'user:n', x: 5, y: 6, parent: null });
+  assert.deepEqual(wrap.wraps, ['site:pc01.example.lab']);
+  for (const v of [
+    { op: 'position', id: 'user:n', x: 1, y: 1, parent: 3 },
+    { op: 'position', id: 'user:n', x: 1, y: 1, wraps: 'site:a' },
+    { op: 'position', id: 'user:n', x: 1, y: 1, wraps: Array(17).fill('site:a') },
+  ])
+    assert.throws(() => asDiagramOps([v]), undefined, JSON.stringify(v));
+});

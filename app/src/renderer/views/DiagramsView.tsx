@@ -53,6 +53,8 @@ import type { CanvasTool } from './diagrams/SceneCanvas';
 import { IconPicker } from './diagrams/IconPicker';
 import { ConnectorsMenu } from './diagrams/ConnectorsMenu';
 import type { PickerChoice } from './diagrams/IconPicker';
+import { holds, kindOf, nameOf, placedMeta, planAdd, unwarp } from './diagrams/nesting';
+import type { NestContext } from './diagrams/nesting';
 
 const isLegend = (id: string) => id.startsWith('legend:');
 const sameStyle = (a: SceneStyle, b: SceneStyle) =>
@@ -311,7 +313,10 @@ export function DiagramsView({ snapshot: snapProp, type: typeProp, part: partPro
   const [ops, setOps] = useState<DiagramOp[]>([]);
   /** The edit list now (updated synchronously, so a save right after a commit has it). */
   const opsRef = useRef<DiagramOp[]>([]);
-  const [redo, setRedo] = useState<DiagramOp[]>([]);
+  // Redo holds whole steps: one gesture (a drop, a resize) is one undo step.
+  const [redo, setRedo] = useState<DiagramOp[][]>([]);
+  /** Sizes of the steps applied in this session (edits per gesture), newest last. */
+  const steps = useRef<number[]>([]);
   const [selected, setSelected] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [kept, setKept] = useState(false);
@@ -402,6 +407,7 @@ export function DiagramsView({ snapshot: snapProp, type: typeProp, part: partPro
         return false;
       }
       setEdits([...opsRef.current, ...list]);
+      steps.current.push(list.length);
       setRedo([]);
       return true;
     },
@@ -411,15 +417,17 @@ export function DiagramsView({ snapshot: snapProp, type: typeProp, part: partPro
   const undo = useCallback(() => {
     const cur = opsRef.current;
     if (!cur.length) return;
-    setRedo((r) => [...r, cur[cur.length - 1]]);
-    setEdits(cur.slice(0, -1));
+    const n = Math.min(cur.length, Math.max(1, steps.current.pop() ?? 1));
+    setRedo((r) => [...r, cur.slice(cur.length - n)]);
+    setEdits(cur.slice(0, -n));
   }, [setEdits]);
 
   const redoOne = useCallback(() => {
     if (!redo.length) return;
-    const op = redo[redo.length - 1];
+    const step = redo[redo.length - 1];
     setRedo(redo.slice(0, -1));
-    setEdits([...opsRef.current, op]);
+    steps.current.push(step.length);
+    setEdits([...opsRef.current, ...step]);
   }, [redo, setEdits]);
 
   const save = useCallback(
@@ -544,6 +552,19 @@ export function DiagramsView({ snapshot: snapProp, type: typeProp, part: partPro
   const scene = scenes[partIndex];
   const sel = selected ? outline.get(selected) ?? null : null;
   const selConn = selected ? connectors.get(selected) ?? null : null;
+  // ─ nesting (add into the selection, drops): the hierarchy comes from the core ─
+  const iconById = useMemo(() => new Map((detail?.icons ?? []).map((i) => [i.id, i])), [detail]);
+  const nest = useMemo<NestContext | null>(
+    () => (scene ? { icons: iconById, outline, kinds: view?.nest_kinds ?? {}, scene } : null),
+    [iconById, outline, view, scene],
+  );
+  /** A quiet line in the toolbar (an icon placed beside, not inside): never an error. */
+  const [nestHint, setNestHint] = useState<string | null>(null);
+  useEffect(() => {
+    if (!nestHint) return undefined;
+    const t = window.setTimeout(() => setNestHint(null), 6000);
+    return () => window.clearTimeout(t);
+  }, [nestHint]);
   /** Elements drawn in this part (the ends a connector can take here). */
   const drawnHere = useMemo(() => {
     const ids = new Set(scene?.nodes.map((n) => n.id) ?? []);
@@ -746,7 +767,12 @@ export function DiagramsView({ snapshot: snapProp, type: typeProp, part: partPro
   }, [view]);
   const rewrite = (key: string, line: number, value: string | null) => apply({ op: 'text', id: key, line, value });
   const placeMoves = (moves: { id: string; x: number; y: number; w?: number; h?: number }[]) =>
-    apply(moves.map((m) => ({ op: 'position', id: m.id, x: Math.round(m.x * 2) / 2, y: Math.round(m.y * 2) / 2, ...(m.w !== undefined ? { w: m.w } : {}), ...(m.h !== undefined ? { h: m.h } : {}) })));
+    apply(
+      moves.map((m) => {
+        const [x, y] = unwarp(scene, m.x, m.y);
+        return { op: 'position', id: m.id, x: Math.round(x * 2) / 2, y: Math.round(y * 2) / 2, ...(m.w !== undefined ? { w: m.w } : {}), ...(m.h !== undefined ? { h: m.h } : {}) };
+      }),
+    );
   const placeIcon = (icon: DiagramIcon) => {
     if (!scene) return;
     // The legend's place counts even while it is hidden: the icon goes above it.
@@ -756,10 +782,21 @@ export function DiagramsView({ snapshot: snapProp, type: typeProp, part: partPro
     const desk = deskRef.current;
     const sheet = desk?.querySelector('.dg-sheet');
     if (desk && sheet) maxX = (desk.getBoundingClientRect().right - 16 - sheet.getBoundingClientRect().left) / zoom;
-    const [x, y] = freeSpot(scene.nodes, scene.width, scene.height, w, h, scene.edges, icon.container, maxX);
+    const plan = nest ? planAdd(nest, icon, selected, w, h) : ({ mode: 'free' } as const);
+    const sn = selected ? scene.nodes.find((n) => n.id === selected) : undefined;
+    const [fx, fy] =
+      plan.mode === 'beside'
+        ? [plan.x, plan.y]
+        : plan.mode === 'free' || !sn
+          ? freeSpot(scene.nodes, scene.width, scene.height, w, h, scene.edges, icon.container, maxX)
+          : [Math.round(sn.x), Math.round(sn.y)];
+    const [x, y] = unwarp(scene, fx, fy).map(Math.round) as [number, number];
     const id = newId();
-    const sized = w !== icon.w || h !== icon.h ? { w, h } : {};
-    if (apply({ op: 'place', id, icon: icon.id, scene: scene.id, x, y, ...sized })) {
+    // A nested icon takes the size its parent's slots give it; a frame grows to hold.
+    const sized = (w !== icon.w || h !== icon.h) && !(plan.mode === 'into' && icon.container) ? { w, h } : {};
+    const nesting = plan.mode === 'into' ? { parent: plan.parent } : plan.mode === 'wrap' ? { wraps: [plan.target] } : {};
+    if (apply({ op: 'place', id, icon: icon.id, scene: scene.id, x, y, ...sized, ...nesting })) {
+      setNestHint(plan.mode === 'free' ? null : plan.hint);
       setSelected(id);
       afterLayout.current = () =>
         requestAnimationFrame(() => deskRef.current?.querySelector(`[data-el="${CSS.escape(id)}"]`)?.scrollIntoView({ block: 'nearest', inline: 'nearest' }));
@@ -991,7 +1028,13 @@ export function DiagramsView({ snapshot: snapProp, type: typeProp, part: partPro
           </div>
 
           <div className="dg-tools" role="toolbar" aria-label="Add to diagram">
-            <IconPicker palette={detail?.palette ?? []} icons={detail?.icons ?? []} disabled={!view || !scene} onPick={pickAdd} />
+            <IconPicker
+              palette={detail?.palette ?? []}
+              icons={detail?.icons ?? []}
+              disabled={!view || !scene}
+              onPick={pickAdd}
+              into={nest && selected && kindOf(nest, selected) ? { label: nameOf(nest, selected), accepts: (k) => holds(nest, kindOf(nest, selected), k) } : null}
+            />
             <button
               type="button"
               className={tool === 'connect' ? 'dg-tool on' : 'dg-tool'}
@@ -1011,7 +1054,9 @@ export function DiagramsView({ snapshot: snapProp, type: typeProp, part: partPro
                 onRestore={(c) => editConnector(c, 'hidden', false)}
               />
             )}
-            <span className="hint dg-hint">Double-click any text to edit it.</span>
+            <span className="hint dg-hint" role="status" data-testid="dg-nest-hint">
+              {nestHint ?? 'Double-click any text to edit it.'}
+            </span>
             <div className="spacer" />
             <Checkbox
               className="dg-legend"
@@ -1150,6 +1195,16 @@ export function DiagramsView({ snapshot: snapProp, type: typeProp, part: partPro
                 onSublabel={(id, v) => apply({ op: 'set', id, field: 'sublabel', value: v })}
                 onConnectorLabel={(c, v) => editConnector(c, 'label', v)}
                 onPlace={placeMoves}
+                nest={nest}
+                onNest={(id, parent, fx, fy) => {
+                  const [x, y] = unwarp(scene, fx, fy);
+                  apply({ op: 'position', id, x: Math.round(x * 2) / 2, y: Math.round(y * 2) / 2, parent });
+                }}
+                onWrap={(id, target, fx, fy) => {
+                  const [x, y] = unwarp(scene, fx, fy);
+                  apply({ op: 'position', id, x: Math.round(x), y: Math.round(y), wraps: [target] });
+                }}
+                onHint={setNestHint}
               />
             ) : (
               list.data && diagrams.length > 0 && <InlineEmpty>Drawing…</InlineEmpty>
@@ -1229,7 +1284,7 @@ export function DiagramsView({ snapshot: snapProp, type: typeProp, part: partPro
             <Inspector
               key={sel.id + JSON.stringify([sel.label, sel.sublabel, sel.role, texts])}
               el={sel}
-              nodes={scene ? scene.nodes.filter((n) => n.id === sel.id || n.parent === sel.id) : []}
+              nodes={scene ? scene.nodes.filter((n) => n.id === sel.id || (n.parent === sel.id && !outline.has(n.id))) : []}
               texts={texts}
               onText={rewrite}
               onLabel={(v) => rename(sel.id, v)}
@@ -1240,6 +1295,41 @@ export function DiagramsView({ snapshot: snapProp, type: typeProp, part: partPro
               onConnect={() => startConnect(sel.id)}
               onDelete={() => remove(sel.id)}
               onEditInPlace={() => setEditRequest((n) => n + 1)}
+              nestInfo={
+                sel.free && scene
+                  ? {
+                      parent: placedMeta(scene)[sel.id]?.parent ?? null,
+                      parentLabel: nest && placedMeta(scene)[sel.id]?.parent ? nameOf(nest, placedMeta(scene)[sel.id].parent!) : null,
+                      wraps: (placedMeta(scene)[sel.id]?.wraps ?? []).map((w) => (nest ? nameOf(nest, w) : w)),
+                      // More collected top-level frames this frame may draw around.
+                      more:
+                        nest && placedMeta(scene)[sel.id]?.anchored
+                          ? scene.nodes
+                              .filter((n) => !n.parent && !outline.get(n.id)?.free && holds(nest, sel.icon ?? null, kindOf(nest, n.id)))
+                              .map((n) => ({ id: n.id, label: nameOf(nest, n.id) }))
+                          : [],
+                    }
+                  : null
+              }
+              onWrapMore={(id) => {
+                const n = scene?.nodes.find((o) => o.id === sel.id);
+                const cur = scene ? placedMeta(scene)[sel.id]?.wraps ?? [] : [];
+                if (!n) return;
+                const [x, y] = unwarp(scene, n.x, n.y).map(Math.round);
+                apply({ op: 'position', id: sel.id, x, y, wraps: [...cur, id] });
+              }}
+              onUnnest={() => {
+                const n = scene?.nodes.find((o) => o.id === sel.id);
+                if (!scene || !n) return;
+                const [x, y] = unwarp(scene, ...freeSpot(scene.nodes, scene.width, scene.height, n.w, n.h, scene.edges, false)).map(Math.round);
+                apply({ op: 'position', id: sel.id, x, y, parent: null });
+              }}
+              onRelease={() => {
+                const n = scene?.nodes.find((o) => o.id === sel.id);
+                if (!n) return;
+                const [x, y] = unwarp(scene, n.x, n.y).map(Math.round);
+                apply({ op: 'position', id: sel.id, x, y, wraps: [] });
+              }}
             />
           ) : null}
         </Panel>
@@ -1351,6 +1441,10 @@ function Inspector({
   onConnect,
   onDelete,
   onEditInPlace,
+  nestInfo,
+  onUnnest,
+  onRelease,
+  onWrapMore,
 }: {
   el: DiagramElement;
   /** Its scene node and the chips drawn on it. */
@@ -1365,6 +1459,11 @@ function Inspector({
   onConnect(): void;
   onDelete(): void;
   onEditInPlace(): void;
+  /** A placed icon: what it sits in, what collected frames it wraps. */
+  nestInfo?: { parent: string | null; parentLabel: string | null; wraps: string[]; more: { id: string; label: string }[] } | null;
+  onUnnest?(): void;
+  onRelease?(): void;
+  onWrapMore?(id: string): void;
 }): JSX.Element {
   const [label, setLabel] = useState(el.label ?? '');
   const [sub, setSub] = useState(el.sublabel ?? '');
@@ -1458,8 +1557,45 @@ function Inspector({
           </select>
         </Field>
       )}
-      {el.free && (
-        <p className="hint dg-ins-note">Placed on the figure: drag it anywhere, drag its corner to resize it, or use ⌥ and the arrow keys to nudge it.</p>
+      {el.free && nestInfo?.parent ? (
+        <div className="dg-nest">
+          <span className="lbl">Inside</span>
+          <span className="dg-nest-name">{nestInfo.parentLabel ?? 'its container'}</span>
+          <button type="button" className="textlink" onClick={onUnnest}>
+            Take out
+          </button>
+          <p className="hint dg-ins-note">Placed by its container: drag it onto another container to move it, or out to free it. Drag an edge or a corner to resize it.</p>
+        </div>
+      ) : el.free && nestInfo?.wraps.length ? (
+        <div className="dg-nest">
+          <span className="lbl">Around</span>
+          <span className="dg-nest-name">{nestInfo.wraps.join(', ')}</span>
+          <button type="button" className="textlink" onClick={onRelease}>
+            Release
+          </button>
+          <p className="hint dg-ins-note">Drawn around the collected frame, so it follows it. Drag an edge or a corner to make it larger.</p>
+          {nestInfo.more.length > 0 && (
+            <select
+              className="input dg-nest-more"
+              aria-label="Also draw it around"
+              value=""
+              onChange={(e) => e.target.value && onWrapMore?.(e.target.value)}
+            >
+              <option value="">Also draw it around…</option>
+              {nestInfo.more.map((m) => (
+                <option key={m.id} value={m.id}>
+                  {m.label}
+                </option>
+              ))}
+            </select>
+          )}
+        </div>
+      ) : (
+        el.free && (
+          <p className="hint dg-ins-note">
+            Placed on the figure: drag it anywhere or onto a container to put it inside, drag an edge or a corner to resize it, or use ⌥ and the arrow keys to nudge it.
+          </p>
+        )
       )}
       {otherLines(el, nodes).length > 0 && (
         <div className="dg-lines">

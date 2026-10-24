@@ -23,6 +23,7 @@
  "tests/test_diagram_icons.py": 6.0,
  "tests/test_diagram_hashseed.py": 2.1,
  "tests/test_diagram_logical.py": 7.6,
+ "tests/test_diagram_nesting.py": 4.3,
  "tests/test_diagram_management.py": 5.5,
  "tests/test_diagram_network.py": 2.8,
  "tests/test_diagram_route.py": 4.4,

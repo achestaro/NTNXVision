@@ -3174,3 +3174,54 @@ body.dg-expanded-open .toasts {
   display: inline-flex;
   gap: 2px;
 }
+
+/* ─── Diagrams: nesting (add into the selection, drops, resize handles) ─── */
+.dg-ip-into {
+  justify-self: start;
+  max-width: 100%;
+  padding: 0 7px;
+  border-radius: 999px;
+  font-size: 11.5px;
+  line-height: 18px;
+  color: var(--accent);
+  background: var(--accent-tint);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.dg-nest {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: baseline;
+  gap: 4px 8px;
+  font-size: 13px;
+}
+.dg-nest .lbl {
+  color: var(--ink-3);
+  font-size: 12px;
+}
+.dg-nest-name {
+  color: var(--ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.dg-nest .dg-ins-note {
+  grid-column: 1 / -1;
+}
+.dg-drop-target {
+  fill: none;
+  stroke: var(--accent);
+  stroke-dasharray: 4 3;
+  pointer-events: none;
+}
+.dg-drop-target.out {
+  stroke: var(--ink-3);
+}
+.dg-handle.edge {
+  opacity: 0.9;
+}
+.dg-nest-more {
+  grid-column: 1 / -1;
+  margin-top: 4px;
+}

@@ -63,7 +63,9 @@ TEXT_EDITS = "text_edits"
 CONNECTOR_KEYS = (CONNECTORS, EDGE_EDITS, PLACED, TEXT_EDITS)
 #: Coordinates and sizes of a placed icon (pt).
 MAX_COORD = 20000.0
-MAX_SIZE = 1600.0
+MAX_SIZE = 8000.0
+#: Most collected frames one placed frame may wrap.
+MAX_WRAPS = 16
 #: Most text lines a single node carries that a text edit may name.
 MAX_LINE = 64
 #: What an ``edge`` operation may change.
@@ -385,6 +387,19 @@ def _clean_place(op: dict[str, Any], ident: str, i: int) -> dict[str, Any]:
     for k in ("w", "h"):
         if op.get(k) is not None:
             out[k] = _num(op.get(k), i, k, 4, MAX_SIZE)
+    # Nesting (`nesting.py`): the icon or collected element it goes into ("" / None: free
+    # on the figure again), and the collected top-level frames a placed frame wraps.
+    if "parent" in op:
+        p = op.get("parent")
+        if p is not None and (not isinstance(p, str) or len(p) > 512):
+            raise EditError(f"Edit {i + 1}: parent must be an element id")
+        out["parent"] = p or None
+    if "wraps" in op:
+        w = op.get("wraps")
+        if not isinstance(w, list) or len(w) > MAX_WRAPS or \
+                any(not isinstance(v, str) or not v or len(v) > 512 for v in w):
+            raise EditError(f"Edit {i + 1}: wraps must list at most {MAX_WRAPS} element ids")
+        out["wraps"] = list(dict.fromkeys(w))
     if op["op"] == "place":
         for k in ("icon", "scene"):
             v = op.get(k)
@@ -492,7 +507,10 @@ def _apply_one(doc: dict[str, Any], op: dict[str, Any], slots: dict[str, Slot],
     icon_ = _placed(doc, op["id"])
     if icon_ is not None and kind in ("set", "delete"):
         if kind == "delete":
-            doc[PLACED] = [p for p in doc[PLACED] if p is not icon_]
+            # A container goes with what it holds (like a zone with its clusters).
+            gone = _descendants(doc, op["id"])
+            doc[PLACED] = [p for p in doc[PLACED] if p is not icon_ and
+                           p.get("id") not in gone]
             if not doc[PLACED]:
                 del doc[PLACED]
             return None
@@ -563,12 +581,18 @@ def _place(doc: dict[str, Any], op: dict[str, Any], slots: dict[str, Slot]) -> s
     from .icons import ICONS
 
     item = _placed(doc, op["id"])
+    if op.get("parent") and op["parent"] in _descendants(doc, op["id"]):
+        return "an icon cannot go inside itself"
     if op["op"] == "position":
         if item is None:
             return "the icon is not in this diagram"
         for k in ("x", "y", "w", "h"):
             if k in op:
                 item[k] = op[k]
+        moved = "parent" in op and (op["parent"] or None) != item.get("parent")
+        _nest_fields(item, op)
+        if moved:  # last among its new siblings
+            doc[PLACED] = [p for p in doc[PLACED] if p is not item] + [item]
         return None
     if item is not None or op["id"] in slots or op["id"] in _connector_ids(doc):
         return "an element with this id is already in the diagram"
@@ -579,11 +603,41 @@ def _place(doc: dict[str, Any], op: dict[str, Any], slots: dict[str, Slot]) -> s
            "w": op.get("w", icon.w), "h": op.get("h", icon.h),
            "label": op["label"] if op.get("label") else icon.name,
            "sub": op.get("sub", icon.sub or None) or None}
+    _nest_fields(new, op)
     items = doc.get(PLACED)
     if not isinstance(items, list):
         items = doc[PLACED] = []
     items.append(new)
     return None
+
+
+def _nest_fields(item: dict[str, Any], op: dict[str, Any]) -> None:
+    """Set (or clear) what a placed icon sits in and what collected frames it wraps.
+    Joining a new parent puts it last among that parent's children."""
+    if "parent" in op:
+        if op["parent"]:
+            item["parent"] = op["parent"]
+        else:
+            item.pop("parent", None)
+    if "wraps" in op:
+        if op["wraps"]:
+            item["wraps"] = list(op["wraps"])
+        else:
+            item.pop("wraps", None)
+
+
+def _descendants(doc: dict[str, Any], ident: str) -> set[str]:
+    """`ident` and every placed icon nested in it, at any depth."""
+    items = [p for p in doc.get(PLACED) or [] if isinstance(p, dict)]
+    out = {ident}
+    grew = True
+    while grew:
+        grew = False
+        for p in items:
+            if p.get("parent") in out and p.get("id") not in out:
+                out.add(str(p.get("id")))
+                grew = True
+    return out
 
 
 def _text_edit(doc: dict[str, Any], op: dict[str, Any]) -> str | None:
@@ -1152,16 +1206,27 @@ def placed_outline(payload: dict[str, Any]) -> list[dict[str, Any]]:
     items = [p for p in payload.get(PLACED) or [] if isinstance(p, dict)
              and str(p.get("icon")) in ICONS]
     out = []
+    names = {str(p.get("id")): str(p.get("label") or ICONS[str(p["icon"])].name)
+             for p in items}
     for i, p in enumerate(items):
         icon = ICONS[str(p["icon"])]
+        holder = p.get("parent") if isinstance(p.get("parent"), str) else None
         out.append({
             "id": p["id"], "kind": icon.label, "collection": PLACED, "parent": None,
-            "parent_label": "this figure", "index": i, "count": len(items),
+            "parent_label": names.get(holder or "", "its container" if holder else
+                                      "this figure"),
+            # Nesting (`nesting.py`): what it sits in, the collected frames it wraps.
+            "nest_parent": holder, "wraps": list(p.get("wraps") or []),
+            "index": i, "count": len(items),
             "label": p.get("label") or icon.name, "sublabel": p.get("sub"), "role": None,
             "roles": [], "origin": "user", "collected_label": None,
-            "source": "Added on the Diagrams page and drawn like a collected "
-                      f"{icon.label.lower()}. It never appears in the tables; the report's "
-                      "figure summary says the figure was edited.",
+            "source": ("Added on the Diagrams page and drawn in the figure's own style"
+                       + (" (no provider artwork)" if icon.group == "NC2 / cloud" else "")
+                       if icon.group == "NC2 / cloud" or icon.id in ("datacenter", "cvm")
+                       else "Added on the Diagrams page and drawn like a collected "
+                       f"{icon.label.lower()}")
+            + ". It never appears in the tables; the report's figure summary says the "
+              "figure was edited.",
             "can_rename": True, "can_sublabel": icon.id != "text", "can_reorder": False,
             "can_delete": True, "move_targets": [], "move_refusal": None, "free": True,
             "icon": icon.id, "scene": p.get("scene"),

@@ -1,0 +1,181 @@
+// Nesting placed icons on the Diagrams page: what goes into what. The hierarchy itself is
+// defined once, in the core (diagrams/nesting.py CHILDREN, sent as each icon's
+// `children`); the arrangement (slots, growth, wrapping a collected zone) is the core's
+// too. This file only answers the editor's questions: what a new icon goes into given
+// the selection, and which container a dragged icon is dropped into.
+
+import type { DiagramElement, DiagramIcon, DiagramPlacedMeta, DiagramScene, SceneNode } from '@shared/ipc';
+
+export interface NestContext {
+  icons: Map<string, DiagramIcon>;
+  outline: Map<string, DiagramElement>;
+  /** Collected scene node id -> kind (`nest_kinds` of the layout result). */
+  kinds: Record<string, string>;
+  scene: DiagramScene;
+}
+
+/** Per placed icon on the scene: parent, minimum size, anchored (from `meta.placed`). */
+export function placedMeta(scene: DiagramScene | undefined): Record<string, DiagramPlacedMeta> {
+  const m = scene?.meta?.placed;
+  return m && typeof m === 'object' ? (m as Record<string, DiagramPlacedMeta>) : {};
+}
+
+/** An element's kind in the hierarchy: a placed icon's catalog id, else the collected kind. */
+export function kindOf(ctx: NestContext, id: string): string | null {
+  const el = ctx.outline.get(id);
+  if (el?.free) return el.icon ?? null;
+  return ctx.kinds[id] ?? null;
+}
+
+/** Whether an element of kind `parent` may hold one of kind `child`. */
+export function holds(ctx: NestContext, parent: string | null, child: string | null): boolean {
+  return !!parent && !!child && (ctx.icons.get(parent)?.children ?? []).includes(child);
+}
+
+/** What the figure calls an element: its label, else its first text line, else its kind. */
+export function nameOf(ctx: NestContext, id: string): string {
+  const el = ctx.outline.get(id);
+  if (el?.label) return el.label;
+  const n = ctx.scene.nodes.find((o) => o.id === id);
+  const k = kindOf(ctx, id);
+  return n?.lines[0]?.text ?? (k ? ctx.icons.get(k)?.label ?? k : 'it');
+}
+
+/** "a node", "an availability zone": a kind's label for a sentence. */
+export function aKind(ctx: NestContext, kind: string | null): string {
+  const label = (kind ? ctx.icons.get(kind)?.label : null) ?? 'element';
+  const lower = /^[A-Z]{2,}/.test(label) || /^NC2|^AWS|^VPC|^CVM/.test(label) ? label : label[0].toLowerCase() + label.slice(1);
+  return `${/^[aeiouAEIOU]/.test(lower) && !/^(NC2|VPC)/.test(lower) ? 'an' : 'a'} ${lower}`;
+}
+
+export type AddPlan =
+  | { mode: 'into'; parent: string; hint: string }
+  | { mode: 'wrap'; target: string; hint: string }
+  | { mode: 'beside'; x: number; y: number; hint: string }
+  | { mode: 'free' };
+
+const isTop = (ctx: NestContext, n: SceneNode) => !n.parent && !ctx.outline.get(n.id)?.free;
+
+/**
+ * Where a new icon goes, given the selection: into the selected element when the
+ * hierarchy allows it; around it when the new icon is a frame that may hold the selected
+ * collected top-level frame (a datacenter around the zone); else beside it, with a quiet
+ * hint; with nothing selected, anywhere free.
+ */
+export function planAdd(ctx: NestContext, icon: DiagramIcon, selected: string | null, w: number, h: number): AddPlan {
+  const n = selected ? ctx.scene.nodes.find((o) => o.id === selected) : undefined;
+  if (!selected || !n) return { mode: 'free' };
+  const k = kindOf(ctx, selected);
+  if (holds(ctx, k, icon.id)) return { mode: 'into', parent: selected, hint: `${icon.label} added into ${nameOf(ctx, selected)}.` };
+  const meta = placedMeta(ctx.scene)[selected];
+  if (icon.container && isTop(ctx, n) && k && holds(ctx, icon.id, k) && !meta)
+    return { mode: 'wrap', target: selected, hint: `${icon.label} drawn around ${nameOf(ctx, selected)}.` };
+  // Beside the outermost frame around the selection, so it never looks nested.
+  let top = n;
+  for (let p = n.parent, i = 0; p && i < 64; i++) {
+    const o = ctx.scene.nodes.find((m) => m.id === p);
+    if (!o) break;
+    if (o.kind === 'box' || o.kind === 'container') top = o;
+    p = o.parent;
+  }
+  const [x, y] = besideSpot(ctx.scene, top, w, h);
+  return {
+    mode: 'beside',
+    x,
+    y,
+    hint: `${aKind(ctx, icon.id)[0].toUpperCase()}${aKind(ctx, icon.id).slice(1)} can’t go inside ${aKind(ctx, k)}, so it is placed beside it.`,
+  };
+}
+
+/** A clear spot right of `n` (else under it) for a `w` x `h` icon, in scene points. */
+export function besideSpot(scene: DiagramScene, n: SceneNode, w: number, h: number): [number, number] {
+  const solid = scene.nodes.filter((o) => !o.id.startsWith('legend:') && (o.kind === 'box' || o.kind === 'container'));
+  const clear = (x: number, y: number) =>
+    x >= 4 && y >= 4 && !solid.some((o) => o.id !== n.id && x < o.x + o.w + 8 && x + w + 8 > o.x && y < o.y + o.h + 8 && y + h + 8 > o.y);
+  const tries: [number, number][] = [
+    [n.x + n.w + 16, n.y],
+    [n.x, n.y + n.h + 16],
+    [n.x + n.w + 16, n.y + n.h + 16],
+  ];
+  for (const [x, y] of tries) if (clear(Math.round(x), Math.round(y))) return [Math.round(x), Math.round(y)];
+  return [Math.round(n.x + n.w + 16), Math.round(n.y)];
+}
+
+/**
+ * A figure point back in stored coordinates: the core opens bands in the generated
+ * layout to make room for nested icons (`scene.meta.warp`: [axis, at, width] in order)
+ * and moves free icons with them, so a free icon's stored place is in the unopened
+ * layout. A point inside a band maps to the band's start.
+ */
+export function unwarp(scene: DiagramScene | undefined, x: number, y: number): [number, number] {
+  const bands = scene?.meta?.warp;
+  if (!Array.isArray(bands)) return [x, y];
+  for (const band of [...(bands as [string, number, number][])].reverse()) {
+    const [axis, at, d] = band;
+    if (axis === 'x') x = x >= at + d - 0.05 ? x - d : x >= at - 0.05 ? at : x;
+    else y = y >= at + d - 0.05 ? y - d : y >= at - 0.05 ? at : y;
+  }
+  return [Math.max(0, x), Math.max(0, y)];
+}
+
+/** `id` and the placed icons nested in it (it never drops into one of those). */
+export function subtreeOf(scene: DiagramScene, id: string): Set<string> {
+  const meta = placedMeta(scene);
+  const out = new Set([id]);
+  let grew = true;
+  while (grew) {
+    grew = false;
+    for (const [k, m] of Object.entries(meta)) {
+      if (m.parent && out.has(m.parent) && !out.has(k)) {
+        out.add(k);
+        grew = true;
+      }
+    }
+  }
+  // Chips and geometric children ride along too.
+  for (const n of scene.nodes) if (n.parent && out.has(n.parent)) out.add(n.id);
+  return out;
+}
+
+export type DropPlan =
+  | { mode: 'into'; parent: string; label: string }
+  | { mode: 'out'; from: string; label: string }
+  | { mode: 'wrap'; target: string; label: string }
+  | { mode: 'refused'; target: string; label: string }
+  | { mode: 'stay' }
+  | { mode: 'move' };
+
+/**
+ * What a placed icon dragged to scene point (x, y) does on drop: go into the innermost
+ * element under the pointer that may hold it; out of its parent when dropped outside it;
+ * around a collected top-level frame it may hold (a datacenter dropped on the zone);
+ * stay (its parent's slots place it); or move freely.
+ */
+export function planDrop(ctx: NestContext, id: string, x: number, y: number): DropPlan {
+  const meta = placedMeta(ctx.scene);
+  const mine = meta[id];
+  const kind = kindOf(ctx, id);
+  const skip = subtreeOf(ctx.scene, id);
+  const under = ctx.scene.nodes
+    .filter((n) => !skip.has(n.id) && (n.kind === 'box' || n.kind === 'container') && !n.id.startsWith('legend:') && x >= n.x && x <= n.x + n.w && y >= n.y && y <= n.y + n.h)
+    .sort((a, b) => a.w * a.h - b.w * b.h);
+  const parent = mine?.parent ?? null;
+  const into = under.find((n) => holds(ctx, kindOf(ctx, n.id), kind));
+  if (into) {
+    if (into.id === parent) return { mode: 'stay' };
+    return { mode: 'into', parent: into.id, label: nameOf(ctx, into.id) };
+  }
+  const el = ctx.outline.get(id);
+  const wrap = !parent && el?.free && ctx.icons.get(kind ?? '')?.container && !(mine?.wraps ?? []).length
+    ? under.find((n) => !n.parent && !ctx.outline.get(n.id)?.free && holds(ctx, kind, kindOf(ctx, n.id)))
+    : undefined;
+  if (wrap) return { mode: 'wrap', target: wrap.id, label: nameOf(ctx, wrap.id) };
+  if (parent) {
+    const p = ctx.scene.nodes.find((n) => n.id === parent);
+    if (p && x >= p.x && x <= p.x + p.w && y >= p.y && y <= p.y + p.h) return { mode: 'stay' };
+    return { mode: 'out', from: parent, label: nameOf(ctx, parent) };
+  }
+  const refuse = under.find((n) => kindOf(ctx, n.id) && n.id !== id);
+  if (refuse) return { mode: 'refused', target: refuse.id, label: aKind(ctx, kindOf(ctx, refuse.id)) };
+  return { mode: 'move' };
+}
