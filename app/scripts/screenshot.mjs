@@ -1025,12 +1025,13 @@ const SHOTS = [
     await p.keyboard.type('pc0');
   }],
   ['shortcuts', {}, async (p) => p.keyboard.press('?')],
-  // Help menu (Runway account-menu layout) on a dev demo build: the rail foot and the menu
-  // header both read "v… · dev · demo".
+  // Help menu (Runway account-menu layout) on a dev demo build: the menu header reads
+  // "v… · dev · demo"; the rail foot shows the bare version.
   ['help-menu', { demo: true, dev: true }, async (p) => {
     await p.getByTestId('help-menu').click();
     await p.getByRole('menuitem', { name: 'Keyboard shortcuts' }).waitFor();
-    if (!(await p.locator('.rail-foot').innerText()).endsWith('· dev · demo')) throw new Error('rail foot lacks the dev / demo tags');
+    if (!(await p.locator('.help-menu-sub').innerText()).endsWith('· dev · demo')) throw new Error('Help menu lacks the dev / demo tags');
+    if ((await p.locator('.rail-foot').innerText()).includes('·')) throw new Error('rail foot shows build tags');
   }],
   ['help-menu-shortcuts', {}, async (p) => {
     await p.getByTestId('help-menu').click();

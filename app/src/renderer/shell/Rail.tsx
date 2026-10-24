@@ -7,7 +7,8 @@ import { useRouter } from '../lib/router';
 import type { AppInfo } from '@shared/ipc';
 import { NAV_GROUPS, NavItem, SETTINGS_ITEM } from './nav';
 
-/** The build tags shown next to the version: "dev" for an unpackaged app, "demo" in demo mode. */
+/** The build tags shown next to the version in the Help menu and Settings: "dev" for an
+ *  unpackaged app, "demo" in demo mode. The rail foot shows the bare version. */
 export function buildTags(info: AppInfo | null | undefined): string[] {
   return [info?.dev && 'dev', info?.demo && 'demo'].filter((t): t is string => !!t);
 }
@@ -40,7 +41,7 @@ export function Rail({ appInfo, coreState }: { appInfo: AppInfo | null; coreStat
       <div style={{ flex: 1 }} />
       {item(SETTINGS_ITEM)}
       <div className="mono rail-foot">
-        {appInfo && [`v${appInfo.version}`, ...buildTags(appInfo)].join(' · ')}
+        {appInfo && `v${appInfo.version}`}
         {coreState === 'error' && <span className="rail-foot-error"> · core unavailable</span>}
       </div>
     </nav>
