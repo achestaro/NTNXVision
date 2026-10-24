@@ -193,8 +193,9 @@ def test_alert_title_placeholders() -> None:
 
 
 def test_node_health_from_pe() -> None:
-    row = {"entity_id": "h1", "data": [{"name": "name", "values": [{"values": ["n1"]}]},
-                                       {"name": "node_status", "values": [{"values": ["kNormal"]}]}]}
+    row = {"entity_id": "h1", "data": [
+        {"name": "name", "values": [{"values": ["n1"]}]},
+        {"name": "node_status", "values": [{"values": ["kNormal"]}]}]}
     ok = live._node("h1", row, {"state": "NORMAL", "metadata_store_status": "kNormalMode",
                                 "is_degraded": False, "host_in_maintenance_mode": False})
     assert ok["status"] == "ok" and ok["metadata_store"] == "Normal mode"

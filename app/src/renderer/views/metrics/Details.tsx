@@ -177,11 +177,14 @@ export function RunwayDetail({
   scoped,
   trends,
   range,
+  clusterRunways,
 }: {
   v: ScopeView;
   scoped: { trends: MetricsTrends; runway: RunwayByRange } | null;
   trends: PartState<MetricsTrendsResult>;
   range: number;
+  /** All clusters: one row per cluster under the target's charts. */
+  clusterRunways?: { uuid: string; name: string; runway: RunwayByRange }[];
 }): JSX.Element {
   if (!scoped) {
     return (
@@ -197,6 +200,29 @@ export function RunwayDetail({
       {RESOURCES.map((r) => (
         <ResourceRunway key={r.key} resource={r.key} label={r.label} tr={tr} scoped={scoped} runway={runway?.[r.key]} range={range} prism={v.prismRunway?.[r.key] ?? null} />
       ))}
+      {clusterRunways && clusterRunways.length > 1 && (
+        <Section title="By cluster" note={`When each cluster reaches 80%, ${range}-day fit`}>
+          <div className="panel scroll-x">
+            <DataTable<{ uuid: string; name: string; runway: RunwayByRange }>
+              ariaLabel="Runway by cluster"
+              rows={clusterRunways}
+              rowKey={(c) => c.uuid}
+              columns={[
+                { key: 'cluster', header: 'Cluster', className: 'nm', render: (c) => c.name },
+                ...RESOURCES.map((r) => ({
+                  key: r.key,
+                  header: r.label,
+                  render: (c: { runway: RunwayByRange }) => {
+                    const rr = c.runway[String(range)]?.[r.key];
+                    const th = rr ? threshold(rr, 80) : undefined;
+                    return <span className={`tone-${runwayTone(th) === 'ok' ? 'idle' : runwayTone(th)}`}>{rr ? runwayWhen(rr, th) : NA}</span>;
+                  },
+                })),
+              ]}
+            />
+          </div>
+        </Section>
+      )}
       <p className="mx-foot">
         A straight line fitted to the daily points of the range, projected from today's level (the mean of the last three days). Under 0.3 points a month counts as no growth;
         past five years is not projected. Prism Central's own estimate uses its own model and stops at 365 days.

@@ -88,7 +88,7 @@ def test_slow_growth_beyond_horizon() -> None:
     assert res["status"] == "growing"
     th = by_pct(res)
     assert th[80.0]["state"] == "beyond" and th[80.0]["days"] is None
-    assert (80 - 10) / 0.011 > HORIZON_DAYS
+    assert HORIZON_DAYS < (80 - 10) / 0.011
 
 
 def test_gaps_are_skipped_and_window_applies() -> None:

@@ -210,12 +210,15 @@ function RunwayCard({
   runway,
   trend,
   onOpen,
+  soonest,
 }: {
   resource: MetricsResource;
   label: string;
   runway: Runway | undefined;
   trend: (number | null)[];
   onOpen(): void;
+  /** All clusters: the cluster that reaches 80% first, when it is sooner than the total. */
+  soonest?: { name: string; when: string; tone: string } | null;
 }): JSX.Element {
   const t80 = runway ? threshold(runway, 80) : undefined;
   const t100 = runway ? threshold(runway, 100) : undefined;
@@ -242,6 +245,11 @@ function RunwayCard({
       <p className="mx-sub">
         {projected ? `${longDay(t80!.date)} · ` : ''}100%: {runway ? runwayWhen(runway, t100).toLowerCase().replace(/^(\d)/, 'in $1') : NA}
       </p>
+      {soonest && (
+        <p className="mx-soonest">
+          Soonest cluster: <strong>{soonest.name}</strong>, <span className={`tone-${soonest.tone}`}>{soonest.when}</span>
+        </p>
+      )}
     </Card>
   );
 }
@@ -252,12 +260,15 @@ export function RunwaySection({
   range,
   onRange,
   onOpen,
+  clusterRunways = [],
 }: {
   trends: PartState<MetricsTrendsResult>;
   scoped: { trends: MetricsTrends; runway: RunwayByRange } | null;
   range: number;
   onRange(r: number): void;
   onOpen(d: Detail): void;
+  /** All clusters: each cluster's runway, to name the one that reaches 80% first. */
+  clusterRunways?: { name: string; runway: RunwayByRange }[];
 }): JSX.Element {
   const picker = (
     <Segmented
@@ -284,6 +295,7 @@ export function RunwaySection({
                 runway={runway?.[r.key]}
                 trend={tr ? tr[`${r.key}_pct` as 'cpu_pct'] : []}
                 onOpen={() => onOpen('runway')}
+                soonest={soonestCluster(clusterRunways, String(range), r.key, runway?.[r.key])}
               />
             ))}
           </div>
@@ -292,6 +304,33 @@ export function RunwaySection({
       )}
     </Section>
   );
+}
+
+/** Days until 80% for ordering: reached 0, projected its days, otherwise never. */
+function daysTo80(r: Runway | undefined): number {
+  const th = r ? threshold(r, 80) : undefined;
+  if (!th) return Infinity;
+  if (th.state === 'reached') return 0;
+  return th.state === 'projected' && th.days !== null ? th.days : Infinity;
+}
+
+function soonestCluster(
+  rows: { name: string; runway: RunwayByRange }[],
+  range: string,
+  resource: MetricsResource,
+  total: Runway | undefined,
+): { name: string; when: string; tone: string } | null {
+  let best: { name: string; r: Runway; days: number } | null = null;
+  for (const row of rows) {
+    const r = row.runway[range]?.[resource];
+    const days = daysTo80(r);
+    if (r && days < (best?.days ?? Infinity)) best = { name: row.name, r, days };
+  }
+  // Worth saying only when a cluster gets there before the target as a whole (or alone).
+  if (!best || rows.length < 2 || best.days >= daysTo80(total)) return null;
+  const th = threshold(best.r, 80);
+  const when = th?.state === 'reached' ? 'already at 80%' : `80% in ${runwayWhen(best.r, th)}`;
+  return { name: best.name, when, tone: runwayTone(th) === 'ok' ? 'idle' : runwayTone(th) };
 }
 
 function TrendsPlaceholder({ state }: { state: PartState<MetricsTrendsResult> }): JSX.Element {

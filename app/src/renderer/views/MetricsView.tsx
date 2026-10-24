@@ -242,13 +242,20 @@ function TargetMetrics({ target, picker }: { target: SavedConnection; picker: Re
               options={[30, 60, 90].map((d) => ({ value: String(d), label: `${d} days` }))}
             />
           </div>
-          <RunwayDetail v={view} scoped={scoped} trends={trends} range={range} />
+          <RunwayDetail v={view} scoped={scoped} trends={trends} range={range} clusterRunways={effectiveScope === ALL ? trends.data?.clusters : undefined} />
         </>
       ) : (
         <div className="mx-page">
           <HealthSection v={view} onOpen={open} onScope={setScope} />
           <UtilizationSection v={view} />
-          <RunwaySection trends={trends} scoped={scoped} range={range} onRange={setRange} onOpen={open} />
+          <RunwaySection
+            trends={trends}
+            scoped={scoped}
+            range={range}
+            onRange={setRange}
+            onOpen={open}
+            clusterRunways={effectiveScope === ALL ? trends.data?.clusters : undefined}
+          />
           <StorageSection v={view} />
           <WorkloadsSection v={view} onOpen={open} />
           <SourcesFooter sources={data.sources} notes={[...data.notes, ...(trends.data?.notes ?? [])]} collectedAt={data.collected_at} cached={data.cached} />

@@ -317,6 +317,18 @@
 .mx-reach-when.tone-idle {
   color: var(--ink);
 }
+.mx-soonest {
+  margin-top: 2px;
+  padding-top: 8px;
+  border-top: 1px solid var(--rule-2);
+  font-size: 12px;
+  line-height: 17px;
+  color: var(--ink-2);
+}
+.mx-soonest strong {
+  font-weight: 500;
+  color: var(--ink);
+}
 .mx-spark {
   flex: 1;
   min-width: 60px;
