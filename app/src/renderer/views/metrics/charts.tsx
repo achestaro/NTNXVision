@@ -17,9 +17,14 @@ export const SERIES_COLOR = {
   // every place both appear also names them (card titles, legend, tooltip).
   memory: 'var(--chart-5)',
   storage: 'var(--chart-8)',
-  // Single-series performance charts and the Top-VM bars stay neutral: colour is kept
-  // for the three capacity resources.
-  perf: 'var(--ink-3)',
+  // The two performance metrics have their own colours, the same in the Top-VM bars and
+  // the performance trend: IOPS teal (--chart-9, added for it: --chart-7 cyan sits too
+  // close to the CPU blue and is under 3:1 on the light bar track), latency orange. Both
+  // stay apart from the blue and the violet under protan / deutan / tritan simulation.
+  // Orange nears the storage green under red-green deficiency, but the two never share a
+  // list or a chart, and every list and chart is titled.
+  iops: 'var(--chart-9)',
+  latency: 'var(--chart-6)',
 } as const;
 
 /** Width of an element, following resizes (charts fill their card). */

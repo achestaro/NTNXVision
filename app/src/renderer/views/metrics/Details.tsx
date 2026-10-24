@@ -127,7 +127,7 @@ export function VmsDetail({ v }: { v: ScopeView }): JSX.Element {
           <Card key={l.key} title={l.title}>
             <BarList
               rows={topRows(v, l.key, v.clusterCount > 1)}
-              color={SERIES_COLOR.perf}
+              color={SERIES_COLOR[l.key]}
               max={l.key === 'cpu' || l.key === 'memory' ? 100 : undefined}
               empty="No powered-on VMs reported."
             />

@@ -405,7 +405,7 @@ function TrendsSection({ tr }: { tr: MetricsTrends }): JSX.Element {
               <TrendChart
                 t={tr.t}
                 height={92}
-                series={[{ key: 'iops', label: 'IOPS', color: SERIES_COLOR.perf, values: tr.iops ?? [] }]}
+                series={[{ key: 'iops', label: 'IOPS', color: SERIES_COLOR.iops, values: tr.iops ?? [] }]}
                 yFormat={(v) => fmtCount(v)}
                 label="Storage IOPS per day"
               />
@@ -415,7 +415,7 @@ function TrendsSection({ tr }: { tr: MetricsTrends }): JSX.Element {
               <TrendChart
                 t={tr.t}
                 height={92}
-                series={[{ key: 'lat', label: 'Latency', color: SERIES_COLOR.perf, values: tr.latency_usecs ?? [] }]}
+                series={[{ key: 'lat', label: 'Latency', color: SERIES_COLOR.latency, values: tr.latency_usecs ?? [] }]}
                 yFormat={latencyAxis}
                 label="Storage latency per day"
               />
@@ -502,7 +502,7 @@ export function WorkloadsSection({ v, onOpen }: { v: ScopeView; onOpen(d: Detail
             <span className="eyebrow">Top VMs by</span>
             <Segmented<MetricsTopKey> aria-label="Top VMs by" value={tab} onChange={setTab} options={TOP_TABS} />
           </div>
-          <BarList rows={topRows(v, tab, v.clusterCount > 1)} color={SERIES_COLOR.perf} max={pctScale} empty="No powered-on VMs reported." />
+          <BarList rows={topRows(v, tab, v.clusterCount > 1)} color={SERIES_COLOR[tab]} max={pctScale} empty="No powered-on VMs reported." />
           <button type="button" className="textlink mx-more" onClick={() => onOpen('vms')}>
             All top VMs
           </button>
