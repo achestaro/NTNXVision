@@ -18,14 +18,35 @@ export function topology(l: ComputeLayout): string {
   return l.threads_per_core > 1 ? `${base} × ${l.threads_per_core}` : base;
 }
 
-/** "vNUMA 2" when on; "" when off or unknown. */
-export function vnumaText(l: ComputeLayout): string {
-  return l.vnuma_nodes && l.vnuma_nodes > 1 ? `vNUMA ${l.vnuma_nodes}` : '';
+/** One token of a layout line, flagged when the other side of the comparison differs. */
+export interface LayoutToken {
+  key: 'vcpus' | 'topology' | 'vnuma';
+  text: string;
+  changed: boolean;
 }
 
-/** One-line layout for the table: "40 vCPU · 40 × 1" / "2 × 20 · vNUMA 2". */
-export function layoutLine(l: ComputeLayout): string {
-  return [`${l.vcpus} vCPU`, topology(l), vnumaText(l)].filter(Boolean).join(' · ');
+/**
+ * The current and recommended layouts as the same tokens in the same order, so the two
+ * columns line up: "40 vCPU · 40 × 1 · vNUMA off" / "40 vCPU · 2 × 20 · vNUMA 2". The vNUMA
+ * token appears on both sides when either side has vNUMA on.
+ */
+export function layoutTokens(current: ComputeLayout, recommended: ComputeLayout): [LayoutToken[], LayoutToken[]] {
+  const vnuma = [current, recommended].some((l) => (l.vnuma_nodes ?? 0) > 1);
+  const tokens = (l: ComputeLayout): Omit<LayoutToken, 'changed'>[] => [
+    { key: 'vcpus', text: `${l.vcpus} vCPU` },
+    { key: 'topology', text: topology(l) },
+    ...(vnuma ? [{ key: 'vnuma' as const, text: (l.vnuma_nodes ?? 0) > 1 ? `vNUMA ${l.vnuma_nodes}` : 'vNUMA off' }] : []),
+  ];
+  const a = tokens(current);
+  const b = tokens(recommended);
+  const mark = (side: typeof a, other: typeof a): LayoutToken[] => side.map((t, i) => ({ ...t, changed: t.text !== other[i].text }));
+  return [mark(a, b), mark(b, a)];
+}
+
+/** "2 × 32 cores · SMT 2": a host's sockets × cores per socket, threads per core when more than one. */
+export function hostCpuText(sockets: number, coresPerSocket: number, threadsPerCore: number | null): string {
+  const base = `${sockets} × ${coresPerSocket} cores`;
+  return threadsPerCore && threadsPerCore > 1 ? `${base} · SMT ${threadsPerCore}` : base;
 }
 
 export function memoryText(bytes: number | null): string {
