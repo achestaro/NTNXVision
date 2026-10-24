@@ -1808,6 +1808,8 @@ def build_report(env: Environment, opts: Any, eyebrow: str) -> Report:
             _log.warning("Report cross reference not resolved: %s", exc, exc_info=exc)
             b.warnings.append(f"Cross reference not resolved ({type(exc).__name__}: {exc})")
     b.disclose_undrawn_connectors(chapters)
+    if not getattr(opts, "diagram_legend", True):
+        strip_legends(chapters)
     if env.is_combined:
         scope = f"{fmt_count(len(env.source_environments))} Prism Centrals (combined)"
     else:
@@ -1825,6 +1827,17 @@ def build_report(env: Environment, opts: Any, eyebrow: str) -> Report:
         author=opts.author,
         warnings=b.warnings,
     )
+
+
+def strip_legends(chapters: Sequence[Chapter]) -> None:
+    """Take the legend off every diagram figure (the Diagrams page's Legend switch,
+    `ExportOptions.diagram_legend`)."""
+    from ntnxvision_core.diagrams.icons import strip_legend
+
+    for ch in chapters:
+        for blk in [*ch.blocks, *(x for s in ch.sections for x in s.blocks)]:
+            if isinstance(blk, SceneFigure):
+                strip_legend(blk.scene)
 
 
 def _included(opts: Any, ch: Chapter) -> bool:

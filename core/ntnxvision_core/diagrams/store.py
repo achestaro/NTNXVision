@@ -37,6 +37,7 @@ from ntnxvision_core.store.snapshot import diagrams_path
 
 from . import TYPES, DiagramType
 from . import edits as E
+from .icons import catalog_docs
 from .model import envelope
 from .scene import Scene
 from .scene import to_doc as scene_doc
@@ -548,6 +549,8 @@ def get_result(snapshot: Path, env: Any, type_id: str) -> dict[str, Any]:
                      "parents": list(p.parents), "hint": p.hint,
                      "template": {k: v for k, v in p.template.items() if k != "cards"}}
                     for p in t.edit_spec.palette if p.listed],
+        # Every icon the engine draws, for the "Add" picker (placed anywhere on a figure).
+        "icons": catalog_docs(),
     }
 
 

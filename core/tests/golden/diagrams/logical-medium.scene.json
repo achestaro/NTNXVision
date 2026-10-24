@@ -1,7 +1,7 @@
 {
  "caption": "Logical cluster design, md-pc01: nodes, CVMs and containers.",
  "edges": [],
- "height": 347.66,
+ "height": 345.16,
  "id": "logical-md-pc01.demo.local",
  "meta": {
   "drawn": [
@@ -874,7 +874,7 @@
   },
   {
    "data": {},
-   "h": 7.5,
+   "h": 5.5,
    "id": "legend:0",
    "kind": "swatch",
    "lines": [],
@@ -886,18 +886,18 @@
     "stroke": "#5B3FD9",
     "stroke_w": 0.7
    },
-   "w": 17,
+   "w": 11.0,
    "x": 0.5,
-   "y": 337.16
+   "y": 336.91
   },
   {
    "data": {},
-   "h": 10.5,
+   "h": 8.0,
    "id": "legend:0:label",
    "kind": "label",
    "lines": [
     {
-     "baseline": 7.35,
+     "baseline": 6.1,
      "bold": false,
      "color": "#3E4C59",
      "size": 6.0,
@@ -915,12 +915,12 @@
     "stroke_w": 0.75
    },
    "w": 21.52,
-   "x": 21.5,
+   "x": 14.5,
    "y": 335.66
   },
   {
    "data": {},
-   "h": 7.5,
+   "h": 5.5,
    "id": "legend:1",
    "kind": "swatch",
    "lines": [],
@@ -932,18 +932,18 @@
     "stroke": "#0A7283",
     "stroke_w": 0.45
    },
-   "w": 17,
-   "x": 57.02,
-   "y": 337.16
+   "w": 11.0,
+   "x": 43.02,
+   "y": 336.91
   },
   {
    "data": {},
-   "h": 10.5,
+   "h": 8.0,
    "id": "legend:1:label",
    "kind": "label",
    "lines": [
     {
-     "baseline": 7.35,
+     "baseline": 6.1,
      "bold": false,
      "color": "#3E4C59",
      "size": 6.0,
@@ -961,7 +961,7 @@
     "stroke_w": 0.75
    },
    "w": 41.28,
-   "x": 78.02,
+   "x": 57.02,
    "y": 335.66
   }
  ],
@@ -977,7 +977,7 @@
 {
  "caption": "Logical cluster design, md-pc02: nodes, CVMs and containers.",
  "edges": [],
- "height": 352.58,
+ "height": 350.08,
  "id": "logical-md-pc02.demo.local",
  "meta": {
   "drawn": [
@@ -1813,7 +1813,7 @@
   },
   {
    "data": {},
-   "h": 7.5,
+   "h": 5.5,
    "id": "legend:0",
    "kind": "swatch",
    "lines": [],
@@ -1825,18 +1825,18 @@
     "stroke": "#5B3FD9",
     "stroke_w": 0.7
    },
-   "w": 17,
+   "w": 11.0,
    "x": 0.5,
-   "y": 342.08
+   "y": 341.83
   },
   {
    "data": {},
-   "h": 10.5,
+   "h": 8.0,
    "id": "legend:0:label",
    "kind": "label",
    "lines": [
     {
-     "baseline": 7.35,
+     "baseline": 6.1,
      "bold": false,
      "color": "#3E4C59",
      "size": 6.0,
@@ -1854,12 +1854,12 @@
     "stroke_w": 0.75
    },
    "w": 21.52,
-   "x": 21.5,
+   "x": 14.5,
    "y": 340.58
   },
   {
    "data": {},
-   "h": 7.5,
+   "h": 5.5,
    "id": "legend:1",
    "kind": "swatch",
    "lines": [],
@@ -1871,18 +1871,18 @@
     "stroke": "#0A7283",
     "stroke_w": 0.45
    },
-   "w": 17,
-   "x": 57.02,
-   "y": 342.08
+   "w": 11.0,
+   "x": 43.02,
+   "y": 341.83
   },
   {
    "data": {},
-   "h": 10.5,
+   "h": 8.0,
    "id": "legend:1:label",
    "kind": "label",
    "lines": [
     {
-     "baseline": 7.35,
+     "baseline": 6.1,
      "bold": false,
      "color": "#3E4C59",
      "size": 6.0,
@@ -1900,7 +1900,7 @@
     "stroke_w": 0.75
    },
    "w": 41.28,
-   "x": 78.02,
+   "x": 57.02,
    "y": 340.58
   }
  ],

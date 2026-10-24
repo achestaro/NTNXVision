@@ -1,7 +1,7 @@
 {
  "caption": "Logical cluster design, sm-pc01: nodes, CVMs and containers.",
  "edges": [],
- "height": 214.71,
+ "height": 212.21,
  "id": "logical-sm-pc01.demo.local",
  "meta": {
   "drawn": [
@@ -585,7 +585,7 @@
   },
   {
    "data": {},
-   "h": 7.5,
+   "h": 5.5,
    "id": "legend:0",
    "kind": "swatch",
    "lines": [],
@@ -597,18 +597,18 @@
     "stroke": "#5B3FD9",
     "stroke_w": 0.7
    },
-   "w": 17,
+   "w": 11.0,
    "x": 0.5,
-   "y": 204.21
+   "y": 203.96
   },
   {
    "data": {},
-   "h": 10.5,
+   "h": 8.0,
    "id": "legend:0:label",
    "kind": "label",
    "lines": [
     {
-     "baseline": 7.35,
+     "baseline": 6.1,
      "bold": false,
      "color": "#3E4C59",
      "size": 6.0,
@@ -626,12 +626,12 @@
     "stroke_w": 0.75
    },
    "w": 21.52,
-   "x": 21.5,
+   "x": 14.5,
    "y": 202.71
   },
   {
    "data": {},
-   "h": 7.5,
+   "h": 5.5,
    "id": "legend:1",
    "kind": "swatch",
    "lines": [],
@@ -643,18 +643,18 @@
     "stroke": "#0A7283",
     "stroke_w": 0.45
    },
-   "w": 17,
-   "x": 57.02,
-   "y": 204.21
+   "w": 11.0,
+   "x": 43.02,
+   "y": 203.96
   },
   {
    "data": {},
-   "h": 10.5,
+   "h": 8.0,
    "id": "legend:1:label",
    "kind": "label",
    "lines": [
     {
-     "baseline": 7.35,
+     "baseline": 6.1,
      "bold": false,
      "color": "#3E4C59",
      "size": 6.0,
@@ -672,7 +672,7 @@
     "stroke_w": 0.75
    },
    "w": 41.28,
-   "x": 78.02,
+   "x": 57.02,
    "y": 202.71
   }
  ],

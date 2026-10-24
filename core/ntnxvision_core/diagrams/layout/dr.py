@@ -946,8 +946,6 @@ def _layout_part(m: DrModel, sites: list[DrSite], parts: list[list[DrSite]], pag
         items_l.append(("box", K.CLUSTER, "Protected cluster"))
     if used["muted"]:
         items_l.append(("box", K.CLUSTER_MUTED, "No protection policy"))
-    if used["user"]:
-        items_l.append(("box", K.USER, "Added by the author"))
     styles = {n.style for n in sc.nodes if n.kind == "box"}
     if K.REMOTE in styles:
         items_l.append(("box", K.REMOTE, "Outside this inventory"))

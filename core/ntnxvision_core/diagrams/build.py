@@ -151,13 +151,19 @@ def _legend_rows(widths: list[float], gap: float, max_w: float) -> list[int]:
     return greedy
 
 
+#: Legend row height and swatch / line sample length (pt).
+LEGEND_ROW = 8.5
+LEGEND_SAMPLE = 11.0
+
+
 def legend(scene: Scene, items: list[tuple[str, Style, str]], x: float, y: float,
            max_w: float) -> float:
     """Append a legend (swatch + label per item, in balanced rows within `max_w`) as
     ordinary nodes and edges; returns its height."""
-    row_h = 11.0
-    gap = 12.0
-    widths = [20 + 4 + tx.width(label, K.SIZE_SMALL) for _, _, label in items]
+    # Compact: 6 pt text (the smallest the engine draws), short swatches, tight rows.
+    row_h = LEGEND_ROW
+    gap = 8.0
+    widths = [LEGEND_SAMPLE + 3 + tx.width(label, K.SIZE_SMALL) for _, _, label in items]
     rows = _legend_rows(widths, gap, max_w)
     i = 0
     cy = y
@@ -167,13 +173,14 @@ def legend(scene: Scene, items: list[tuple[str, Style, str]], x: float, y: float
             kind, style, label = items[i]
             lw = tx.width(label, K.SIZE_SMALL)
             sid = f"legend:{i}"
+            mid = cy + (row_h - 0.5) / 2
             if kind == "box":
-                scene.nodes.append(Node(id=sid, kind="swatch", x=q(cx), y=q(cy + 1.5), w=17,
-                                        h=7.5, style=style))
+                scene.nodes.append(Node(id=sid, kind="swatch", x=q(cx), y=q(mid - 2.75),
+                                        w=LEGEND_SAMPLE, h=5.5, style=style))
             else:
-                scene.edges.append(edge(sid, "", "", [(cx, cy + 5.25), (cx + 17, cy + 5.25)],
+                scene.edges.append(edge(sid, "", "", [(cx, mid), (cx + LEGEND_SAMPLE, mid)],
                                         style, arrow_end=False))
-            scene.nodes.append(box(f"{sid}:label", "label", cx + 21, cy, lw + 1,
+            scene.nodes.append(box(f"{sid}:label", "label", cx + LEGEND_SAMPLE + 3, cy, lw + 1,
                                    [Row(label, K.SIZE_SMALL, False, K.INK_2)], K.LABEL,
                                    pad_x=0, pad_y=0, align="left", h=row_h - 0.5,
                                    valign="middle"))

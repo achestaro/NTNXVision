@@ -258,7 +258,7 @@
    }
   }
  ],
- "height": 315.15,
+ "height": 312.65,
  "id": "network-a",
  "meta": {
   "group": "profile:70713501173a",
@@ -1187,7 +1187,7 @@
   },
   {
    "data": {},
-   "h": 7.5,
+   "h": 5.5,
    "id": "legend:0",
    "kind": "swatch",
    "lines": [],
@@ -1199,18 +1199,18 @@
     "stroke": "#5B3FD9",
     "stroke_w": 0.75
    },
-   "w": 17,
+   "w": 11.0,
    "x": 0.5,
-   "y": 304.65
+   "y": 304.4
   },
   {
    "data": {},
-   "h": 10.5,
+   "h": 8.0,
    "id": "legend:0:label",
    "kind": "label",
    "lines": [
     {
-     "baseline": 7.35,
+     "baseline": 6.1,
      "bold": false,
      "color": "#3E4C59",
      "size": 6.0,
@@ -1228,12 +1228,12 @@
     "stroke_w": 0.75
    },
    "w": 40.02,
-   "x": 21.5,
+   "x": 14.5,
    "y": 303.15
   },
   {
    "data": {},
-   "h": 7.5,
+   "h": 5.5,
    "id": "legend:1",
    "kind": "swatch",
    "lines": [],
@@ -1245,18 +1245,18 @@
     "stroke": "#3E4C59",
     "stroke_w": 0.68
    },
-   "w": 17,
-   "x": 75.52,
-   "y": 304.65
+   "w": 11.0,
+   "x": 61.52,
+   "y": 304.4
   },
   {
    "data": {},
-   "h": 10.5,
+   "h": 8.0,
    "id": "legend:1:label",
    "kind": "label",
    "lines": [
     {
-     "baseline": 7.35,
+     "baseline": 6.1,
      "bold": false,
      "color": "#3E4C59",
      "size": 6.0,
@@ -1274,12 +1274,12 @@
     "stroke_w": 0.75
    },
    "w": 88.76,
-   "x": 96.52,
+   "x": 75.52,
    "y": 303.15
   },
   {
    "data": {},
-   "h": 7.5,
+   "h": 5.5,
    "id": "legend:2",
    "kind": "swatch",
    "lines": [],
@@ -1294,18 +1294,18 @@
     "stroke": "#8E99A4",
     "stroke_w": 0.75
    },
-   "w": 17,
-   "x": 199.28,
-   "y": 304.65
+   "w": 11.0,
+   "x": 171.28,
+   "y": 304.4
   },
   {
    "data": {},
-   "h": 10.5,
+   "h": 8.0,
    "id": "legend:2:label",
    "kind": "label",
    "lines": [
     {
-     "baseline": 7.35,
+     "baseline": 6.1,
      "bold": false,
      "color": "#3E4C59",
      "size": 6.0,
@@ -1323,7 +1323,7 @@
     "stroke_w": 0.75
    },
    "w": 38.41,
-   "x": 220.28,
+   "x": 185.28,
    "y": 303.15
   }
  ],
@@ -1596,7 +1596,7 @@
    }
   }
  ],
- "height": 263.82,
+ "height": 261.32,
  "id": "network-b",
  "meta": {
   "group": "profile:67025c1055ad",
@@ -2445,7 +2445,7 @@
   },
   {
    "data": {},
-   "h": 7.5,
+   "h": 5.5,
    "id": "legend:0",
    "kind": "swatch",
    "lines": [],
@@ -2457,18 +2457,18 @@
     "stroke": "#5B3FD9",
     "stroke_w": 0.75
    },
-   "w": 17,
+   "w": 11.0,
    "x": 0.5,
-   "y": 253.32
+   "y": 253.07
   },
   {
    "data": {},
-   "h": 10.5,
+   "h": 8.0,
    "id": "legend:0:label",
    "kind": "label",
    "lines": [
     {
-     "baseline": 7.35,
+     "baseline": 6.1,
      "bold": false,
      "color": "#3E4C59",
      "size": 6.0,
@@ -2486,12 +2486,12 @@
     "stroke_w": 0.75
    },
    "w": 40.02,
-   "x": 21.5,
+   "x": 14.5,
    "y": 251.82
   },
   {
    "data": {},
-   "h": 7.5,
+   "h": 5.5,
    "id": "legend:1",
    "kind": "swatch",
    "lines": [],
@@ -2503,18 +2503,18 @@
     "stroke": "#3E4C59",
     "stroke_w": 0.68
    },
-   "w": 17,
-   "x": 75.52,
-   "y": 253.32
+   "w": 11.0,
+   "x": 61.52,
+   "y": 253.07
   },
   {
    "data": {},
-   "h": 10.5,
+   "h": 8.0,
    "id": "legend:1:label",
    "kind": "label",
    "lines": [
     {
-     "baseline": 7.35,
+     "baseline": 6.1,
      "bold": false,
      "color": "#3E4C59",
      "size": 6.0,
@@ -2532,7 +2532,7 @@
     "stroke_w": 0.75
    },
    "w": 88.76,
-   "x": 96.52,
+   "x": 75.52,
    "y": 251.82
   }
  ],

@@ -619,8 +619,6 @@ def _layout_part(model: ConceptualModel, plan: _Plan, page: Page, refs: Refs,
         items.append(("box", K.REF, "Drawn in another part"))
     if used["more"]:
         items.append(("box", K.MORE, "Summary card"))
-    if used["user"]:
-        items.append(("box", K.USER, "User-added (not collected)"))
     if kinds["replication"]:
         items.append(("line", K.LEGEND_REPL, "Replication"))
     if kinds["pairing"]:

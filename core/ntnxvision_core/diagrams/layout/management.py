@@ -388,8 +388,6 @@ def _layout_part(model: ManagementModel, plan: _Plan, page: Page, refs: Refs,
     if pc_nodes:
         items.append(("box", K.PC, "Prism Central (PCVMs)"))
     items.append(("box", K.CLUSTER, "Prism Element cluster"))
-    if any(n.style is K.USER or n.style is K.NOTE for n in sc.nodes):
-        items.append(("box", K.USER, "Added by the author"))
     if used["vcenter"]:
         items.append(("box", K.VCENTER, "vCenter"))
     if plan.below:
