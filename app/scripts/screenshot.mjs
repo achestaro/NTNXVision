@@ -535,6 +535,38 @@ const SHOTS = [
     await p.locator('.dg-expanded').waitFor();
     await p.locator('[data-el^="cluster:"]').first().click();
   }],
+  // The canvas: white edge to edge, zoom controls floating bottom-right, an icon placed
+  // from the picker (drawn like a collected remote zone), the Add picker and the Legend switch.
+  ['diagrams-placed', { diagrams: 'edited' }, async (p) => {
+    await rail(p, 'Diagrams');
+    await p.locator('.dg-sheet svg').waitFor();
+    await p.getByRole('toolbar', { name: 'Zoom' }).waitFor();
+    await p.locator('[data-el="user:colo-dr"]').click();
+    await p.locator('[data-handle="resize"]').waitFor();
+    await p.getByText('Placed on the figure').waitFor();
+  }],
+  ['diagrams-add-picker', { diagrams: 'edited' }, async (p) => {
+    await rail(p, 'Diagrams');
+    await p.locator('.dg-sheet svg').waitFor();
+    await p.getByRole('button', { name: 'Add', exact: true }).click();
+    const list = p.getByRole('listbox', { name: 'Icons' });
+    await list.getByRole('option', { name: 'Availability zone', exact: true }).waitFor();
+    await p.getByRole('textbox', { name: 'Search icons' }).fill('clu');
+    await list.getByRole('option', { name: 'Cluster', exact: true }).waitFor();
+  }],
+  ['diagrams-legend-off', { diagrams: 'edited' }, async (p) => {
+    await rail(p, 'Diagrams');
+    await p.locator('.dg-sheet svg').waitFor();
+    await p.getByTestId('dg-legend').uncheck();
+    await p.locator('.dg-sheet svg text', { hasText: 'Cluster (Prism Element)' }).waitFor({ state: 'detached' });
+  }],
+  ['diagrams-zoomed', { diagrams: 'edited' }, async (p) => {
+    await rail(p, 'Diagrams');
+    await p.locator('.dg-sheet svg').waitFor();
+    // Zoomed out below the fit: the white canvas still fills the whole diagram area.
+    const out = p.getByRole('button', { name: 'Zoom out' });
+    while (await out.isEnabled()) await out.click();
+  }],
   ['export-preview', { diagrams: 'stale' }, async (p) => {
     await rail(p, 'Snapshots');
     await p.getByRole('button', { name: 'Export pc01 Q4 review' }).click();

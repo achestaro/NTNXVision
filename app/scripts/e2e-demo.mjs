@@ -1083,7 +1083,8 @@ try {
 
   await run('diagrams-rename', async () => {
     const card = el('cluster:').first();
-    await card.dblclick();
+    // Double-click its name: the label editor (another line edits that line).
+    await card.locator('text').first().dblclick();
     const input = page.locator('.dg-inline');
     await input.fill('E2E SQL tier');
     await input.press('Enter');
@@ -1112,15 +1113,23 @@ try {
     if (!(await order()).startsWith('2 of')) throw new Error(`order after Alt+Right: ${await order()}`);
   });
 
+  /** Pick `name` in the Add picker (an option's accessible name). */
+  const addFromPicker = async (name, search) => {
+    await page.getByRole('toolbar', { name: 'Add to diagram' }).getByRole('button', { name: 'Add', exact: true }).click();
+    if (search) await page.getByRole('textbox', { name: 'Search icons' }).fill(search);
+    await page.getByRole('listbox', { name: 'Icons' }).getByRole('option', { name, exact: true }).click();
+  };
+
   await run('diagrams-add', async () => {
     await el('site:').first().click({ position: { x: 30, y: 12 } });
-    await page.getByRole('toolbar', { name: 'Add to diagram' }).getByRole('button', { name: 'Storage array' }).click();
+    await addFromPicker('Storage array, in this layout');
     await page.locator('[data-el^="user:"]').first().waitFor({ timeout: 15_000 });
     const label = page.getByLabel('Label', { exact: true });
     await label.fill('Backup appliance');
     await label.press('Enter');
     await page.locator('[data-el^="user:"]', { hasText: 'Backup appliance' }).waitFor({ timeout: 15_000 });
-    await page.locator('[data-el^="user:"]', { hasText: 'USER-ADDED' }).waitFor();
+    // Drawn like collected external storage: no USER-ADDED chip anywhere on the figure.
+    if (await page.locator('.dg-sheet svg text', { hasText: 'USER-ADDED' }).count()) throw new Error('a USER-ADDED chip is still drawn');
   });
 
   // Diagrams editor v2: connectors (tool, ports, keyboard, inspector), generated
@@ -1229,7 +1238,7 @@ try {
 
   await run('diagrams-drag-across', async () => {
     // A user-added card moves into another availability zone; a collected one is refused.
-    await page.getByRole('toolbar', { name: 'Add to diagram' }).getByRole('button', { name: 'AZ', exact: true }).click();
+    await addFromPicker('AZ, in this layout');
     const zone = page.locator('[data-el^="user:"]', { hasText: 'New availability zone' });
     await zone.waitFor({ timeout: 15_000 });
     const card = page.locator('[data-el^="user:"]', { hasText: 'Backup appliance' });
@@ -1250,6 +1259,78 @@ try {
     await page.mouse.move(z2.x + z2.width / 2, z2.y + z2.height / 2, { steps: 10 });
     await page.getByText(/^Can’t move here: A collected cluster stays in the availability zone/).waitFor();
     await page.mouse.up();
+  });
+
+  // Any icon anywhere (placed, moved, resized, renamed), any text rewritten in place, and
+  // the Legend switch (remembered, and the downloads follow it).
+  await run('diagrams-place-icon', async () => {
+    const placed = () => page.locator('.dg-free');
+    const before = await placed().count();
+    await addFromPicker('Remote availability zone', 'remote');
+    await page.waitForFunction((n) => document.querySelectorAll('.dg-free').length === n + 1, before, { timeout: 15_000 });
+    await page.getByText('Placed on the figure').waitFor();
+    const label = page.getByLabel('Label', { exact: true });
+    await label.fill('E2E colo site');
+    await label.press('Enter');
+    const icon = page.locator('.dg-free', { hasText: 'E2E colo site' });
+    await icon.waitFor({ timeout: 15_000 });
+    // Connect the author's zone to it (it lands on a clear spot, so the router finds a route).
+    const conns0 = await page.locator('[data-conn^="user:"]').count();
+    await page.locator('[data-el^="user:"]', { hasText: 'New availability zone' }).focus();
+    await page.keyboard.press('c');
+    await page.getByTestId('dg-connect-status').getByText('pick the end element').waitFor();
+    await icon.click();
+    await page.waitForFunction((n) => document.querySelectorAll('[data-conn^="user:"]').length === n + 1, conns0, { timeout: 15_000 });
+    // Drag it 40 px right and 30 px down: it lands there (a position edit).
+    const a = await icon.boundingBox();
+    await page.mouse.move(a.x + a.width / 2, a.y + a.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(a.x + a.width / 2 + 40, a.y + a.height / 2 + 30, { steps: 8 });
+    await page.getByText(/^\d+, \d+ pt$/).waitFor();
+    await page.mouse.up();
+    await page.waitForFunction((x) => {
+      const r = [...document.querySelectorAll('.dg-free')].find((g) => g.textContent.includes('E2E colo site'))?.getBoundingClientRect();
+      return r && r.x > x + 20;
+    }, a.x, { timeout: 15_000 });
+    // Resize it by its corner.
+    await icon.click();
+    const corner = await page.locator('[data-handle="resize"]').boundingBox();
+    const b = await icon.boundingBox();
+    await page.mouse.move(corner.x + corner.width / 2, corner.y + corner.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(corner.x + corner.width / 2 + 50, corner.y + corner.height / 2, { steps: 6 });
+    await page.mouse.up();
+    await page.waitForFunction((w) => {
+      const r = [...document.querySelectorAll('.dg-free')].find((g) => g.textContent.includes('E2E colo site'))?.getBoundingClientRect();
+      return r && r.width > w + 20;
+    }, b.width, { timeout: 15_000 });
+  });
+
+  await run('diagrams-edit-any-text', async () => {
+    // A legend label: not an element, still editable in place.
+    const legendText = page.locator('.dg-sheet svg text', { hasText: /^Manages$/ });
+    await legendText.first().dblclick();
+    const input = page.getByRole('textbox', { name: 'Text on the figure' });
+    await input.fill('Manages (E2E)');
+    await input.press('Enter');
+    await page.locator('.dg-sheet svg text', { hasText: 'Manages (E2E)' }).waitFor({ timeout: 15_000 });
+    // A zone's detail line, from the inspector's "Text on the figure" list.
+    await el('site:').first().click({ position: { x: 30, y: 12 } });
+    const field = page.locator('.dg-lines input').first();
+    await field.fill('E2E zone line');
+    await field.press('Enter');
+    await page.locator('.dg-sheet svg text', { hasText: 'E2E zone line' }).waitFor({ timeout: 15_000 });
+  });
+
+  await run('diagrams-legend-switch', async () => {
+    const legend = page.getByTestId('dg-legend');
+    await legend.uncheck();
+    await page.locator('.dg-sheet svg text', { hasText: 'Manages (E2E)' }).waitFor({ state: 'detached', timeout: 15_000 });
+    // Remembered per user (Settings).
+    const saved = await page.evaluate(() => window.ntnx.getSettings());
+    if (saved.diagramLegend !== false) throw new Error(`the Legend switch was not remembered: ${JSON.stringify(saved.diagramLegend)}`);
+    await legend.check();
+    await page.locator('.dg-sheet svg text', { hasText: 'Manages (E2E)' }).waitFor({ timeout: 15_000 });
   });
 
   await run('diagrams-expand', async () => {
@@ -1320,6 +1401,16 @@ try {
     await page.getByRole('button', { name: /Solution conceptual overview/ }).first().getByText(/Edited · saved/).waitFor();
   });
 
+  await run('diagrams-reload-keeps-edits', async () => {
+    // Away and back: the placed icon and the rewritten text are still there (saved).
+    await rail('Overview');
+    await rail('Diagrams');
+    await page.locator('#dg-snap').selectOption({ label: (await page.locator('#dg-snap option', { hasText: 'pc01-week1' }).first().innerText()).trim() });
+    await page.locator('.dg-free', { hasText: 'E2E colo site' }).waitFor({ timeout: 60_000 });
+    await page.locator('.dg-sheet svg text', { hasText: 'Manages (E2E)' }).waitFor();
+    await page.locator('.dg-sheet svg text', { hasText: 'E2E zone line' }).waitFor();
+  });
+
   await run('diagrams-export-word', async () => {
     const edited = await exportWordFromDiagrams();
     const gen = docxFacts(generatedDocx, 'Backup appliance');
@@ -1362,11 +1453,26 @@ try {
   });
 
   await run('diagrams-download-svg', async () => {
-    const before = new Set(await readdir(exportDir));
-    await page.getByRole('group', { name: 'Download this diagram' }).getByRole('button', { name: 'SVG', exact: true }).click();
-    await page.getByText(/^Saved .*_solution-conceptual-overview.*\.svg/).first().waitFor({ timeout: 60_000 });
-    const added = (await readdir(exportDir)).filter((f) => !before.has(f));
-    if (!added.some((f) => f.endsWith('.svg'))) throw new Error(`no SVG written: ${added.join(', ')}`);
+    const download = async () => {
+      const before = new Set(await readdir(exportDir));
+      await page.getByRole('group', { name: 'Download this diagram' }).getByRole('button', { name: 'SVG', exact: true }).click();
+      let added = [];
+      for (let i = 0; i < 120 && !added.length; i++) {
+        await page.waitForTimeout(500);
+        added = (await readdir(exportDir)).filter((f) => !before.has(f) && f.endsWith('.svg'));
+      }
+      if (!added.length) throw new Error('no SVG written');
+      return readFile(join(exportDir, added[0]), 'utf-8');
+    };
+    const shown = await download();
+    // The saved edits are in the download: the placed icon and the rewritten text.
+    for (const want of ['E2E colo site', 'Manages (E2E)', 'E2E zone line']) if (!shown.includes(want)) throw new Error(`the SVG has no "${want}"`);
+    // The Legend switch off: the download has no legend.
+    await page.getByTestId('dg-legend').uncheck();
+    const bare = await download();
+    if (bare.includes('Manages (E2E)')) throw new Error('the SVG still has the legend with the switch off');
+    if (!bare.includes('E2E colo site')) throw new Error('the SVG lost the placed icon');
+    await page.getByTestId('dg-legend').check();
   });
 
   // A per-AZ network figure (Network Segment Design): rename a segment in place, save,
@@ -1375,7 +1481,7 @@ try {
     await page.getByRole('button', { name: /Network segment design/ }).first().click();
     const seg = page.locator('[data-el^="subnet:"]').first();
     await seg.waitFor({ timeout: 60_000 });
-    await seg.dblclick();
+    await seg.locator('text').first().dblclick();
     const input = page.locator('.dg-inline');
     await input.fill('E2E web segment');
     await input.press('Enter');

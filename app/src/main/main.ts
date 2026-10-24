@@ -494,6 +494,11 @@ function sectionOrder(): string[] | undefined {
   return defaultSectionOrder(store.getSettings());
 }
 
+/** The Diagrams page's Legend switch, followed by every export that draws diagrams. */
+function diagramLegend(): boolean {
+  return store.getSettings().diagramLegend !== false;
+}
+
 /** The certificate pin for a test or listing: the request's own, else the saved target's for that endpoint. */
 function requestPin(req: { targetId?: string; mode?: string; host: string; port: number; insecure: boolean; pinnedCert?: string }): string | undefined {
   if (!req.insecure) return undefined;
@@ -573,6 +578,7 @@ ipc.handle(IPC.startCollection, async (_e, raw: CollectionRequest) => {
     vcpu_ratio: vcpuRatio(),
     vcpu_ratio_overrides: overrides,
     section_order: sectionOrder(),
+    diagram_legend: diagramLegend(),
     // The one non-read action: only when the user switched it on for this run.
     lcm_inventory: req.mode === 'prism_central' && req.lcmInventory === true,
   });
@@ -621,6 +627,7 @@ ipc.handle(IPC.startMultiCollection, async (_e, raw: MultiCollectionRequest) => 
     combined_name: req.combinedName,
     vcpu_ratio: vcpuRatio(),
     section_order: sectionOrder(),
+    diagram_legend: diagramLegend(),
     lcm_inventory: req.lcmInventory === true,
   });
   legacyRuns.set(id, runId);
@@ -710,6 +717,7 @@ function exportParams(req: ExportRequest, exportDir: string | undefined): Record
     vcpu_ratio: req.vcpuRatio ?? vcpuRatio(),
     diagrams: req.diagrams === true,
     diagrams_package: req.diagramsPackage === 'folder' ? 'folder' : 'zip',
+    diagram_legend: diagramLegend(),
   };
 }
 
@@ -729,6 +737,7 @@ ipc.handle(IPC.exportDiagram, (_e, raw: unknown) => {
     format: req.format,
     export_dir: exportDir || store.getSettings().exportDir,
     file_prefix: filePrefix(req.filePrefix),
+    diagram_legend: diagramLegend(),
   });
 });
 

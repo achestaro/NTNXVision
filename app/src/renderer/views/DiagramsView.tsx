@@ -1,33 +1,23 @@
 // Diagrams (mocks: C1-C4 on the architecture diagrams canvas). The report's architecture
 // diagrams for one snapshot, editable: rename, reorder within a container, add from the
-// palette, delete, undo and redo, save. Saved edits are operations replayed on the data
-// by the sidecar, so every Word and PDF export draws the saved version.
+// palette or put any icon anywhere, rewrite any text, delete, undo and redo, save. Saved
+// edits are operations replayed on the data by the sidecar, so every Word and PDF export
+// draws the saved version. The Legend switch is remembered per user and exports follow it.
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ArrowArcLeftIcon,
   ArrowArcRightIcon,
+  ArrowsInIcon,
   CaretLeftIcon,
   CaretRightIcon,
   CornersInIcon,
   CornersOutIcon,
-  CubeIcon,
   FlowArrowIcon,
-  GlobeIcon,
-  HardDrivesIcon,
   MinusIcon,
-  MonitorIcon,
-  NoteIcon,
   PlusIcon,
-  RectangleIcon,
-  ShareNetworkIcon,
-  ShieldCheckIcon,
-  SquaresFourIcon,
   TrashIcon,
-  TreeStructureIcon,
-  WallIcon,
 } from '@phosphor-icons/react';
-import type { Icon as PhosphorIcon } from '@phosphor-icons/react';
 import type {
   DiagramArrow,
   DiagramConnector,
@@ -35,6 +25,7 @@ import type {
   DiagramEdgeField,
   DiagramElement,
   DiagramFileFormat,
+  DiagramIcon,
   DiagramLayoutResult,
   DiagramList,
   DiagramOp,
@@ -42,6 +33,8 @@ import type {
   DiagramProblem,
   DiagramSide,
   DiagramStale,
+  SceneEdge,
+  SceneNode,
   SnapshotList,
 } from '@shared/ipc';
 import { MAX_DIAGRAM_OPS } from '@shared/ipc';
@@ -54,23 +47,46 @@ import { isMod, isTyping } from '../lib/keyboard';
 import { NA, errorMessage, fmtAbs, fmtDay, plural } from '../lib/format';
 import { useExportDialog } from './ExportDialog';
 import { useSnapshotTransfer } from './SnapshotTransfer';
-import { SceneCanvas, spoken } from './diagrams/SceneCanvas';
+import { SceneCanvas, partOf, spoken, withoutLegend } from './diagrams/SceneCanvas';
 import type { CanvasTool } from './diagrams/SceneCanvas';
+import { IconPicker } from './diagrams/IconPicker';
+import type { PickerChoice } from './diagrams/IconPicker';
 
-const PALETTE_ICONS: Record<string, PhosphorIcon> = {
-  cluster: CubeIcon,
-  pc: MonitorIcon,
-  az: SquaresFourIcon,
-  storage: HardDrivesIcon,
-  switch: RectangleIcon,
-  note: NoteIcon,
-  // Network segments, virtual networking and microsegmentation palettes.
-  segment: ShareNetworkIcon,
-  gateway: WallIcon,
-  overlay: ShareNetworkIcon,
-  external: GlobeIcon,
-  policy: ShieldCheckIcon,
-};
+/**
+ * Where a new icon of `w` x `h` points goes: the free spot nearest `at` (the middle of
+ * what is in view) that covers nothing drawn, else under the figure.
+ */
+export function freeSpot(nodes: SceneNode[], width: number, height: number, w: number, h: number, at: [number, number], edges: SceneEdge[] = []): [number, number] {
+  // Room for a connector to reach it: a stub, the clearance and another line's end zone.
+  const gap = 16;
+  const solid = nodes.filter((n) => n.kind !== 'label' || !n.id.startsWith('legend:'));
+  // Boxes around every connector run and label: a new icon covers no line either.
+  const runs = edges.flatMap((e) => [
+    ...e.points.slice(1).map((p, i) => {
+      const q = e.points[i];
+      return { x: Math.min(p[0], q[0]), y: Math.min(p[1], q[1]), w: Math.abs(p[0] - q[0]), h: Math.abs(p[1] - q[1]) };
+    }),
+    ...e.labels.map((l) => ({ x: l.x, y: l.y, w: l.w, h: l.h })),
+  ]);
+  const clear = (x: number, y: number) =>
+    x >= 4 &&
+    y >= 4 &&
+    x + w <= width - 4 &&
+    y + h <= height - 4 &&
+    ![...solid, ...runs].some((n) => x < n.x + n.w + gap && x + w + gap > n.x && y < n.y + n.h + gap && y + h + gap > n.y);
+  const cx = Math.round(at[0] - w / 2);
+  const cy = Math.round(at[1] - h / 2);
+  for (let r = 0; r <= 600; r += 12) {
+    for (let k = 0; k < Math.max(1, (r / 12) * 8); k++) {
+      const a = (k / Math.max(1, (r / 12) * 8)) * Math.PI * 2;
+      const x = Math.round(cx + Math.cos(a) * r);
+      const y = Math.round(cy + Math.sin(a) * r);
+      if (clear(x, y)) return [x, y];
+    }
+  }
+  const bottom = Math.max(0, ...nodes.map((n) => n.y + n.h));
+  return [8, Math.round(bottom + 12)];
+}
 
 const DISMISSED_KEY = 'ntnxvision.diagrams.carryDismissed';
 
@@ -112,6 +128,12 @@ export function describeOp(op: DiagramOp, label?: string | null): string {
       return `Added ${op.element.name ?? 'element'}`;
     case 'connect':
       return op.label ? `Connector “${op.label}”` : 'Added connector';
+    case 'place':
+      return `Added ${op.label ?? 'an icon'}`;
+    case 'position':
+      return op.w !== undefined || op.h !== undefined ? `Size of ${name}` : `New place of ${name}`;
+    case 'text':
+      return op.value === null ? 'Text back to generated' : `Text “${op.value}”`;
     case 'edge': {
       const what = label || 'a connector';
       if (op.field === 'hidden') return op.value ? `Removal of ${what}` : `Restore of ${what}`;
@@ -192,7 +214,9 @@ export function DiagramsView({ snapshot: snapProp, type: typeProp, part: partPro
   const { navigate } = useRouter();
   const { dataVersion } = useRun();
   const toast = useToast();
-  const { appInfo } = useSettings();
+  const { appInfo, settings, update: updateSettings } = useSettings();
+  // The Legend switch: per user (Settings), followed by every export that draws diagrams.
+  const legend = settings.diagramLegend !== false;
   const exportDialog = useExportDialog();
   const transfer = useSnapshotTransfer();
 
@@ -299,8 +323,9 @@ export function DiagramsView({ snapshot: snapProp, type: typeProp, part: partPro
   );
 
   const apply = useCallback(
-    (op: DiagramOp): boolean => {
-      if (opsRef.current.length >= MAX_DIAGRAM_OPS) {
+    (op: DiagramOp | DiagramOp[]): boolean => {
+      const list = Array.isArray(op) ? op : [op];
+      if (opsRef.current.length + list.length > MAX_DIAGRAM_OPS) {
         toast.show({
           tone: 'warn',
           title: `This diagram holds ${MAX_DIAGRAM_OPS.toLocaleString('en-US')} edits, the most it can keep.`,
@@ -308,7 +333,7 @@ export function DiagramsView({ snapshot: snapProp, type: typeProp, part: partPro
         });
         return false;
       }
-      setEdits([...opsRef.current, op]);
+      setEdits([...opsRef.current, ...list]);
       setRedo([]);
       return true;
     },
@@ -499,7 +524,7 @@ export function DiagramsView({ snapshot: snapProp, type: typeProp, part: partPro
     setDeskW(el.clientWidth);
     return () => ro.disconnect();
   }, [scene !== undefined]);
-  const fit = scene ? Math.max(0.5, Math.min(2.5, (deskW - 32) / scene.width)) : 1;
+  const fit = scene ? Math.max(0.5, Math.min(2.5, (deskW - 40) / scene.width)) : 1;
   const zoom = zoomMode === 'fit' ? fit : zoomMode;
   const stepZoom = (d: number) => setZoomMode(Math.max(0.5, Math.min(3, Math.round((zoom + d) * 4) / 4)));
 
@@ -604,6 +629,36 @@ export function DiagramsView({ snapshot: snapProp, type: typeProp, part: partPro
       setDownloading(null);
     }
   };
+  /** Text edits in force: node or edge-label key -> line -> text. */
+  const texts = useMemo(() => {
+    const payload = (view?.model as { payload?: { text_edits?: Record<string, Record<string, string>> } } | undefined)?.payload;
+    return payload?.text_edits ?? {};
+  }, [view]);
+  const rewrite = (key: string, line: number, value: string | null) => apply({ op: 'text', id: key, line, value });
+  const placeMoves = (moves: { id: string; x: number; y: number; w?: number; h?: number }[]) =>
+    apply(moves.map((m) => ({ op: 'position', id: m.id, x: Math.round(m.x * 2) / 2, y: Math.round(m.y * 2) / 2, ...(m.w !== undefined ? { w: m.w } : {}), ...(m.h !== undefined ? { h: m.h } : {}) })));
+  const placeIcon = (icon: DiagramIcon) => {
+    if (!scene) return;
+    const shown = legend ? scene : withoutLegend(scene);
+    // The middle of what is in view, in scene points.
+    let at: [number, number] = [shown.width / 2, shown.height / 2];
+    const desk = deskRef.current;
+    const sheet = desk?.querySelector('.dg-sheet');
+    if (desk && sheet) {
+      const d = desk.getBoundingClientRect();
+      const s = sheet.getBoundingClientRect();
+      at = [(d.left + d.width / 2 - s.left) / zoom, (d.top + d.height / 2 - s.top) / zoom];
+    }
+    const [x, y] = freeSpot(shown.nodes, shown.width, shown.height, icon.w, icon.h, at, shown.edges);
+    const id = newId();
+    if (apply({ op: 'place', id, icon: icon.id, scene: scene.id, x, y })) {
+      setSelected(id);
+      afterLayout.current = () =>
+        requestAnimationFrame(() => deskRef.current?.querySelector(`[data-el="${CSS.escape(id)}"]`)?.scrollIntoView({ block: 'nearest', inline: 'nearest' }));
+    }
+  };
+  const pickAdd = (c: PickerChoice) => (c.kind === 'palette' ? add(c.item) : placeIcon(c.icon));
+
   const add = (item: DiagramPaletteItem) => {
     let parent: string | null = null;
     if (item.parents.length) {
@@ -808,25 +863,6 @@ export function DiagramsView({ snapshot: snapProp, type: typeProp, part: partPro
             <Button size="sm" variant="ghost" iconOnly icon={ArrowArcLeftIcon} aria-label="Undo" title="Undo (⌘Z)" disabled={!ops.length} onClick={undo} />
             <Button size="sm" variant="ghost" iconOnly icon={ArrowArcRightIcon} aria-label="Redo" title="Redo (⇧⌘Z)" disabled={!redo.length} onClick={redoOne} />
             <span className="dg-sep" aria-hidden="true" />
-            <Button size="sm" variant="ghost" iconOnly icon={MinusIcon} aria-label="Zoom out" onClick={() => stepZoom(-0.25)} />
-            <span className="mono t12 dg-zoom" aria-live="polite">
-              {Math.round(zoom * 100)}%
-            </span>
-            <Button size="sm" variant="ghost" iconOnly icon={PlusIcon} aria-label="Zoom in" onClick={() => stepZoom(0.25)} />
-            <Button size="sm" variant="ghost" onClick={() => setZoomMode('fit')} aria-pressed={zoomMode === 'fit'}>
-              Fit
-            </Button>
-            <Button
-              size="sm"
-              variant="ghost"
-              iconOnly
-              icon={expanded ? CornersInIcon : CornersOutIcon}
-              aria-label={expanded ? 'Leave the full-window editor' : 'Expand the canvas'}
-              aria-pressed={expanded}
-              title={expanded ? 'Leave the full-window editor (⇧⌘F or Esc)' : 'Expand the canvas to the full window (⇧⌘F)'}
-              onClick={() => setExpanded((v) => !v)}
-            />
-            <span className="dg-sep" aria-hidden="true" />
             <span className="hint dg-dirty">
               <span className={`dg-glyph ${dirty ? 'dirty' : 'clean'}`} aria-hidden="true" />
               {dirty ? (unsaved ? plural(unsaved, 'unsaved change') : 'Unsaved changes') : 'No unsaved changes'}
@@ -840,13 +876,7 @@ export function DiagramsView({ snapshot: snapProp, type: typeProp, part: partPro
           </div>
 
           <div className="dg-tools" role="toolbar" aria-label="Add to diagram">
-            <span className="eyebrow">Add</span>
-            {(detail?.palette ?? []).map((p) => (
-              <button key={p.id} type="button" className="dg-tool" title={p.hint} onClick={() => add(p)} disabled={!view}>
-                {React.createElement(PALETTE_ICONS[p.id] ?? TreeStructureIcon, { size: 14, 'aria-hidden': true })}
-                {p.label}
-              </button>
-            ))}
+            <IconPicker palette={detail?.palette ?? []} icons={detail?.icons ?? []} disabled={!view || !scene} onPick={pickAdd} />
             <button
               type="button"
               className={tool === 'connect' ? 'dg-tool on' : 'dg-tool'}
@@ -859,6 +889,14 @@ export function DiagramsView({ snapshot: snapProp, type: typeProp, part: partPro
               Connector
             </button>
             <div className="spacer" />
+            <Checkbox
+              className="dg-legend"
+              checked={legend}
+              onChange={(v) => void updateSettings({ diagramLegend: v ? undefined : false })}
+              data-testid="dg-legend"
+            >
+              Legend
+            </Checkbox>
             <Button
               size="sm"
               variant="ghost"
@@ -966,6 +1004,7 @@ export function DiagramsView({ snapshot: snapProp, type: typeProp, part: partPro
             </Callout>
           )}
 
+          <div className="dg-stage">
           <div className="dg-desk" ref={deskRef}>
             {loadError ? (
               <InlineEmpty>{loadError}</InlineEmpty>
@@ -992,10 +1031,43 @@ export function DiagramsView({ snapshot: snapProp, type: typeProp, part: partPro
                 onBend={(c, value) => bend(c, value)}
                 onLanePreview={lanePreview}
                 onCancelTool={() => (setTool('select'), setConnectFrom(null))}
+                legend={legend}
+                onText={rewrite}
+                onSublabel={(id, v) => apply({ op: 'set', id, field: 'sublabel', value: v })}
+                onConnectorLabel={(c, v) => editConnector(c, 'label', v)}
+                onPlace={placeMoves}
               />
             ) : (
               list.data && diagrams.length > 0 && <InlineEmpty>Drawing…</InlineEmpty>
             )}
+          </div>
+          {scene && (
+            <div className="dg-zoombar" role="toolbar" aria-label="Zoom">
+              <button type="button" className="dg-zb" aria-label="Zoom out" title="Zoom out" onClick={() => stepZoom(-0.25)} disabled={zoom <= 0.5}>
+                <MinusIcon size={14} aria-hidden="true" />
+              </button>
+              <button type="button" className="dg-zb dg-zb-pct" aria-label="Fit to the canvas" title="Fit to the canvas" aria-pressed={zoomMode === 'fit'} onClick={() => setZoomMode('fit')}>
+                <span aria-live="polite">{Math.round(zoom * 100)}%</span>
+              </button>
+              <button type="button" className="dg-zb" aria-label="Zoom in" title="Zoom in" onClick={() => stepZoom(0.25)} disabled={zoom >= 3}>
+                <PlusIcon size={14} aria-hidden="true" />
+              </button>
+              <span className="dg-zb-sep" aria-hidden="true" />
+              <button type="button" className={zoomMode === 'fit' ? 'dg-zb on' : 'dg-zb'} aria-label="Fit" title="Fit the figure to the canvas width" aria-pressed={zoomMode === 'fit'} onClick={() => setZoomMode('fit')}>
+                <ArrowsInIcon size={14} aria-hidden="true" />
+              </button>
+              <button
+                type="button"
+                className={expanded ? 'dg-zb on' : 'dg-zb'}
+                aria-label={expanded ? 'Leave the full-window editor' : 'Expand the canvas'}
+                aria-pressed={expanded}
+                title={expanded ? 'Leave the full-window editor (⇧⌘F or Esc)' : 'Expand the canvas to the full window (⇧⌘F)'}
+                onClick={() => setExpanded((v) => !v)}
+              >
+                {expanded ? <CornersInIcon size={14} aria-hidden="true" /> : <CornersOutIcon size={14} aria-hidden="true" />}
+              </button>
+            </div>
+          )}
           </div>
           <div className="dg-foot">
             <span className="hint">
@@ -1043,8 +1115,11 @@ export function DiagramsView({ snapshot: snapProp, type: typeProp, part: partPro
             />
           ) : sel ? (
             <Inspector
-              key={sel.id + JSON.stringify([sel.label, sel.sublabel, sel.role])}
+              key={sel.id + JSON.stringify([sel.label, sel.sublabel, sel.role, texts])}
               el={sel}
+              nodes={scene ? scene.nodes.filter((n) => n.id === sel.id || n.parent === sel.id) : []}
+              texts={texts}
+              onText={rewrite}
               onLabel={(v) => rename(sel.id, v)}
               onSublabel={(v) => apply({ op: 'set', id: sel.id, field: 'sublabel', value: v })}
               onRole={(v) => apply({ op: 'set', id: sel.id, field: 'role', value: v })}
@@ -1078,7 +1153,8 @@ export function DiagramsView({ snapshot: snapProp, type: typeProp, part: partPro
                 </div>
               )}
               <p className="hint">
-                Select an element on the canvas to edit its label, role and order, or a connector to change its ends, label and route. Double-click a label to edit it in place.
+                Select an element on the canvas to edit its label, role and order, or a connector to change its ends, label and route. Double-click any text on the figure to rewrite
+                it in place. Add puts any icon on the figure.
               </p>
               {partConnectors.length > 0 && (
                 <div className="dg-conns">
@@ -1153,8 +1229,54 @@ export function DiagramsView({ snapshot: snapProp, type: typeProp, part: partPro
   );
 }
 
+/** The text lines of an element and its chips that are not its label or sublabel. */
+function otherLines(el: DiagramElement, nodes: SceneNode[]): { key: string; line: number; text: string }[] {
+  const out: { key: string; line: number; text: string }[] = [];
+  for (const n of nodes) {
+    n.lines.forEach((t, i) => {
+      if (n.id === el.id && (partOf(t.text, el.label) || partOf(t.text, el.sublabel))) return;
+      out.push({ key: n.id, line: i, text: t.text });
+    });
+  }
+  return out;
+}
+
+function TextLineField({ k, line, text, edited, onText }: { k: string; line: number; text: string; edited: boolean; onText(key: string, line: number, value: string | null): void }): JSX.Element {
+  const [v, setV] = useState(text);
+  const commit = () => {
+    const t = v.replace(/\s+/g, ' ').trim();
+    if (t !== text) onText(k, line, t);
+  };
+  return (
+    <div className="dg-line">
+      <input
+        className="input"
+        aria-label={`Text: ${text}`}
+        value={v}
+        maxLength={200}
+        onChange={(e) => setV(e.target.value)}
+        onBlur={commit}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') {
+            e.preventDefault();
+            commit();
+          }
+        }}
+      />
+      {edited && (
+        <button type="button" className="textlink" onClick={() => onText(k, line, null)}>
+          Revert
+        </button>
+      )}
+    </div>
+  );
+}
+
 function Inspector({
   el,
+  nodes,
+  texts,
+  onText,
   onLabel,
   onSublabel,
   onRole,
@@ -1165,6 +1287,10 @@ function Inspector({
   onEditInPlace,
 }: {
   el: DiagramElement;
+  /** Its scene node and the chips drawn on it. */
+  nodes: SceneNode[];
+  texts: Record<string, Record<string, string>>;
+  onText(key: string, line: number, value: string | null): void;
   onLabel(v: string): void;
   onSublabel(v: string | null): void;
   onRole(v: string | null): void;
@@ -1265,6 +1391,18 @@ function Inspector({
             ))}
           </select>
         </Field>
+      )}
+      {el.free && (
+        <p className="hint dg-ins-note">Placed on the figure: drag it anywhere, drag its corner to resize it, or use ⌥ and the arrow keys to nudge it.</p>
+      )}
+      {otherLines(el, nodes).length > 0 && (
+        <div className="dg-lines">
+          <span className="lbl">Text on the figure</span>
+          {otherLines(el, nodes).map((l) => (
+            <TextLineField key={`${l.key}|${l.line}`} k={l.key} line={l.line} text={l.text} edited={texts[l.key]?.[String(l.line)] !== undefined} onText={onText} />
+          ))}
+          <span className="hint">Or double-click any text on the canvas.</span>
+        </div>
       )}
       <button type="button" className="textlink dg-ins-inplace" style={{ alignSelf: 'flex-start' }} onClick={onConnect}>
         Connect from here (C)

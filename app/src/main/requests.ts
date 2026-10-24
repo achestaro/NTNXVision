@@ -257,6 +257,7 @@ export function cleanSettings(v: unknown): AppSettings {
   if ('author' in r) out.author = cleared('author') ? undefined : str(r.author, 'author', 500);
   if ('filePrefix' in r) out.filePrefix = cleared('filePrefix') ? undefined : str(r.filePrefix, 'filePrefix', 200);
   if ('exportDiagrams' in r) out.exportDiagrams = cleared('exportDiagrams') ? undefined : bool(r.exportDiagrams, 'exportDiagrams');
+  if ('diagramLegend' in r) out.diagramLegend = cleared('diagramLegend') ? undefined : bool(r.diagramLegend, 'diagramLegend');
   if ('vcpuRatio' in r) out.vcpuRatio = cleared('vcpuRatio') ? undefined : num(r.vcpuRatio, 'vcpuRatio', RATIO_MIN, RATIO_MAX);
   if ('startAtLogin' in r) out.startAtLogin = bool(r.startAtLogin, 'startAtLogin');
   // Not secret: the next test email's default recipient (Settings > Email).
@@ -269,7 +270,10 @@ export function cleanSettings(v: unknown): AppSettings {
 
 // ─── diagrams ───────────────────────────────────────────────────────────
 
-const DIAGRAM_OPS = ['set', 'move', 'add', 'delete', 'connect', 'edge'] as const;
+const DIAGRAM_OPS = ['set', 'move', 'add', 'delete', 'connect', 'edge', 'place', 'position', 'text'] as const;
+/** Placed icon coordinates and sizes, points (mirrors MAX_COORD / MAX_SIZE). */
+const DIAGRAM_COORD_MAX = 20000;
+const DIAGRAM_SIZE_MAX = 1600;
 const DIAGRAM_FIELDS = ['label', 'sublabel', 'role'] as const;
 const ID_MAX = 512;
 
@@ -326,6 +330,23 @@ export function asDiagramOps(v: unknown): DiagramOp[] {
       if (o.a_side !== undefined && o.a_side !== null) out.a_side = oneOf(o.a_side, `ops[${i}].a_side`, DIAGRAM_SIDES);
       if (o.b_side !== undefined && o.b_side !== null) out.b_side = oneOf(o.b_side, `ops[${i}].b_side`, DIAGRAM_SIDES);
       return out;
+    }
+    if (op === 'place' || op === 'position') {
+      if (!id.startsWith('user:') || id.length > 80) throw new ValidationError(`ops[${i}].id must start with user:`);
+      const x = num(o.x, `ops[${i}].x`, 0, DIAGRAM_COORD_MAX);
+      const y = num(o.y, `ops[${i}].y`, 0, DIAGRAM_COORD_MAX);
+      const size: { w?: number; h?: number } = {};
+      if (o.w !== undefined && o.w !== null) size.w = num(o.w, `ops[${i}].w`, 4, DIAGRAM_SIZE_MAX);
+      if (o.h !== undefined && o.h !== null) size.h = num(o.h, `ops[${i}].h`, 4, DIAGRAM_SIZE_MAX);
+      if (op === 'position') return { op, id, x, y, ...size };
+      const out: DiagramOp = { op, id, icon: str(o.icon, `ops[${i}].icon`, 200), scene: str(o.scene, `ops[${i}].scene`, 200), x, y, ...size };
+      if (o.label !== undefined) out.label = o.label === null ? null : str(o.label, `ops[${i}].label`, MAX_DIAGRAM_TEXT);
+      if (o.sub !== undefined) out.sub = o.sub === null ? null : str(o.sub, `ops[${i}].sub`, MAX_DIAGRAM_TEXT);
+      return out;
+    }
+    if (op === 'text') {
+      const value = o.value === null || o.value === undefined ? null : str(o.value, `ops[${i}].value`, MAX_DIAGRAM_TEXT);
+      return { op, id, line: int(o.line, `ops[${i}].line`, 0, 63), value };
     }
     if (op === 'edge') {
       if (!Array.isArray(o.ends) || o.ends.length !== 2) throw new ValidationError(`ops[${i}].ends must name two elements`);

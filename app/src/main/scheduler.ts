@@ -455,6 +455,7 @@ export class Scheduler {
           ndb: conn.ndb,
           vcenter: conn.vcenter,
           vcpu_ratio: settings.vcpuRatio,
+          diagram_legend: settings.diagramLegend !== false,
           vcpu_ratio_overrides: conn.overrides,
         });
         if (!result.snapshot_path) {
@@ -487,6 +488,7 @@ export class Scheduler {
           combined_name: names.combined ?? undefined,
           unique_name: true,
           vcpu_ratio: settings.vcpuRatio,
+          diagram_legend: settings.diagramLegend !== false,
         });
         const ok = res.targets.filter((t) => t.success) as (InventoryResult & { host: string })[];
         const bad = res.targets.filter((t) => !t.success) as { host: string; error: string }[];
@@ -527,6 +529,7 @@ export class Scheduler {
         export_dir: reportFolder(settings),
         file_prefix: settings.filePrefix ?? '',
         vcpu_ratio: settings.vcpuRatio,
+        diagram_legend: settings.diagramLegend !== false,
         section_order: defaultSectionOrder(settings),
       });
     } catch (err) {
@@ -603,6 +606,7 @@ export class Scheduler {
         export_dir: reportFolder(settings),
         file_prefix: req.filePrefix !== undefined ? req.filePrefix : settings.filePrefix ?? '',
         vcpu_ratio: settings.vcpuRatio,
+        diagram_legend: settings.diagramLegend !== false,
         section_order: defaultSectionOrder(settings),
       });
     });

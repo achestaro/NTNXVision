@@ -977,7 +977,16 @@ export type DiagramOp =
       index: number;
       element: { id: string; palette: string; name?: string; note?: string };
     }
-  | { op: 'delete'; id: string };
+  | { op: 'delete'; id: string }
+  /** Put an icon of the catalog (DiagramIcon) on one figure scene at (x, y), in points. */
+  | { op: 'place'; id: string; icon: string; scene: string; x: number; y: number; w?: number; h?: number; label?: string | null; sub?: string | null }
+  /** Move or resize a placed icon. */
+  | { op: 'position'; id: string; x: number; y: number; w?: number; h?: number }
+  /**
+   * Rewrite one text line of the figure: `id` is a scene node id, or "<edge id>#<label
+   * index>" for an edge label; `value` null puts the generated text back.
+   */
+  | { op: 'text'; id: string; line: number; value: string | null };
 
 /** Most edits one diagram can hold (mirrors MAX_OPS in diagrams/edits.py). */
 export const MAX_DIAGRAM_OPS = 2000;
@@ -1081,6 +1090,35 @@ export interface DiagramElement {
   move_targets: { id: string; label: string }[];
   /** Why the other containers of that kind refuse it (null: none refuses). */
   move_refusal: string | null;
+  /** A placed icon (op `place`): dragged anywhere on its figure, resized, never laid out. */
+  free?: boolean;
+  /** Placed icon: its catalog id, the scene it is on and its box (points). */
+  icon?: string;
+  scene?: string;
+  x?: number;
+  y?: number;
+  w?: number;
+  h?: number;
+}
+
+/** An icon the Diagrams page can put on any figure: every element kind the engine draws. */
+export interface DiagramIcon {
+  id: string;
+  label: string;
+  /** Picker group ("Infrastructure", "Networking", …). */
+  group: string;
+  /** Default size (points) and text. */
+  w: number;
+  h: number;
+  name: string;
+  sub: string;
+  keywords: string;
+  hint: string;
+  container: boolean;
+  /** The generated element's style, for the picker's swatch. */
+  style: SceneStyle;
+  chip: { label: string; fill: string | null } | null;
+  ink: string;
 }
 
 /** What the inspector knows about one connector (generated or user-added). */
@@ -1238,6 +1276,8 @@ export interface DiagramDetail extends DiagramLayoutResult {
   } | null;
   stale: DiagramStale | null;
   palette: DiagramPaletteItem[];
+  /** Every icon that can be placed on any figure (the "Add" picker). */
+  icons?: DiagramIcon[];
 }
 
 /** Unsaved work in the renderer (window close guard). */
@@ -1843,6 +1883,8 @@ export interface AppSettings {
   filePrefix?: string;
   /** The Export dialog's last "Editable diagrams" choice. Unset = on. */
   exportDiagrams?: boolean;
+  /** The Diagrams page's Legend switch: draw the legend under each figure, in exports too. Unset = on. */
+  diagramLegend?: boolean;
   /**
    * The default vCPU:pCPU target behind the cluster capacity figures ("vCPU Total"):
    * recorded on every cluster a new collection collects unless New collection sets a
