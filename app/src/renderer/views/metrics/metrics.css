@@ -33,22 +33,22 @@
   max-width: 280px;
 }
 
+/* One row under the header: cluster scope left, trend range (runway subpage) right. */
 .mx-scope {
-  margin: 4px 0 20px;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  margin: 0 0 16px;
+}
+.mx-scope .spacer {
+  flex: 1;
 }
 .mx-scope .seg button {
   max-width: 220px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.mx-back {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  margin: 0 0 12px;
-  font-size: 13px;
 }
 
 .mx-loading {
@@ -212,9 +212,19 @@
   color: var(--ink-2);
 }
 .mx-mini-list li {
+  display: flex;
+  gap: 6px;
+  min-width: 0;
+}
+.mx-mini-title {
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.mx-mini-count {
+  flex: none;
+  color: var(--ink-3);
 }
 
 .mx-more {
@@ -269,6 +279,14 @@
   flex: 1;
   min-width: 0;
 }
+/* Narrow cards: a label wraps above its value rather than truncating. */
+.mx-util-text .mx-line {
+  flex-wrap: wrap;
+  column-gap: 8px;
+}
+.mx-util-text .mx-line > span:first-child {
+  overflow: visible;
+}
 .mx-ring {
   flex: none;
 }
@@ -293,8 +311,18 @@
   justify-content: space-between;
   gap: 12px;
 }
-.mx-runway-top > div:first-child {
-  flex: none;
+.mx-runway-head {
+  flex: 0 1 auto;
+  min-width: 0;
+}
+.mx-runway-head .mx-runway-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mx-runway-cluster {
+  font-weight: 500;
+  color: var(--ink-2);
 }
 .mx-runway-label {
   font-size: 12px;
@@ -310,7 +338,16 @@
   font-size: 18px;
   line-height: 40px;
 }
-/* Only warn / error colour the headline; a calm "No growth" stays ink. */
+/* Only warn / error colour the headline; a calm "No growth" stays ink. (The display
+ * numeral rule above sets ink, so the two tones are restated here to win.) */
+.mx-runway-when.tone-warn,
+.mx-reach-when.tone-warn {
+  color: var(--warn);
+}
+.mx-runway-when.tone-error,
+.mx-reach-when.tone-error {
+  color: var(--error);
+}
 .mx-runway-when.tone-ok,
 .mx-runway-when.tone-idle,
 .mx-reach-when.tone-ok,
@@ -423,15 +460,24 @@
   display: block;
   overflow: visible;
 }
+/* Fills the card's free height; the svg is out of flow so it never props the row open. */
+.mx-trend-fill {
+  flex: 1 1 auto;
+}
+.mx-trend-fill svg {
+  position: absolute;
+  top: 0;
+  left: 0;
+}
 .mx-axis {
   font-family: var(--font-mono);
   font-size: 10px;
   fill: var(--ink-3);
 }
+/* Beside the crosshair (right of it, or left past the middle), clear of the hovered points. */
 .mx-tip {
   position: absolute;
-  top: 0;
-  transform: translateX(-50%);
+  transform: translateX(12px);
   min-width: 120px;
   padding: 6px 8px;
   background: var(--surface-raised);
@@ -442,6 +488,9 @@
   line-height: 18px;
   pointer-events: none;
   z-index: 2;
+}
+.mx-tip-left {
+  transform: translateX(calc(-100% - 12px));
 }
 .mx-tip-day {
   color: var(--ink-3);

@@ -2,11 +2,11 @@
 // reached from its card and returns with the back link; the cluster scope carries over.
 
 import React from 'react';
-import type { MetricsAlert, MetricsResource, MetricsTopKey, MetricsTrends, MetricsTrendsResult, RunwayByRange } from '@shared/ipc';
+import type { MetricsAlert, MetricsClusterTrends, MetricsResource, MetricsTopKey, MetricsTrends, MetricsTrendsResult, RunwayByRange } from '@shared/ipc';
 import { DataTable, Status } from '../../components';
 import { NA, fmtAbs, fmtCount } from '../../lib/format';
 import { BarList, SERIES_COLOR, TrendChart } from './charts';
-import { Card, Section, topRows, type Detail } from './Dashboard';
+import { Card, Section, soonestCluster, topRows, type Detail } from './Dashboard';
 import {
   RESOURCES,
   type NicRow,
@@ -121,7 +121,7 @@ const VM_LISTS: { key: MetricsTopKey; title: string }[] = [
 
 export function VmsDetail({ v }: { v: ScopeView }): JSX.Element {
   return (
-    <Section title="Top powered-on VMs" note="Five per list, now">
+    <Section title="Top powered-on VMs" note="Five per list">
       <div className="mx-grid mx-grid-2">
         {VM_LISTS.map((l) => (
           <Card key={l.key} title={l.title}>
@@ -184,7 +184,7 @@ export function RunwayDetail({
   trends: PartState<MetricsTrendsResult>;
   range: number;
   /** All clusters: one row per cluster under the target's charts. */
-  clusterRunways?: { uuid: string; name: string; runway: RunwayByRange }[];
+  clusterRunways?: MetricsClusterTrends[];
 }): JSX.Element {
   if (!scoped) {
     return (
@@ -198,7 +198,17 @@ export function RunwayDetail({
   return (
     <>
       {RESOURCES.map((r) => (
-        <ResourceRunway key={r.key} resource={r.key} label={r.label} tr={tr} scoped={scoped} runway={runway?.[r.key]} range={range} prism={v.prismRunway?.[r.key] ?? null} />
+        <ResourceRunway
+          key={r.key}
+          resource={r.key}
+          label={r.label}
+          tr={tr}
+          scoped={scoped}
+          runway={runway?.[r.key]}
+          range={range}
+          prism={v.prismRunway?.[r.key] ?? null}
+          soonest={clusterRunways ? soonestCluster(clusterRunways, String(range), r.key, runway?.[r.key]) : null}
+        />
       ))}
       {clusterRunways && clusterRunways.length > 1 && (
         <Section title="By cluster" note={`When each cluster reaches 80%, ${range}-day fit`}>
@@ -239,6 +249,7 @@ function ResourceRunway({
   runway,
   range,
   prism,
+  soonest,
 }: {
   resource: MetricsResource;
   label: string;
@@ -247,6 +258,8 @@ function ResourceRunway({
   runway: RunwayByRange[string][MetricsResource] | undefined;
   range: number;
   prism: number | null;
+  /** All clusters: the cluster that reaches 80% before the target as a whole. */
+  soonest: { name: string; runway: RunwayByRange[string][MetricsResource] } | null;
 }): JSX.Element {
   const values = tr[`${resource}_pct` as 'cpu_pct'];
   const last = tr.t[tr.t.length - 1];
@@ -273,6 +286,7 @@ function ResourceRunway({
             ]}
             projection={projection}
             height={200}
+            fill
             label={`${label} utilization per day with its projection`}
           />
         </div>
@@ -304,9 +318,22 @@ function ResourceRunway({
             {runway?.r2 !== null && runway?.r2 !== undefined && runway.r2 < 0.3 && runway.status === 'growing' ? ' (weak trend, treat the date as rough)' : ''}
             {prism !== null ? ` · Prism Central's estimate: ${prism >= 365 ? 'over a year' : `${fmtCount(prism)} days`}` : ''}
           </p>
+          {soonest && <SoonestLine name={soonest.name} runway={soonest.runway} />}
         </div>
       </div>
     </Section>
+  );
+}
+
+/** All clusters: the charts are the target's total, so name the cluster that fills first. */
+function SoonestLine({ name, runway }: { name: string; runway: RunwayByRange[string][MetricsResource] }): JSX.Element {
+  const th = threshold(runway, 80);
+  const when = runwayWhen(runway, th);
+  const tone = runwayTone(th);
+  return (
+    <p className="mx-soonest">
+      Soonest cluster: <strong>{name}</strong>, 80% <span className={tone === 'ok' ? undefined : `tone-${tone}`}>{when === 'Reached' ? 'reached' : `in ${when}`}</span>
+    </p>
   );
 }
 

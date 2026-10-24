@@ -235,6 +235,11 @@ export function latency(us: number | null | undefined): string {
   return ms < 10 ? `${ms.toFixed(1)} ms` : `${Math.round(ms)} ms`;
 }
 
+/** Latency on a chart axis: a bare "0" at the origin, otherwise as `latency`. */
+export function latencyAxis(us: number): string {
+  return us === 0 ? '0' : latency(us);
+}
+
 /** Throughput from kB/s: "71 KB/s", "1.2 GB/s". */
 export function rate(kBps: number | null | undefined): string {
   if (kBps === null || kBps === undefined) return NA;

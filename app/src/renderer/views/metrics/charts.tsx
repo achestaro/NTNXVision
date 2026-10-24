@@ -9,12 +9,17 @@
 
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 
-/** The page's fixed resource colours (validated for colour-blind separation, both themes). */
+/** The page's fixed resource colours, from theme tokens (both themes). */
 export const SERIES_COLOR = {
   cpu: 'var(--chart-1)',
-  memory: 'var(--chart-3)',
+  // Memory: violet, not magenta (which reads as alarm next to red runway text). Under
+  // protan / deutan simulation violet sits closer to the CPU blue than magenta did, so
+  // every place both appear also names them (card titles, legend, tooltip).
+  memory: 'var(--chart-5)',
   storage: 'var(--chart-8)',
-  perf: 'var(--chart-7)',
+  // Single-series performance charts and the Top-VM bars stay neutral: colour is kept
+  // for the three capacity resources.
+  perf: 'var(--ink-3)',
 } as const;
 
 /** Width of an element, following resizes (charts fill their card). */
@@ -31,6 +36,23 @@ export function useWidth<T extends HTMLElement>(fallback = 320): [React.RefObjec
     return () => ro.disconnect();
   }, [fallback]);
   return [ref, width];
+}
+
+/** Width and height of an element, following resizes (a chart that fills its card). */
+export function useSize<T extends HTMLElement>(fallbackW: number, fallbackH: number): [React.RefObject<T>, number, number] {
+  const ref = useRef<T>(null);
+  const [size, setSize] = useState<[number, number]>([fallbackW, fallbackH]);
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const read = () => setSize([el.clientWidth || fallbackW, el.clientHeight || fallbackH]);
+    read();
+    if (typeof ResizeObserver === 'undefined') return;
+    const ro = new ResizeObserver(read);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [fallbackW, fallbackH]);
+  return [ref, size[0], size[1]];
 }
 
 // ─── ring meter ────────────────────────────────────────────────────────
@@ -259,16 +281,20 @@ export function shortDay(ms: number): string {
 export function TrendChart({
   t,
   series,
-  height = 168,
+  height: minHeight = 168,
   yMax,
   yFormat,
   thresholds = [],
   projection,
   label,
+  fill = false,
 }: {
   t: number[];
   series: TrendSeries[];
+  /** Height in px; with `fill`, the smallest height. */
   height?: number;
+  /** Grow to the card's free height (the row's taller neighbour sets it). */
+  fill?: boolean;
   /** Fixed top of the y-axis (100 for percentages); fitted to the data otherwise. */
   yMax?: number;
   yFormat(v: number): string;
@@ -276,7 +302,8 @@ export function TrendChart({
   projection?: Projection | null;
   label: string;
 }): JSX.Element {
-  const [ref, width] = useWidth<HTMLDivElement>(480);
+  const [ref, width, boxH] = useSize<HTMLDivElement>(480, minHeight);
+  const height = fill ? Math.max(minHeight, boxH) : minHeight;
   const [hover, setHover] = useState<number | null>(null);
   const left = 44;
   // Room on the right for the threshold labels, outside the plot.
@@ -316,7 +343,7 @@ export function TrendChart({
 
   const hx = hover !== null ? x(t[hover]) : 0;
   return (
-    <div ref={ref} className="mx-trend">
+    <div ref={ref} className={fill ? 'mx-trend mx-trend-fill' : 'mx-trend'} style={fill ? { minHeight } : undefined}>
       <svg
         width={width}
         height={height}
@@ -401,7 +428,8 @@ export function TrendChart({
         )}
       </svg>
       {hover !== null && (
-        <div className="mx-tip" style={{ left: Math.min(Math.max(hx, 70), width - 70) }} role="status">
+        // Beside the crosshair, on the side away from the edge, so it never covers the points.
+        <div className={hx > left + plotW / 2 ? 'mx-tip mx-tip-left' : 'mx-tip'} style={{ left: hx, top }} role="status">
           <div className="mx-tip-day">{shortDay(t[hover])}</div>
           {series.map((s) => (
             <div key={s.key} className="mx-tip-row">

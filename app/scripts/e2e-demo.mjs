@@ -1643,7 +1643,7 @@ try {
   // ── Insights > Metrics: live read of pc01 through the real sidecar and mock API ──
   await run('metrics-live', async () => {
     await rail('Metrics');
-    const picker = page.getByRole('combobox', { name: 'Saved target' });
+    const picker = page.getByRole('combobox', { name: 'Target' });
     await picker.waitFor({ timeout: 15_000 });
     const value = await picker.locator('option').filter({ hasText: /PC01/ }).first().getAttribute('value');
     await picker.selectOption(value);
@@ -1655,10 +1655,10 @@ try {
     await page.getByRole('button', { name: 'Storage runway: open the projection' }).click();
     await page.getByRole('heading', { level: 1, name: 'Runway' }).waitFor();
     await page.getByText(/^Growing \d/).first().waitFor();
-    await page.getByRole('button', { name: /^Metrics of / }).click();
+    await page.getByRole('button', { name: 'Dashboard' }).click();
     await page.getByRole('button', { name: 'Nodes and CVMs: open the list' }).click();
     await page.getByRole('table', { name: 'Nodes and CVMs' }).getByText('Normal mode').first().waitFor();
-    await page.getByRole('button', { name: /^Metrics of / }).click();
+    await page.getByRole('button', { name: 'Dashboard' }).click();
     await page.getByRole('button', { name: 'Refresh' }).click();
     await page.getByRole('button', { name: 'Refresh' }).waitFor({ timeout: 120_000 });
   });
