@@ -1895,6 +1895,107 @@ export interface FileFilter {
   extensions: string[];
 }
 
+// ─── Insights > Optimization (sidecar `optimization`) ───────────────────
+
+export type OptimizationSeverity = 'high' | 'medium' | 'low';
+
+/** One review card on the Optimization page (only `vm_compute` exists today). */
+export interface OptimizationReview {
+  id: 'vm_compute';
+  title: string;
+  description: string;
+  /** "12 VMs to review" / "Nothing to review". */
+  headline: string;
+  count: number;
+  /** The worst severity among its findings, null when there are none. */
+  severity: OptimizationSeverity | null;
+  reviewed: number;
+}
+
+/** A VM's CPU / memory layout. `threads_per_core` is 1 when the API reports none (ESXi). */
+export interface ComputeLayout {
+  sockets: number;
+  cores_per_socket: number;
+  threads_per_core: number;
+  vcpus: number;
+  memory_bytes: number | null;
+  /** AHV virtual NUMA nodes (0 = off); null on ESXi or when the snapshot predates the field. */
+  vnuma_nodes: number | null;
+}
+
+export interface ComputeReason {
+  rule: string;
+  severity: OptimizationSeverity;
+  title: string;
+  text: string;
+}
+
+/** The host a VM was checked against (one NUMA node per socket). */
+export interface ComputeHost {
+  uuid: string;
+  name: string;
+  sockets: number;
+  cores: number;
+  cores_per_node: number;
+  threads_per_core: number | null;
+  memory_bytes: number | null;
+  memory_per_node_bytes: number | null;
+  numa_nodes: number;
+  /** current = the host it runs on; smallest = the cluster's smallest (powered off / unknown host). */
+  basis: 'current' | 'smallest';
+}
+
+export interface ComputeFinding {
+  /** VM UUID (also the Inventory deep link's objectId). */
+  id: string;
+  vm: string;
+  cluster: string;
+  cluster_uuid: string | null;
+  power_state: string | null;
+  hypervisor: string | null;
+  guest_os: string | null;
+  source_pc: string | null;
+  severity: OptimizationSeverity;
+  /** The title of the most severe reason. */
+  finding: string;
+  reasons: ComputeReason[];
+  current: ComputeLayout;
+  recommended: ComputeLayout;
+  /** The host the recommendation is sized for (the smallest one when the cluster is mixed). */
+  sized_for: string;
+  host: ComputeHost;
+  mixed_cluster: boolean;
+}
+
+export interface ComputeUnchecked {
+  id: string;
+  vm: string;
+  cluster: string;
+  power_state: string | null;
+  reason: string;
+}
+
+export interface ComputeReview {
+  summary: {
+    reviewed: number;
+    to_optimize: number;
+    clean: number;
+    high: number;
+    medium: number;
+    low: number;
+    not_checked: number;
+    powered_off: number;
+  };
+  findings: ComputeFinding[];
+  not_checked: ComputeUnchecked[];
+  assumptions: string[];
+}
+
+export interface OptimizationResult {
+  reviews: OptimizationReview[];
+  vm_compute: ComputeReview;
+}
+
 // ─── channels ───────────────────────────────────────────────────────────
 
 export const IPC = {
@@ -1930,6 +2031,8 @@ export const IPC = {
   carryDiagrams: 'core:carryDiagrams',
   previewExport: 'core:previewExport',
   exportDiagram: 'core:exportDiagram',
+  /** Insights > Optimization: the reviews of one snapshot. */
+  getOptimization: 'core:getOptimization',
   // main-process only
   getAppInfo: 'app:getAppInfo',
   getLegalDocuments: 'app:getLegalDocuments',
@@ -2029,6 +2132,9 @@ export interface NtnxApi {
   previewExport(req: ExportRequest): Promise<ExportPreview>;
   /** One diagram (saved version) as Visio, draw.io, SVG or PNG, written to the export folder. */
   exportDiagram(req: DiagramFileRequest): Promise<DiagramFileResult>;
+
+  /** Insights > Optimization: the optimization reviews computed from one snapshot (read-only). */
+  getOptimization(snapshotPath: string): Promise<OptimizationResult>;
 
   revealPath(path: string): Promise<void>;
   openPath(path: string): Promise<{ error: string | null }>;

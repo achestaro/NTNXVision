@@ -74,6 +74,8 @@ const api: NtnxApi = {
     ipcRenderer.invoke(IPC.getObjectDetail, path, objectType, id),
   compareSnapshots: (baseline: string, current: string) =>
     ipcRenderer.invoke(IPC.compareSnapshots, baseline, current),
+  // Insights > Optimization
+  getOptimization: (path: string) => ipcRenderer.invoke(IPC.getOptimization, path),
   exportComparison: (req: CompareExportRequest) => ipcRenderer.invoke(IPC.exportComparison, req),
   exportSnapshot: (req: ExportRequest) => ipcRenderer.invoke(IPC.exportSnapshot, req),
   getReportSections: (path: string) => ipcRenderer.invoke(IPC.getReportSections, path),

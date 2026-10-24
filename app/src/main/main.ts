@@ -673,6 +673,11 @@ ipc.handle(IPC.getObjectDetail, (_e, snapshotPath: string, objectType: string, i
   }),
 );
 
+// Insights > Optimization
+ipc.handle(IPC.getOptimization, (_e, snapshotPath: string) =>
+  sidecar.call('optimization', { snapshot: snapshotPathArg(snapshotPath) }),
+);
+
 ipc.handle(IPC.compareSnapshots, (_e, baseline: string, current: string) =>
   sidecar.call('compare_snapshots', { baseline: snapshotPathArg(baseline, 'baseline'), current: snapshotPathArg(current, 'current') }),
 );
