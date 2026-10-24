@@ -3367,3 +3367,31 @@ body.dg-expanded-open .toasts {
   border-color: var(--accent);
   color: var(--accent);
 }
+
+/* Help menu header (Runway account-menu layout): app name, then version and build tags. */
+.help-menu {
+  min-width: 220px;
+}
+.help-menu-head {
+  padding: 8px 12px;
+  margin-bottom: 4px;
+  border-bottom: 1px solid var(--rule);
+}
+.help-menu-name {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--ink);
+}
+.help-menu-sub {
+  margin: 2px 0 0;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--ink-3);
+}
+.help-menu-tag {
+  color: var(--warn);
+}
+.rail-foot-error {
+  color: var(--error);
+}

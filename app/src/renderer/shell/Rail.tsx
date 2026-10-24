@@ -4,9 +4,15 @@
 import React from 'react';
 import { Icon } from '../components/Icon';
 import { useRouter } from '../lib/router';
+import type { AppInfo } from '@shared/ipc';
 import { NAV_GROUPS, NavItem, SETTINGS_ITEM } from './nav';
 
-export function Rail({ version, coreState }: { version: string | null; coreState: 'starting' | 'ready' | 'error' }): JSX.Element {
+/** The build tags shown next to the version: "dev" for an unpackaged app, "demo" in demo mode. */
+export function buildTags(info: AppInfo | null | undefined): string[] {
+  return [info?.dev && 'dev', info?.demo && 'demo'].filter((t): t is string => !!t);
+}
+
+export function Rail({ appInfo, coreState }: { appInfo: AppInfo | null; coreState: 'starting' | 'ready' | 'error' }): JSX.Element {
   const { route, navigate } = useRouter();
   const item = (it: NavItem) => {
     const on = route.screen === it.screen || !!it.also?.includes(route.screen);
@@ -23,7 +29,6 @@ export function Rail({ version, coreState }: { version: string | null; coreState
       </button>
     );
   };
-  const coreLabel = coreState === 'ready' ? 'core ready' : coreState === 'error' ? 'core unavailable' : 'core starting';
   return (
     <nav className="rail" aria-label="Primary">
       {NAV_GROUPS.map((g, i) => (
@@ -35,8 +40,8 @@ export function Rail({ version, coreState }: { version: string | null; coreState
       <div style={{ flex: 1 }} />
       {item(SETTINGS_ITEM)}
       <div className="mono rail-foot">
-        {version ? `v${version} · ` : ''}
-        {coreLabel}
+        {appInfo && [`v${appInfo.version}`, ...buildTags(appInfo)].join(' · ')}
+        {coreState === 'error' && <span className="rail-foot-error"> · core unavailable</span>}
       </div>
     </nav>
   );

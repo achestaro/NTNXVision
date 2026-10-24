@@ -1,8 +1,8 @@
 // 40 px command bar, dark in every theme: brand · ⌘K search · live run progress ·
-// theme menu (System / Light / Dark / High contrast) · help.
+// theme menu (System / Light / Dark / High contrast) · help menu (shortcuts, About).
 
 import React from 'react';
-import { MagnifyingGlassIcon, QuestionIcon } from '@phosphor-icons/react';
+import { MagnifyingGlassIcon } from '@phosphor-icons/react';
 import { Icon } from '../components/Icon';
 import { BrandMark } from '../components/BrandMark';
 import { useRouter } from '../lib/router';
@@ -10,15 +10,14 @@ import { modKey } from '../lib/settings';
 import { runCounts, useRun } from '../lib/run';
 import { fmtCount } from '../lib/format';
 import { ThemeModeMenu } from './ThemeModeMenu';
+import { HelpMenu } from './HelpMenu';
 
 export function CommandBar({
   onOpenPalette,
-  helpOpen,
-  onToggleHelp,
+  onShowShortcuts,
 }: {
   onOpenPalette(): void;
-  helpOpen: boolean;
-  onToggleHelp(): void;
+  onShowShortcuts(): void;
 }): JSX.Element {
   const { navigate } = useRouter();
   const { run, isRunning } = useRun();
@@ -54,18 +53,7 @@ export function CommandBar({
         </button>
       )}
       <ThemeModeMenu />
-      <button
-        className="bb"
-        type="button"
-        aria-label="Help and keyboard shortcuts"
-        title="Help and keyboard shortcuts (?)"
-        aria-expanded={helpOpen}
-        aria-haspopup="dialog"
-        data-help-button=""
-        onClick={onToggleHelp}
-      >
-        <Icon icon={QuestionIcon} size={16} />
-      </button>
+      <HelpMenu onShowShortcuts={onShowShortcuts} />
     </header>
   );
 }

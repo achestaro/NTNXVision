@@ -1973,6 +1973,8 @@ export interface AppInfo {
    * its snapshots apart from real ones.
    */
   demo?: boolean;
+  /** An unpackaged (development) build: the rail and Help menu tag the version "dev". */
+  dev?: boolean;
   /**
    * Test hook (unpackaged builds only, NTNXVISION_METRICS_REFRESH_MS): the Metrics auto
    * refresh interval in milliseconds instead of the chosen minutes, so e2e can watch it fire.

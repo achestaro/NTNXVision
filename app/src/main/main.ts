@@ -480,6 +480,7 @@ ipc.handle(IPC.getAppInfo, (): AppInfo => ({
   platform: process.platform as Platform,
   defaultExportDir: join(homedir(), 'Documents', 'NTNXVision'),
   demo,
+  dev: !app.isPackaged,
   ...(metricsRefreshMs ? { metricsRefreshMs } : {}),
 }));
 

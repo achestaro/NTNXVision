@@ -114,11 +114,10 @@ function Shell(): JSX.Element {
       </a>
       <CommandBar
         onOpenPalette={() => setPaletteOpen(true)}
-        helpOpen={helpOpen}
-        onToggleHelp={() => setHelpOpen((o) => !o)}
+        onShowShortcuts={() => setHelpOpen(true)}
       />
       <div className="body-row">
-        <Rail version={appInfo?.version ?? null} coreState={coreState} />
+        <Rail appInfo={appInfo ?? null} coreState={coreState} />
         <main className="main" id="main">
           {renderScreen()}
         </main>
