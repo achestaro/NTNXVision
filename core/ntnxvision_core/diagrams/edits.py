@@ -69,9 +69,13 @@ MAX_WRAPS = 16
 #: Most text lines a single node carries that a text edit may name.
 MAX_LINE = 64
 #: What an ``edge`` operation may change.
-EDGE_FIELDS = ("a", "b", "label", "a_side", "b_side", "bend", "arrow", "hidden", "route")
+EDGE_FIELDS = ("a", "b", "label", "a_side", "b_side", "bend", "arrow", "hidden", "route",
+               "head_start", "head_end")
 SIDES = ("auto", "top", "right", "bottom", "left")
 ARROWS = ("none", "end", "start", "both")
+#: Arrowhead shapes one end of a connector may take (``head_start`` / ``head_end``;
+#: mirrors `render.heads.HEADS`). An ``arrow`` edit afterwards puts both back to arrows.
+HEADS = ("none", "arrow", "open", "diamond", "circle")
 #: Largest lane offset (pt) a connector may carry.
 MAX_BEND = 600.0
 
@@ -346,6 +350,10 @@ def _clean_edge(op: dict[str, Any], ident: str, i: int) -> dict[str, Any]:
     elif fld == "arrow":
         if v not in ARROWS:
             raise EditError(f"Edit {i + 1}: arrowheads are one of {', '.join(ARROWS)}")
+        value = v
+    elif fld in ("head_start", "head_end"):
+        if v not in HEADS:
+            raise EditError(f"Edit {i + 1}: an arrowhead is one of {', '.join(HEADS)}")
         value = v
     elif fld == "bend":
         if isinstance(v, bool) or not isinstance(v, (int, float)) or abs(v) > MAX_BEND:
@@ -744,6 +752,9 @@ def _edge(doc: dict[str, Any], op: dict[str, Any], slots: dict[str, Slot]) -> st
         if fld == "route":
             conn.update(a_side="auto", b_side="auto", bend=0)
             return None
+        if fld == "arrow":  # the arrowheads switch: plain arrows again
+            conn.pop("head_start", None)
+            conn.pop("head_end", None)
         conn[fld] = value
         if fld in ("a", "b") and op.get("side"):
             conn[f"{fld}_side"] = op["side"]
@@ -762,6 +773,9 @@ def _edge(doc: dict[str, Any], op: dict[str, Any], slots: dict[str, Slot]) -> st
             return "a connector needs two different ends"
         if nested(slots, value, other):
             return NESTED
+    if fld == "arrow":  # the arrowheads switch: plain arrows again
+        entry.pop("head_start", None)
+        entry.pop("head_end", None)
     if fld == "route":
         for k in ("a_side", "b_side", "bend"):
             entry.pop(k, None)
@@ -1100,7 +1114,7 @@ def _connector_parts(edited: dict[str, Any], spec: EditSpec,
             counts["with the label removed" if not entry["label"] else "relabeled"] += 1
         if any(k in entry for k in ("a_side", "b_side", "bend")):
             counts["rerouted"] += 1
-        if "arrow" in entry:
+        if any(k in entry for k in ("arrow", "head_start", "head_end")):
             counts["with new arrowheads"] += 1
     parts = []
     if added:

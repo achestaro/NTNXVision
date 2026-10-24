@@ -16,7 +16,12 @@ from xml.sax.saxutils import escape, quoteattr
 
 from .. import text as tx
 from ..scene import LAYER, Edge, EdgeLabel, Node, Scene, TextLine, num
+from . import heads
 from .vsdx import page_names
+
+#: draw.io arrow names per head shape (`heads.HEADS`).
+DRAWIO_HEAD = {"none": "none", "arrow": "block", "open": "open", "diamond": "diamond",
+               "circle": "oval"}
 
 #: Calibri first, as in the .vsdx: its widths are checked against the layout's reserve
 #: (`text.SAFETY`); Figtree, the measuring font, where Calibri is missing.
@@ -85,11 +90,11 @@ def _edge_style(e: Edge, by_id: dict[str, Node] | None = None) -> str:
     routed = bool(e.src or e.dst)
     # Arrowheads grow with the line, as in the report.
     size = num(4 + 2 * st.stroke_w)
+    start, end = heads.kinds(e)
     parts = ["html=1", "rounded=0", f"fontFamily={FONT}", f"strokeColor={color}",
              f"strokeWidth={num(st.stroke_w)}", "labelBackgroundColor=#FFFFFF",
-             f"endArrow={'block' if e.arrow_end else 'none'}", "endFill=1", f"endSize={size}",
-             f"startArrow={'block' if e.arrow_start else 'none'}", "startFill=1",
-             f"startSize={size}"]
+             f"endArrow={DRAWIO_HEAD[end]}", "endFill=1", f"endSize={size}",
+             f"startArrow={DRAWIO_HEAD[start]}", "startFill=1", f"startSize={size}"]
     if routed:
         parts.insert(0, "edgeStyle=orthogonalEdgeStyle")
         # Pinned ports: the edge leaves and enters where the layout drew it, and

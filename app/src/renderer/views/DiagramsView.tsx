@@ -55,6 +55,11 @@ import { ConnectorsMenu } from './diagrams/ConnectorsMenu';
 import type { PickerChoice } from './diagrams/IconPicker';
 import { holds, kindOf, nameOf, placedMeta, planAdd, unwarp } from './diagrams/nesting';
 import type { NestContext } from './diagrams/nesting';
+// ─ canvas chrome: view options, legend overlay, context menu, wheel zoom ─
+import { CanvasOptions } from './diagrams/CanvasOptions';
+import { LegendOverlay } from './diagrams/LegendOverlay';
+import { CanvasMenu } from './diagrams/ContextMenu';
+import { useWheelZoom } from './diagrams/useWheelZoom';
 
 const isLegend = (id: string) => id.startsWith('legend:');
 const sameStyle = (a: SceneStyle, b: SceneStyle) =>
@@ -287,6 +292,9 @@ export function DiagramsView({ snapshot: snapProp, type: typeProp, part: partPro
   const { appInfo, settings, update: updateSettings } = useSettings();
   // The Legend switch: per user (Settings), followed by every export that draws diagrams.
   const legend = settings.diagramLegend !== false;
+  // Canvas view (View menu): per user, editor only.
+  const grid = settings.diagramGrid ?? 'none';
+  const canvasBg = settings.diagramCanvas ?? 'white';
   const exportDialog = useExportDialog();
   const transfer = useSnapshotTransfer();
 
@@ -649,12 +657,16 @@ export function DiagramsView({ snapshot: snapProp, type: typeProp, part: partPro
     }, 400);
     return () => window.clearTimeout(t);
   }, [selected]);
-  const shownScene = scene ? (legend ? scene : withoutLegend(scene)) : undefined;
+  // The legend is an overlay on the stage (LegendOverlay), never part of the scrolling figure.
+  const shownScene = scene ? withoutLegend(scene) : undefined;
   // Fit: the whole figure in the canvas, width and height, with room under it for the
   // floating zoom controls (the desk's padding: 16 each side, 16 top and 56 under).
   const fit = shownScene ? Math.max(MIN_ZOOM, Math.min(2.5, (desk[0] - 32) / shownScene.width, (desk[1] - 72) / shownScene.height)) : 1;
   const zoom = zoomMode === 'fit' ? fit : zoomMode;
   const stepZoom = (d: number) => setZoomMode(Math.max(MIN_ZOOM, Math.min(3, Math.round((zoom + d) * 4) / 4)));
+  useWheelZoom(deskRef, zoom, setZoomMode, MIN_ZOOM, 3);
+  // ─ context menu (right-click, context-menu key, Shift+F10) ─
+  const [ctxMenu, setCtxMenu] = useState<{ id: string; x: number; y: number } | null>(null);
   // With the inspector open the figure stays where it was centred without it.
   const figW = shownScene ? shownScene.width * zoom : 0;
   const shift = desk[2] ? Math.max(0, (desk[0] - 32 - figW) / 2) - Math.max(0, (desk[0] - desk[2] - 32 - figW) / 2) : 0;
@@ -1058,6 +1070,13 @@ export function DiagramsView({ snapshot: snapProp, type: typeProp, part: partPro
               {nestHint ?? 'Double-click any text to edit it.'}
             </span>
             <div className="spacer" />
+            <CanvasOptions
+              grid={grid}
+              background={canvasBg}
+              disabled={!scene}
+              onGrid={(v) => void updateSettings({ diagramGrid: v === 'none' ? undefined : v })}
+              onBackground={(v) => void updateSettings({ diagramCanvas: v === 'white' ? undefined : v })}
+            />
             <Checkbox
               className="dg-legend"
               checked={legend}
@@ -1163,7 +1182,7 @@ export function DiagramsView({ snapshot: snapProp, type: typeProp, part: partPro
             </Callout>
           )}
 
-          <div className="dg-stage">
+          <div className={canvasBg === 'transparent' ? 'dg-stage clear' : 'dg-stage'}>
           <div className="dg-desk" ref={deskRef} style={{ '--dg-shift': `${Math.round(shift)}px` } as React.CSSProperties}>
             {loadError ? (
               <InlineEmpty>{loadError}</InlineEmpty>
@@ -1190,7 +1209,10 @@ export function DiagramsView({ snapshot: snapProp, type: typeProp, part: partPro
                 onBend={(c, value) => bend(c, value)}
                 onLanePreview={lanePreview}
                 onCancelTool={() => (setTool('select'), setConnectFrom(null))}
-                legend={legend}
+                legend={false}
+                grid={grid}
+                background={canvasBg}
+                onContextMenu={(id, x, y) => setCtxMenu({ id, x, y })}
                 onText={rewrite}
                 onSublabel={(id, v) => apply({ op: 'set', id, field: 'sublabel', value: v })}
                 onConnectorLabel={(c, v) => editConnector(c, 'label', v)}
@@ -1210,6 +1232,7 @@ export function DiagramsView({ snapshot: snapProp, type: typeProp, part: partPro
               list.data && diagrams.length > 0 && <InlineEmpty>Drawing…</InlineEmpty>
             )}
           </div>
+          {scene && legend && <LegendOverlay scene={scene} onText={rewrite} />}
           {scene && (
             <div className="dg-zoombar" role="toolbar" aria-label="Zoom">
               <button type="button" className="dg-zb" aria-label="Zoom out" title="Zoom out" onClick={() => stepZoom(-0.25)} disabled={zoom <= 0.5}>
@@ -1336,6 +1359,31 @@ export function DiagramsView({ snapshot: snapProp, type: typeProp, part: partPro
         )}
       </div>
 
+      {ctxMenu && (outline.has(ctxMenu.id) || connectors.has(ctxMenu.id)) && (
+        <CanvasMenu
+          at={ctxMenu}
+          el={outline.get(ctxMenu.id) ?? null}
+          conn={connectors.get(ctxMenu.id) ?? null}
+          onClose={() => {
+            const id = ctxMenu.id;
+            setCtxMenu(null);
+            requestAnimationFrame(() => deskRef.current?.querySelector<SVGGElement>(`[data-el="${CSS.escape(id)}"], [data-conn="${CSS.escape(id)}"]`)?.focus());
+          }}
+          onRename={() => {
+            setSelected(ctxMenu.id);
+            setEditRequest((n) => n + 1);
+          }}
+          onConnect={() => startConnect(ctxMenu.id)}
+          onRemove={() => remove(ctxMenu.id)}
+          onHead={(end, kind) => {
+            const c = connectors.get(ctxMenu.id);
+            if (!c) return;
+            const ends: [string, string] = [c.ends[0] ?? c.a ?? '', c.ends[1] ?? c.b ?? ''];
+            const op = (field: 'head_start' | 'head_end'): DiagramOp => ({ op: 'edge', id: c.id, ends, field, value: kind });
+            apply(end === 'both' ? [op('head_start'), op('head_end')] : [op(end === 'start' ? 'head_start' : 'head_end')]);
+          }}
+        />
+      )}
       <ConfirmDialog
         open={confirmReset}
         onClose={() => setConfirmReset(false)}

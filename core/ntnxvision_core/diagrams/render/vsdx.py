@@ -33,6 +33,7 @@ from xml.sax.saxutils import escape, quoteattr
 
 from .. import text as tx
 from ..scene import LAYER, Edge, EdgeLabel, Node, Scene, Style, TextLine
+from . import heads
 
 NS = "http://schemas.microsoft.com/office/visio/2012/main"
 NS_R = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
@@ -50,6 +51,9 @@ ZIP_TIME = (1980, 1, 1, 0, 0, 0)
 XML_HEAD = "<?xml version='1.0' encoding='utf-8' standalone='yes'?>\n"
 #: Visio arrowhead: a filled triangle.
 ARROW = "4"
+#: Visio arrowhead index per head shape (`heads.HEADS`): none, filled triangle, open
+#: line arrow, filled diamond, filled circle.
+VISIO_HEAD = {"none": "0", "arrow": ARROW, "open": "1", "diamond": "22", "circle": "20"}
 #: Paint layer per node kind, as in `scene.draw_order` (connectors sit at 2).
 
 
@@ -260,6 +264,7 @@ class _Page:
         (bx, by), (ex, ey) = pts[0], pts[-1]
         st = e.style
         src, dst = self.ids.get(e.src), self.ids.get(e.dst)
+        start, end = heads.kinds(e)
         arrow = "1" if st.stroke_w < 1.0 else "2" if st.stroke_w < 1.5 else "3"
         cells = [
             _c("PinX", _in((bx + ex) / 2), "PT"), _c("PinY", _in((by + ey) / 2), "PT"),
@@ -272,8 +277,7 @@ class _Page:
             _c("ObjType", "2"),
             _c("LineColor", st.stroke or "#000000"), _c("LineWeight", _in(st.stroke_w), "PT"),
             _c("LinePattern", _pattern(st)), _c("Rounding", "0", "PT"),
-            _c("BeginArrow", ARROW if e.arrow_start else "0"),
-            _c("EndArrow", ARROW if e.arrow_end else "0"),
+            _c("BeginArrow", VISIO_HEAD[start]), _c("EndArrow", VISIO_HEAD[end]),
             # Arrowheads grow with the line weight (Visio sizes: 1 small to 3 large).
             _c("BeginArrowSize", arrow), _c("EndArrowSize", arrow),
             # Right-angle routing when Visio re-routes after a glued shape moves.

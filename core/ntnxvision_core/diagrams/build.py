@@ -124,75 +124,74 @@ def edge(id: str, src: str, dst: str, pts: list[tuple[float, float]], style: Sty
                 data=dict(sorted((data or {}).items())))
 
 
-def _legend_rows(widths: list[float], gap: float, max_w: float) -> list[int]:
-    """Items per row: as few rows as a greedy fill needs, balanced so no row is left
-    with a lone item when the others are full."""
-    def fill(limit: float) -> list[int]:
-        rows: list[int] = []
-        cur = 0.0
-        for w in widths:
-            if rows and cur + gap + w <= limit:
-                rows[-1] += 1
-                cur += gap + w
-            else:
-                rows.append(1)
-                cur = w
-        return rows
-
-    greedy = fill(max_w)
-    total = sum(widths) + gap * (len(widths) - 1)
-    target = max(max(widths, default=0.0), total / len(greedy) if greedy else 0.0)
-    limit = target
-    while limit < max_w:
-        rows = fill(limit)
-        if len(rows) <= len(greedy):
-            return rows
-        limit += 4.0
-    return greedy
-
-
-#: Legend text size, row height and swatch / line sample length (pt). Compact (short
-#: swatches, tight rows) but legible at the editor's fit and in print: a step above the
-#: cards' detail text (6 pt), below their titles (7.2 pt).
-LEGEND_SIZE = 7.0
-LEGEND_ROW = 9.5
-LEGEND_SAMPLE = 11.0
+#: Legend text size, row height and swatch / line sample size (pt): one entry per row,
+#: stacked at the figure's bottom left. Swatches are 30% smaller than the first design
+#: (11 x 6 pt). The text steps down to the cards' largest detail size (6.2 pt) and no
+#: further: a legend is never smaller than the text it explains (a 30% cut, 4.9 pt, is
+#: below print legibility).
+LEGEND_SIZE = 6.2
+LEGEND_ROW = 7.5
+LEGEND_SAMPLE = 7.7
+LEGEND_SWATCH_H = 4.2
+#: Space between a swatch and its label (pt).
+LEGEND_TEXT_GAP = 2.5
 #: Space between a figure's content and the legend under it (pt).
-LEGEND_GAP = 12.0
+LEGEND_GAP = 6.0
+#: Most entries in one legend column; more flow on into the next column to the right.
+LEGEND_MAX_ROWS = 4
+#: Space between legend columns (pt).
+LEGEND_COL_GAP = 10.0
+
+
+def _legend_rows(labels: list[str], max_w: float) -> int:
+    """Entries per legend column: as many as fit in the height the first design's
+    legend (horizontal rows of 7 pt text, 9.5 pt apart, 12 pt under the content) took
+    within `max_w`, so stacking the legend never makes a figure taller, or moves it to
+    another report page; at least 2, at most `LEGEND_MAX_ROWS`."""
+    old_rows, cur = 0, 0.0
+    for label in labels:
+        w = 14.0 + tx.width(label, 7.0)
+        if old_rows and cur + 8.0 + w <= max_w:
+            cur += 8.0 + w
+        else:
+            old_rows, cur = old_rows + 1, w
+    fit = int((old_rows * 9.5 + 12.0 - LEGEND_GAP) // LEGEND_ROW)
+    return min(len(labels), max(2, min(LEGEND_MAX_ROWS, fit)))
 
 
 def legend(scene: Scene, items: list[tuple[str, Style, str]], x: float, y: float,
            max_w: float) -> float:
-    """Append a legend (swatch + label per item, in balanced rows within `max_w`) as
-    ordinary nodes and edges; returns its height."""
+    """Append a legend as ordinary nodes and edges; returns its height. One entry (swatch
+    and label) per row, stacked from (`x`, `y`) at the figure's bottom left, top to
+    bottom, then on in the next column (at most `LEGEND_MAX_ROWS` rows each). A label
+    wider than `max_w` allows is ellipsised."""
     row_h = LEGEND_ROW
-    gap = 8.0
-    widths = [LEGEND_SAMPLE + 3 + tx.width(label, LEGEND_SIZE) for _, _, label in items]
-    rows = _legend_rows(widths, gap, max_w)
-    i = 0
-    cy = y
-    for count in rows:
-        cx = x
-        for _ in range(count):
-            kind, style, label = items[i]
-            lw = tx.width(label, LEGEND_SIZE)
-            sid = f"legend:{i}"
-            mid = cy + (row_h - 0.5) / 2
-            if kind == "box":
-                scene.nodes.append(Node(id=sid, kind="swatch", x=q(cx), y=q(mid - 3),
-                                        w=LEGEND_SAMPLE, h=6.0, style=style))
-            else:
-                scene.edges.append(edge(sid, "", "", [(cx, mid), (cx + LEGEND_SAMPLE, mid)],
-                                        style, arrow_end=False))
-            scene.nodes.append(box(f"{sid}:label", "label", cx + LEGEND_SAMPLE + 3, cy, lw + 1,
-                                   [Row(label, LEGEND_SIZE, False, K.INK_2)], K.LABEL,
-                                   pad_x=0, pad_y=0, align="left", h=row_h - 0.5,
-                                   valign="middle"))
-            cx = q(cx + widths[i] + gap)
-            i += 1
-        cy += row_h
-    return q(cy - y)
-
+    room = max(20.0, max_w - LEGEND_SAMPLE - LEGEND_TEXT_GAP - 1)
+    rows = _legend_rows([label for _, _, label in items], max_w)
+    cx = x
+    col_w = 0.0
+    for i, (kind, style, label) in enumerate(items):
+        r = i % rows if rows else 0
+        if i and r == 0:
+            cx = q(cx + col_w + LEGEND_COL_GAP)
+            col_w = 0.0
+        cy = y + r * row_h
+        lw = min(tx.width(label, LEGEND_SIZE), room)
+        col_w = max(col_w, LEGEND_SAMPLE + LEGEND_TEXT_GAP + lw + 1)
+        sid = f"legend:{i}"
+        mid = cy + (row_h - 0.5) / 2
+        if kind == "box":
+            scene.nodes.append(Node(id=sid, kind="swatch", x=q(cx),
+                                    y=q(mid - LEGEND_SWATCH_H / 2), w=LEGEND_SAMPLE,
+                                    h=LEGEND_SWATCH_H, style=style))
+        else:
+            scene.edges.append(edge(sid, "", "", [(cx, mid), (cx + LEGEND_SAMPLE, mid)],
+                                    style, arrow_end=False))
+        scene.nodes.append(box(f"{sid}:label", "label", cx + LEGEND_SAMPLE + LEGEND_TEXT_GAP,
+                               cy, lw + 1, [Row(label, LEGEND_SIZE, False, K.INK_2)], K.LABEL,
+                               pad_x=0, pad_y=0, align="left", h=row_h - 0.5,
+                               valign="middle"))
+    return q(rows * row_h)
 
 
 #: A row hung on a trunk: (height, draw(x, y, w) -> nodes, the row node first).

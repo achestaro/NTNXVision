@@ -1095,6 +1095,8 @@ try {
   const order = () => page.locator('.dg-order .mono').innerText();
   let generatedDocx = '';
   let editedDocx = '';
+  // The connector whose arrowheads the context menu changes (checked after reload and in the SVG).
+  let arrowConn = '';
 
   await run('diagrams-open', async () => {
     await rail('Diagrams');
@@ -1407,13 +1409,15 @@ try {
     // Close the inspector first: it covers the figure's right side, where the legend ends.
     await page.getByRole('button', { name: 'Close the inspector (clears the selection)' }).click();
     await page.getByRole('complementary', { name: 'Inspector' }).waitFor({ state: 'detached' });
-    // A legend label: not an element, still editable in place.
-    const legendText = page.locator('.dg-sheet svg text', { hasText: /^Manages$/ });
-    await legendText.first().dblclick();
+    // A legend label (the bottom-left overlay): not an element, still editable in place.
+    const overlay = page.getByTestId('dg-legend-overlay');
+    await overlay.getByText(/^Manages$/).dblclick();
     const input = page.getByRole('textbox', { name: 'Text on the figure' });
     await input.fill('Manages (E2E)');
     await input.press('Enter');
-    await page.locator('.dg-sheet svg text', { hasText: 'Manages (E2E)' }).waitFor({ timeout: 15_000 });
+    await overlay.getByText('Manages (E2E)').waitFor({ timeout: 15_000 });
+    // The figure itself no longer draws the legend: the overlay does.
+    if (await page.locator('.dg-sheet svg text', { hasText: 'Manages (E2E)' }).count()) throw new Error('the legend is drawn in the scrolling figure');
     // A zone's detail line, from the inspector's "Text on the figure" list.
     await el('site:').first().click({ position: { x: 30, y: 12 } });
     const field = page.locator('.dg-lines input').first();
@@ -1425,12 +1429,103 @@ try {
   await run('diagrams-legend-switch', async () => {
     const legend = page.getByTestId('dg-legend');
     await legend.uncheck();
-    await page.locator('.dg-sheet svg text', { hasText: 'Manages (E2E)' }).waitFor({ state: 'detached', timeout: 15_000 });
+    await page.getByTestId('dg-legend-overlay').waitFor({ state: 'detached', timeout: 15_000 });
     // Remembered per user (Settings).
     const saved = await page.evaluate(() => window.ntnx.getSettings());
     if (saved.diagramLegend !== false) throw new Error(`the Legend switch was not remembered: ${JSON.stringify(saved.diagramLegend)}`);
     await legend.check();
-    await page.locator('.dg-sheet svg text', { hasText: 'Manages (E2E)' }).waitFor({ timeout: 15_000 });
+    await page.getByTestId('dg-legend-overlay').getByText('Manages (E2E)').waitFor({ timeout: 15_000 });
+  });
+
+  await run('diagrams-canvas-view', async () => {
+    // View > Grid and Background: drawn on the canvas only, remembered per user.
+    await page.getByTestId('dg-view').click();
+    await page.getByRole('menuitemradio', { name: 'Dots' }).click();
+    await page.locator('[data-grid="dots"]').waitFor();
+    await page.getByRole('menuitemradio', { name: 'Lines' }).click();
+    await page.locator('[data-grid="lines"]').waitFor();
+    await page.getByRole('menuitemradio', { name: 'Transparent' }).click();
+    await page.locator('.dg-stage.clear').waitFor();
+    await uxShot('diagrams-grid-lines-transparent');
+    const saved = await page.evaluate(() => window.ntnx.getSettings());
+    if (saved.diagramGrid !== 'lines' || saved.diagramCanvas !== 'transparent') throw new Error(`the canvas view was not remembered: ${JSON.stringify([saved.diagramGrid, saved.diagramCanvas])}`);
+    await page.getByRole('menuitemradio', { name: 'No grid' }).click();
+    await page.getByRole('menuitemradio', { name: 'White' }).click();
+    await page.keyboard.press('Escape');
+    await page.locator('[data-grid]').waitFor({ state: 'detached' });
+    if (await page.locator('.dg-stage.clear').count()) throw new Error('the background stayed transparent');
+  });
+
+  await run('diagrams-wheel-zoom', async () => {
+    const pct = async () => parseInt(await page.locator('.dg-zb-pct').innerText(), 10);
+    const box = await page.locator('.dg-desk').boundingBox();
+    const cx = box.x + box.width * 0.35;
+    const cy = box.y + box.height * 0.4;
+    const under = () => page.evaluate(([x, y]) => {
+      const r = document.querySelector('.dg-sheet').getBoundingClientRect();
+      const z = parseInt(document.querySelector('.dg-zb-pct').textContent, 10) / 100;
+      return [(x - r.left) / z, (y - r.top) / z];
+    }, [cx, cy]);
+    // While the figure is smaller than the canvas it stays centred (no room to scroll);
+    // zoomed past that, the point under the pointer stays put.
+    for (let i = 0; i < 3; i++) await page.getByRole('button', { name: 'Zoom in' }).click();
+    await page.locator('.dg-desk').evaluate((d) => d.scrollTo((d.scrollWidth - d.clientWidth) / 2, (d.scrollHeight - d.clientHeight) / 2));
+    const z0 = await pct();
+    const p0 = await under();
+    await page.mouse.move(cx, cy);
+    // Ctrl + wheel (and a trackpad pinch, which Chromium sends the same way) zooms around the pointer.
+    await page.keyboard.down('Control');
+    for (let i = 0; i < 4; i++) await page.mouse.wheel(0, -60);
+    await page.keyboard.up('Control');
+    await page.waitForFunction((z) => parseInt(document.querySelector('.dg-zb-pct').textContent, 10) > z, z0, { timeout: 5_000 });
+    await page.waitForTimeout(200);
+    const z1 = await pct();
+    const p1 = await under();
+    if (Math.hypot(p1[0] - p0[0], p1[1] - p0[1]) > 4) throw new Error(`the point under the pointer moved: ${p0} -> ${p1} (zoom ${z0}% -> ${z1}%)`);
+    // A plain wheel / two-finger scroll pans, and leaves the zoom alone.
+    const top = await page.locator('.dg-desk').evaluate((d) => d.scrollTop);
+    await page.mouse.wheel(0, 120);
+    await page.waitForTimeout(250);
+    if ((await pct()) !== z1) throw new Error('a plain wheel changed the zoom');
+    if ((await page.locator('.dg-desk').evaluate((d) => d.scrollTop)) <= top) throw new Error('a plain wheel did not pan');
+    // The legend stays in the bottom-left corner while zoomed in and scrolled.
+    const lg = await page.getByTestId('dg-legend-overlay').boundingBox();
+    const stage = await page.locator('.dg-stage').boundingBox();
+    if (!lg || lg.x - stage.x > 16 || stage.y + stage.height - (lg.y + lg.height) > 16) throw new Error('the legend left the bottom-left corner');
+    await uxShot('diagrams-zoomed-legend');
+    // The buttons still work from a wheel zoom; Fit goes back.
+    await page.getByRole('button', { name: 'Zoom out' }).click();
+    if ((await pct()) >= z1) throw new Error('Zoom out did nothing after a wheel zoom');
+    await page.getByRole('button', { name: 'Fit to the canvas' }).click();
+  });
+
+  await run('diagrams-context-menu', async () => {
+    // An element: right-click opens Rename / Connect from here / Remove.
+    await el('cluster:').first().click({ button: 'right' });
+    const menu = page.getByTestId('dg-context-menu');
+    await menu.getByRole('menuitem', { name: /^Rename/ }).waitFor();
+    await menu.getByRole('menuitem', { name: /^Connect from here/ }).waitFor();
+    await menu.getByRole('menuitem', { name: /^Remove/ }).waitFor();
+    await page.keyboard.press('Escape');
+    await menu.waitFor({ state: 'detached' });
+    // A connector, from the keyboard (Shift+F10): arrowheads with previews.
+    const conn = page.locator('[data-conn]').first();
+    arrowConn = await conn.getAttribute('data-conn');
+    await conn.focus();
+    await page.keyboard.press('Shift+F10');
+    await menu.getByRole('menuitemradio', { name: 'End: Diamond' }).waitFor();
+    await uxShot('diagrams-context-connector');
+    await menu.getByRole('menuitemradio', { name: 'Start: Circle' }).click();
+    await page.locator(`[data-conn="${arrowConn}"] [data-edge] circle`).waitFor({ timeout: 15_000 });
+    await conn.focus();
+    await page.keyboard.press('ContextMenu');
+    await menu.getByRole('menuitemradio', { name: 'End: Diamond' }).click();
+    await page.waitForFunction((id) => document.querySelectorAll(`[data-conn="${CSS.escape(id)}"] [data-edge] polygon`).length >= 1, arrowConn, { timeout: 15_000 });
+    await conn.focus();
+    await page.keyboard.press('Shift+F10');
+    await menu.getByRole('menuitemradio', { name: 'Start: Circle', checked: true }).waitFor();
+    await menu.getByRole('menuitemradio', { name: 'End: Diamond', checked: true }).waitFor();
+    await page.keyboard.press('Escape');
   });
 
   await run('diagrams-expand', async () => {
@@ -1507,10 +1602,12 @@ try {
     await rail('Diagrams');
     await page.locator('#dg-snap').selectOption({ label: (await page.locator('#dg-snap option', { hasText: 'pc01-week1' }).first().innerText()).trim() });
     await page.locator('.dg-free', { hasText: 'E2E colo site' }).waitFor({ timeout: 60_000 });
-    await page.locator('.dg-sheet svg text', { hasText: 'Manages (E2E)' }).waitFor();
+    await page.getByTestId('dg-legend-overlay').getByText('Manages (E2E)').waitFor();
     await page.locator('.dg-sheet svg text', { hasText: 'E2E zone line' }).waitFor();
     // The nesting survives too: the datacenter, the NC2 chain, the Direct Connect.
     for (const t of ['DATACENTER', 'NC2 on AWS', 'BARE METAL', 'Direct Connect']) await page.locator('.dg-sheet svg text', { hasText: t }).first().waitFor();
+    // The arrowheads chosen from the context menu were saved with the edits.
+    await page.locator(`[data-conn="${arrowConn}"] [data-edge] circle`).waitFor();
   });
 
   await run('diagrams-export-word', async () => {
@@ -1571,6 +1668,10 @@ try {
     const shown = await download();
     // The saved edits are in the download: the placed icon and the rewritten text.
     for (const want of ['E2E colo site', 'Manages (E2E)', 'E2E zone line', 'DATACENTER', 'NC2 on AWS', 'Direct Connect']) if (!shown.includes(want)) throw new Error(`the SVG has no "${want}"`);
+    // The connector's arrowheads (a circle and a diamond) are in the download.
+    const at = shown.indexOf(`id="${arrowConn.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')}"`);
+    const group = at >= 0 ? shown.slice(at, shown.indexOf('</g>', at)) : '';
+    if (!group.includes('<circle') || !group.includes('<polygon')) throw new Error(`the SVG lost the arrowheads of ${arrowConn}`);
     // The Legend switch off: the download has no legend.
     await page.getByTestId('dg-legend').uncheck();
     const bare = await download();

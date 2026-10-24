@@ -780,7 +780,28 @@
     layoutDiagram: (_p, _t, ops) => {
       const D = window.__STUB_DIAGRAMS__;
       const src = ops.length ? ((opt.diagrams || '') === 'nested' ? D.nested : D.edited) : D.generated;
-      return delay({ type: src.type, model: src.model, scenes: src.scenes, outline: src.outline, connectors: src.connectors || [], nest_kinds: src.nest_kinds || {}, problems: [], notes: src.notes || [] }, 20);
+      // Arrowhead edits (the canvas's right-click menu) apply to the drawn edges, as the engine does.
+      const heads = {};
+      for (const o of ops) {
+        if (o.op !== 'edge') continue;
+        if (o.field === 'head_start' || o.field === 'head_end') (heads[o.id] = heads[o.id] || {})[o.field] = o.value;
+        else if (o.field === 'arrow') delete heads[o.id];
+      }
+      const withHeads = (e) => {
+        const h = heads[e.id];
+        if (!h) return e;
+        const out = { ...e };
+        for (const end of ['start', 'end']) {
+          const k = h[`head_${end}`];
+          if (k) {
+            if ('points' in out) out[`arrow_${end}`] = k !== 'none';
+            out[`head_${end}`] = k;
+          }
+        }
+        return out;
+      };
+      const scenes = src.scenes.map((sc) => ({ ...sc, edges: sc.edges.map(withHeads) }));
+      return delay({ type: src.type, model: src.model, scenes, outline: src.outline, connectors: (src.connectors || []).map(withHeads), nest_kinds: src.nest_kinds || {}, problems: [], notes: src.notes || [] }, 20);
     },
     saveDiagram: (_p, _t, ops) => {
       const D = window.__STUB_DIAGRAMS__;

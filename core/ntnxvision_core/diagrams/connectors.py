@@ -936,6 +936,7 @@ def _overlay(sc: Scene, extra: Extra) -> None:
         if "arrow" in ed:
             e.arrow_start = ed["arrow"] in ("start", "both")
             e.arrow_end = ed["arrow"] in ("end", "both")
+        _heads(e, ed)
         reroute = any(k in ed for k in ("a", "b", "a_side", "b_side"))
         e.src, e.dst = src, dst
         e.data = dict(sorted({**e.data, "edited": "true"}.items()))
@@ -953,6 +954,7 @@ def _overlay(sc: Scene, extra: Extra) -> None:
         e = Edge(id=str(c["id"]), src=a.id, dst=b.id, points=[], style=USER_LINK,
                  arrow_start=arrow in ("start", "both"), arrow_end=arrow in ("end", "both"),
                  data={"kind": "user", "origin": "user"})
+        _heads(e, c)
         kept.append(e)
         info[e.id] = {}
         jobs.append(_Job(e, a, b, str(c.get("a_side") or "auto"),
@@ -1045,3 +1047,14 @@ def _overlay(sc: Scene, extra: Extra) -> None:
 
 __all__ = ["KIND_NAMES", "USER_LINK", "Extra", "editable", "end_box", "free_frac",
            "overlay", "route"]
+
+
+def _heads(e: Edge, edit: dict[str, Any]) -> None:
+    """Arrowhead shapes an edit chose (``head_start`` / ``head_end``): "none" takes the
+    head off that end, any other shape draws it there."""
+    for end in ("start", "end"):
+        kind = edit.get(f"head_{end}")
+        if not isinstance(kind, str) or not kind:
+            continue
+        setattr(e, f"arrow_{end}", kind != "none")
+        setattr(e, f"head_{end}", "" if kind in ("none", "arrow") else kind)

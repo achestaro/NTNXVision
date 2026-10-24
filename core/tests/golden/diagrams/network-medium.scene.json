@@ -258,7 +258,7 @@
    }
   }
  ],
- "height": 316.65,
+ "height": 316.15,
  "id": "network-a",
  "meta": {
   "group": "profile:70713501173a",
@@ -1187,7 +1187,7 @@
   },
   {
    "data": {},
-   "h": 6.0,
+   "h": 4.2,
    "id": "legend:0",
    "kind": "swatch",
    "lines": [],
@@ -1199,23 +1199,23 @@
     "stroke": "#5B3FD9",
     "stroke_w": 0.75
    },
-   "w": 11.0,
+   "w": 7.7,
    "x": 0.5,
-   "y": 307.65
+   "y": 301.55
   },
   {
    "data": {},
-   "h": 9.0,
+   "h": 7.0,
    "id": "legend:0:label",
    "kind": "label",
    "lines": [
     {
-     "baseline": 6.95,
+     "baseline": 5.67,
      "bold": false,
      "color": "#3E4C59",
-     "size": 7.0,
+     "size": 6.2,
      "text": "Virtual switch",
-     "width": 42.94,
+     "width": 38.04,
      "x": 0.0
     }
    ],
@@ -1227,13 +1227,13 @@
     "stroke": null,
     "stroke_w": 0.75
    },
-   "w": 46.52,
-   "x": 14.5,
-   "y": 306.15
+   "w": 41.32,
+   "x": 10.7,
+   "y": 300.15
   },
   {
    "data": {},
-   "h": 6.0,
+   "h": 4.2,
    "id": "legend:1",
    "kind": "swatch",
    "lines": [],
@@ -1245,23 +1245,23 @@
     "stroke": "#3E4C59",
     "stroke_w": 0.68
    },
-   "w": 11.0,
-   "x": 68.02,
-   "y": 307.65
+   "w": 7.7,
+   "x": 0.5,
+   "y": 309.05
   },
   {
    "data": {},
-   "h": 9.0,
+   "h": 7.0,
    "id": "legend:1:label",
    "kind": "label",
    "lines": [
     {
-     "baseline": 6.95,
+     "baseline": 5.67,
      "bold": false,
      "color": "#3E4C59",
-     "size": 7.0,
+     "size": 6.2,
      "text": "Bond, NIC or switch (reported)",
-     "width": 96.59,
+     "width": 85.55,
      "x": 0.0
     }
    ],
@@ -1273,13 +1273,13 @@
     "stroke": null,
     "stroke_w": 0.75
    },
-   "w": 103.39,
-   "x": 82.02,
-   "y": 306.15
+   "w": 91.69,
+   "x": 10.7,
+   "y": 307.65
   },
   {
    "data": {},
-   "h": 6.0,
+   "h": 4.2,
    "id": "legend:2",
    "kind": "swatch",
    "lines": [],
@@ -1294,23 +1294,23 @@
     "stroke": "#8E99A4",
     "stroke_w": 0.75
    },
-   "w": 11.0,
-   "x": 192.41,
-   "y": 307.65
+   "w": 7.7,
+   "x": 112.39,
+   "y": 301.55
   },
   {
    "data": {},
-   "h": 9.0,
+   "h": 7.0,
    "id": "legend:2:label",
    "kind": "label",
    "lines": [
     {
-     "baseline": 6.95,
+     "baseline": 5.67,
      "bold": false,
      "color": "#3E4C59",
-     "size": 7.0,
+     "size": 6.2,
      "text": "Not reported",
-     "width": 41.17,
+     "width": 36.47,
      "x": 0.0
     }
    ],
@@ -1322,9 +1322,9 @@
     "stroke": null,
     "stroke_w": 0.75
    },
-   "w": 44.64,
-   "x": 206.41,
-   "y": 306.15
+   "w": 39.66,
+   "x": 122.59,
+   "y": 300.15
   }
  ],
  "part": [
@@ -1596,7 +1596,7 @@
    }
   }
  ],
- "height": 265.32,
+ "height": 264.82,
  "id": "network-b",
  "meta": {
   "group": "profile:67025c1055ad",
@@ -2445,7 +2445,7 @@
   },
   {
    "data": {},
-   "h": 6.0,
+   "h": 4.2,
    "id": "legend:0",
    "kind": "swatch",
    "lines": [],
@@ -2457,23 +2457,23 @@
     "stroke": "#5B3FD9",
     "stroke_w": 0.75
    },
-   "w": 11.0,
+   "w": 7.7,
    "x": 0.5,
-   "y": 256.32
+   "y": 250.22
   },
   {
    "data": {},
-   "h": 9.0,
+   "h": 7.0,
    "id": "legend:0:label",
    "kind": "label",
    "lines": [
     {
-     "baseline": 6.95,
+     "baseline": 5.67,
      "bold": false,
      "color": "#3E4C59",
-     "size": 7.0,
+     "size": 6.2,
      "text": "Virtual switch",
-     "width": 42.94,
+     "width": 38.04,
      "x": 0.0
     }
    ],
@@ -2485,13 +2485,13 @@
     "stroke": null,
     "stroke_w": 0.75
    },
-   "w": 46.52,
-   "x": 14.5,
-   "y": 254.82
+   "w": 41.32,
+   "x": 10.7,
+   "y": 248.82
   },
   {
    "data": {},
-   "h": 6.0,
+   "h": 4.2,
    "id": "legend:1",
    "kind": "swatch",
    "lines": [],
@@ -2503,23 +2503,23 @@
     "stroke": "#3E4C59",
     "stroke_w": 0.68
    },
-   "w": 11.0,
-   "x": 68.02,
-   "y": 256.32
+   "w": 7.7,
+   "x": 0.5,
+   "y": 257.72
   },
   {
    "data": {},
-   "h": 9.0,
+   "h": 7.0,
    "id": "legend:1:label",
    "kind": "label",
    "lines": [
     {
-     "baseline": 6.95,
+     "baseline": 5.67,
      "bold": false,
      "color": "#3E4C59",
-     "size": 7.0,
+     "size": 6.2,
      "text": "Bond, NIC or switch (reported)",
-     "width": 96.59,
+     "width": 85.55,
      "x": 0.0
     }
    ],
@@ -2531,9 +2531,9 @@
     "stroke": null,
     "stroke_w": 0.75
    },
-   "w": 103.39,
-   "x": 82.02,
-   "y": 254.82
+   "w": 91.69,
+   "x": 10.7,
+   "y": 256.32
   }
  ],
  "part": [

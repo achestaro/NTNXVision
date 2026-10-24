@@ -417,6 +417,7 @@ def connector_outline(view: View, elements: list[dict[str, Any]]) -> list[dict[s
                 "b_side_used": side_of(nodes[e.dst], e.points[-1]) or "auto",
                 "bend": note.get("bend", 0), "bend_asked": want.get("bend", 0),
                 "arrow": arrow, "parts": [i],
+                **_heads_doc(e),
                 "edited": user or bool(want), "hidden": False, "issue": note.get("issue"),
                 "can_delete": True,
                 "delete_op": "delete" if user or e.id in labels else "hide",
@@ -685,3 +686,11 @@ def carry_forward(src: Path, src_info: dict[str, Any], dst: Path, dst_env: Any,
         save(dst, item["type"], ops, entry["base_model"],
              carried_from={**src_info, "dropped": item["problems"]})
     return report
+
+
+def _heads_doc(e: Any) -> dict[str, str]:
+    """A drawn connector's arrowhead shape at each end ("none" where it has none)."""
+    from .render.heads import kinds
+
+    start, end = kinds(e)
+    return {"head_start": start, "head_end": end}

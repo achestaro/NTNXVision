@@ -141,6 +141,21 @@ test('the Legend switch is a remembered setting', () => {
   assert.throws(() => cleanSettings({ diagramLegend: 'off' }));
 });
 
+test('arrowhead shapes and the canvas view settings are checked', () => {
+  const { cleanSettings } = require('../dist/main/requests.js');
+  const [start, end] = asDiagramOps([
+    { op: 'edge', id: 'flow:a->b', ends: ['x', 'y'], field: 'head_start', value: 'circle' },
+    { op: 'edge', id: 'user:1', ends: ['x', 'y'], field: 'head_end', value: 'none' },
+  ]);
+  assert.deepEqual(start, { op: 'edge', id: 'flow:a->b', ends: ['x', 'y'], field: 'head_start', value: 'circle' });
+  assert.equal(end.value, 'none');
+  assert.throws(() => asDiagramOps([{ op: 'edge', id: 'e', ends: ['x', 'y'], field: 'head_end', value: 'star' }]));
+  assert.deepEqual(cleanSettings({ diagramGrid: 'dots', diagramCanvas: 'transparent' }), { diagramGrid: 'dots', diagramCanvas: 'transparent' });
+  assert.deepEqual(cleanSettings({ diagramGrid: null }), { diagramGrid: undefined });
+  assert.throws(() => cleanSettings({ diagramGrid: 'hex' }));
+  assert.throws(() => cleanSettings({ diagramCanvas: 'black' }));
+});
+
 test('placed icons, their moves and text edits are checked', () => {
   const [place, move, text, back] = asDiagramOps([
     { op: 'place', id: 'user:i1', icon: 'az', scene: 'flow-DC1', x: 10, y: 20.5, w: 200, label: 'Colo', sub: null, evil: 1 },

@@ -16,7 +16,7 @@ from PIL import Image, ImageDraw, ImageFont
 from ntnxvision_core.exporters import theme as T
 
 from ..scene import Edge, EdgeLabel, Node, Scene, Style, TextLine, draw_order
-from .svg import arrow_points, trimmed
+from .heads import marks, trimmed
 
 SS = 2  # supersampling
 
@@ -105,10 +105,15 @@ def _edge(d: ImageDraw.ImageDraw, e: Edge, k: float) -> None:
         _dashed(d, pts, color, lw, st.dash[0] * k, st.dash[1] * k)
     else:
         d.line(pts, fill=color, width=lw, joint="curve")
-    for on, a, b in ((e.arrow_end, -2, -1), (e.arrow_start, 1, 0)):
-        if on and len(e.points) >= 2:
-            tri = arrow_points(e.points[a], e.points[b], st.stroke_w)
-            d.polygon([(x * k, y * k) for x, y in tri], fill=color)
+    for m in marks(e):
+        if m.shape == "polygon":
+            d.polygon([(x * k, y * k) for x, y in m.points], fill=color)
+        elif m.shape == "polyline":
+            d.line([(x * k, y * k) for x, y in m.points], fill=color, width=lw, joint="curve")
+        else:
+            (cx, cy), = m.points
+            d.ellipse([(cx - m.r) * k, (cy - m.r) * k, (cx + m.r) * k, (cy + m.r) * k],
+                      fill=color)
 
 
 def _label(d: ImageDraw.ImageDraw, lab: EdgeLabel, k: float) -> None:
