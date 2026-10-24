@@ -989,4 +989,216 @@
       return delay(() => ({ ...settings }), 10);
     },
   };
+
+  // ── Insights > Metrics (getMetrics / cancelMetrics) ──────────────────
+  // Options: metrics: 'ok' (default) | 'loading' (never answers) | 'error' | 'trendsLoading'
+  // (cards answer, trends never) | 'trendsError' | 'partial' (a source failed: notes).
+  // Three clusters: PHX-PROD-02 grows in storage (80% in about six weeks), PHX-PROD-01 in
+  // memory, AMS-EDGE-02 is flat and healthy. Shapes as in docs/IPC_CONTRACT.md "metrics".
+  {
+    const DAY = 86_400_000;
+    const TB = 1024 ** 4;
+    const mopt = opt.metrics || 'ok';
+    const unit = (s) => {
+      let h = 2166136261;
+      for (const ch of String(s)) h = Math.imul(h ^ ch.charCodeAt(0), 16777619);
+      return ((h >>> 0) % 10000) / 10000;
+    };
+    const MC = [
+      { uuid: 'c-phx-prod-01', name: 'PHX-PROD-01', hv: 'AHV', nodes: 8, aos: '6.10.1', cpu: [34, 0], mem: [63, 0.11], sto: [48, 0.02], cap: 184 * TB, cores: 384, memB: 6 * TB, crit: 2, warn: 9 },
+      { uuid: 'c-phx-prod-02', name: 'PHX-PROD-02', hv: 'AHV', nodes: 12, aos: '7.0', cpu: [41, 0.03], mem: [49, 0], sto: [69.5, 0.26], cap: 276 * TB, cores: 576, memB: 9 * TB, crit: 1, warn: 6 },
+      { uuid: 'c-ams-edge-02', name: 'AMS-EDGE-02', hv: 'ESXi', nodes: 2, aos: '6.10', cpu: [26, 0], mem: [52, 0], sto: [37, 0], cap: 46 * TB, cores: 96, memB: 1.5 * TB, crit: 0, warn: 0 },
+    ];
+    const today = Date.now() - (Date.now() % DAY);
+    const val = (c, key, daysAgo) => {
+      const [level, growth] = c[key];
+      const noise = (unit(`${c.uuid}${key}${daysAgo}`) - 0.5) * (key === 'cpu' ? 3 : 1);
+      const weekly = key === 'cpu' ? 4 * Math.sin((2 * Math.PI * daysAgo) / 7) : 0;
+      return Math.round(Math.max(1, Math.min(99, level - growth * daysAgo + noise + weekly)) * 100) / 100;
+    };
+    const fit = (pts) => {
+      const n = pts.length;
+      const mx = pts.reduce((a, p) => a + p[0], 0) / n;
+      const my = pts.reduce((a, p) => a + p[1], 0) / n;
+      const sxx = pts.reduce((a, p) => a + (p[0] - mx) ** 2, 0);
+      const sxy = pts.reduce((a, p) => a + (p[0] - mx) * (p[1] - my), 0);
+      const slope = sxx ? sxy / sxx : 0;
+      const sst = pts.reduce((a, p) => a + (p[1] - my) ** 2, 0);
+      const ssr = pts.reduce((a, p) => a + (p[1] - (my + slope * (p[0] - mx))) ** 2, 0);
+      return { slope, r2: sst ? Math.max(0, 1 - ssr / sst) : 1 };
+    };
+    const iso = (ms) => new Date(ms).toISOString().slice(0, 10);
+    const runway = (t, values, days) => {
+      const end = t[t.length - 1];
+      const pts = t.map((x, i) => [(x - end) / DAY, values[i]]).filter((p) => p[0] >= -days && p[1] !== null);
+      const start = pts.slice(-3).reduce((a, p) => a + p[1], 0) / Math.min(3, pts.length);
+      const { slope, r2 } = fit(pts);
+      const status = slope >= 0.01 ? 'growing' : 'no_growth';
+      const thresholds = [80, 100].map((pct) => {
+        if (start >= pct) return { pct, state: 'reached', days: 0, date: iso(end) };
+        if (status !== 'growing') return { pct, state: 'never', days: null, date: null };
+        const d = Math.ceil((pct - start) / slope);
+        return d > 1825 ? { pct, state: 'beyond', days: null, date: null } : { pct, state: 'projected', days: d, date: iso(end + d * DAY) };
+      });
+      return { status, window_days: days, points: pts.length, current: Math.round(start * 100) / 100, slope_per_day: Math.round(slope * 10000) / 10000, r2: Math.round(r2 * 1000) / 1000, thresholds };
+    };
+    const runways = (tr) => Object.fromEntries([30, 60, 90].map((d) => [String(d), { cpu: runway(tr.t, tr.cpu_pct, d), memory: runway(tr.t, tr.memory_pct, d), storage: runway(tr.t, tr.storage_pct, d) }]));
+    const trendsOf = (c) => {
+      const t = [];
+      for (let d = 89; d >= 0; d -= 1) t.push(today - d * DAY);
+      const ago = (x) => Math.round((today - x) / DAY);
+      return {
+        t,
+        cpu_pct: t.map((x) => val(c, 'cpu', ago(x))),
+        memory_pct: t.map((x) => val(c, 'mem', ago(x))),
+        storage_pct: t.map((x) => val(c, 'sto', ago(x))),
+        storage_used_bytes: t.map((x) => Math.round((c.cap * val(c, 'sto', ago(x))) / 100)),
+        iops: t.map((x) => Math.round(380 * c.nodes * (0.7 + 0.6 * unit(`${c.uuid}io${ago(x)}`)))),
+        latency_usecs: t.map((x) => Math.round((c.hv === 'ESXi' ? 1300 : 650) * (0.8 + 0.5 * unit(`${c.uuid}lat${ago(x)}`)))),
+      };
+    };
+    const VMS = ['sql-prod-01', 'k8s-worker-07', 'exch-mbx-02', 'vdi-gold-image', 'erp-app-03', 'k8s-worker-12', 'elk-data-01', 'jenkins-agent-4', 'citrix-ddc-01', 'web-front-09'];
+    const vm = (c, i) => ({
+      uuid: `${c.uuid}-vm${i}`,
+      name: `${c.name.toLowerCase().slice(0, 3)}-${VMS[i % VMS.length]}`,
+      cluster_uuid: c.uuid,
+      cpu_pct: Math.round((88 - i * 13 - unit(c.uuid + i) * 6) * 100) / 100,
+      memory_pct: Math.round((91 - i * 9 - unit(c.uuid + 'm' + i) * 5) * 100) / 100,
+      iops: Math.round(2400 / (i + 1) - unit(c.uuid + 'i' + i) * 50),
+      latency_usecs: Math.round(5200 / (i + 1) + 300),
+      vcpus: [16, 8, 8, 4, 4][i],
+      memory_bytes: [64, 32, 48, 16, 16][i] * GB,
+    });
+    const top = (c) => {
+      const rows = [0, 1, 2, 3, 4].map((i) => vm(c, i));
+      const by = (f) => [...rows].sort((a, b) => b[f] - a[f]);
+      return { cpu: by('cpu_pct'), memory: by('memory_pct'), iops: by('iops'), latency: by('latency_usecs') };
+    };
+    const nodes = (c) =>
+      Array.from({ length: c.nodes }, (_, i) => ({
+        uuid: `${c.uuid}-n${i + 1}`,
+        name: `${c.name.toLowerCase()}-n${i + 1}`,
+        status: c.crit && i === 2 ? 'warn' : 'ok',
+        node_state: 'NORMAL',
+        maintenance: !!(c.crit && i === 2),
+        degraded: false,
+        cvm_ip: `10.20.${MC.indexOf(c)}.${31 + i}`,
+        cvm_status: 'ok',
+        metadata_store: 'Normal mode',
+        cpu_pct: Math.round((c.cpu[0] + (unit(c.uuid + 'n' + i) - 0.5) * 10) * 100) / 100,
+        memory_pct: Math.round((c.mem[0] + (unit(c.uuid + 'nm' + i) - 0.5) * 6) * 100) / 100,
+        num_vms: 18 + Math.round(unit(c.uuid + 'v' + i) * 20),
+      }));
+    const nics = (c) =>
+      nodes(c).flatMap((n, i) =>
+        [0, 1, 2, 3].map((k) => ({
+          host: n.name,
+          name: c.hv === 'ESXi' ? `vmnic${k}` : `eth${k}`,
+          link_speed_kbps: k < 2 ? 25_000_000 : 10_000_000,
+          rx_kBps: k % 2 === 0 ? Math.round(18000 * unit(n.uuid + 'rx' + k)) : 0,
+          tx_kBps: k % 2 === 0 ? Math.round(12000 * unit(n.uuid + 'tx' + k)) : 0,
+          rx_errors: c.crit && i === 0 && k === 0 ? 3 : 0,
+          tx_errors: 0,
+          rx_dropped: c.crit && i === 0 && k === 0 ? 12 : 0,
+          tx_dropped: 0,
+        })),
+      );
+    const ALERTS = ['Disk failure detected on {h}', 'Host {h} is down', 'CVM {h} rebooted', 'Boot RAID volumes degraded on CVM {h}'];
+    const alerts = [];
+    MC.forEach((c, ci) => {
+      for (let i = 0; i < c.crit; i += 1) {
+        alerts.push({ id: `a-${c.uuid}-${i}`, title: ALERTS[(ci + i) % ALERTS.length].replace('{h}', `${c.name.toLowerCase()}-n${i + 3}`), severity: 'critical', cluster_uuid: c.uuid, cluster_name: c.name, source: `${c.name.toLowerCase()}-n${i + 3}`, source_type: 'node', created_at: new Date(Date.now() - (ci * 7 + i * 3 + 2) * 3600_000).toISOString(), acknowledged: i % 2 === 1, impact: 'Availability' });
+      }
+    });
+    alerts.sort((a, b) => b.created_at.localeCompare(a.created_at));
+    const cluster = (c) => {
+      const tr = trendsOf(c);
+      const sto = tr.storage_pct[tr.storage_pct.length - 1];
+      const used = Math.round((c.cap * sto) / 100);
+      const ns = nodes(c);
+      const nw = nics(c);
+      const sum = (k) => nw.reduce((a, n) => a + (n[k] ?? 0), 0);
+      const reasons = [];
+      if (c.crit) reasons.push(`${c.crit} critical alert${c.crit === 1 ? '' : 's'}`);
+      const status = c.crit ? 'critical' : c.warn ? 'warning' : 'ok';
+      if (!c.crit && c.warn) reasons.push(`${c.warn} warnings`);
+      return {
+        uuid: c.uuid, name: c.name, aos_version: c.aos, hypervisors: [c.hv], num_nodes: c.nodes,
+        health: { status, reasons, critical_alerts: c.crit, warning_alerts: c.warn, nodes_total: ns.length, nodes_ok: ns.length, resiliency: { current: c.nodes >= 8 ? 2 : 1, desired: c.nodes >= 8 ? 2 : 1, ok: true, kind: 'fault_tolerance' } },
+        utilization: { cpu_pct: tr.cpu_pct[89], memory_pct: tr.memory_pct[89], storage_pct: sto },
+        capacity: {
+          cpu_count: c.cores, memory_bytes: c.memB, storage_used_bytes: used, storage_capacity_bytes: c.cap, storage_free_bytes: c.cap - used,
+          storage_logical_bytes: Math.round(used * 1.45), redundancy_factor: c.nodes >= 8 ? 3 : 2,
+          usable_bytes: Math.round((c.cap * 0.95) / (c.nodes >= 8 ? 3 : 2)), usable_free_bytes: Math.round((c.cap * 0.95 - used) / (c.nodes >= 8 ? 3 : 2)),
+        },
+        performance: { iops: tr.iops[89], read_iops: Math.round(tr.iops[89] * 0.38), write_iops: Math.round(tr.iops[89] * 0.62), latency_usecs: tr.latency_usecs[89], bandwidth_kbps: tr.iops[89] * 24 },
+        efficiency: { data_reduction_ratio: 1.45, overall_ratio: 4.8, saved_bytes: Math.round(used * 0.45), compression_ratio: 1.36, dedup_ratio: 1.07, erasure_coding_ratio: 1.0 },
+        alerts: { critical: c.crit, warning: c.warn },
+        prism_runway_days: { cpu: 365, memory: c.mem[1] ? 160 : 365, storage: c.sto[1] > 0.1 ? 41 : 365, overall: c.sto[1] > 0.1 ? 41 : c.mem[1] ? 160 : 365 },
+        nodes: ns,
+        network: { rx_kBps: sum('rx_kBps'), tx_kBps: sum('tx_kBps'), errors: sum('rx_errors') + sum('tx_errors'), dropped: sum('rx_dropped') + sum('tx_dropped'), nics: nw, links_up: nw.length },
+        top_vms: top(c),
+      };
+    };
+    const head = (part) => ({ part, host: 'pc01.example.com', version: 'pc.2024.3', collected_at: new Date(Date.now() - 8000).toISOString(), ranges: [30, 60, 90], history_days: 90, cached: false, age_seconds: 0, ttl_seconds: 120, notes: mopt === 'partial' && part === 'now' ? ['PHX-PROD-01: network of phx-prod-01-n4: HTTP 500 from https://pc01.example.com:9440/PrismGateway/services/rest/v2.0/hosts/c-phx-prod-01-n4/host_nics'] : [] });
+    const weighted = (cl, key, w) => {
+      const tw = cl.reduce((a, c) => a + w(c), 0);
+      return Math.round((cl.reduce((a, c) => a + c.utilization[key] * w(c), 0) / tw) * 100) / 100;
+    };
+    const nowResult = () => {
+      const cl = MC.map(cluster);
+      const total = (k) => cl.reduce((a, c) => a + (c.capacity[k] ?? 0), 0);
+      return {
+        ...head('now'),
+        clusters: cl,
+        total: {
+          name: 'All clusters', clusters: cl.length,
+          utilization: { cpu_pct: weighted(cl, 'cpu_pct', (c) => c.capacity.cpu_count), memory_pct: weighted(cl, 'memory_pct', (c) => c.capacity.memory_bytes), storage_pct: Math.round((total('storage_used_bytes') / total('storage_capacity_bytes')) * 10000) / 100 },
+          capacity: { storage_used_bytes: total('storage_used_bytes'), storage_capacity_bytes: total('storage_capacity_bytes'), storage_free_bytes: total('storage_free_bytes'), usable_bytes: total('usable_bytes'), usable_free_bytes: total('usable_free_bytes'), storage_logical_bytes: total('storage_logical_bytes') },
+          performance: { iops: cl.reduce((a, c) => a + c.performance.iops, 0), latency_usecs: 880 },
+          efficiency: { saved_bytes: cl.reduce((a, c) => a + c.efficiency.saved_bytes, 0) },
+          health: { critical: cl.filter((c) => c.health.status === 'critical').length, warning: 0, ok: cl.filter((c) => c.health.status === 'ok').length, nodes_total: cl.reduce((a, c) => a + c.nodes.length, 0), nodes_ok: cl.reduce((a, c) => a + c.nodes.length, 0) },
+          alerts: { critical: alerts.length, warning: cl.reduce((a, c) => a + c.alerts.warning, 0) },
+        },
+        alerts: { critical: alerts, critical_count: alerts.length + 1, warning_count: 15, listed: alerts.length },
+        sources: [
+          { card: 'Clusters', api: 'v4 clusters' },
+          { card: 'Health, alerts', api: 'v3 groups (alert) · PE v2.0 hosts, cluster' },
+          { card: 'Utilization, efficiency, performance', api: 'v3 groups (cluster)' },
+          { card: 'Trends and runway', api: 'v3 groups time series, daily, 90 days' },
+          { card: 'Top VMs', api: 'v3 groups (mh_vm)' },
+          { card: 'Nodes and CVMs', api: 'v3 groups (host) · PE v2.0 hosts' },
+          { card: 'Network', api: 'PE v2.0 host_nics' },
+        ],
+      };
+    };
+    const trendsResult = () => {
+      const rows = MC.map((c) => {
+        const tr = trendsOf(c);
+        return { uuid: c.uuid, name: c.name, trends: tr, runway: runways(tr) };
+      });
+      const w = MC.map((c) => [c.cores, c.memB, c.cap]);
+      const t = rows[0].trends.t;
+      const agg = (col, wi) => t.map((_, i) => Math.round((rows.reduce((a, r, ri) => a + r.trends[col][i] * w[ri][wi], 0) / w.reduce((a, x) => a + x[wi], 0)) * 100) / 100);
+      const iops = t.map((_, i) => rows.reduce((a, r) => a + r.trends.iops[i], 0));
+      const lat = t.map((_, i) => Math.round(rows.reduce((a, r) => a + r.trends.latency_usecs[i] * r.trends.iops[i], 0) / iops[i]));
+      const tot = { t, cpu_pct: agg('cpu_pct', 0), memory_pct: agg('memory_pct', 1), storage_pct: agg('storage_pct', 2), iops, latency_usecs: lat };
+      return { ...head('trends'), clusters: rows, total: { name: 'All clusters', trends: tot, runway: runways(tot) } };
+    };
+    const never = () => new Promise(() => {});
+    Object.assign(window.ntnx, {
+      getMetrics: (req) => {
+        if (mopt === 'loading') return never();
+        if (mopt === 'error' && req.part === 'now') return fail('Could not reach Prism Central at pc01.example.com:9440 (connection timed out)');
+        if (req.part === 'trends') {
+          if (mopt === 'trendsLoading') return never();
+          if (mopt === 'trendsError') return fail('Prism Central did not answer within 150 seconds. Try Refresh.');
+          return delay(trendsResult, 250);
+        }
+        return delay(nowResult, 80);
+      },
+      cancelMetrics: () => delay({ cancelled: true }, 5),
+    });
+  }
+  // ── end Insights > Metrics ───────────────────────────────────────────
 })();

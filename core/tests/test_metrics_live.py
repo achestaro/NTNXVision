@@ -108,6 +108,10 @@ def test_trends_and_runway(fresh: Any) -> None:
     assert clusters["PHX-DR-01"]["runway"]["90"]["cpu"]["status"] == "no_growth"
     total = res["total"]
     assert total["trends"]["t"] and set(total["runway"]) == {"30", "60", "90"}
+    # Target IOPS is the clusters' sum per day.
+    last = {c["name"]: c["trends"]["iops"][-1] for c in clusters.values()}
+    assert total["trends"]["iops"][-1] == sum(last.values())
+    assert total["trends"]["latency_usecs"][-1] is not None
 
 
 def test_legacy_pc_without_v4(fresh: Any) -> None:

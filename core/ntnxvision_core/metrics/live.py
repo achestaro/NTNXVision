@@ -311,11 +311,25 @@ def _total_trends(rows: list[dict[str, Any]]) -> dict[str, Any]:
             acc, tw = acc + v * w, tw + w
         return round(acc / tw, 2) if tw else None
 
+    def perf(t: int) -> tuple[int | None, int | None]:
+        """Target IOPS (sum) and IOPS-weighted latency for one day."""
+        iops = [r["trends"]["iops"][idx[t]] for r, idx in zip(rows, index, strict=True)]
+        lat = [r["trends"]["latency_usecs"][idx[t]] for r, idx in zip(rows, index, strict=True)]
+        if any(v is None for v in iops):
+            return None, None
+        total = sum(v for v in iops if v is not None)
+        pairs = [(la, io) for la, io in zip(lat, iops, strict=True) if la is not None and io]
+        weight = sum(io for _, io in pairs)
+        return total, (int(sum(la * io for la, io in pairs) / weight) if weight else None)
+
+    perf_days = [perf(t) for t in times]
     trends = {
         "t": times,
         "cpu_pct": [day("cpu_pct", "cpu_count", t) for t in times],
         "memory_pct": [day("memory_pct", "memory_bytes", t) for t in times],
         "storage_pct": [day("storage_pct", "storage_capacity_bytes", t) for t in times],
+        "iops": [p[0] for p in perf_days],
+        "latency_usecs": [p[1] for p in perf_days],
     }
     return {"name": "All clusters", "trends": trends, "runway": _cluster_runways(trends)}
 

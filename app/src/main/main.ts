@@ -638,6 +638,57 @@ ipc.handle(IPC.startMultiCollection, async (_e, raw: MultiCollectionRequest) => 
 
 ipc.handle(IPC.cancelRun, (_e, runId: string) => sidecar.call('cancel_run', { run_id: str(runId, 'runId', 128) }));
 
+// ─── Insights > Metrics (live dashboard of a saved target) ─────────────
+// The saved target's address, TLS choice (pin) and keychain password are filled in here,
+// exactly as for a collection run; the renderer only names the target. Each request has a
+// timeout, after which the sidecar is told to stop it (`cancel_metrics`).
+
+import { METRICS_IPC, type MetricsPart, type MetricsResult } from '../shared/ipc';
+
+/** Prism Central answers the 90-day series slowly (about 13 s on the lab PC). */
+const METRICS_TIMEOUT_MS: Record<MetricsPart, number> = { now: 60_000, trends: 150_000 };
+
+ipc.handle(METRICS_IPC.getMetrics, async (_e, raw: unknown) => {
+  const r = raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : {};
+  const targetId = str(r.targetId, 'targetId', 128);
+  const part = oneOf(r.part, 'part', ['now', 'trends'] as const);
+  const requestId = str(r.requestId, 'requestId', 128);
+  const refresh = r.refresh === true;
+  const t = store.targets.get(targetId);
+  if (t && t.mode !== 'prism_central') throw new Error('Metrics need a Prism Central target.');
+  const { password, ...conn } = await targetConnection(targetId, '', undefined);
+  assertDemoHost(conn.host);
+  const call = sidecar.call<MetricsResult>('metrics', {
+    request_id: requestId,
+    part,
+    refresh,
+    mode: conn.mode,
+    host: conn.host,
+    port: conn.port,
+    username: conn.username,
+    password,
+    insecure: conn.insecure,
+    pinned_sha256: conn.pinnedCert,
+  });
+  let timer: NodeJS.Timeout | undefined;
+  const timeout = new Promise<never>((_resolve, reject) => {
+    timer = setTimeout(() => {
+      void sidecar.call('cancel_metrics', { request_id: requestId }).catch(() => undefined);
+      reject(new Error(`Prism Central did not answer within ${METRICS_TIMEOUT_MS[part] / 1000} seconds. Try Refresh.`));
+    }, METRICS_TIMEOUT_MS[part]);
+  });
+  try {
+    return await Promise.race([call, timeout]);
+  } finally {
+    clearTimeout(timer);
+  }
+});
+
+ipc.handle(METRICS_IPC.cancelMetrics, (_e, requestId: unknown) =>
+  sidecar.call('cancel_metrics', { request_id: str(requestId, 'requestId', 128) }),
+);
+// ─── end Insights > Metrics ────────────────────────────────────────────
+
 ipc.handle(IPC.getOverview, () => sidecar.call('get_overview'));
 ipc.handle(IPC.listSnapshots, () => sidecar.call('list_snapshots'));
 ipc.handle(IPC.getSnapshot, (_e, snapshotPath: string) =>
