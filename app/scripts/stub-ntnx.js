@@ -1179,7 +1179,7 @@
     const alerts = [];
     MC.forEach((c, ci) => {
       for (let i = 0; i < c.crit; i += 1) {
-        alerts.push({ id: `a-${c.uuid}-${i}`, title: ALERTS[(ci + i) % ALERTS.length].replace('{h}', `${c.name.toLowerCase()}-n${i + 3}`), severity: 'critical', cluster_uuid: c.uuid, cluster_name: c.name, source: `${c.name.toLowerCase()}-n${i + 3}`, source_type: 'node', created_at: new Date(Date.now() - (ci * 7 + i * 3 + 2) * 3600_000).toISOString(), acknowledged: i % 2 === 1, impact: 'Availability' });
+        alerts.push({ id: `a-${c.uuid}-${i}`, title: ci === 0 ? ALERTS[0].replace('{h}', `${c.name.toLowerCase()}-n3`) : ALERTS[(ci + i) % ALERTS.length].replace('{h}', `${c.name.toLowerCase()}-n${i + 3}`), severity: 'critical', cluster_uuid: c.uuid, cluster_name: c.name, source: `${c.name.toLowerCase()}-n${i + 3}`, source_type: 'node', created_at: new Date(Date.now() - (ci * 7 + i * 3 + 2) * 3600_000).toISOString(), acknowledged: i % 2 === 1, impact: 'Availability' });
       }
     });
     alerts.sort((a, b) => b.created_at.localeCompare(a.created_at));

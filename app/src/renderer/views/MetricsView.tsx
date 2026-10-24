@@ -1,15 +1,16 @@
 // Insights > Metrics: a live executive dashboard for one saved Prism Central target.
 //
-// Pick a saved target; the page reads its clusters live (read-only) in two parts: the
+// Opens on the last target viewed this session, else the first saved one; the header's
+// Target select switches. The page reads its clusters live (read-only) in two parts: the
 // cards (health, utilization, storage, workloads, network) and, a little later, 90 days
 // of trends with the runway computed from them. "All clusters" or one cluster at a time.
-// Cards that hide detail open a subpage in place, with a back link. Leaving the page
-// cancels whatever is still loading. Pieces: views/metrics/*.
+// Cards that hide detail open a subpage in place; "Dashboard" in the header returns.
+// Leaving the page cancels whatever is still loading. Pieces: views/metrics/*.
 
 import React, { useEffect, useMemo, useState } from 'react';
 import { ArrowClockwiseIcon, ArrowLeftIcon } from '@phosphor-icons/react';
 import type { SavedConnection } from '@shared/ipc';
-import { Button, Callout, EmptyState, ErrorState, Icon, Loading, PageHeader, Panel, Segmented } from '../components';
+import { Button, Callout, EmptyState, ErrorState, Loading, PageHeader, Panel, Segmented } from '../components';
 import { useAsync } from '../lib/useAsync';
 import { useRouter } from '../lib/router';
 import { fmtCount, fmtRel, plural, targetLabel } from '../lib/format';
@@ -51,38 +52,36 @@ export function MetricsView({ target }: { target?: string }): JSX.Element {
   const targets = useAsync<SavedConnection[]>(() => window.ntnx.listConnections(), []);
   const pcs = useMemo(() => (targets.data ?? []).filter((t) => t.mode === 'prism_central'), [targets.data]);
 
-  // No target in the route: the last one viewed this session, else the only one there is.
-  useEffect(() => {
-    if (target || !targets.data) return;
-    const remembered = lastTarget();
-    const pick = pcs.find((t) => t.id === remembered) ?? (pcs.length === 1 ? pcs[0] : undefined);
-    if (pick) navigate({ screen: 'metrics', target: pick.id });
-  }, [target, targets.data, pcs, navigate]);
-
-  const selected = pcs.find((t) => t.id === target);
+  // The route's target; without one (or when it is gone), the last one viewed this session,
+  // else the first saved one. Resolved here rather than by navigating, so Back never lands
+  // on a page that bounces forward again.
+  const routed = target ? pcs.find((t) => t.id === target) : undefined;
+  const remembered = lastTarget();
+  const selected = routed ?? pcs.find((t) => t.id === remembered) ?? pcs[0];
+  const gone = !!target && !routed;
   useEffect(() => {
     if (selected) rememberTarget(selected.id);
   }, [selected]);
 
   const picker =
     pcs.length > 0 ? (
-      <select
-        className="input mx-target"
-        aria-label="Saved target"
-        value={selected?.id ?? ''}
-        onChange={(e) => navigate({ screen: 'metrics', target: e.target.value })}
-      >
-        {!selected && (
-          <option value="" disabled>
-            Choose a target…
-          </option>
-        )}
-        {pcs.map((t) => (
-          <option key={t.id} value={t.id}>
-            {targetLabel(t)}
-          </option>
-        ))}
-      </select>
+      <>
+        <label className="lbl" htmlFor="mx-target" style={{ margin: 0 }}>
+          Target
+        </label>
+        <select
+          id="mx-target"
+          className="input mx-target"
+          value={selected?.id ?? ''}
+          onChange={(e) => navigate({ screen: 'metrics', target: e.target.value })}
+        >
+          {pcs.map((t) => (
+            <option key={t.id} value={t.id}>
+              {targetLabel(t)}
+            </option>
+          ))}
+        </select>
+      </>
     ) : null;
 
   if (targets.loading && !targets.data) {
@@ -93,15 +92,15 @@ export function MetricsView({ target }: { target?: string }): JSX.Element {
       </>
     );
   }
-  if (!pcs.length || (target && !selected)) {
+  if (!selected) {
     return (
       <>
-        <PageHeader eyebrow="Insights / Metrics" title="Metrics" description="Health, utilization, runway and trends of a Prism Central, read live." actions={picker} />
+        <PageHeader eyebrow="Insights / Metrics" title="Metrics" description="Health, utilization, runway and trends of a Prism Central, read live." />
         <Panel>
           <EmptyState
             illustration="no-target"
-            title={pcs.length ? 'That target is gone' : 'No Prism Central target yet'}
-            description={pcs.length ? 'Choose another saved target above.' : 'Metrics are read live from a saved Prism Central. Add one on the Targets page.'}
+            title="No Prism Central target yet"
+            description="Metrics are read live from a saved Prism Central. Add one on the Targets page."
             action={
               <Button variant="primary" onClick={() => navigate({ screen: 'targets' })}>
                 Open Targets
@@ -112,20 +111,10 @@ export function MetricsView({ target }: { target?: string }): JSX.Element {
       </>
     );
   }
-  if (!selected) {
-    return (
-      <>
-        <PageHeader eyebrow="Insights / Metrics" title="Metrics" description="Choose a saved Prism Central to see its dashboard." actions={picker} />
-        <Panel>
-          <EmptyState illustration="no-target" title="Choose a target" description="Pick one of your saved Prism Centrals above. Its clusters are read live, read-only." />
-        </Panel>
-      </>
-    );
-  }
-  return <TargetMetrics key={selected.id} target={selected} picker={picker} />;
+  return <TargetMetrics key={selected.id} target={selected} picker={picker} gone={gone} />;
 }
 
-function TargetMetrics({ target, picker }: { target: SavedConnection; picker: React.ReactNode }): JSX.Element {
+function TargetMetrics({ target, picker, gone }: { target: SavedConnection; picker: React.ReactNode; gone: boolean }): JSX.Element {
   const { now, trends, refresh } = useMetrics(target.id);
   const [scope, setScope] = useState<string>(ALL);
   const [detail, setDetail] = useState<Detail | null>(null);
@@ -150,6 +139,11 @@ function TargetMetrics({ target, picker }: { target: SavedConnection; picker: Re
 
   const actions = (
     <>
+      {detail && (
+        <Button variant="ghost" icon={ArrowLeftIcon} onClick={() => setDetail(null)}>
+          Dashboard
+        </Button>
+      )}
       {picker}
       <Button icon={ArrowClockwiseIcon} onClick={refresh} disabled={loading}>
         {loading ? 'Reading…' : 'Refresh'}
@@ -159,17 +153,19 @@ function TargetMetrics({ target, picker }: { target: SavedConnection; picker: Re
 
   const header = (
     <PageHeader
-      eyebrow={detail ? `Insights / Metrics / ${DETAIL_TITLE[detail]}` : 'Insights / Metrics'}
+      eyebrow={detail ? `Insights / Metrics / ${targetLabel(target)}` : 'Insights / Metrics'}
       title={detail ? DETAIL_TITLE[detail] : targetLabel(target)}
       facts={facts}
       actions={actions}
     />
   );
+  const goneNote = gone ? <Callout tone="neutral" title="That target is no longer saved.">Showing {targetLabel(target)} instead.</Callout> : null;
 
   if (!data) {
     return (
       <>
         {header}
+        {goneNote}
         {now.error ? (
           <ErrorState title="Couldn’t read this Prism Central." error={now.error} onRetry={refresh} illustration="generic-error" />
         ) : (
@@ -182,38 +178,50 @@ function TargetMetrics({ target, picker }: { target: SavedConnection; picker: Re
     );
   }
 
-  const scopeBar =
+  const clusterPicker =
     clusters.length > 1 ? (
+      clusters.length <= 6 ? (
+        <Segmented
+          aria-label="Clusters"
+          value={effectiveScope}
+          onChange={setScope}
+          options={[{ value: ALL, label: 'All clusters' }, ...clusters.map((c) => ({ value: c.uuid, label: c.name }))]}
+        />
+      ) : (
+        <select className="input" aria-label="Clusters" value={effectiveScope} onChange={(e) => setScope(e.target.value)}>
+          <option value={ALL}>All {fmtCount(clusters.length)} clusters</option>
+          {clusters.map((c) => (
+            <option key={c.uuid} value={c.uuid}>
+              {c.name}
+            </option>
+          ))}
+        </select>
+      )
+    ) : null;
+  // One row under the header: the cluster scope, and on the runway subpage the trend range.
+  const rangePicker =
+    detail === 'runway' ? (
+      <Segmented
+        aria-label="Trend range"
+        value={String(range)}
+        onChange={(r) => setRange(Number(r))}
+        options={[30, 60, 90].map((d) => ({ value: String(d), label: `${d} days` }))}
+      />
+    ) : null;
+  const scopeBar =
+    clusterPicker || rangePicker ? (
       <div className="mx-scope">
-        {clusters.length <= 6 ? (
-          <Segmented
-            aria-label="Clusters"
-            value={effectiveScope}
-            onChange={setScope}
-            options={[{ value: ALL, label: 'All clusters' }, ...clusters.map((c) => ({ value: c.uuid, label: c.name }))]}
-          />
-        ) : (
-          <select className="input" aria-label="Clusters" value={effectiveScope} onChange={(e) => setScope(e.target.value)}>
-            <option value={ALL}>All {fmtCount(clusters.length)} clusters</option>
-            {clusters.map((c) => (
-              <option key={c.uuid} value={c.uuid}>
-                {c.name}
-              </option>
-            ))}
-          </select>
-        )}
+        {clusterPicker}
+        <span className="spacer" />
+        {rangePicker}
       </div>
     ) : null;
 
   return (
     <>
       {header}
-      {detail && (
-        <button type="button" className="textlink mx-back" onClick={() => setDetail(null)}>
-          <Icon icon={ArrowLeftIcon} size={14} /> Metrics of {targetLabel(target)}
-        </button>
-      )}
       {scopeBar}
+      {goneNote}
       {now.error && <Callout tone="warn" title="Refresh failed; showing the last reading.">{now.error}</Callout>}
       {data.notes.length > 0 && (
         <Callout tone="warn" title={`${plural(data.notes.length, 'source')} did not answer, so some cards are incomplete.`}>
@@ -233,17 +241,7 @@ function TargetMetrics({ target, picker }: { target: SavedConnection; picker: Re
       ) : detail === 'network' ? (
         <NetworkDetail v={view} />
       ) : detail === 'runway' ? (
-        <>
-          <div className="mx-scope">
-            <Segmented
-              aria-label="Trend range"
-              value={String(range)}
-              onChange={(r) => setRange(Number(r))}
-              options={[30, 60, 90].map((d) => ({ value: String(d), label: `${d} days` }))}
-            />
-          </div>
-          <RunwayDetail v={view} scoped={scoped} trends={trends} range={range} clusterRunways={effectiveScope === ALL ? trends.data?.clusters : undefined} />
-        </>
+        <RunwayDetail v={view} scoped={scoped} trends={trends} range={range} clusterRunways={effectiveScope === ALL ? trends.data?.clusters : undefined} />
       ) : (
         <div className="mx-page">
           <HealthSection v={view} onOpen={open} onScope={setScope} />

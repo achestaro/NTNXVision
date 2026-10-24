@@ -14,6 +14,7 @@ import {
   type ScopeView,
   bytes,
   latency,
+  latencyAxis,
   longDay,
   pct,
   rate,
@@ -24,7 +25,7 @@ import {
   threshold,
 } from './model';
 import type { PartState } from './useMetrics';
-import type { MetricsTrends, MetricsTrendsResult, RunwayByRange } from '@shared/ipc';
+import type { MetricsClusterTrends, MetricsTrends, MetricsTrendsResult, RunwayByRange } from '@shared/ipc';
 
 export type Detail = 'alerts' | 'nodes' | 'vms' | 'network' | 'runway';
 
@@ -99,14 +100,21 @@ function Line({ label, value }: { label: string; value: React.ReactNode }): JSX.
   );
 }
 
+/** Alert titles, newest first, each once with how many alerts carry it. */
+export function alertTitles(alerts: { title: string }[]): { title: string; count: number }[] {
+  const out = new Map<string, number>();
+  for (const a of alerts) out.set(a.title, (out.get(a.title) ?? 0) + 1);
+  return [...out].map(([title, count]) => ({ title, count }));
+}
+
 // ─── sections ──────────────────────────────────────────────────────────
 
 export function HealthSection({ v, onOpen, onScope }: { v: ScopeView; onOpen(d: Detail): void; onScope(uuid: string): void }): JSX.Element {
   const h = HEALTH_LABEL[v.health.status];
-  const firstAlerts = v.alerts.slice(0, 2);
+  const firstAlerts = alertTitles(v.alerts).slice(0, 2);
   const badNodes = v.health.nodesTotal - v.health.nodesOk;
   return (
-    <Section title="Health" note="Now">
+    <Section title="Health">
       <div className="mx-grid">
         <Card title="Cluster health">
           <div className="mx-health">
@@ -137,8 +145,9 @@ export function HealthSection({ v, onOpen, onScope }: { v: ScopeView; onOpen(d: 
           {firstAlerts.length ? (
             <ul className="mx-mini-list">
               {firstAlerts.map((a) => (
-                <li key={a.id} title={a.title}>
-                  {a.title}
+                <li key={a.title} title={a.title}>
+                  <span className="mx-mini-title">{a.title}</span>
+                  {a.count > 1 && <span className="mx-mini-count mono">×{fmtCount(a.count)}</span>}
                 </li>
               ))}
             </ul>
@@ -168,15 +177,13 @@ export function UtilizationSection({ v }: { v: ScopeView }): JSX.Element {
   const c = v.capacity;
   const memUsed = u.memory_pct !== null && c.memory_bytes ? (u.memory_pct / 100) * c.memory_bytes : null;
   return (
-    <Section title="Utilization" note="Now">
+    <Section title="Utilization">
       <div className="mx-grid">
         <Card title="CPU">
           <div className="mx-util">
             <Ring value={u.cpu_pct} color={SERIES_COLOR.cpu} label="CPU utilization" />
             <div className="mx-util-text">
               <Line label="Logical CPUs" value={fmtCount(c.cpu_count ?? null)} />
-              <Line label="IOPS" value={fmtCount(v.performance.iops)} />
-              <Line label="Latency" value={latency(v.performance.latency_usecs)} />
             </div>
           </div>
         </Card>
@@ -199,36 +206,52 @@ export function UtilizationSection({ v }: { v: ScopeView }): JSX.Element {
           </div>
         </Card>
       </div>
-      <p className="mx-foot">Rings mark 80%. Physical storage, before replication is taken out; see Storage below for usable space.</p>
+      <p className="mx-foot">Rings mark 80%. Storage is physical, before replication.</p>
     </Section>
   );
+}
+
+/** What a runway card leads with: the target's runway, or (All clusters) the cluster that gets there first. */
+interface RunwayHeadline {
+  runway: Runway | undefined;
+  trend: (number | null)[];
+  /** All clusters, when one cluster reaches 80% before the target as a whole. */
+  cluster?: string;
 }
 
 function RunwayCard({
   resource,
   label,
-  runway,
-  trend,
+  head,
+  total,
   onOpen,
-  soonest,
 }: {
   resource: MetricsResource;
   label: string;
-  runway: Runway | undefined;
-  trend: (number | null)[];
+  head: RunwayHeadline;
+  /** The all-clusters runway, said under a cluster's headline. */
+  total?: Runway;
   onOpen(): void;
-  /** All clusters: the cluster that reaches 80% first, when it is sooner than the total. */
-  soonest?: { name: string; when: string; tone: string } | null;
 }): JSX.Element {
+  const { runway } = head;
   const t80 = runway ? threshold(runway, 80) : undefined;
   const t100 = runway ? threshold(runway, 100) : undefined;
   const when80 = runway ? runwayWhen(runway, t80) : NA;
   const projected = t80?.state === 'projected';
+  const totalWhen = total ? runwayWhen(total, threshold(total, 80)) : NA;
   return (
     <Card title={label} onOpen={onOpen} openLabel={`${label} runway: open the projection`}>
       <div className="mx-runway-top">
-        <div>
-          <div className="mx-runway-label">80% in</div>
+        <div className="mx-runway-head">
+          <div className="mx-runway-label" title={head.cluster ? `80% in · ${head.cluster}` : undefined}>
+            80% in
+            {head.cluster && (
+              <>
+                {' · '}
+                <span className="mx-runway-cluster">{head.cluster}</span>
+              </>
+            )}
+          </div>
           <div className={`mx-runway-when tone-${runwayTone(t80)}`}>
             {projected ? (
               <>
@@ -240,16 +263,12 @@ function RunwayCard({
             )}
           </div>
         </div>
-        <Sparkline values={trend} color={SERIES_COLOR[resource]} label={`${label} trend`} />
+        <Sparkline values={head.trend} color={SERIES_COLOR[resource]} label={head.cluster ? `${label} trend of ${head.cluster}` : `${label} trend`} />
       </div>
       <p className="mx-sub">
         {projected ? `${longDay(t80!.date)} · ` : ''}100%: {runway ? runwayWhen(runway, t100).toLowerCase().replace(/^(\d)/, 'in $1') : NA}
       </p>
-      {soonest && (
-        <p className="mx-soonest">
-          Soonest cluster: <strong>{soonest.name}</strong>, <span className={`tone-${soonest.tone}`}>{soonest.when}</span>
-        </p>
-      )}
+      {head.cluster && <p className="mx-sub">All clusters: {totalWhen}</p>}
     </Card>
   );
 }
@@ -267,8 +286,8 @@ export function RunwaySection({
   range: number;
   onRange(r: number): void;
   onOpen(d: Detail): void;
-  /** All clusters: each cluster's runway, to name the one that reaches 80% first. */
-  clusterRunways?: { name: string; runway: RunwayByRange }[];
+  /** All clusters: each cluster's trends and runway, to lead with the one that reaches 80% first. */
+  clusterRunways?: MetricsClusterTrends[];
 }): JSX.Element {
   const picker = (
     <Segmented
@@ -287,17 +306,14 @@ export function RunwaySection({
       ) : (
         <>
           <div className="mx-grid">
-            {RESOURCES.map((r) => (
-              <RunwayCard
-                key={r.key}
-                resource={r.key}
-                label={r.label}
-                runway={runway?.[r.key]}
-                trend={tr ? tr[`${r.key}_pct` as 'cpu_pct'] : []}
-                onOpen={() => onOpen('runway')}
-                soonest={soonestCluster(clusterRunways, String(range), r.key, runway?.[r.key])}
-              />
-            ))}
+            {RESOURCES.map((r) => {
+              const total = runway?.[r.key];
+              const soonest = soonestCluster(clusterRunways, String(range), r.key, total);
+              const head: RunwayHeadline = soonest
+                ? { runway: soonest.runway, trend: sliceTrends(soonest.trends, range)[`${r.key}_pct` as 'cpu_pct'], cluster: soonest.name }
+                : { runway: total, trend: tr ? tr[`${r.key}_pct` as 'cpu_pct'] : [] };
+              return <RunwayCard key={r.key} resource={r.key} label={r.label} head={head} total={soonest ? total : undefined} onOpen={() => onOpen('runway')} />;
+            })}
           </div>
           <TrendsSection tr={tr!} />
         </>
@@ -307,31 +323,32 @@ export function RunwaySection({
 }
 
 /** Days until 80% for ordering: reached 0, projected its days, otherwise never. */
-function daysTo80(r: Runway | undefined): number {
+export function daysTo80(r: Runway | undefined): number {
   const th = r ? threshold(r, 80) : undefined;
   if (!th) return Infinity;
   if (th.state === 'reached') return 0;
   return th.state === 'projected' && th.days !== null ? th.days : Infinity;
 }
 
-function soonestCluster(
-  rows: { name: string; runway: RunwayByRange }[],
+/**
+ * All clusters: the cluster that reaches 80% first, when it gets there before the target as
+ * a whole. Clusters don't share capacity, so a total that never fills can hide one that
+ * fills in weeks; the soonest cluster is the real runway.
+ */
+export function soonestCluster(
+  rows: MetricsClusterTrends[],
   range: string,
   resource: MetricsResource,
   total: Runway | undefined,
-): { name: string; when: string; tone: string } | null {
-  let best: { name: string; r: Runway; days: number } | null = null;
+): { name: string; runway: Runway; trends: MetricsTrends } | null {
+  let best: { row: MetricsClusterTrends; r: Runway; days: number } | null = null;
   for (const row of rows) {
     const r = row.runway[range]?.[resource];
     const days = daysTo80(r);
-    if (r && days < (best?.days ?? Infinity)) best = { name: row.name, r, days };
+    if (r && days < (best?.days ?? Infinity)) best = { row, r, days };
   }
-  // Worth saying only when a cluster gets there before the target as a whole (or alone).
-  // Within a year only: further out it is noise on an executive page.
-  if (!best || rows.length < 2 || best.days > 365 || best.days >= daysTo80(total)) return null;
-  const th = threshold(best.r, 80);
-  const when = th?.state === 'reached' ? 'already at 80%' : `80% in ${runwayWhen(best.r, th)}`;
-  return { name: best.name, when, tone: runwayTone(th) === 'ok' ? 'idle' : runwayTone(th) };
+  if (!best || rows.length < 2 || best.days >= daysTo80(total)) return null;
+  return { name: best.row.name, runway: best.r, trends: best.row.trends };
 }
 
 function TrendsPlaceholder({ state }: { state: PartState<MetricsTrendsResult> }): JSX.Element {
@@ -373,6 +390,7 @@ function TrendsSection({ tr }: { tr: MetricsTrends }): JSX.Element {
           yFormat={(v) => `${Math.round(v)}%`}
           thresholds={[{ value: 80, label: '80%', tone: 'warn' }]}
           label="CPU, memory and storage utilization per day"
+          fill
         />
       </div>
       {hasPerf && (
@@ -398,7 +416,7 @@ function TrendsSection({ tr }: { tr: MetricsTrends }): JSX.Element {
                 t={tr.t}
                 height={92}
                 series={[{ key: 'lat', label: 'Latency', color: SERIES_COLOR.perf, values: tr.latency_usecs ?? [] }]}
-                yFormat={(v) => latency(v)}
+                yFormat={latencyAxis}
                 label="Storage latency per day"
               />
             </div>
@@ -412,8 +430,10 @@ function TrendsSection({ tr }: { tr: MetricsTrends }): JSX.Element {
 export function StorageSection({ v }: { v: ScopeView }): JSX.Element {
   const c = v.capacity;
   const e = v.efficiency;
-  const used = c.storage_used_bytes ?? 0;
-  const total = c.storage_capacity_bytes ?? 0;
+  // One basis in this card: usable space (after replication and the reserve). The
+  // Utilization ring above is the physical view.
+  const usable = c.usable_bytes ?? 0;
+  const used = c.usable_bytes !== null && c.usable_free_bytes !== null ? Math.max(0, c.usable_bytes - c.usable_free_bytes) : null;
   return (
     <Section title="Storage">
       <div className="mx-grid mx-grid-2">
@@ -422,16 +442,17 @@ export function StorageSection({ v }: { v: ScopeView }): JSX.Element {
           <p className="mx-sub">
             of {bytes(c.usable_bytes)} usable{c.redundancy_factor ? ` (RF${c.redundancy_factor}, 5% reserve)` : ' (5% reserve)'}
           </p>
-          {total > 0 && (
+          {usable > 0 && used !== null && (
             <>
               <MeterBar
-                label={`Physical storage: ${bytes(used)} used of ${bytes(total)}`}
-                total={total}
+                label={`Usable storage: ${bytes(used)} used of ${bytes(usable)}`}
+                total={usable}
                 segments={[{ value: used, color: SERIES_COLOR.storage, label: `Used ${bytes(used)}` }]}
               />
               <div className="mx-meter-legend">
-                <span>Physical used {bytes(used)}</span>
-                <span>Free {bytes(c.storage_free_bytes)}</span>
+                <span>
+                  Used {bytes(used)} · Usable {bytes(usable)}
+                </span>
               </div>
             </>
           )}
@@ -472,7 +493,7 @@ export function WorkloadsSection({ v, onOpen }: { v: ScopeView; onOpen(d: Detail
   const [tab, setTab] = useState<MetricsTopKey>('cpu');
   const pctScale = tab === 'cpu' || tab === 'memory' ? 100 : undefined;
   return (
-    <Section title="Workloads" note="Top powered-on VMs, now">
+    <Section title="Workloads" note="Top powered-on VMs">
       <div className="mx-grid mx-grid-2">
         <div className="mx-card">
           <div className="mx-card-head">
@@ -481,7 +502,7 @@ export function WorkloadsSection({ v, onOpen }: { v: ScopeView; onOpen(d: Detail
           </div>
           <BarList rows={topRows(v, tab, v.clusterCount > 1)} color={SERIES_COLOR.perf} max={pctScale} empty="No powered-on VMs reported." />
           <button type="button" className="textlink mx-more" onClick={() => onOpen('vms')}>
-            All four lists
+            All top VMs
           </button>
         </div>
         <Card title="Network" onOpen={() => onOpen('network')} openLabel="Network: open the NIC list">

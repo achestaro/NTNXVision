@@ -97,7 +97,7 @@ const finishRun = async (p) => {
 // ── Insights > Metrics: open the page on PC01 Production (and wait for the trends) ──
 const openMetrics = async (p, waitTrends = true) => {
   await rail(p, 'Metrics');
-  await p.getByRole('combobox', { name: 'Saved target' }).selectOption('t-pc01');
+  await p.getByRole('combobox', { name: 'Target' }).selectOption('t-pc01');
   if (waitTrends) await p.getByRole('img', { name: 'CPU, memory and storage utilization per day' }).waitFor();
 };
 
@@ -748,9 +748,11 @@ const SHOTS = [
     await p.getByRole('dialog').getByText('Email isn’t set up.').waitFor();
   }, 1100],
   // ── Insights > Metrics ──
-  ['metrics-choose', {}, async (p) => {
+  // No target chosen yet: the page opens the first saved Prism Central by itself.
+  ['metrics-auto', {}, async (p) => {
     await rail(p, 'Metrics');
-    await p.getByRole('heading', { name: 'Choose a target' }).waitFor();
+    await p.getByRole('heading', { name: 'Health' }).waitFor();
+    if ((await p.getByRole('heading', { name: 'Choose a target' }).count()) > 0) throw new Error('the page asks to choose a target although targets exist');
   }],
   ['metrics-empty', { noTargets: true }, async (p) => {
     await rail(p, 'Metrics');
@@ -809,7 +811,7 @@ const SHOTS = [
   }, 1300],
   ['metrics-vms', {}, async (p) => {
     await openMetrics(p);
-    await p.getByRole('button', { name: 'All four lists' }).click();
+    await p.getByRole('button', { name: 'All top VMs' }).click();
     await p.getByRole('heading', { level: 1, name: 'Top VMs' }).waitFor();
   }, 1100],
   ['metrics-network', {}, async (p) => {
