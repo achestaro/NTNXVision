@@ -12,7 +12,7 @@ from fpdf import FPDF
 from ntnxvision_core.exporters import theme as T
 
 from ..scene import Edge, EdgeLabel, Node, Scene, Style, TextLine, draw_order
-from .svg import arrow_points, trimmed
+from .heads import marks, trimmed
 
 #: Font family the drawing uses; the report registers "Figtree" with "" and "B".
 FAMILY = "Figtree"
@@ -83,11 +83,16 @@ class _Pen:
         self.dash(st)
         pdf.polyline([(self.X(x), self.Y(y)) for x, y in trimmed(e)], style="D")
         pdf.set_dash_pattern()
-        for on, a, b in ((e.arrow_end, -2, -1), (e.arrow_start, 1, 0)):
-            if on and len(e.points) >= 2:
-                pdf.set_fill_color(*color)
-                tri = arrow_points(e.points[a], e.points[b], st.stroke_w)
-                pdf.polygon([(self.X(x), self.Y(y)) for x, y in tri], style="F")
+        for m in marks(e):
+            pdf.set_fill_color(*color)
+            if m.shape == "polygon":
+                pdf.polygon([(self.X(x), self.Y(y)) for x, y in m.points], style="F")
+            elif m.shape == "polyline":
+                pdf.polyline([(self.X(x), self.Y(y)) for x, y in m.points], style="D")
+            else:
+                (cx, cy), = m.points
+                pdf.ellipse(self.X(cx - m.r), self.Y(cy - m.r), 2 * m.r * k, 2 * m.r * k,
+                            style="F")
 
     def label(self, lab: EdgeLabel) -> None:
         if lab.background:

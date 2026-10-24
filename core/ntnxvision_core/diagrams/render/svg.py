@@ -26,6 +26,9 @@ from ntnxvision_core.exporters import theme as T
 
 from .. import text as tx
 from ..scene import Edge, EdgeLabel, Node, Scene, Style, TextLine, draw_order, num
+from .heads import arrow_points, marks, trimmed
+
+__all__ = ["arrow_points", "glyph_path", "render_svg", "trimmed"]
 
 FONT_STACK = "Figtree, Calibri, 'Segoe UI', Arial, sans-serif"
 #: Glyph outlines are kept in a 1,000-unit em and scaled to the text size.
@@ -123,45 +126,22 @@ def _node(n: Node, mode: str) -> str:
             f"{_text(n.lines, n.x, n.y, mode, n.w)}</g>")
 
 
-def arrow_points(p0: tuple[float, float], p1: tuple[float, float], width: float
-                 ) -> list[tuple[float, float]]:
-    """Arrowhead triangle at p1 pointing away from p0 (orthogonal segments)."""
-    (x0, y0), (x1, y1) = p0, p1
-    length, half = 4.2 + width, 2.0 + width * 0.6
-    dx, dy = (x1 > x0) - (x1 < x0), (y1 > y0) - (y1 < y0)
-    bx, by = x1 - dx * length, y1 - dy * length
-    return [(x1, y1), (bx - dy * half, by + dx * half), (bx + dy * half, by - dx * half)]
-
-
-def trimmed(e: Edge) -> list[tuple[float, float]]:
-    """The stroke path, shortened under each arrowhead so tips stay sharp."""
-    pts = list(e.points)
-    if len(pts) < 2:
-        return pts
-    w = e.style.stroke_w
-    cut = 3.0 + w
-
-    def pull(a: tuple[float, float], b: tuple[float, float]) -> tuple[float, float]:
-        dx, dy = (b[0] > a[0]) - (b[0] < a[0]), (b[1] > a[1]) - (b[1] < a[1])
-        return (b[0] - dx * cut, b[1] - dy * cut)
-
-    if e.arrow_end:
-        pts[-1] = pull(pts[-2], pts[-1])
-    if e.arrow_start:
-        pts[0] = pull(pts[1], pts[0])
-    return pts
-
-
 def _edge(e: Edge) -> str:
     st = e.style
     color = st.stroke or "#000000"
     pts = " ".join(f"{num(x)},{num(y)}" for x, y in trimmed(e))
     out = [f'<polyline points="{pts}" fill="none" stroke="{color}" '
            f'stroke-width="{num(st.stroke_w)}" stroke-linejoin="round"{_dash(st)}/>']
-    for on, a, b in ((e.arrow_end, -2, -1), (e.arrow_start, 1, 0)):
-        if on and len(e.points) >= 2:
-            tri = arrow_points(e.points[a], e.points[b], st.stroke_w)
-            out.append(f'<polygon points="{" ".join(f"{num(x)},{num(y)}" for x, y in tri)}" '
+    for m in marks(e):
+        pts_ = " ".join(f"{num(x)},{num(y)}" for x, y in m.points)
+        if m.shape == "polygon":
+            out.append(f'<polygon points="{pts_}" fill="{color}"/>')
+        elif m.shape == "polyline":
+            out.append(f'<polyline points="{pts_}" fill="none" stroke="{color}" '
+                       f'stroke-width="{num(st.stroke_w)}" stroke-linejoin="miter"/>')
+        else:
+            (cx, cy), = m.points
+            out.append(f'<circle cx="{num(cx)}" cy="{num(cy)}" r="{num(m.r)}" '
                        f'fill="{color}"/>')
     kind = e.data.get("kind", "")
     return f'<g id={quoteattr(e.id)} data-kind="edge" data-link={quoteattr(kind)}>' \

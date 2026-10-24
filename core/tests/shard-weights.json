@@ -13,6 +13,7 @@
  "tests/test_demo_seed.py": 6.3,
  "tests/test_design_collectors.py": 0.1,
  "tests/test_design_demo.py": 1.0,
+ "tests/test_diagram_arrowheads.py": 4.0,
  "tests/test_diagram_bundle.py": 47.8,
  "tests/test_diagram_conceptual.py": 47.1,
  "tests/test_diagram_connectors.py": 48.8,
