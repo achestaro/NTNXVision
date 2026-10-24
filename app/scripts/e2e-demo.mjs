@@ -1532,6 +1532,30 @@ try {
     if ((await savedOptions()).some((o) => o.startsWith('PC03'))) throw new Error('a deleted target is still offered');
   });
 
+  // ── Insights > Metrics: live read of pc01 through the real sidecar and mock API ──
+  await run('metrics-live', async () => {
+    await rail('Metrics');
+    const picker = page.getByRole('combobox', { name: 'Saved target' });
+    await picker.waitFor({ timeout: 15_000 });
+    const value = await picker.locator('option').filter({ hasText: /PC01/ }).first().getAttribute('value');
+    await picker.selectOption(value);
+    await page.getByRole('heading', { name: 'Health' }).waitFor({ timeout: 60_000 });
+    await page.getByRole('group', { name: 'Clusters' }).getByRole('button', { name: 'PHX-PROD-02' }).waitFor();
+    await page.getByRole('img', { name: 'CPU, memory and storage utilization per day' }).waitFor({ timeout: 120_000 });
+    // PHX-PROD-02's storage grows in the demo: its runway shows a date.
+    await page.getByRole('group', { name: 'Clusters' }).getByRole('button', { name: 'PHX-PROD-02' }).click();
+    await page.getByRole('button', { name: 'Storage runway: open the projection' }).click();
+    await page.getByRole('heading', { level: 1, name: 'Runway' }).waitFor();
+    await page.getByText(/^Growing \d/).first().waitFor();
+    await page.getByRole('button', { name: /^Metrics of / }).click();
+    await page.getByRole('button', { name: 'Nodes and CVMs: open the list' }).click();
+    await page.getByRole('table', { name: 'Nodes and CVMs' }).getByText('Normal mode').first().waitFor();
+    await page.getByRole('button', { name: /^Metrics of / }).click();
+    await page.getByRole('button', { name: 'Refresh' }).click();
+    await page.getByRole('button', { name: 'Refresh' }).waitFor({ timeout: 120_000 });
+  });
+  // ── end Insights > Metrics ──
+
   await run('email-settings-unreachable', async () => {
     await rail('Settings');
     await page.locator('#smtp-host').fill('127.0.0.1');

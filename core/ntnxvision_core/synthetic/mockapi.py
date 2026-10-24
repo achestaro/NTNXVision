@@ -258,6 +258,12 @@ class MockApi:
             return status, payload, {}
         if method == "GET" and path == "/PrismGateway/services/rest/v1/cluster":
             return 200, r.pc_gateway_v1(est), {}
+        # ── Insights > Metrics: PE health / NIC stats fields (synthetic/metrics.py) ──
+        if method == "GET" and query.get("proxyClusterUuid") and \
+                path.startswith("/PrismGateway/services/rest/v2.0/"):
+            from ntnxvision_core.synthetic import metrics as _metrics
+            return _metrics.enrich_pe(est, path, query, self._pe_proxy(est, path, query))
+        # ── end Insights > Metrics ──
         if method == "GET" and query.get("proxyClusterUuid") and \
                 path.startswith("/PrismGateway/services/rest/v2.0/"):
             return self._pe_proxy(est, path, query)
@@ -377,6 +383,12 @@ class MockApi:
         return 200, r.v3_list(singular, page, len(items), offset), {}
 
     def _v3_groups(self, est: PcEstate, body: dict[str, Any]) -> Response:
+        # ── Insights > Metrics: cluster / alert / metric queries (synthetic/metrics.py) ──
+        from ntnxvision_core.synthetic import metrics as _metrics
+        answered = _metrics.groups(est, body)
+        if answered is not None:
+            return answered
+        # ── end Insights > Metrics ──
         etype = body.get("entity_type")
         attrs = [a.get("attribute") for a in body.get("group_member_attributes") or []]
         offset = _int(body.get("group_member_offset"), 0)

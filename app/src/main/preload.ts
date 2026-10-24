@@ -36,6 +36,7 @@ import {
   TrustCertificateRequest,
   UnsavedChangesRequest,
 } from '../shared/ipc';
+import { METRICS_IPC, type MetricsRequest } from '../shared/ipc'; // Insights > Metrics
 
 function subscribe<T>(channel: string, cb: (e: T) => void): () => void {
   const listener = (_: unknown, payload: T) => cb(payload);
@@ -133,6 +134,11 @@ const api: NtnxApi = {
   setScheduleEnabled: (id: string, enabled: boolean) => ipcRenderer.invoke(IPC.setScheduleEnabled, id, enabled),
   runScheduleNow: (id: string) => ipcRenderer.invoke(IPC.runScheduleNow, id),
   onSchedulesChanged: (cb: (state: SchedulesState) => void) => subscribe(IPC.schedulesChanged, cb),
+
+  // ── Insights > Metrics ──
+  getMetrics: (req: MetricsRequest) => ipcRenderer.invoke(METRICS_IPC.getMetrics, req),
+  cancelMetrics: (requestId: string) => ipcRenderer.invoke(METRICS_IPC.cancelMetrics, requestId),
+  // ── end Insights > Metrics ──
 };
 
 contextBridge.exposeInMainWorld('ntnx', api);

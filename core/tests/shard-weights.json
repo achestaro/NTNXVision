@@ -39,6 +39,8 @@
  "tests/test_lcm_inventory.py": 23.9,
  "tests/test_mailer.py": 11.5,
  "tests/test_mailer_pinning.py": 4.1,
+ "tests/test_metrics_live.py": 3.0,
+ "tests/test_metrics_runway.py": 0.1,
  "tests/test_multi_pc.py": 0.5,
  "tests/test_no_em_dash.py": 0.4,
  "tests/test_numfmt.py": 0.0,

@@ -94,6 +94,13 @@ const finishRun = async (p) => {
   await p.waitForTimeout(5200); // let the toast auto-dismiss
 };
 
+// ── Insights > Metrics: open the page on PC01 Production (and wait for the trends) ──
+const openMetrics = async (p, waitTrends = true) => {
+  await rail(p, 'Metrics');
+  await p.getByRole('combobox', { name: 'Saved target' }).selectOption('t-pc01');
+  if (waitTrends) await p.getByRole('img', { name: 'CPU, memory and storage utilization per day' }).waitFor();
+};
+
 // name, stub options, steps, viewport height, viewport width
 const SHOTS = [
   // Targets page (CRUD) and how New collection / Multiple PCs pick targets.
@@ -708,6 +715,78 @@ const SHOTS = [
     await p.getByRole('menuitem', { name: 'Email reports…' }).click();
     await p.getByRole('dialog').getByText('Email isn’t set up.').waitFor();
   }, 1100],
+  // ── Insights > Metrics ──
+  ['metrics-choose', {}, async (p) => {
+    await rail(p, 'Metrics');
+    await p.getByRole('heading', { name: 'Choose a target' }).waitFor();
+  }],
+  ['metrics-empty', { noTargets: true }, async (p) => {
+    await rail(p, 'Metrics');
+    await p.getByRole('heading', { name: 'No Prism Central target yet' }).waitFor();
+  }],
+  ['metrics-loading', { metrics: 'loading' }, async (p) => {
+    await openMetrics(p, false);
+    await p.getByText(/^Reading PC01 Production/).waitFor();
+  }],
+  ['metrics-error', { metrics: 'error' }, async (p) => {
+    await openMetrics(p, false);
+    await p.getByText('Couldn’t read this Prism Central.').waitFor();
+  }],
+  ['metrics', {}, async (p) => {
+    await openMetrics(p);
+    await cardsFit(p);
+  }, 2300],
+  ['metrics-1100', {}, async (p) => {
+    await openMetrics(p);
+    await cardsFit(p);
+  }, 2900, 1100],
+  ['metrics-cluster', {}, async (p) => {
+    await openMetrics(p);
+    await p.getByRole('group', { name: 'Clusters' }).getByRole('button', { name: 'PHX-PROD-02' }).click();
+    await p.getByRole('group', { name: 'Top VMs by' }).getByRole('button', { name: 'IOPS' }).click();
+  }, 2300],
+  ['metrics-trends-loading', { metrics: 'trendsLoading' }, async (p) => {
+    await openMetrics(p, false);
+    await p.getByText(/^Reading 90 days of history/).waitFor();
+  }, 1400],
+  ['metrics-partial', { metrics: 'partial' }, async (p) => {
+    await openMetrics(p);
+    await p.locator('.mx-sources summary').click();
+  }, 2500],
+  ['metrics-hover', {}, async (p) => {
+    await openMetrics(p);
+    const chart = p.getByRole('img', { name: 'CPU, memory and storage utilization per day' });
+    await chart.scrollIntoViewIfNeeded();
+    const box = await chart.boundingBox();
+    await p.mouse.move(box.x + box.width * 0.7, box.y + box.height / 2);
+  }, 1400],
+  ['metrics-runway', {}, async (p) => {
+    await openMetrics(p);
+    await p.getByRole('button', { name: 'Storage runway: open the projection' }).click();
+    await p.getByRole('heading', { level: 1, name: 'Runway' }).waitFor();
+  }, 1500],
+  ['metrics-alerts', {}, async (p) => {
+    await openMetrics(p);
+    await p.getByRole('button', { name: 'Critical alerts: open the list' }).click();
+    await p.getByRole('table', { name: 'Unresolved critical alerts' }).waitFor();
+  }, 900],
+  ['metrics-nodes', {}, async (p) => {
+    await openMetrics(p);
+    await p.getByRole('button', { name: 'Nodes and CVMs: open the list' }).click();
+    await p.getByRole('table', { name: 'Nodes and CVMs' }).waitFor();
+  }, 1300],
+  ['metrics-vms', {}, async (p) => {
+    await openMetrics(p);
+    await p.getByRole('button', { name: 'All four lists' }).click();
+    await p.getByRole('heading', { level: 1, name: 'Top VMs' }).waitFor();
+  }, 1100],
+  ['metrics-network', {}, async (p) => {
+    await openMetrics(p);
+    await p.getByRole('group', { name: 'Clusters' }).getByRole('button', { name: 'AMS-EDGE-02' }).click();
+    await p.getByRole('button', { name: 'Network: open the NIC list' }).click();
+    await p.getByRole('table', { name: 'Host NICs' }).waitFor();
+  }, 900],
+  // ── end Insights > Metrics ──
   ['palette', {}, async (p) => {
     await p.keyboard.press('Meta+k');
     await p.keyboard.type('pc0');

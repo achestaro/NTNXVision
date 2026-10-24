@@ -1,0 +1,602 @@
+/* Insights > Metrics (views/MetricsView.tsx, views/metrics/*). Runway rules: flat ruled
+ * surfaces, 3 px radius, no shadows; display numerals in Montserrat 200; colour only from
+ * theme tokens so light, dark and high contrast all work. Every class is prefixed mx-.
+ * Easy knobs: --mx-gap (space between cards), --mx-section (space between sections),
+ * --mx-card-pad, --mx-big (headline numeral size). */
+
+.mx-page,
+.mx-section,
+.mx-loading {
+  --mx-gap: 16px;
+  --mx-section: 32px;
+  --mx-card-pad: 16px 18px;
+  --mx-big: 36px;
+}
+:root[data-density='compact'] .mx-page,
+:root[data-density='compact'] .mx-section {
+  --mx-gap: 12px;
+  --mx-section: 24px;
+  --mx-card-pad: 12px 14px;
+  --mx-big: 30px;
+}
+
+.mx-page {
+  display: flex;
+  flex-direction: column;
+  gap: var(--mx-section);
+  padding-bottom: 32px;
+}
+
+.mx-target {
+  width: auto;
+  min-width: 180px;
+  max-width: 280px;
+}
+
+.mx-scope {
+  margin: 4px 0 20px;
+}
+.mx-scope .seg button {
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mx-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0 0 12px;
+  font-size: 13px;
+}
+
+.mx-loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 96px 16px;
+}
+
+/* ── sections ─────────────────────────────────────────────────────── */
+
+.mx-section-head {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  margin-bottom: 12px;
+  min-height: var(--control-h);
+}
+.mx-section-head h2 {
+  font-size: 15px;
+  line-height: 20px;
+  font-weight: 600;
+  color: var(--ink);
+}
+.mx-section-note {
+  font-size: 12px;
+  color: var(--ink-3);
+}
+.mx-section-head .spacer {
+  flex: 1;
+}
+
+.mx-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr));
+  gap: var(--mx-gap);
+  align-items: stretch;
+}
+.mx-grid + .mx-grid {
+  margin-top: var(--mx-gap);
+}
+.mx-grid-2 {
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 380px), 1fr));
+}
+
+.mx-foot {
+  margin-top: 10px;
+  font-size: 12px;
+  line-height: 16px;
+  color: var(--ink-3);
+  max-width: 820px;
+}
+
+/* ── cards ────────────────────────────────────────────────────────── */
+
+.mx-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+  padding: var(--mx-card-pad);
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  border-radius: 3px;
+  color: var(--ink);
+  text-align: left;
+  font: inherit;
+}
+.mx-card-link {
+  cursor: pointer;
+  transition: border-color 120ms ease, background-color 120ms ease;
+}
+.mx-card-link:hover {
+  border-color: var(--rule-strong);
+  background: var(--surface-raised);
+}
+.mx-card-link:hover .mx-card-caret {
+  color: var(--ink);
+}
+.mx-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 20px;
+  flex-wrap: wrap;
+}
+.mx-card-caret {
+  color: var(--ink-3);
+}
+.mx-card-meta {
+  font-size: 12px;
+  color: var(--ink-3);
+}
+
+.mx-big,
+.mx-runway-when,
+.mx-net-num {
+  font-family: var(--font-display);
+  font-weight: 200;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink);
+  white-space: nowrap;
+}
+.mx-big {
+  font-size: var(--mx-big);
+  line-height: 1.1;
+}
+.mx-big-unit {
+  margin-left: 6px;
+  font-family: var(--font-sans);
+  font-size: 13px;
+  font-weight: 400;
+  color: var(--ink-3);
+}
+
+.mx-sub {
+  font-size: 12px;
+  line-height: 17px;
+  color: var(--ink-3);
+  overflow-wrap: anywhere;
+}
+.mx-line {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 12px;
+  line-height: 20px;
+  color: var(--ink-2);
+}
+.mx-line .mono {
+  color: var(--ink);
+}
+.mx-line > span {
+  white-space: nowrap;
+}
+.mx-line > span:first-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.mx-health {
+  font-size: 18px;
+  line-height: 28px;
+  font-weight: 500;
+}
+.mx-health .g {
+  width: 10px;
+  height: 10px;
+}
+
+.mx-mini-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--ink-2);
+}
+.mx-mini-list li {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mx-more {
+  align-self: flex-start;
+  margin-top: 4px;
+  font-size: 12px;
+}
+
+.mx-wrap {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+/* All clusters: one row per cluster, worst first; a row switches to that cluster. */
+.mx-cluster-list {
+  margin: 4px 0 0;
+  padding: 0;
+  list-style: none;
+  border-top: 1px solid var(--rule-2);
+}
+.mx-cluster-list button {
+  display: flex;
+  width: 100%;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 6px 0;
+  border: 0;
+  border-bottom: 1px solid var(--rule-2);
+  background: none;
+  color: var(--ink);
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+.mx-cluster-list button:hover {
+  color: var(--accent);
+}
+.mx-cluster-list .mx-sub {
+  text-align: right;
+}
+
+/* ── utilization ──────────────────────────────────────────────────── */
+
+.mx-util {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+}
+.mx-util-text {
+  flex: 1;
+  min-width: 0;
+}
+.mx-ring {
+  flex: none;
+}
+.mx-ring-num {
+  font-family: var(--font-display);
+  font-weight: 200;
+  font-size: 28px;
+  fill: var(--ink);
+}
+.mx-ring-unit {
+  font-family: var(--font-sans);
+  font-weight: 400;
+  font-size: 12px;
+  fill: var(--ink-3);
+}
+
+/* ── runway ───────────────────────────────────────────────────────── */
+
+.mx-runway-top {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 12px;
+}
+.mx-runway-top > div:first-child {
+  flex: none;
+}
+.mx-runway-label {
+  font-size: 12px;
+  color: var(--ink-3);
+}
+.mx-runway-when {
+  font-size: var(--mx-big);
+  line-height: 1.1;
+}
+.mx-runway-word {
+  font-family: var(--font-sans);
+  font-weight: 500;
+  font-size: 18px;
+  line-height: 40px;
+}
+/* Only warn / error colour the headline; a calm "No growth" stays ink. */
+.mx-runway-when.tone-ok,
+.mx-runway-when.tone-idle,
+.mx-reach-when.tone-ok,
+.mx-reach-when.tone-idle {
+  color: var(--ink);
+}
+.mx-soonest {
+  margin-top: 2px;
+  padding-top: 8px;
+  border-top: 1px solid var(--rule-2);
+  font-size: 12px;
+  line-height: 17px;
+  color: var(--ink-2);
+}
+.mx-soonest strong {
+  font-weight: 500;
+  color: var(--ink);
+}
+.mx-spark {
+  flex: 1;
+  min-width: 60px;
+  max-width: 160px;
+  height: 32px;
+}
+
+.mx-placeholder {
+  align-items: flex-start;
+  min-height: 120px;
+  justify-content: center;
+}
+.mx-shimmer {
+  display: block;
+  width: 100%;
+  height: 48px;
+  border-radius: 3px;
+  background: linear-gradient(90deg, var(--rule-2), var(--surface-hover), var(--rule-2));
+  background-size: 200% 100%;
+  animation: mx-shimmer 1.6s ease-in-out infinite;
+}
+@keyframes mx-shimmer {
+  0% {
+    background-position: 100% 0;
+  }
+  100% {
+    background-position: -100% 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .mx-shimmer {
+    animation: none;
+  }
+}
+
+.mx-runway-detail {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(240px, 1fr);
+  gap: var(--mx-gap);
+}
+@media (max-width: 900px) {
+  .mx-runway-detail {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+.mx-reach {
+  display: grid;
+  grid-template-columns: 44px 1fr;
+  align-items: baseline;
+  column-gap: 8px;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--rule-2);
+}
+.mx-reach .mx-sub {
+  grid-column: 2;
+}
+.mx-reach-pct {
+  font-size: 12px;
+  color: var(--ink-3);
+}
+.mx-reach-when {
+  font-size: 20px;
+  line-height: 28px;
+  font-weight: 500;
+}
+.mx-reach-ranges {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  margin: 8px 0 4px;
+}
+.mx-reach-ranges > div {
+  display: flex;
+  flex-direction: column;
+  padding: 6px 8px;
+  border: 1px solid var(--rule-2);
+  border-radius: 3px;
+  font-size: 12px;
+}
+.mx-reach-ranges > div.on {
+  border-color: var(--rule-strong);
+}
+
+/* ── charts ───────────────────────────────────────────────────────── */
+
+.mx-trend {
+  position: relative;
+  width: 100%;
+  min-width: 0;
+}
+.mx-trend svg {
+  display: block;
+  overflow: visible;
+}
+.mx-axis {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  fill: var(--ink-3);
+}
+.mx-tip {
+  position: absolute;
+  top: 0;
+  transform: translateX(-50%);
+  min-width: 120px;
+  padding: 6px 8px;
+  background: var(--surface-raised);
+  border: 1px solid var(--rule-strong);
+  border-radius: 3px;
+  box-shadow: var(--shadow-popover);
+  font-size: 12px;
+  line-height: 18px;
+  pointer-events: none;
+  z-index: 2;
+}
+.mx-tip-day {
+  color: var(--ink-3);
+}
+.mx-tip-row {
+  display: grid;
+  grid-template-columns: 10px 1fr auto;
+  align-items: center;
+  gap: 6px;
+  color: var(--ink-2);
+}
+.mx-tip-row .mono {
+  color: var(--ink);
+}
+.mx-key {
+  display: inline-block;
+  width: 10px;
+  height: 3px;
+  border-radius: 2px;
+}
+.mx-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  font-size: 12px;
+  color: var(--ink-2);
+}
+.mx-legend > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.mx-chart-label {
+  font-size: 12px;
+  color: var(--ink-3);
+  margin-bottom: 2px;
+}
+.mx-perf {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.mx-meter {
+  display: flex;
+  gap: 2px;
+  width: 100%;
+  margin-top: 6px;
+  border-radius: 4px;
+  overflow: hidden;
+  background: var(--rule-2);
+}
+.mx-meter > span {
+  display: block;
+  height: 100%;
+  border-radius: 4px;
+}
+.mx-meter-legend {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 12px;
+  color: var(--ink-3);
+}
+
+.mx-barlist {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.mx-barlist-line {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 13px;
+  line-height: 18px;
+}
+.mx-barlist-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ink);
+}
+.mx-barlist-sub {
+  margin-left: 8px;
+  font-size: 12px;
+  color: var(--ink-3);
+}
+.mx-barlist-value {
+  flex: none;
+  font-size: 12px;
+  color: var(--ink);
+}
+.mx-barlist-track {
+  height: 4px;
+  margin-top: 4px;
+  border-radius: 4px;
+  background: var(--rule-2);
+  overflow: hidden;
+}
+.mx-barlist-track > span {
+  display: block;
+  height: 100%;
+  border-radius: 4px;
+}
+.mx-empty {
+  font-size: 12px;
+  color: var(--ink-3);
+}
+
+/* ── network ──────────────────────────────────────────────────────── */
+
+.mx-net {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin-bottom: 4px;
+}
+.mx-net-num {
+  font-size: 26px;
+  line-height: 1.2;
+}
+
+/* ── sources footer ───────────────────────────────────────────────── */
+
+.mx-sources {
+  padding-top: 8px;
+  border-top: 1px solid var(--rule-2);
+  font-size: 12px;
+  color: var(--ink-3);
+}
+.mx-sources summary {
+  cursor: pointer;
+  width: fit-content;
+}
+.mx-sources dl {
+  display: grid;
+  grid-template-columns: minmax(140px, max-content) 1fr;
+  gap: 4px 16px;
+  margin: 10px 0;
+}
+.mx-sources dt {
+  color: var(--ink-2);
+}
+.mx-sources dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.mx-notes {
+  margin: 0 0 8px;
+  padding-left: 16px;
+  color: var(--warn);
+}

@@ -2195,3 +2195,258 @@ declare global {
     ntnx: NtnxApi;
   }
 }
+
+// ─── Insights > Metrics (live dashboard of a saved target) ──────────────
+// One self-contained block. Channels in METRICS_IPC; the NtnxApi methods are added by
+// declaration merging. Sidecar methods `metrics` / `cancel_metrics`, see
+// docs/IPC_CONTRACT.md "metrics". Percentages are 0 to 100, sizes bytes, latency µs.
+
+export const METRICS_IPC = {
+  getMetrics: 'core:getMetrics',
+  cancelMetrics: 'core:cancelMetrics',
+} as const;
+
+/** `now`: every card but trends (a few seconds). `trends`: 90 days of daily points and runway. */
+export type MetricsPart = 'now' | 'trends';
+export type MetricsRange = 30 | 60 | 90;
+
+export interface MetricsRequest {
+  /** A saved Prism Central target; the main process fills in its address, TLS and password. */
+  targetId: string;
+  part: MetricsPart;
+  /** Skip the sidecar's short cache (the Refresh button). */
+  refresh?: boolean;
+  /** Renderer-chosen id, so leaving the page can cancel the request. */
+  requestId: string;
+}
+
+export interface MetricsUtilization {
+  cpu_pct: number | null;
+  memory_pct: number | null;
+  storage_pct: number | null;
+}
+
+export interface MetricsCapacity {
+  cpu_count?: number | null;
+  memory_bytes?: number | null;
+  storage_used_bytes: number | null;
+  storage_capacity_bytes: number | null;
+  storage_free_bytes: number | null;
+  storage_logical_bytes: number | null;
+  redundancy_factor?: number | null;
+  /** Physical capacity x 0.95 / RF (capacity.py's reserve), and what of it is free. */
+  usable_bytes: number | null;
+  usable_free_bytes: number | null;
+}
+
+export interface MetricsPerformance {
+  iops: number | null;
+  read_iops?: number | null;
+  write_iops?: number | null;
+  latency_usecs: number | null;
+  bandwidth_kbps?: number | null;
+}
+
+export interface MetricsEfficiency {
+  /** Compression + dedup + erasure coding, "1.4 : 1". */
+  data_reduction_ratio?: number | null;
+  /** Including thin provisioning, clones and snapshots. */
+  overall_ratio?: number | null;
+  saved_bytes: number | null;
+  compression_ratio?: number | null;
+  dedup_ratio?: number | null;
+  erasure_coding_ratio?: number | null;
+}
+
+export interface MetricsResiliency {
+  current: number | null;
+  desired: number | null;
+  ok: boolean;
+  kind: 'fault_tolerance' | 'rf';
+}
+
+export type MetricsHealthStatus = 'ok' | 'warning' | 'critical';
+
+export interface MetricsHealth {
+  status: MetricsHealthStatus;
+  /** Display text, most important first ("3 critical alerts"). */
+  reasons: string[];
+  critical_alerts: number;
+  warning_alerts: number;
+  nodes_total: number;
+  nodes_ok: number;
+  resiliency: MetricsResiliency | null;
+}
+
+export interface MetricsNode {
+  uuid: string;
+  name: string;
+  status: 'ok' | 'warn' | 'error';
+  node_state: string | null;
+  maintenance: boolean;
+  degraded: boolean;
+  cvm_ip: string | null;
+  cvm_status: 'ok' | 'error' | null;
+  metadata_store: string | null;
+  cpu_pct: number | null;
+  memory_pct: number | null;
+  num_vms: number | null;
+}
+
+export interface MetricsNic {
+  host: string;
+  name: string | null;
+  link_speed_kbps: number | null;
+  rx_kBps: number | null;
+  tx_kBps: number | null;
+  rx_errors: number | null;
+  tx_errors: number | null;
+  rx_dropped: number | null;
+  tx_dropped: number | null;
+}
+
+export interface MetricsNetwork {
+  rx_kBps: number | null;
+  tx_kBps: number | null;
+  /** Error / dropped packets in the last sampling interval, all NICs. */
+  errors: number | null;
+  dropped: number | null;
+  nics: MetricsNic[];
+  links_up: number;
+}
+
+export interface MetricsVm {
+  uuid: string;
+  name: string;
+  cluster_uuid: string;
+  cpu_pct: number | null;
+  memory_pct: number | null;
+  iops: number | null;
+  latency_usecs: number | null;
+  vcpus: number | null;
+  memory_bytes: number | null;
+}
+
+export type MetricsTopKey = 'cpu' | 'memory' | 'iops' | 'latency';
+
+export interface MetricsAlert {
+  id: string;
+  title: string;
+  severity: 'critical';
+  cluster_uuid: string | null;
+  cluster_name: string | null;
+  source: string | null;
+  source_type: string | null;
+  created_at: string | null;
+  acknowledged: boolean;
+  impact: string | null;
+}
+
+export interface MetricsClusterNow {
+  uuid: string;
+  name: string;
+  aos_version: string | null;
+  hypervisors: string[];
+  num_nodes: number | null;
+  health: MetricsHealth;
+  utilization: MetricsUtilization;
+  capacity: MetricsCapacity;
+  performance: MetricsPerformance;
+  efficiency: MetricsEfficiency;
+  alerts: { critical: number; warning: number };
+  /** Prism Central's own runway estimate in days (capped at 365 by Prism), when served. */
+  prism_runway_days: { cpu: number | null; memory: number | null; storage: number | null; overall: number | null } | null;
+  nodes: MetricsNode[];
+  network: MetricsNetwork;
+  top_vms: Record<MetricsTopKey, MetricsVm[]>;
+}
+
+export interface MetricsTotalNow {
+  name: string;
+  clusters: number;
+  utilization: MetricsUtilization;
+  capacity: MetricsCapacity;
+  performance: MetricsPerformance;
+  efficiency: { saved_bytes: number | null };
+  health: { critical: number; warning: number; ok: number; nodes_total: number; nodes_ok: number };
+  alerts: { critical: number; warning: number };
+}
+
+interface MetricsHead {
+  host: string;
+  version: string | null;
+  collected_at: string;
+  ranges: MetricsRange[];
+  history_days: number;
+  cached: boolean;
+  age_seconds: number;
+  ttl_seconds: number;
+  /** Partial failures: one card's source failing never fails the page. */
+  notes: string[];
+}
+
+export interface MetricsNowResult extends MetricsHead {
+  part: 'now';
+  clusters: MetricsClusterNow[];
+  total: MetricsTotalNow | null;
+  alerts: { critical: MetricsAlert[]; critical_count: number; warning_count: number; listed: number };
+  sources: { card: string; api: string }[];
+}
+
+/** Columnar daily points: `t` epoch ms ascending, one value per day per metric (null = gap). */
+export interface MetricsTrends {
+  t: number[];
+  cpu_pct: (number | null)[];
+  memory_pct: (number | null)[];
+  storage_pct: (number | null)[];
+  storage_used_bytes?: (number | null)[];
+  iops?: (number | null)[];
+  latency_usecs?: (number | null)[];
+}
+
+export interface RunwayThreshold {
+  pct: number;
+  /** reached = already there; projected = `days` / `date` set; beyond = over 5 years; never = flat. */
+  state: 'reached' | 'projected' | 'beyond' | 'never' | 'unknown';
+  days: number | null;
+  /** ISO day. */
+  date: string | null;
+}
+
+export interface Runway {
+  status: 'not_enough_data' | 'no_growth' | 'growing';
+  window_days: number;
+  points: number;
+  current: number | null;
+  /** Percentage points per day from the linear fit. */
+  slope_per_day: number | null;
+  r2: number | null;
+  thresholds: RunwayThreshold[];
+}
+
+export type MetricsResource = 'cpu' | 'memory' | 'storage';
+/** Keyed by range in days ("30", "60", "90"). */
+export type RunwayByRange = Record<string, Record<MetricsResource, Runway>>;
+
+export interface MetricsClusterTrends {
+  uuid: string;
+  name: string;
+  trends: MetricsTrends;
+  runway: RunwayByRange;
+}
+
+export interface MetricsTrendsResult extends MetricsHead {
+  part: 'trends';
+  clusters: MetricsClusterTrends[];
+  total: { name: string; trends: MetricsTrends; runway: RunwayByRange } | null;
+}
+
+export type MetricsResult = MetricsNowResult | MetricsTrendsResult;
+
+export interface NtnxApi {
+  /** Live metrics of a saved Prism Central target (read-only). Rejects on failure or timeout. */
+  getMetrics(req: MetricsRequest): Promise<MetricsResult>;
+  /** Stop a running getMetrics (leaving the page); false when it already finished. */
+  cancelMetrics(requestId: string): Promise<{ cancelled: boolean }>;
+}
+// ─── end Insights > Metrics ─────────────────────────────────────────────
