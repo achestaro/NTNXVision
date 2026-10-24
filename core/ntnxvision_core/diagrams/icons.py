@@ -25,9 +25,10 @@ from collections.abc import Iterable
 from dataclasses import dataclass, replace
 from typing import Any
 
+from . import nesting as NEST
 from . import text as tx
 from . import tokens as K
-from .build import CHIP_H, LEGEND_GAP, Row, chip, chip_w, measure, place_lines
+from .build import CHIP_H, LEGEND_GAP, chip, chip_w, measure, place_lines
 from .netcommon import tag_at
 from .scene import Node, Scene, Style, TextLine, q
 
@@ -36,7 +37,7 @@ USER_CHIP = "USER-ADDED"
 #: Largest canvas a placed icon may extend a figure to (pt).
 MAX_EXTENT = 20000.0
 #: Smallest and largest placed icon (pt).
-MIN_W, MIN_H, MAX_W, MAX_H = 24.0, 10.0, 1600.0, 1600.0
+MIN_W, MIN_H, MAX_W, MAX_H = 24.0, 10.0, 8000.0, 8000.0
 #: Room kept around a placed icon at the figure's right and bottom edge.
 MARGIN = 6.0
 
@@ -95,6 +96,34 @@ LOOKS: dict[str, Look] = {
     "note": Look(K.NOTE, (K.SIZE_BODY, False, K.INK_2), (K.SIZE_SMALL, False, K.INK_3)),
     "text": Look(K.LABEL, (K.SIZE_BODY, False, K.INK_2), (K.SIZE_SMALL, False, K.INK_3),
                  pad_x=0.0, pad_y=0.0),
+    # ── nesting frames and NC2 / cloud (drawn in the app's own style, never logos) ──
+    "datacenter": Look(K.DATACENTER, (K.SIZE_SITE, True, K.INK), _SMALL,
+                       ("DATACENTER", K.TAG_DATACENTER), container=True, pad_x=6.0,
+                       pad_y=CHIP_H / 2 + 4.5),
+    "cvm": Look(K.CVM, (K.SIZE_SMALL, True, K.IRIS), _SMALL, align="center", pad_x=3.0,
+                pad_y=3.0),
+    "cloud_aws": Look(K.CLOUD_AWS, (K.SIZE_SITE, True, K.INK), _SMALL, ("AWS", K.TAG_AWS),
+                      container=True, pad_x=6.0, pad_y=CHIP_H / 2 + 4.5),
+    "cloud_azure": Look(K.CLOUD_AZURE, (K.SIZE_SITE, True, K.INK), _SMALL,
+                        ("AZURE", K.TAG_AZURE), container=True, pad_x=6.0,
+                        pad_y=CHIP_H / 2 + 4.5),
+    "cloud_gcp": Look(K.CLOUD_GCP, (K.SIZE_SITE, True, K.INK), _SMALL, ("GCP", K.TAG_GCP),
+                      container=True, pad_x=6.0, pad_y=CHIP_H / 2 + 4.5),
+    "region": Look(K.REGION, (K.SIZE_CARD_TITLE, True, K.INK), _SMALL, ("REGION", K.TAG),
+                   container=True, pad_x=6.0, pad_y=CHIP_H / 2 + 4.0),
+    "nc2_cluster": Look(K.CLUSTER, _CARD, _BODY, ("NC2", K.TAG)),
+    "bm_node": Look(K.NODES_BOX, (K.SIZE_BODY, True, K.INK), _SMALL,
+                    ("BARE METAL", K.TAG_MUTED)),
+    "directconnect": Look(K.LINK_AWS, _CARD, _BODY, ("AWS", K.TAG_AWS)),
+    "expressroute": Look(K.LINK_AZURE, _CARD, _BODY, ("AZURE", K.TAG_AZURE)),
+    "interconnect": Look(K.LINK_GCP, _CARD, _BODY, ("GCP", K.TAG_GCP)),
+    "vpn": Look(K.LINK_VPN, _CARD, _BODY, ("VPN", K.TAG_LINK)),
+    "cloud_net": Look(K.CLOUD_NET, _CARD, _BODY, ("VPC / VNET", K.TAG_MUTED)),
+    "transit": Look(K.TRANSIT, _CARD, _BODY, ("TRANSIT", K.TAG_ROLE)),
+    "flow_gateway": Look(K.EXTERNAL_NET, _CARD, _BODY, ("GATEWAY", K.TAG)),
+    "nc2_portal": Look(K.REF, _CARD, _BODY, ("SAAS", K.TAG)),
+    "cloud_storage": Look(K.EXTERNAL, (K.SIZE_SMALL, True, K.WHITE),
+                          (K.SIZE_SMALL, False, K.WHITE), pad_x=4.0, pad_y=3.0),
 }
 
 
@@ -117,12 +146,15 @@ class Icon:
 
 
 #: Groups in picker order.
-GROUPS = ("Infrastructure", "Storage", "Networking", "Security", "Data protection",
-          "Annotations")
+GROUPS = ("Infrastructure", "NC2 / cloud", "Storage", "Networking", "Security",
+          "Data protection", "Annotations")
 
 CATALOG: tuple[Icon, ...] = (
+    Icon("datacenter", "Datacenter", "Infrastructure", 180, 80, "Datacenter", "",
+         "datacenter data center dc site building on-prem onprem campus",
+         "A datacenter frame with its DATACENTER chip: holds zones, PODs and clusters."),
     Icon("az", "Availability zone", "Infrastructure", 150, 64, "Availability zone",
-         "Not collected", "az site datacenter zone", "A zone frame with its AZ chip."),
+         "Not collected", "az availability site zone", "A zone frame with its AZ chip."),
     Icon("remote", "Remote availability zone", "Infrastructure", 130, 34,
          "Remote zone", "Outside this inventory", "remote az site dr target cloud",
          "A zone outside this inventory (dashed)."),
@@ -132,10 +164,57 @@ CATALOG: tuple[Icon, ...] = (
          "cluster prism element pe aos", "A cluster card."),
     Icon("node", "Node", "Infrastructure", 90, 24, "Node", "Host", "host node server",
          "A host or node box."),
+    Icon("cvm", "Controller VM", "Infrastructure", 30, 13.7, "CVM", "",
+         "cvm controller vm stargate node", "A CVM badge in its node's corner."),
     Icon("pod", "POD", "Infrastructure", 140, 56, "POD", "", "pod group block",
          "A POD frame with its POD chip."),
     Icon("vcenter", "vCenter Server", "Infrastructure", 100, 24, "vCenter Server", "",
          "vcenter vmware esxi", "The vCenter box under an ESXi cluster."),
+    # NC2 / cloud: drawn in the app's own frame and card style, labelled, no logos.
+    Icon("cloud_aws", "NC2 on AWS", "NC2 / cloud", 200, 90, "NC2 on AWS", "Amazon Web Services",
+         "aws amazon cloud nc2 provider", "An AWS cloud frame: holds regions and links."),
+    Icon("cloud_azure", "NC2 on Azure", "NC2 / cloud", 200, 90, "NC2 on Azure",
+         "Microsoft Azure", "azure microsoft cloud nc2 provider",
+         "An Azure cloud frame: holds regions and links."),
+    Icon("cloud_gcp", "NC2 on Google Cloud", "NC2 / cloud", 200, 90, "NC2 on Google Cloud",
+         "Google Cloud", "gcp google cloud nc2 provider",
+         "A Google Cloud frame: holds regions and links."),
+    Icon("region", "Cloud region / AZ", "NC2 / cloud", 160, 64, "Cloud region",
+         "Availability zone", "region availability zone az cloud aws azure gcp",
+         "A cloud region (or cloud AZ) frame: holds NC2 clusters."),
+    Icon("nc2_cluster", "NC2 cluster", "NC2 / cloud", 130, 34, "NC2 cluster",
+         "Nutanix Cloud Clusters", "nc2 cluster cloud clusters aos bare metal",
+         "An NC2 cluster card: holds its bare-metal nodes."),
+    Icon("bm_node", "Bare-metal node", "NC2 / cloud", 90, 26, "Bare-metal node",
+         "Bare-metal host", "bare metal node host i3 i4i metal instance ec2 av36",
+         "A bare-metal cloud host."),
+    Icon("directconnect", "AWS Direct Connect", "NC2 / cloud", 130, 30, "Direct Connect",
+         "Dedicated private link", "direct connect dx aws private link circuit",
+         "AWS Direct Connect between a datacenter and AWS."),
+    Icon("expressroute", "Azure ExpressRoute", "NC2 / cloud", 130, 30, "ExpressRoute",
+         "Dedicated private link", "expressroute express route azure private link circuit",
+         "Azure ExpressRoute between a datacenter and Azure."),
+    Icon("interconnect", "Google Cloud Interconnect", "NC2 / cloud", 130, 30,
+         "Cloud Interconnect", "Dedicated private link",
+         "interconnect cloud interconnect gcp google private link",
+         "Google Cloud Interconnect between a datacenter and Google Cloud."),
+    Icon("vpn", "Site-to-site VPN", "NC2 / cloud", 130, 30, "Site-to-site VPN", "IPsec",
+         "vpn site to site ipsec tunnel s2s", "An IPsec VPN between two sites (dashed)."),
+    Icon("cloud_net", "VPC / VNet", "NC2 / cloud", 150, 34, "Cloud VPC", "Subnets",
+         "vpc vnet virtual network cloud subnet aws azure gcp",
+         "A cloud VPC or VNet: holds an NC2 cluster's network."),
+    Icon("transit", "Transit hub", "NC2 / cloud", 130, 30, "Transit gateway", "Hub",
+         "transit gateway tgw vwan virtual wan hub peering",
+         "A transit gateway or virtual WAN hub."),
+    Icon("flow_gateway", "Flow / Network Gateway", "NC2 / cloud", 130, 30, "Flow Gateway",
+         "Network Gateway", "flow gateway network gateway fgw nat nc2 azure",
+         "The NC2 Flow Gateway or Network Gateway."),
+    Icon("nc2_portal", "NC2 console", "NC2 / cloud", 130, 30, "NC2 console",
+         "Cluster lifecycle (SaaS)", "nc2 console portal saas my nutanix orchestration",
+         "The NC2 console that deploys and manages the clusters."),
+    Icon("cloud_storage", "Cloud object storage", "NC2 / cloud", 120, 18,
+         "Object storage", "", "s3 blob gcs object storage bucket cluster protect backup",
+         "Cloud object storage (S3, Blob, GCS)."),
     Icon("container", "Storage container", "Storage", 110, 16, "Storage container", "",
          "storage container dsf datastore", "A DSF storage strip."),
     Icon("storage", "External storage", "Storage", 110, 18, "External storage", "",
@@ -197,43 +276,39 @@ def catalog_docs() -> list[dict[str, Any]]:
                               "radius": lk.style.radius},
                     "chip": ({"label": lk.chip[0], "fill": lk.chip[1].fill}
                              if lk.chip else None),
-                    "ink": lk.title[2]})
+                    "ink": lk.title[2],
+                    # The kinds it may hold (`nesting.CHILDREN`), for "add into the
+                    # selection" and drops.
+                    "children": list(NEST.CHILDREN.get(i.id, ()))})
     return out
 
 
 # ─── drawing a placed icon ─────────────────────────────────────────────
 
 
-def _rows(lk: Look, label: str, sub: str | None, max_lines: int = 2) -> list[Row]:
-    size, bold, color = lk.title
-    rows = [Row(label, size, bold, color, max_lines, tx.MIN_SIZE)] if label else []
-    if sub:
-        dsize, dbold, dcolor = lk.detail
-        rows.append(Row(sub, dsize, dbold, dcolor, 2, tx.MIN_SIZE, gap_before=0.5))
-    return rows
-
-
-def draw(item: dict[str, Any]) -> list[Node]:
-    """The nodes of one placed icon (the icon's box first, then its chip)."""
+def draw(item: dict[str, Any], frame: tuple[float, float, float, float] | None = None,
+         holder: bool = False, top_text: bool = False) -> list[Node]:
+    """The nodes of one placed icon (the icon's box first, then its chip). `frame`: the
+    box `nesting.arrange` gave it (x, y, w, h); `holder`: it holds other icons, so its
+    text is a heading at the top (a frame or a card with children)."""
     icon = ICONS[str(item["icon"])]
     lk = icon.look
     ident = str(item["id"])
-    x, y = q(float(item["x"])), q(float(item["y"]))
-    w = q(float(item.get("w") or icon.w))
-    h = float(item.get("h") or icon.h)
-    label = str(item.get("label") if item.get("label") is not None else icon.name)
-    sub = item.get("sub")
-    rows = _rows(lk, label, sub if isinstance(sub, str) else None,
-                 1 if lk.container else 2)
+    if frame is None:
+        x, y = q(float(item["x"])), q(float(item["y"]))
+        w = q(float(item.get("w") or icon.w))
+        h = float(item.get("h") or icon.h)
+    else:
+        x, y, w, h = (q(v) for v in frame)
+    rows = NEST.text_rows(icon, item, holder)
     data = {"origin": "user", "icon": icon.id, "kind": icon.label}
-    kind = "container" if lk.container else ("label" if icon.id == "text" else
-                                             "tag" if icon.id == "plans" else "box")
-    valign = "top" if lk.container else "middle"
+    frame_kind = lk.container
+    kind = "container" if frame_kind else ("label" if icon.id == "text" else
+                                           "tag" if icon.id == "plans" else "box")
+    valign = "top" if (frame_kind or holder or top_text) else "middle"
     # Room for a left chip inside the row (a VLAN chip sits before the segment name).
     pad_x = lk.pad_x
-    lead = 0.0
-    if icon.id == "segment":
-        lead = q(tx.width("VLAN", K.SIZE_CHIP, True) + 9 + 4)
+    lead = NEST.lead(icon)
     measured, th = measure(rows, max(4.0, w - 2 * pad_x - lead))
     hh = q(max(h, th + 2 * lk.pad_y))
     node = Node(id=ident, kind=kind, x=x, y=y, w=w, h=hh, style=lk.style, lines=[],
@@ -250,14 +325,28 @@ def draw(item: dict[str, Any]) -> list[Node]:
             out.append(tag_at(f"{ident}:tag", clabel, x + 4, q(y + (hh - 8.0) / 2), cstyle,
                               parent=ident, h=8.0))
         else:
-            out.append(chip(f"{ident}:tag", clabel, x + (5.5 if lk.container else 5.0), y,
-                            cstyle, parent=ident))
+            out.append(_chip(f"{ident}:tag", clabel, x + (5.5 if lk.container else 5.0), y,
+                             cstyle, ident))
     return out
+
+
+def _chip(ident: str, label: str, x: float, y: float, style: Style, parent: str) -> Node:
+    """`build.chip`, widened by a hair when the rounding of its width would ellipsise
+    a label that fits ("NC2")."""
+    n = chip(ident, label, x, y, style, parent=parent)
+    if n.lines and n.lines[0].text != label:
+        n.w = q(n.w + 0.5)
+        n.lines = [TextLine(text=label, size=K.SIZE_CHIP, bold=True, color=K.WHITE,
+                            x=q((n.w - tx.natural(label, K.SIZE_CHIP, True)) / 2),
+                            baseline=n.lines[0].baseline,
+                            width=tx.natural(label, K.SIZE_CHIP, True))]
+    return n
 
 
 def place(scenes: list[Scene], placed: Iterable[dict[str, Any]]) -> None:
     """Draw the placed icons on the scenes they belong to (``scene``: the scene id),
-    growing a scene to hold them."""
+    nested and arranged by `nesting.arrange` (an icon inside another, a frame around a
+    collected zone), growing a scene to hold them."""
     by_scene: dict[str, list[dict[str, Any]]] = {}
     for item in placed:
         if isinstance(item, dict) and str(item.get("icon")) in ICONS:
@@ -268,21 +357,46 @@ def place(scenes: list[Scene], placed: Iterable[dict[str, Any]]) -> None:
         items = by_scene.get(sc.id)
         if not items:
             continue
+        arranged = NEST.arrange(sc, items, ICONS)
+        tall = sc.height
         frames: list[Node] = []
         rest: list[Node] = []
-        tall = sc.height
-        for item in items:
-            nodes = draw(item)
-            (frames if nodes[0].kind == "container" else rest).extend(nodes)
-            right = max(n.x + n.w for n in nodes)
-            bottom = max(n.y + n.h for n in nodes)
+        roots = {b.id for b in arranged.roots}
+        drawn: list[Node] = []
+        for b in arranged.boxes:
+            nodes = draw(b.item, (b.x, b.y, b.w, b.h), b.holder, bool(b.kids))
+            if b.parent is not None:
+                nodes[0].parent = b.parent
+            # Frames of free trees paint under everything; the rest over the layout, in
+            # tree order (a parent before what it holds).
+            free_tree = _root_of(b, arranged) in roots and not \
+                _under_collected(b, arranged)
+            (frames if nodes[0].kind == "container" and free_tree else rest).extend(nodes)
+            drawn.extend(nodes)
+        for n in drawn:
+            right, bottom = n.x + n.w, n.y + n.h
             sc.width = q(min(MAX_EXTENT, max(sc.width, right + MARGIN)))
             sc.height = q(min(MAX_EXTENT, max(sc.height, bottom + MARGIN)))
-        # A placed zone or POD paints under everything (first in its layer); boxes paint
-        # over what was laid out.
         sc.nodes = frames + sc.nodes + rest
-        _nest(sc, {str(i["id"]) for i in items})
-        _legend_last(sc, frames + rest, tall)
+        _nest(sc, {b.id for b in arranged.roots if not b.wraps})
+        _legend_last(sc, drawn, tall)
+        sc.meta = {**sc.meta, "placed": NEST.meta(arranged)}
+
+
+def _root_of(b: NEST.Box, arranged: NEST.Arranged) -> str:
+    by_id = {x.id: x for x in arranged.boxes}
+    cur = b
+    while cur.parent is not None and cur.parent in by_id:
+        cur = by_id[cur.parent]
+    return cur.id
+
+
+def _under_collected(b: NEST.Box, arranged: NEST.Arranged) -> bool:
+    by_id = {x.id: x for x in arranged.boxes}
+    cur = b
+    while cur.parent is not None and cur.parent in by_id:
+        cur = by_id[cur.parent]
+    return cur.parent is not None
 
 
 def _legend_last(sc: Scene, placed: list[Node], tall: float) -> None:

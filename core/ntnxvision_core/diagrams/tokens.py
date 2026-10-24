@@ -147,3 +147,33 @@ STATE_ENFORCE = Style(fill=INK, radius=1.9)
 STATE_MONITOR = Style(fill=WHITE, stroke=INK_2, stroke_w=0.6, radius=1.9)
 RULE_IN = Style(stroke=IRIS, stroke_w=0.9)
 ISOLATE = Style(stroke=INK, stroke_w=1.1)
+
+# ─── nesting and NC2 / cloud icons (Diagrams editor) ───────────────────
+#: A datacenter frame: the zone frame's language one level up (white, stronger rule)
+#: with an ink "DATACENTER" chip.
+DATACENTER = Style(fill=WHITE, stroke=RULE_STRONG, stroke_w=0.8, radius=6.0)
+TAG_DATACENTER = Style(fill=INK, radius=1.9)
+#: Restrained provider accents (chips and frame rules only; never logos).
+AWS_ACCENT = "#B34700"
+AZURE_ACCENT = "#0F62A8"
+GCP_ACCENT = "#1E7A46"
+CLOUD_AWS = Style(fill=WHITE, stroke=AWS_ACCENT, stroke_w=0.8, radius=6.0)
+CLOUD_AZURE = Style(fill=WHITE, stroke=AZURE_ACCENT, stroke_w=0.8, radius=6.0)
+CLOUD_GCP = Style(fill=WHITE, stroke=GCP_ACCENT, stroke_w=0.8, radius=6.0)
+TAG_AWS = Style(fill=AWS_ACCENT, radius=1.9)
+TAG_AZURE = Style(fill=AZURE_ACCENT, radius=1.9)
+TAG_GCP = Style(fill=GCP_ACCENT, radius=1.9)
+#: A cloud region (or cloud AZ): the zone frame with a "REGION" chip.
+REGION = Style(fill=SURFACE, stroke=RULE, stroke_w=0.75, radius=5.25)
+#: Cloud networking: a VPC / VNet card, a transit hub.
+CLOUD_NET = Style(fill=WHITE, stroke=RULE_STRONG, stroke_w=0.7, radius=3.0)
+TRANSIT = Style(fill=IRIS_TINT, stroke=INK_2, stroke_w=0.7, radius=3.0)
+#: Private links to a cloud (Direct Connect, ExpressRoute, Interconnect): a rounded
+#: card with the provider's accent; a site-to-site VPN is dashed.
+LINK_AWS = Style(fill=WHITE, stroke=AWS_ACCENT, stroke_w=0.9, radius=7.0)
+LINK_AZURE = Style(fill=WHITE, stroke=AZURE_ACCENT, stroke_w=0.9, radius=7.0)
+LINK_GCP = Style(fill=WHITE, stroke=GCP_ACCENT, stroke_w=0.9, radius=7.0)
+LINK_VPN = Style(fill=WHITE, stroke=INK_2, stroke_w=0.8, dash=(2.6, 1.9), radius=7.0)
+TAG_LINK = Style(fill=INK_2, radius=1.9)
+#: The Controller VM badge inside a node.
+CVM = Style(fill=IRIS_TINT, stroke=IRIS, stroke_w=0.5, radius=1.5)
