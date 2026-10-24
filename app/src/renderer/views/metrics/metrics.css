@@ -338,7 +338,16 @@
   font-size: 18px;
   line-height: 40px;
 }
-/* Only warn / error colour the headline; a calm "No growth" stays ink. */
+/* Only warn / error colour the headline; a calm "No growth" stays ink. (The display
+ * numeral rule above sets ink, so the two tones are restated here to win.) */
+.mx-runway-when.tone-warn,
+.mx-reach-when.tone-warn {
+  color: var(--warn);
+}
+.mx-runway-when.tone-error,
+.mx-reach-when.tone-error {
+  color: var(--error);
+}
 .mx-runway-when.tone-ok,
 .mx-runway-when.tone-idle,
 .mx-reach-when.tone-ok,
