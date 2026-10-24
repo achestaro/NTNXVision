@@ -220,6 +220,9 @@ class VmCollector(Collector):
             # The two schemas disagree: AHV reports numSockets, ESXi numCpus.
             num_vcpus=entity.get("numSockets") or _esxi_sockets(entity),
             num_cores_per_vcpu=entity.get("numCoresPerSocket"),
+            # AHV only (verified on pc.7.5.1.1); the ESXi schema has neither.
+            num_threads_per_core=_int_or_none(entity.get("numThreadsPerCore")),
+            num_numa_nodes=_int_or_none(entity.get("numNumaNodes")),
             memory_bytes=entity.get("memorySizeBytes"),
             hypervisor=hypervisor,
             is_agent_vm=entity.get("isAgentVm", False),
@@ -430,6 +433,9 @@ class VmCollector(Collector):
                 power_state=resources.get("power_state"),
                 num_vcpus=resources.get("num_sockets"),
                 num_cores_per_vcpu=resources.get("num_vcpus_per_socket"),
+                num_threads_per_core=_int_or_none(resources.get("num_threads_per_core")),
+                num_numa_nodes=_int_or_none(
+                    (resources.get("vnuma_config") or {}).get("num_vnuma_nodes")),
                 memory_bytes=_mib_to_bytes(resources.get("memory_size_mib")),
                 description=status.get("description"),
                 hypervisor=resources.get("hypervisor_type"),

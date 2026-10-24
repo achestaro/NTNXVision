@@ -918,6 +918,29 @@ try {
     await expectDetailValue('Target ratio', '4.0 : 1 (default)', 'AMS-EDGE-02 target');
   });
 
+  // ── Insights > Optimization: the real sidecar `optimization` on the demo snapshot ──
+  await run('optimization-vm-compute', async () => {
+    await rail('Optimization');
+    const card = page.getByRole('button', { name: /^VM compute: \d+ VMs? to review/ });
+    await card.waitFor({ timeout: 30_000 });
+    await card.click();
+    await page.getByRole('heading', { level: 1, name: 'VM compute' }).waitFor({ timeout: 30_000 });
+    const first = (await page.locator('thead th').first().innerText()).trim().toLowerCase();
+    if (first !== 'cluster') throw new Error(`first findings column is "${first}", not Cluster`);
+    for (const sev of ['High', 'Medium', 'Low']) await page.locator('tbody td', { hasText: new RegExp(`^${sev}$`) }).first().waitFor({ timeout: 15_000 });
+    const vm = (await page.locator('tbody tr button.lnk').first().innerText()).trim();
+    await page.locator('tbody tr button.lnk').first().click();
+    const detail = page.locator('#opt-detail');
+    await detail.getByText('Recommended').waitFor({ timeout: 15_000 });
+    await uxShot('optimization-vm-compute');
+    // The VM's Inventory deep link opens it selected, with its details.
+    await detail.getByRole('button', { name: /Open in Inventory/ }).click();
+    await page.getByRole('heading', { level: 1, name: 'Virtual machines' }).waitFor({ timeout: 30_000 });
+    await page.getByText('VM details').waitFor({ timeout: 30_000 });
+    await expectExpanded(vm, true);
+    await page.keyboard.press('Escape');
+  });
+
   await run('compare', async () => {
     await rail('Compare');
     await page.getByText(/What changed/).first().waitFor({ timeout: 30_000 });

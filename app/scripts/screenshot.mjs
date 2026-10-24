@@ -391,6 +391,35 @@ const SHOTS = [
     await p.getByText('VM details').waitFor();
   }],
   ['inventory-empty', { empty: true }, async (p) => rail(p, 'Inventory')],
+  // ── Insights > Optimization: review cards, the VM compute review, a selected VM ──
+  ['optimization', {}, async (p) => {
+    await rail(p, 'Optimization');
+    await p.getByRole('button', { name: /^VM compute:/ }).waitFor();
+    await cardsFit(p);
+  }],
+  ['optimization-review', {}, async (p) => {
+    await rail(p, 'Optimization');
+    await p.getByRole('button', { name: /^VM compute:/ }).click();
+    await p.getByRole('heading', { level: 1, name: 'VM compute' }).waitFor();
+    await p.locator('tbody tr button.lnk').first().waitFor();
+    if (await p.locator('#opt-detail').count()) throw new Error('details panel open with no row clicked');
+    const first = await p.locator('thead th').first().innerText();
+    if (first.trim().toLowerCase() !== 'cluster') throw new Error(`first column is "${first}", not Cluster`);
+    await cardsFit(p);
+  }],
+  ['optimization-selected', {}, async (p) => {
+    await rail(p, 'Optimization');
+    await p.getByRole('button', { name: /^VM compute:/ }).click();
+    await p.locator('tbody tr button.lnk').nth(1).click();
+    await p.locator('#opt-detail').getByText('Open in Inventory').waitFor();
+    await cardsFit(p);
+  }, 1000, 1440],
+  ['optimization-clean', { optimization: 'clean' }, async (p) => {
+    await rail(p, 'Optimization');
+    await p.getByRole('button', { name: /^VM compute:/ }).click();
+    await p.getByText('Every VM’s layout fits its hosts').waitFor();
+  }],
+  ['optimization-empty', { empty: true }, async (p) => rail(p, 'Optimization')],
   ['snapshots', {}, async (p) => {
     await rail(p, 'Snapshots');
     await p.getByRole('checkbox', { name: 'Select pc01 Q4 review' }).check();

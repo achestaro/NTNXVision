@@ -989,4 +989,76 @@
       return delay(() => ({ ...settings }), 10);
     },
   };
+
+  // ── Insights > Optimization (getOptimization) ──
+  // A sample of what the sidecar's `optimization` returns for the demo pc01 estate.
+  // opt.optimization: 'findings' (default) | 'clean' (every VM fits its hosts).
+  (function () {
+    const host = (name, sockets, perNode, memGb, basis = 'current') => ({
+      uuid: `h-${name}`, name, sockets, cores: sockets * perNode, cores_per_node: perNode, threads_per_core: 2,
+      memory_bytes: memGb * GB, memory_per_node_bytes: (memGb / sockets) * GB, numa_nodes: sockets, basis,
+    });
+    const lay = (sockets, cores, memGb, vnuma, threads = 1) => ({
+      sockets, cores_per_socket: cores, threads_per_core: threads, vcpus: sockets * cores * threads, memory_bytes: memGb * GB, vnuma_nodes: vnuma,
+    });
+    const R = {
+      exceed: (v, c) => ['vcpus_exceed_cores', 'high', 'More vCPUs than physical cores', `${v} vCPUs on a host with ${c} physical cores. The vCPUs wait for each other to be scheduled; keep it at ${c} or fewer.`],
+      span: (v, c, n) => ['numa_span_cpu', 'high', 'Spans NUMA nodes, guest sees one', `${v} vCPUs do not fit in one NUMA node (${c} cores), so AHV spreads them over ${n} nodes while the guest sees a single node. Turn on vNUMA with ${n} nodes so the guest places its work and memory on the right node.`],
+      mem: (m, p) => ['numa_span_memory', 'medium', 'Memory spans NUMA nodes', `${m} GiB of memory is more than one NUMA node holds (${p} GiB of memory), so part of it is remote to the vCPUs. Turn on vNUMA with 2 nodes so the guest places its work and memory on the right node.`],
+      uneven: (v, t) => ['uneven_split', 'medium', 'vCPUs don’t split evenly', `${v} vCPUs over 2 NUMA nodes leaves the nodes unequal. ${t} vCPUs split evenly (${t / 2} per node).`],
+      straddle: (s) => ['socket_straddles_vnuma', 'medium', 'A socket straddles vNUMA nodes', `${s} sockets cannot be shared evenly over 2 vNUMA nodes, so the guest sees a socket split across nodes. Use 2 sockets.`],
+      mismatch: () => ['vnuma_mismatch', 'medium', 'vNUMA nodes don’t match the host', 'vNUMA is set to 3 nodes but the VM needs 2 of this host’s 2 NUMA nodes. Set it to 2.'],
+      notNeeded: () => ['vnuma_not_needed', 'low', 'vNUMA not needed', 'The VM fits in one NUMA node of this host, yet vNUMA shows the guest 2 nodes and splits its memory between them. Turn vNUMA off.'],
+      guest: () => ['guest_socket_limit', 'high', 'Guest can’t use all its sockets', 'Windows 11 Enterprise uses at most 2 CPU sockets, so the vCPUs on the other 2 sit unused. Give it fewer sockets with more cores each.'],
+      smaller: (h, s) => ['smaller_host', 'medium', 'Doesn’t fit the cluster’s smallest host', `It takes one NUMA node on ${h}, but the cluster also has smaller hosts such as ${s} (32 cores, 256 GB per NUMA node). Moved there by HA or ADS, it would span 2 NUMA nodes.`],
+    };
+    const f = (vm, cluster, power, hv, cur, rec, h, reasons, extra = {}) => {
+      const rs = reasons.map(([rule, severity, title, text]) => ({ rule, severity, title, text }));
+      const rank = { high: 3, medium: 2, low: 1 };
+      const top = rs.reduce((a, b) => (rank[b.severity] > rank[a.severity] ? b : a));
+      return {
+        id: `vm-${vm}`, vm, cluster, cluster_uuid: `c-${cluster.toLowerCase()}`, power_state: power, hypervisor: hv, guest_os: extra.guest_os ?? null,
+        source_pc: null, severity: top.severity, finding: top.title, reasons: rs, current: cur, recommended: rec,
+        sized_for: extra.sized_for ?? h.name, host: h, mixed_cluster: !!extra.mixed,
+      };
+    };
+    const P1 = host('phx-prod-01-n6', 2, 32, 1024);
+    const P2 = host('phx-prod-02-n10', 2, 48, 1024);
+    const DR = host('phx-dr-01-n5', 2, 24, 512);
+    const DRS = host('phx-dr-01-n1', 2, 24, 512, 'smallest');
+    const AMS = { ...host('ams-edge-02-n2', 1, 32, 512), threads_per_core: 2 };
+    const FINDINGS = [
+      f('web-235', 'AMS-EDGE-02', 'ON', 'ESXi', { ...lay(40, 1, 8, null) }, { ...lay(1, 32, 8, null) }, AMS, [R.exceed(40, 32)]),
+      f('db-01', 'PHX-PROD-01', 'ON', 'AHV', lay(40, 1, 128, 0), lay(2, 20, 128, 2), P1, [R.span(40, 32, 2)]),
+      f('ml-01', 'PHX-PROD-01', 'ON', 'AHV', lay(80, 1, 96, 0), lay(2, 32, 96, 2), P1, [R.exceed(80, 64), R.span(64, 32, 2)]),
+      f('vdi-01', 'PHX-PROD-01', 'ON', 'AHV', lay(4, 1, 8, 0), lay(1, 4, 8, 0), P1, [R.guest()], { guest_os: 'Windows 11 Enterprise' }),
+      f('db-59', 'PHX-DR-01', 'ON', 'AHV', lay(32, 1, 128, 0), lay(2, 16, 128, 2), DR, [R.span(32, 24, 2)]),
+      f('app-sql-41', 'PHX-DR-01', 'OFF', 'AHV', lay(8, 1, 320, 0), lay(2, 4, 320, 2), DRS, [R.mem(320, 256)]),
+      f('k8s-worker-03', 'PHX-PROD-01', 'ON', 'AHV', lay(33, 1, 64, 2), lay(2, 17, 64, 2), P1, [R.straddle(33), R.uneven(33, 34)]),
+      f('test-runner-02', 'PHX-PROD-01', 'ON', 'AHV', lay(3, 16, 16, 3), lay(2, 24, 16, 2), P1, [R.mismatch()]),
+      f('app-57', 'PHX-PROD-02', 'ON', 'AHV', lay(1, 36, 16, 0), lay(2, 18, 16, 2), P2, [R.smaller('phx-prod-02-n10', 'phx-prod-02-n1')], { mixed: true, sized_for: 'phx-prod-02-n1' }),
+      f('test-runner-01', 'PHX-PROD-01', 'ON', 'AHV', lay(8, 1, 16, 2), lay(8, 1, 16, 0), P1, [R.notNeeded()]),
+      f('test-runner-79', 'PHX-DR-01', 'ON', 'AHV', lay(8, 1, 16, 2), lay(8, 1, 16, 0), DR, [R.notNeeded()]),
+    ];
+    const reviewOf = (findings) => {
+      const count = (s) => findings.filter((x) => x.severity === s).length;
+      const summary = { reviewed: 1214, to_optimize: findings.length, clean: 1214 - findings.length, high: count('high'), medium: count('medium'), low: count('low'), not_checked: 0, powered_off: 99 };
+      const n = findings.length;
+      return {
+        reviews: [{
+          id: 'vm_compute', title: 'VM compute', description: 'vCPU and memory layouts that don’t fit their hosts’ NUMA layout.',
+          headline: n ? `${n} VM${n === 1 ? '' : 's'} to review` : 'Nothing to review', count: n,
+          severity: summary.high ? 'high' : summary.medium ? 'medium' : summary.low ? 'low' : null, reviewed: summary.reviewed,
+        }],
+        vm_compute: {
+          summary,
+          findings,
+          not_checked: [],
+          assumptions: ['One NUMA node per CPU socket (Nutanix APIs report no NUMA node count).', 'Powered-off VMs are checked against the smallest host in their cluster.'],
+        },
+      };
+    };
+    window.ntnx.getOptimization = (p) =>
+      snapshots.some((s) => s.path === p) ? delay(() => reviewOf(opt.optimization === 'clean' ? [] : FINDINGS)) : fail('Snapshot not found');
+  })();
 })();
