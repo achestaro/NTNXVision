@@ -327,7 +327,8 @@ function soonestCluster(
     if (r && days < (best?.days ?? Infinity)) best = { name: row.name, r, days };
   }
   // Worth saying only when a cluster gets there before the target as a whole (or alone).
-  if (!best || rows.length < 2 || best.days >= daysTo80(total)) return null;
+  // Within a year only: further out it is noise on an executive page.
+  if (!best || rows.length < 2 || best.days > 365 || best.days >= daysTo80(total)) return null;
   const th = threshold(best.r, 80);
   const when = th?.state === 'reached' ? 'already at 80%' : `80% in ${runwayWhen(best.r, th)}`;
   return { name: best.name, when, tone: runwayTone(th) === 'ok' ? 'idle' : runwayTone(th) };
