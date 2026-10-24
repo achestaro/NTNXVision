@@ -6,6 +6,7 @@
  "tests/test_column_order.py": 3.0,
  "tests/test_compare_export.py": 16.3,
  "tests/test_compat_and_element.py": 0.1,
+ "tests/test_compute_optimizer.py": 0.2,
  "tests/test_connectivity.py": 0.1,
  "tests/test_data_services_ip.py": 2.0,
  "tests/test_demo_end_to_end.py": 9.4,
@@ -41,6 +42,7 @@
  "tests/test_multi_pc.py": 0.5,
  "tests/test_no_em_dash.py": 0.4,
  "tests/test_numfmt.py": 0.0,
+ "tests/test_optimization_sidecar.py": 4.0,
  "tests/test_pc_version_short.py": 18.6,
  "tests/test_private_storage.py": 0.1,
  "tests/test_r3_paths.py": 0.1,
@@ -79,5 +81,6 @@
  "tests/test_vcenter.py": 0.7,
  "tests/test_version_consistency.py": 0.1,
  "tests/test_vm_groups_fallback.py": 6.4,
+ "tests/test_vm_topology_fields.py": 0.1,
  "tests/test_xplay.py": 0.6
 }

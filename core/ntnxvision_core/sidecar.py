@@ -1967,3 +1967,17 @@ _METHODS = {
     "export_preview": _m_export_preview,
     "export_diagram": _m_export_diagram,
 }
+
+
+# ─── Insights > Optimization ───────────────────────────────────────────
+
+
+def _m_optimization(_req_id: Any, params: dict[str, Any]) -> dict[str, Any]:
+    """The optimization reviews of one snapshot (`analysis.compute_optimizer`)."""
+    from ntnxvision_core.analysis.compute_optimizer import optimization_reviews
+
+    path = _resolve_snapshot_path(params["snapshot"])
+    return optimization_reviews(_cache.get(path))
+
+
+_METHODS["optimization"] = _m_optimization

@@ -122,6 +122,12 @@ class VirtualMachine(SourcedObject):
     power_state: str | None = None  # ON / OFF
     num_vcpus: int | None = None
     num_cores_per_vcpu: int | None = None
+    #: Threads per core the guest sees (AHV v4 ``numThreadsPerCore``, v3
+    #: ``num_threads_per_core``). None where the API has none (ESXi) or on older snapshots.
+    num_threads_per_core: int | None = None
+    #: Virtual NUMA nodes (AHV v4 ``numNumaNodes``, v3 ``vnuma_config.num_vnuma_nodes``);
+    #: 0 = vNUMA off. None where the API has none (ESXi) or on older snapshots.
+    num_numa_nodes: int | None = None
     memory_bytes: int | None = None
     description: str | None = None
     hypervisor: str | None = None
