@@ -4,12 +4,16 @@
 // draggable into slots of their container, or of another container the diagram allows;
 // connectors are selectable, reconnectable by their end handles and their lane can be
 // dragged. Every text line can be rewritten in place (double-click it). Icons placed from
-// the picker are the one free-placed thing: dragged anywhere and resized by a corner.
+// the picker are the one free-placed thing: dragged anywhere, dropped into a container
+// that may hold them (nesting.ts; the core arranges them), and resized by an edge or a
+// corner, never below what they hold.
 // Every gesture becomes an edit; the engine lays the result out again.
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { DiagramConnector, DiagramElement, DiagramScene, DiagramSide, SceneEdge, SceneNode, SceneStyle, SceneTextLine } from '@shared/ipc';
 import { isMod } from '../../lib/keyboard';
+import { placedMeta, planDrop } from './nesting';
+import type { DropPlan, NestContext } from './nesting';
 
 const FONT = "'Figtree Variable', Figtree, Calibri, 'Segoe UI', Arial, sans-serif";
 /** Pointer travel (screen px) before a press becomes a drag. */
@@ -64,6 +68,23 @@ export interface CanvasProps {
   onConnectorLabel?(conn: DiagramConnector, value: string | null): void;
   /** Placed icons moved (several when a placed zone carries what is in it) or resized. */
   onPlace?(moves: { id: string; x: number; y: number; w?: number; h?: number }[]): void;
+  // ─ nesting (views/diagrams/nesting.ts) ─
+  /** What may go into what (the core's hierarchy) for drops; null: drops never nest. */
+  nest?: NestContext | null;
+  /** A placed icon dropped into `parent` (null: out of its parent, free at x, y). */
+  onNest?(id: string, parent: string | null, x: number, y: number): void;
+  /** A placed frame dropped on a collected top-level frame it may hold: drawn around it. */
+  onWrap?(id: string, target: string, x: number, y: number): void;
+  /** A quiet line for the toolbar (a drop that could not nest). */
+  onHint?(text: string): void;
+}
+
+/** Which sides a resize drag moves. */
+interface Sides {
+  l: boolean;
+  r: boolean;
+  t: boolean;
+  b: boolean;
 }
 
 type Pt = [number, number];
@@ -84,8 +105,8 @@ type Drag =
   | { kind: 'wire'; from: string; side: DiagramSide; x: number; y: number; target: string | null; tside: Exclude<DiagramSide, 'auto'> | null }
   | { kind: 'end'; conn: DiagramConnector; end: 'a' | 'b'; x: number; y: number; target: string | null; tside: Exclude<DiagramSide, 'auto'> | null }
   | { kind: 'lane'; conn: DiagramConnector; axis: 'x' | 'y'; start: number; delta: number; seg: [Pt, Pt] }
-  | { kind: 'free'; id: string; startX: number; startY: number; dx: number; dy: number; active: boolean }
-  | { kind: 'resize'; id: string; w: number; h: number; x0: number; y0: number };
+  | { kind: 'free'; id: string; startX: number; startY: number; dx: number; dy: number; active: boolean; plan: DropPlan | null }
+  | { kind: 'resize'; id: string; w: number; h: number; x0: number; y0: number; x: number; y: number; sides: Sides; w0: number; h0: number; minW: number; minH: number };
 
 /** An in-place text editor: an element's label or sublabel, or any one text line. */
 type TextEdit =
@@ -465,9 +486,27 @@ export function SceneCanvas(props: CanvasProps): JSX.Element {
         if (!n) return;
         const dx = Math.round((ev.clientX - d.startX) / zoom);
         const dy = Math.round((ev.clientY - d.startY) / zoom);
-        setDrag({ ...d, active, dx: Math.max(-n.x, dx), dy: Math.max(-n.y, dy) });
+        const plan = active && props.nest ? planDrop(props.nest, d.id, x, y) : null;
+        setDrag({ ...d, active, dx: Math.max(-n.x, dx), dy: Math.max(-n.y, dy), plan });
       } else if (d.kind === 'resize') {
-        setDrag({ ...d, w: Math.max(24, Math.round(x - d.x0)), h: Math.max(10, Math.round(y - d.y0)) });
+        // Right / bottom sides follow the pointer; left / top move the box's corner too.
+        const right = d.x0 + d.w0;
+        const bottom = d.y0 + d.h0;
+        let nx = d.x0;
+        let ny = d.y0;
+        let w = d.w0;
+        let h = d.h0;
+        if (d.sides.r) w = Math.max(d.minW, Math.round(x - d.x0));
+        if (d.sides.b) h = Math.max(d.minH, Math.round(y - d.y0));
+        if (d.sides.l) {
+          nx = Math.max(0, Math.min(Math.round(x), right - d.minW));
+          w = right - nx;
+        }
+        if (d.sides.t) {
+          ny = Math.max(0, Math.min(Math.round(y), bottom - d.minH));
+          h = bottom - ny;
+        }
+        setDrag({ ...d, x: nx, y: ny, w, h });
       } else if (d.kind === 'end') {
         const other = d.end === 'a' ? d.conn.b : d.conn.a;
         const target = elementAt(x, y, other);
@@ -483,16 +522,29 @@ export function SceneCanvas(props: CanvasProps): JSX.Element {
       setDrag(null);
       if (!d) return;
       if (d.kind === 'free') {
-        if (d.active && (d.dx || d.dy)) {
+        const n = byId.get(d.id);
+        const plan = d.plan;
+        if (n && d.active && plan && plan.mode !== 'move') {
+          const nx = Math.max(0, n.x + d.dx);
+          const ny = Math.max(0, n.y + d.dy);
+          if (plan.mode === 'into') props.onNest?.(d.id, plan.parent, nx, ny);
+          else if (plan.mode === 'out') props.onNest?.(d.id, null, nx, ny);
+          else if (plan.mode === 'wrap') props.onWrap?.(d.id, plan.target, nx, ny);
+          else if (plan.mode === 'refused') {
+            props.onPlace?.([{ id: d.id, x: nx, y: ny }]);
+            props.onHint?.(`${outline.get(d.id)?.kind ?? 'This icon'} can’t go inside ${plan.label}, so it stays where you dropped it.`);
+          }
+        } else if (d.active && (d.dx || d.dy)) {
           const moves = carried(d.id).map((id) => {
-            const n = byId.get(id)!;
-            return { id, x: Math.max(0, n.x + d.dx), y: Math.max(0, n.y + d.dy) };
+            const c = byId.get(id)!;
+            return { id, x: Math.max(0, c.x + d.dx), y: Math.max(0, c.y + d.dy) };
           });
           props.onPlace?.(moves);
         }
       } else if (d.kind === 'resize') {
         const n = byId.get(d.id);
-        if (n && (Math.abs(d.w - n.w) >= 1 || Math.abs(d.h - n.h) >= 1)) props.onPlace?.([{ id: d.id, x: n.x, y: n.y, w: d.w, h: d.h }]);
+        if (n && (Math.abs(d.w - n.w) >= 1 || Math.abs(d.h - n.h) >= 1 || Math.abs(d.x - n.x) >= 1 || Math.abs(d.y - n.y) >= 1))
+          props.onPlace?.([{ id: d.id, x: d.x, y: d.y, w: d.w, h: d.h }]);
       } else if (d.kind === 'move') {
         const el = outline.get(d.id);
         if (d.active && d.slot && el) {
@@ -528,8 +580,9 @@ export function SceneCanvas(props: CanvasProps): JSX.Element {
   /** A placed icon and the placed icons inside it (a placed zone carries them). */
   const carried = (id: string): string[] => {
     const out = [id];
+    const meta = placedMeta(scene);
     for (const n of scene.nodes) {
-      if (n.id !== id && outline.get(n.id)?.free) {
+      if (n.id !== id && outline.get(n.id)?.free && !meta[n.id]?.parent) {
         let p = n.parent;
         const seen = new Set<string>();
         while (p && p !== id && !seen.has(p)) {
@@ -592,7 +645,8 @@ export function SceneCanvas(props: CanvasProps): JSX.Element {
     onSelect(id);
     const el = outline.get(id);
     if (el?.free) {
-      setDrag({ kind: 'free', id, startX: ev.clientX, startY: ev.clientY, dx: 0, dy: 0, active: false });
+      if (!placedMeta(scene)[id]?.anchored)
+        setDrag({ kind: 'free', id, startX: ev.clientX, startY: ev.clientY, dx: 0, dy: 0, active: false, plan: null });
       return;
     }
     if (el?.can_reorder && byId.get(id)?.kind === 'box') {
@@ -711,10 +765,10 @@ export function SceneCanvas(props: CanvasProps): JSX.Element {
     const elId = outline.has(n.id) ? n.id : null;
     const editOwner = textEdit ? (textEdit.kind === 'text' ? textEdit.key : textEdit.kind === 'conn' ? null : textEdit.id) : null;
     const hidden = editOwner === n.id && textEdit?.line ? n.lines.indexOf(textEdit.line) : null;
-    const box = resizing && resizing.id === n.id ? { w: resizing.w, h: Math.max(resizing.h, 4) } : { w: n.w, h: n.h };
+    const box = resizing && resizing.id === n.id ? { x: resizing.x, y: resizing.y, w: resizing.w, h: Math.max(resizing.h, 4) } : { x: n.x, y: n.y, w: n.w, h: n.h };
     const body = (
       <>
-        {n.kind !== 'label' && rectFor(n.style, n.x, n.y, box.w, box.h)}
+        {n.kind !== 'label' && rectFor(n.style, box.x, box.y, box.w, box.h)}
         {lines(n.lines, n.x, n.y, tool === 'select' ? (i) => startLineEdit(n, i) : undefined, hidden)}
       </>
     );
@@ -808,11 +862,20 @@ export function SceneCanvas(props: CanvasProps): JSX.Element {
     }
     if (freeDrag) {
       const n = byId.get(freeDrag.id);
-      if (n) return { x: n.x + freeDrag.dx, y: n.y + freeDrag.dy + n.h + 10, text: `${Math.round(n.x + freeDrag.dx)}, ${Math.round(n.y + freeDrag.dy)} pt`, warn: false };
+      const pl = freeDrag.plan;
+      if (n) {
+        const at = { x: n.x + freeDrag.dx, y: n.y + freeDrag.dy + n.h + 10 };
+        if (pl?.mode === 'into') return { ...at, text: `Drop into ${pl.label}`, warn: false };
+        if (pl?.mode === 'out') return { ...at, text: `Drop to take it out of ${pl.label}`, warn: false };
+        if (pl?.mode === 'wrap') return { ...at, text: `Drop to draw it around ${pl.label}`, warn: false };
+        if (pl?.mode === 'stay') return { ...at, text: 'Drop to keep it in its place', warn: false };
+        if (pl?.mode === 'refused') return { ...at, text: `Can’t go inside ${pl.label}`, warn: true };
+        return { ...at, text: `${Math.round(n.x + freeDrag.dx)}, ${Math.round(n.y + freeDrag.dy)} pt`, warn: false };
+      }
     }
     if (resizing) {
       const n = byId.get(resizing.id);
-      if (n) return { x: n.x + resizing.w - 30, y: n.y + resizing.h + 10, text: `${resizing.w} × ${resizing.h} pt`, warn: false };
+      if (n) return { x: resizing.x + resizing.w - 30, y: resizing.y + resizing.h + 10, text: `${resizing.w} × ${resizing.h} pt`, warn: false };
     }
     if (drag?.kind === 'wire' || drag?.kind === 'end')
       return { x: drag.x, y: drag.y + 14, text: drag.target ? `Connect to ${outline.get(drag.target)?.label ?? ''}` : 'Drop on an element', warn: false };
@@ -978,27 +1041,71 @@ export function SceneCanvas(props: CanvasProps): JSX.Element {
               </g>
             );
           })}
-        {/* A placed icon's resize corner. */}
+        {/* The drop target of a dragged placed icon. */}
+        {freeDrag?.plan && (freeDrag.plan.mode === 'into' || freeDrag.plan.mode === 'wrap' || freeDrag.plan.mode === 'out') && (() => {
+          const pl = freeDrag.plan;
+          const t = byId.get(pl.mode === 'into' ? pl.parent : pl.mode === 'wrap' ? pl.target : pl.from);
+          if (!t) return null;
+          return <rect className={pl.mode === 'out' ? 'dg-drop-target out' : 'dg-drop-target'} x={t.x - 2} y={t.y - 2} width={t.w + 4} height={t.h + 4} rx={4} strokeWidth={1.4 / zoom} />;
+        })()}
+        {/* A placed icon's resize handles: never below what it holds (meta.min_w / min_h). */}
         {selFree &&
           (() => {
-            const w = resizing?.id === selFree.id ? resizing.w : selFree.w;
-            const h = resizing?.id === selFree.id ? resizing.h : selFree.h;
-            const cx = selFree.x + w;
-            const cy = selFree.y + h;
-            return (
+            const meta = placedMeta(scene)[selFree.id];
+            const nested = !!meta?.parent || !!meta?.anchored;
+            const r = resizing?.id === selFree.id ? resizing : { x: selFree.x, y: selFree.y, w: selFree.w, h: selFree.h };
+            const all: [keyof Sides | 'br' | 'bl' | 'tr' | 'tl', Sides, number, number, string][] = [
+              ['br', { l: false, r: true, t: false, b: true }, r.x + r.w, r.y + r.h, 'nwse-resize'],
+              ['r', { l: false, r: true, t: false, b: false }, r.x + r.w, r.y + r.h / 2, 'ew-resize'],
+              ['b', { l: false, r: false, t: false, b: true }, r.x + r.w / 2, r.y + r.h, 'ns-resize'],
+              ['l', { l: true, r: false, t: false, b: false }, r.x, r.y + r.h / 2, 'ew-resize'],
+              ['t', { l: false, r: false, t: true, b: false }, r.x + r.w / 2, r.y, 'ns-resize'],
+              ['tl', { l: true, r: false, t: true, b: false }, r.x, r.y, 'nwse-resize'],
+              ['tr', { l: false, r: true, t: true, b: false }, r.x + r.w, r.y, 'nesw-resize'],
+              ['bl', { l: true, r: false, t: false, b: true }, r.x, r.y + r.h, 'nesw-resize'],
+            ];
+            const handles = all.filter(([k]) => !nested || k === 'br' || k === 'r' || k === 'b');
+            return handles.map(([k, sides, cx, cy, cursor]) => (
               <g
-                data-handle="resize"
-                style={{ cursor: 'nwse-resize' }}
+                key={k}
+                data-handle={k === 'br' ? 'resize' : `resize-${k}`}
+                style={{ cursor }}
                 onPointerDown={(ev) => {
                   ev.stopPropagation();
-                  setDrag({ kind: 'resize', id: selFree.id, w: selFree.w, h: selFree.h, x0: selFree.x, y0: selFree.y });
+                  setDrag({
+                    kind: 'resize',
+                    id: selFree.id,
+                    x0: selFree.x,
+                    y0: selFree.y,
+                    w0: selFree.w,
+                    h0: selFree.h,
+                    x: selFree.x,
+                    y: selFree.y,
+                    w: selFree.w,
+                    h: selFree.h,
+                    sides,
+                    minW: Math.max(24, meta?.min_w ?? 24),
+                    minH: Math.max(10, meta?.min_h ?? 10),
+                  });
                 }}
               >
-                <title>Drag to resize</title>
+                <title>{k === 'br' ? 'Drag to resize' : 'Drag to resize this side'}</title>
                 <circle cx={cx} cy={cy} r={hit} fill="transparent" />
-                <rect className="dg-handle" x={cx - handle} y={cy - handle} width={handle * 2} height={handle * 2} rx={handle * 0.4} pointerEvents="none" />
+                {k.length === 2 ? (
+                  <rect className="dg-handle" x={cx - handle} y={cy - handle} width={handle * 2} height={handle * 2} rx={handle * 0.4} pointerEvents="none" />
+                ) : (
+                  <rect
+                    className="dg-handle edge"
+                    x={cx - (k === 't' || k === 'b' ? handle * 1.6 : handle * 0.55)}
+                    y={cy - (k === 'l' || k === 'r' ? handle * 1.6 : handle * 0.55)}
+                    width={k === 't' || k === 'b' ? handle * 3.2 : handle * 1.1}
+                    height={k === 'l' || k === 'r' ? handle * 3.2 : handle * 1.1}
+                    rx={handle * 0.5}
+                    pointerEvents="none"
+                  />
+                )}
               </g>
-            );
+            ));
           })()}
         {(drag?.kind === 'wire' || drag?.kind === 'end') && (() => {
           let start: Pt;

@@ -1220,9 +1220,13 @@ def placed_outline(payload: dict[str, Any]) -> list[dict[str, Any]]:
             "index": i, "count": len(items),
             "label": p.get("label") or icon.name, "sublabel": p.get("sub"), "role": None,
             "roles": [], "origin": "user", "collected_label": None,
-            "source": "Added on the Diagrams page and drawn like a collected "
-                      f"{icon.label.lower()}. It never appears in the tables; the report's "
-                      "figure summary says the figure was edited.",
+            "source": ("Added on the Diagrams page and drawn in the figure's own style"
+                       + (" (no provider artwork)" if icon.group == "NC2 / cloud" else "")
+                       if icon.group == "NC2 / cloud" or icon.id in ("datacenter", "cvm")
+                       else "Added on the Diagrams page and drawn like a collected "
+                       f"{icon.label.lower()}")
+            + ". It never appears in the tables; the report's figure summary says the "
+              "figure was edited.",
             "can_rename": True, "can_sublabel": icon.id != "text", "can_reorder": False,
             "can_delete": True, "move_targets": [], "move_refusal": None, "free": True,
             "icon": icon.id, "scene": p.get("scene"),

@@ -188,6 +188,8 @@ class Box:
     min_w: float = 0.0
     min_h: float = 0.0
     head: float = 0.0
+    #: Text at the top (a row sibling holds badges under its text).
+    top_text: bool = False
 
     @property
     def id(self) -> str:
@@ -327,7 +329,8 @@ def layout_kids(kids: list[Box], kind: str, x0: float, y0: float, inner_w: float
         cx = x0
         row_h = max(k.h for k in line)
         for k in line:
-            if k.slot == "flow":  # siblings in a row share its height
+            if k.slot == "flow":  # siblings in a row share its height and text line
+                k.top_text = any(o.kids for o in line)
                 k.h = q(row_h)
             if k.slot in ("top", "strip"):
                 k.w = q(max(k.w, inner_w))
@@ -357,7 +360,8 @@ def layout_box(b: Box, x: float, y: float, icons: dict[str, Any]) -> None:
 # ─── making room in the generated layout ───────────────────────────────
 
 
-def insert_space(sc: Scene, axis: str, at: float, d: float) -> None:
+def insert_space(sc: Scene, axis: str, at: float, d: float,
+                 log: list[tuple[str, float, float]] | None = None) -> None:
     """Open a band `d` wide at `at` along `axis` ("x": a vertical band, "y": a horizontal
     one): what starts at or after it moves by `d`, boxes and frames across it grow by
     `d`, connectors stretch (their points at or after it move). The orthogonal routes
@@ -365,6 +369,8 @@ def insert_space(sc: Scene, axis: str, at: float, d: float) -> None:
     d = q(d)
     if d <= 0:
         return
+    if log is not None:
+        log.append((axis, q(at), d))
     horizontal = axis == "x"
     for n in sc.nodes:
         lo, size = (n.x, n.w) if horizontal else (n.y, n.h)
@@ -396,6 +402,18 @@ def _shift_edge(e: Edge, horizontal: bool, at: float, d: float) -> None:
             lab.x = q(lab.x + d)
         elif not horizontal and lab.y >= at - EPS:
             lab.y = q(lab.y + d)
+
+
+def warp_point(warps: list[tuple[str, float, float]], x: float, y: float
+               ) -> tuple[float, float]:
+    """Where a point of the generated layout lands once `warps` are opened (the editor
+    undoes this with the inverse, `scene.meta["warp"]`)."""
+    for axis, at, d in warps:
+        if axis == "x" and x >= at - EPS:
+            x += d
+        elif axis == "y" and y >= at - EPS:
+            y += d
+    return q(x), q(y)
 
 
 def subtree(sc: Scene, roots: list[str]) -> list[Node]:
@@ -439,6 +457,8 @@ class Arranged:
     boxes: list[Box]
     #: Top-level placed icons (the roots), for the legacy geometric nesting.
     roots: list[Box]
+    #: The bands opened in the generated layout: (axis, at, width), in order.
+    warps: list[tuple[str, float, float]] = field(default_factory=list)
 
 
 def build_tree(sc: Scene, items: list[dict[str, Any]], icons: dict[str, Any]
@@ -498,6 +518,8 @@ def arrange(sc: Scene, items: list[dict[str, Any]], icons: dict[str, Any]) -> Ar
         for k in kids:
             measure_box(k, icons)
     by_id = {n.id: n for n in sc.nodes}
+    #: The bands opened in the generated layout, in order (`warp_point`).
+    warps: list[tuple[str, float, float]] = []
 
     # 1. Collected containers that received icons grow (down, then right if too narrow).
     for pid, kids in collected.items():
@@ -505,13 +527,13 @@ def arrange(sc: Scene, items: list[dict[str, Any]], icons: dict[str, Any]) -> Ar
         width, body, band = _body(kids, COLS.get(collected_kind(node) or "", DEFAULT_COLS))
         if body:
             need_r = node.x + PAD + width + PAD
-            insert_space(sc, "x", node.x + node.w - EPS * 2, need_r - (node.x + node.w))
+            insert_space(sc, "x", node.x + node.w - EPS * 2, need_r - (node.x + node.w), warps)
             need_b = content_bottom(sc, node) + GAP + body + PAD + band
         else:
             need_b = node.y + max(node.h, BADGE_H + 2 * BADGE_IN)
             need_r = node.x + sum(k.w + 2 for k in kids) + 2 * BADGE_IN
-            insert_space(sc, "x", node.x + node.w - EPS * 2, need_r - (node.x + node.w))
-        insert_space(sc, "y", node.y + node.h - EPS * 2, need_b - (node.y + node.h))
+            insert_space(sc, "x", node.x + node.w - EPS * 2, need_r - (node.x + node.w), warps)
+        insert_space(sc, "y", node.y + node.h - EPS * 2, need_b - (node.y + node.h), warps)
 
     # 2. Frames that wrap collected top-level frames: room for the border and heading.
     anchors: dict[str, tuple[str, float, float]] = {}
@@ -520,9 +542,9 @@ def arrange(sc: Scene, items: list[dict[str, Any]], icons: dict[str, Any]) -> Ar
             continue
         icon = icons[b.kind]
         x0, y0, x1, y1 = bbox(subtree(sc, b.wraps))
-        insert_space(sc, "x", x0, WRAP_PAD)
+        insert_space(sc, "x", x0, WRAP_PAD, warps)
         b.head = _head(icon, b.item, max(x1 - x0, _base(icon, b.item)[0]))
-        insert_space(sc, "y", y0, CHIP_H / 2 + b.head)
+        insert_space(sc, "y", y0, CHIP_H / 2 + b.head, warps)
         fx, fy = x0, y0 + CHIP_H / 2
         x0, y0, x1, y1 = bbox(subtree(sc, b.wraps))
         kw, _, _ = _body([k for k in b.kids], 99)
@@ -533,8 +555,8 @@ def arrange(sc: Scene, items: list[dict[str, Any]], icons: dict[str, Any]) -> Ar
         need_w = max(right - fx, _title_w(icon, b.item))
         b.min_w, b.min_h = q(need_w), q(bottom - fy)
         b.w, b.h = q(max(need_w, base_w)), q(max(bottom - fy, base_h))
-        insert_space(sc, "x", x1 + EPS * 2, fx + b.w - x1)
-        insert_space(sc, "y", y1 + EPS * 2, fy + b.h - y1)
+        insert_space(sc, "x", x1 + EPS * 2, fx + b.w - x1, warps)
+        insert_space(sc, "y", y1 + EPS * 2, fy + b.h - y1, warps)
         anchor = by_id[b.wraps[0]]
         anchors[b.id] = (anchor.id, q(anchor.x - fx), q(anchor.y - fy))
         for w in b.wraps:
@@ -554,8 +576,11 @@ def arrange(sc: Scene, items: list[dict[str, Any]], icons: dict[str, Any]) -> Ar
                 layout_box(k, cx, y0, icons)
                 cx += k.w + GAP
         else:
-            layout_box(b, max(0.0, float(b.item.get("x") or 0)),
-                       max(0.0, float(b.item.get("y") or 0)), icons)
+            # A free icon keeps its place relative to the layout around it: the bands
+            # opened before it move it too (its stored place stays in the unopened one).
+            fx, fy = warp_point(warps, max(0.0, float(b.item.get("x") or 0)),
+                                max(0.0, float(b.item.get("y") or 0)))
+            layout_box(b, fx, fy, icons)
     for pid, kids in collected.items():
         node = by_id[pid]
         y0 = content_bottom(sc, node) + GAP if any(not k.slot.startswith("badge")
@@ -575,7 +600,7 @@ def arrange(sc: Scene, items: list[dict[str, Any]], icons: dict[str, Any]) -> Ar
     for kids in collected.values():
         for k in kids:
             visit(k)
-    return Arranged(out, roots)
+    return Arranged(out, roots, warps)
 
 
 def meta(arranged: Arranged) -> dict[str, dict[str, Any]]:

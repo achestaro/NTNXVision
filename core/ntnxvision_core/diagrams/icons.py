@@ -364,7 +364,7 @@ def place(scenes: list[Scene], placed: Iterable[dict[str, Any]]) -> None:
         roots = {b.id for b in arranged.roots}
         drawn: list[Node] = []
         for b in arranged.boxes:
-            nodes = draw(b.item, (b.x, b.y, b.w, b.h), b.holder, bool(b.kids))
+            nodes = draw(b.item, (b.x, b.y, b.w, b.h), b.holder, bool(b.kids) or b.top_text)
             if b.parent is not None:
                 nodes[0].parent = b.parent
             # Frames of free trees paint under everything; the rest over the layout, in
@@ -381,6 +381,8 @@ def place(scenes: list[Scene], placed: Iterable[dict[str, Any]]) -> None:
         _nest(sc, {b.id for b in arranged.roots if not b.wraps})
         _legend_last(sc, drawn, tall)
         sc.meta = {**sc.meta, "placed": NEST.meta(arranged)}
+        if arranged.warps:  # the editor maps the figure's points back to stored ones
+            sc.meta["warp"] = [list(w) for w in arranged.warps]
 
 
 def _root_of(b: NEST.Box, arranged: NEST.Arranged) -> str:

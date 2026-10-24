@@ -1,7 +1,8 @@
 // The Diagrams page's "Add" picker: every icon the diagram engine draws, searchable and
 // grouped, plus this diagram's own additions that join its layout (a cluster into the
 // selected zone). Each row shows a swatch drawn with the generated element's own style,
-// so what is picked is what lands on the figure.
+// so what is picked is what lands on the figure. With a container selected, the icons it
+// can hold (the core's hierarchy) say they go into it; the rest are placed beside it.
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { MagnifyingGlassIcon, PlusIcon } from '@phosphor-icons/react';
@@ -70,11 +71,14 @@ export function IconPicker({
   icons,
   disabled,
   onPick,
+  into,
 }: {
   palette: DiagramPaletteItem[];
   icons: DiagramIcon[];
   disabled?: boolean;
   onPick(choice: PickerChoice): void;
+  /** The selection, when it is an element icons can go into: its name and what it holds. */
+  into?: { label: string; accepts(iconId: string): boolean } | null;
 }): JSX.Element {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
@@ -195,13 +199,23 @@ export function IconPicker({
                   >
                     <Swatch icon={r.swatch} />
                     <span className="dg-ip-label">{r.label}</span>
-                    <span className="dg-ip-hint">{r.hint}</span>
+                    {into && r.choice.kind === 'icon' && into.accepts(r.choice.icon.id) ? (
+                      <span className="dg-ip-into" title={`Goes into ${into.label}`}>
+                        into {into.label}
+                      </span>
+                    ) : (
+                      <span className="dg-ip-hint">{r.hint}</span>
+                    )}
                   </div>
                 </React.Fragment>
               );
             })}
           </div>
-          <div className="dg-ip-foot hint">Placed icons can be dragged anywhere, resized by their corner and connected.</div>
+          <div className="dg-ip-foot hint">
+            {into
+              ? `Icons that fit go into ${into.label}; the rest are placed beside it.`
+              : 'Select a container first to add into it. Placed icons can be dragged, dropped into each other, resized and connected.'}
+          </div>
         </div>
       )}
     </div>

@@ -299,6 +299,22 @@ def test_a_datacenter_wraps_the_collected_zone(env: Environment, snap: Path) -> 
     assert render_png(sc, 72)[:8] == b"\x89PNG\r\n\x1a\n"
 
 
+def test_free_icons_move_with_the_room_the_layout_makes(env: Environment) -> None:
+    """A datacenter around the zone opens bands in the layout; a free icon right of it
+    moves with them (no overlap), its stored place unchanged; `meta.warp` says how."""
+    sc0 = _scene0(env)
+    site = next(i for i, k in N.collected_kinds(sc0).items() if k == "az")
+    aws = _p(sc0, "user:aws", "cloud_aws", x=sc0.width + 20, y=10)
+    alone = {x.id: x for x in _view(env, [aws]).scenes[0].nodes}["user:aws"]
+    ops = [aws, _p(sc0, "user:dc", "datacenter", wraps=[site])]
+    sc = _view(env, ops).scenes[0]
+    n = {x.id: x for x in sc.nodes}
+    assert n["user:aws"].x > alone.x and not _overlap(n["user:aws"], n["user:dc"])
+    warps = [tuple(w) for w in sc.meta["warp"]]
+    assert N.warp_point(warps, alone.x, alone.y) == (n["user:aws"].x, n["user:aws"].y)
+    assert check_scene(sc) == []
+
+
 @pytest.mark.parametrize("type_id", ["conceptual", "logical", "management", "dr",
                                      "segments", "vpc", "flow", "network"])
 def test_hybrid_example_on_every_figure(env: Environment, type_id: str) -> None:

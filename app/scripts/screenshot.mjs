@@ -604,6 +604,35 @@ const SHOTS = [
     await p.getByRole('textbox', { name: 'Search icons' }).fill('clu');
     await list.getByRole('option', { name: 'Cluster', exact: true }).waitFor();
   }],
+  // Nesting: a hybrid example (a datacenter around the collected zone, NC2 on AWS with a
+  // region, a cluster and bare-metal nodes, Direct Connect). A nested node selected: its
+  // inspector says where it sits, its edge and corner handles resize it.
+  ['diagrams-nested', { diagrams: 'nested' }, async (p) => {
+    await rail(p, 'Diagrams');
+    await p.locator('[data-el="user:bm1"]').click();
+    await p.locator('[data-handle="resize-r"]').waitFor();
+    await p.getByText('Take out').waitFor();
+  }],
+  ['diagrams-nested-1100', { diagrams: 'nested' }, async (p) => {
+    await rail(p, 'Diagrams');
+    await p.locator('[data-el="user:dc"]').click({ position: { x: 30, y: 12 } });
+    await p.getByRole('button', { name: 'Release' }).waitFor();
+  }, 1000, 1100],
+  // Add with a container selected: what fits says "into <it>"; NC2 / cloud is searchable.
+  ['diagrams-add-into', { diagrams: 'nested' }, async (p) => {
+    await rail(p, 'Diagrams');
+    await p.locator('[data-el="user:reg"]').click({ position: { x: 30, y: 12 } });
+    await p.getByRole('button', { name: 'Add', exact: true }).click();
+    const list = p.getByRole('listbox', { name: 'Icons' });
+    await p.getByRole('textbox', { name: 'Search icons' }).fill('nc2');
+    await list.getByText('into Cloud region').first().waitFor();
+  }],
+  ['diagrams-add-cloud', { diagrams: 'nested' }, async (p) => {
+    await rail(p, 'Diagrams');
+    await p.getByRole('button', { name: 'Add', exact: true }).click();
+    await p.getByRole('textbox', { name: 'Search icons' }).fill('expressroute');
+    await p.getByRole('listbox', { name: 'Icons' }).getByRole('option', { name: 'Azure ExpressRoute', exact: true }).waitFor();
+  }],
   // The figure fitted to the canvas, no selection: no inspector column, the canvas fills
   // the window to its bottom edge.
   ['diagrams-1100', { diagrams: 'edited' }, async (p) => {

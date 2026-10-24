@@ -761,7 +761,7 @@
       const D = window.__STUB_DIAGRAMS__;
       if (!find(p) || !D) return fail('Snapshot not found');
       const mode = opt.diagrams || 'generated';
-      const edited = mode === 'edited' || mode === 'stale';
+      const edited = mode === 'edited' || mode === 'stale' || mode === 'nested';
       const prev = snapshots.find((s) => s.path !== p && s.source === find(p).source) || snapshots[1];
       return delay({
         snapshot: p,
@@ -772,12 +772,13 @@
     getDiagram: () => {
       const D = window.__STUB_DIAGRAMS__;
       const mode = opt.diagrams || 'generated';
-      return delay(mode === 'stale' ? D.stale : mode === 'edited' ? D.edited : D.generated);
+      // nested: a hybrid example (a datacenter around a zone, NC2 on AWS, Direct Connect).
+      return delay(mode === 'stale' ? D.stale : mode === 'edited' ? D.edited : mode === 'nested' ? D.nested : D.generated);
     },
     layoutDiagram: (_p, _t, ops) => {
       const D = window.__STUB_DIAGRAMS__;
-      const src = ops.length ? D.edited : D.generated;
-      return delay({ type: src.type, model: src.model, scenes: src.scenes, outline: src.outline, connectors: src.connectors || [], problems: [], notes: src.notes || [] }, 20);
+      const src = ops.length ? ((opt.diagrams || '') === 'nested' ? D.nested : D.edited) : D.generated;
+      return delay({ type: src.type, model: src.model, scenes: src.scenes, outline: src.outline, connectors: src.connectors || [], nest_kinds: src.nest_kinds || {}, problems: [], notes: src.notes || [] }, 20);
     },
     saveDiagram: (_p, _t, ops) => {
       const D = window.__STUB_DIAGRAMS__;
