@@ -992,7 +992,8 @@
 
   // ── Insights > Optimization (getOptimization) ──
   // A sample of what the sidecar's `optimization` returns for the demo pc01 estate.
-  // opt.optimization: 'findings' (default) | 'clean' (every VM fits its hosts).
+  // opt.optimization: 'findings' (default) | 'clean' (every VM fits its hosts) | 'cards' (a
+  // placeholder second review, so the page shows its card grid instead of opening the review).
   (function () {
     const host = (name, sockets, perNode, memGb, basis = 'current') => ({
       uuid: `h-${name}`, name, sockets, cores: sockets * perNode, cores_per_node: perNode, threads_per_core: 2,
@@ -1058,8 +1059,18 @@
         },
       };
     };
-    window.ntnx.getOptimization = (p) =>
-      snapshots.some((s) => s.path === p) ? delay(() => reviewOf(opt.optimization === 'clean' ? [] : FINDINGS)) : fail('Snapshot not found');
+    const withSecond = (r) => ({
+      ...r,
+      reviews: [...r.reviews, {
+        id: 'sample', title: 'Sample review', description: 'A placeholder second review for the card grid.',
+        headline: 'Nothing to review', count: 0, severity: null, reviewed: r.vm_compute.summary.reviewed,
+      }],
+    });
+    window.ntnx.getOptimization = (p) => {
+      if (!snapshots.some((s) => s.path === p)) return fail('Snapshot not found');
+      const r = reviewOf(opt.optimization === 'clean' ? [] : FINDINGS);
+      return delay(() => (opt.optimization === 'cards' ? withSecond(r) : r));
+    };
   })();
 
   // ── Insights > Metrics (getMetrics / cancelMetrics) ──────────────────

@@ -1,6 +1,6 @@
 // Insights > Optimization: optimization reviews computed from a snapshot (sidecar
-// `optimization`). The page lists the reviews as cards; a card opens its review. The only
-// review today is VM compute (vCPU / memory layout against the hosts' NUMA layout).
+// `optimization`). With one review (today: VM compute, vCPU / memory layout against the hosts'
+// NUMA layout) the page opens it directly; with more it lists them as cards that open each.
 
 import React, { useEffect, useState } from 'react';
 import { ArrowLeftIcon, ArrowRightIcon } from '@phosphor-icons/react';
@@ -69,7 +69,10 @@ export function OptimizationView({ snapshot }: { snapshot?: string }): JSX.Eleme
   }
 
   const data = result.data;
-  const review = open && data ? data.reviews.find((r) => r.id === open) : undefined;
+  // A single review opens directly: a lone card on an empty page is a click with no choice.
+  const single = data?.reviews.length === 1;
+  const openId = open ?? (data && single ? data.reviews[0].id : null);
+  const review = openId && data ? data.reviews.find((r) => r.id === openId) : undefined;
   const facts = [snap ? `from snapshot ${snap.name}` : null, 'offline'].filter(Boolean).join(' · ');
 
   const picker = (
@@ -92,11 +95,11 @@ export function OptimizationView({ snapshot }: { snapshot?: string }): JSX.Eleme
       <PageHeader
         eyebrow={review ? `${EYEBROW} / ${review.title}` : EYEBROW}
         title={review ? review.title : 'Optimization'}
-        description={review ? undefined : 'Reviews of a snapshot that point out what to right-size.'}
+        description={review ? review.description : 'Reviews of a snapshot that point out what to right-size.'}
         facts={review ? facts : undefined}
         actions={
           <>
-            {review && (
+            {review && !single && (
               <Button variant="ghost" icon={ArrowLeftIcon} onClick={() => setOpen(null)}>
                 All reviews
               </Button>
@@ -127,7 +130,7 @@ export function OptimizationView({ snapshot }: { snapshot?: string }): JSX.Eleme
 
 function ReviewCard({ review: r, data, onOpen }: { review: OptimizationReview; data: OptimizationResult; onOpen(): void }): JSX.Element {
   const s = data.vm_compute.summary;
-  const parts = (['high', 'medium', 'low'] as const).filter((k) => s[k] > 0);
+  const parts = r.count ? (['high', 'medium', 'low'] as const).filter((k) => s[k] > 0) : [];
   return (
     <button type="button" className="panel opt-card" onClick={onOpen} aria-label={`${r.title}: ${r.headline}`}>
       <span className="opt-card-head">

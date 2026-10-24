@@ -921,10 +921,10 @@ try {
   // ── Insights > Optimization: the real sidecar `optimization` on the demo snapshot ──
   await run('optimization-vm-compute', async () => {
     await rail('Optimization');
-    const card = page.getByRole('button', { name: /^VM compute: \d+ VMs? to review/ });
-    await card.waitFor({ timeout: 30_000 });
-    await card.click();
+    // The only review opens directly, with no way back to a one-card list.
     await page.getByRole('heading', { level: 1, name: 'VM compute' }).waitFor({ timeout: 30_000 });
+    await page.locator('tbody tr button.lnk').first().waitFor({ timeout: 30_000 });
+    if (await page.getByRole('button', { name: 'All reviews' }).count()) throw new Error('"All reviews" shown with a single review');
     const first = (await page.locator('thead th').first().innerText()).trim().toLowerCase();
     if (first !== 'cluster') throw new Error(`first findings column is "${first}", not Cluster`);
     for (const sev of ['High', 'Medium', 'Low']) await page.locator('tbody td', { hasText: new RegExp(`^${sev}$`) }).first().waitFor({ timeout: 15_000 });

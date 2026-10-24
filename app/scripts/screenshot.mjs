@@ -398,33 +398,47 @@ const SHOTS = [
     await p.getByText('VM details').waitFor();
   }],
   ['inventory-empty', { empty: true }, async (p) => rail(p, 'Inventory')],
-  // ── Insights > Optimization: review cards, the VM compute review, a selected VM ──
+  // ── Insights > Optimization: the only review opens directly; the card grid needs two ──
   ['optimization', {}, async (p) => {
     await rail(p, 'Optimization');
-    await p.getByRole('button', { name: /^VM compute:/ }).waitFor();
-    await cardsFit(p);
-  }],
-  ['optimization-review', {}, async (p) => {
-    await rail(p, 'Optimization');
-    await p.getByRole('button', { name: /^VM compute:/ }).click();
     await p.getByRole('heading', { level: 1, name: 'VM compute' }).waitFor();
     await p.locator('tbody tr button.lnk').first().waitFor();
+    if (await p.getByRole('button', { name: 'All reviews' }).count()) throw new Error('"All reviews" shown with a single review');
     if (await p.locator('#opt-detail').count()) throw new Error('details panel open with no row clicked');
     const first = await p.locator('thead th').first().innerText();
     if (first.trim().toLowerCase() !== 'cluster') throw new Error(`first column is "${first}", not Cluster`);
+    const figs = await p.locator('.figs .fig').count();
+    if (figs !== 3) throw new Error(`summary strip has ${figs} figures, not 3`);
     await cardsFit(p);
   }],
   ['optimization-selected', {}, async (p) => {
     await rail(p, 'Optimization');
-    await p.getByRole('button', { name: /^VM compute:/ }).click();
     await p.locator('tbody tr button.lnk').nth(1).click();
     await p.locator('#opt-detail').getByText('Open in Inventory').waitFor();
     await cardsFit(p);
   }, 1000, 1440],
+  ['optimization-1100', {}, async (p) => {
+    await rail(p, 'Optimization');
+    await p.locator('tbody tr button.lnk').first().waitFor();
+    await cardsFit(p);
+  }, 800, 1100],
+  ['optimization-selected-1100', {}, async (p) => {
+    await rail(p, 'Optimization');
+    await p.locator('tbody tr button.lnk').nth(1).click();
+    await p.locator('#opt-detail').getByText('Open in Inventory').waitFor();
+    await cardsFit(p);
+  }, 800, 1100],
   ['optimization-clean', { optimization: 'clean' }, async (p) => {
     await rail(p, 'Optimization');
-    await p.getByRole('button', { name: /^VM compute:/ }).click();
     await p.getByText('Every VM’s layout fits its hosts').waitFor();
+  }],
+  ['optimization-cards', { optimization: 'cards' }, async (p) => {
+    await rail(p, 'Optimization');
+    await p.getByRole('button', { name: /^VM compute:/ }).waitFor();
+    await cardsFit(p);
+    await p.getByRole('button', { name: /^VM compute:/ }).click();
+    await p.getByRole('button', { name: 'All reviews' }).click();
+    await p.getByRole('button', { name: /^VM compute:/ }).waitFor();
   }],
   ['optimization-empty', { empty: true }, async (p) => rail(p, 'Optimization')],
   ['snapshots', {}, async (p) => {

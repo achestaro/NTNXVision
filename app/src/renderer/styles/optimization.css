@@ -182,3 +182,39 @@
   color: var(--ink);
   font-weight: 500;
 }
+
+/* Current / Recommended layout lines in the findings table: the same tokens in the same
+   order on both sides; what differs stands out (recommended in ink, weight 500), the rest
+   recedes to ink-3. */
+.opt-layout {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--ink-3);
+  white-space: normal; /* the table cell is nowrap; a narrow window wraps between tokens */
+}
+.opt-tok {
+  white-space: nowrap; /* never inside "2 × 20" */
+}
+.opt-tok.was {
+  color: var(--ink-2);
+}
+.opt-tok.changed {
+  color: var(--ink);
+  font-weight: 500;
+}
+
+/* Host facts under the comparison: mono values at the table's 12px so "2 × 32 cores · SMT 2"
+   stays on one line in the narrow panel. */
+.opt-detail dl.grid-kv .kv {
+  grid-template-columns: 110px minmax(0, 1fr);
+}
+.opt-detail dl.grid-kv dd.mono {
+  font-size: 12px;
+}
+
+/* With a VM's details open at narrow widths, the finding wraps instead of pushing the table
+   past its panel. */
+.tbl td.opt-finding {
+  white-space: normal;
+  min-width: 180px;
+}

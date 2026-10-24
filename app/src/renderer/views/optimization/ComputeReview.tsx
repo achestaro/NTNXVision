@@ -8,7 +8,8 @@ import { Button, DataTable, FigureStrip, Icon, MenuPopup, Panel, PanelHeader, St
 import type { Column, MenuItem, SortState } from '../../components';
 import { useRouter } from '../../lib/router';
 import { NA, fmtBytes, fmtCount } from '../../lib/format';
-import { SEVERITIES, SEVERITY, layoutLine, memoryText, topology, vnumaText } from './format';
+import { SEVERITIES, SEVERITY, hostCpuText, layoutTokens, memoryText, topology } from './format';
+import type { LayoutToken } from './format';
 
 const PAGE = 50;
 
@@ -93,9 +94,9 @@ export function ComputeReview({ review, snapshotPath }: { review: Review; snapsh
       ),
     },
     { key: 'severity', header: 'Severity', sortable: true, render: (f) => <SeverityStatus severity={f.severity} /> },
-    { key: 'finding', header: 'Finding', sortable: true, render: (f) => f.finding },
-    { key: 'vcpus', header: 'Current', sortable: true, className: 'mono', style: { fontSize: 12 }, render: (f) => layoutLine(f.current) },
-    { key: 'recommended', header: 'Recommended', className: 'mono', style: { fontSize: 12 }, render: (f) => recommendedLine(f) },
+    { key: 'finding', header: 'Finding', sortable: true, className: 'opt-finding', render: (f) => f.finding },
+    { key: 'vcpus', header: <span title={LAYOUT_TIP}>Current</span>, sortable: true, render: (f) => <Layout tokens={layoutTokens(f.current, f.recommended)[0]} /> },
+    { key: 'recommended', header: <span title={LAYOUT_TIP}>Recommended</span>, render: (f) => <Layout tokens={layoutTokens(f.current, f.recommended)[1]} recommended /> },
   ];
   // With a VM open, its details panel shows the layouts, so the table drops those columns.
   const columns = current ? allColumns.filter((c) => c.key !== 'vcpus' && c.key !== 'recommended') : allColumns;
@@ -128,10 +129,8 @@ export function ComputeReview({ review, snapshotPath }: { review: Review; snapsh
         label="Summary"
         figures={[
           { label: 'VMs reviewed', value: s.reviewed, qualifier: s.powered_off ? `${fmtCount(s.powered_off)} powered off` : null },
-          { label: 'To optimize', value: s.to_optimize, qualifier: s.not_checked ? `${fmtCount(s.not_checked)} not checked` : `${fmtCount(s.clean)} fit their hosts` },
-          { label: 'High', value: s.high },
-          { label: 'Medium', value: s.medium },
-          { label: 'Low', value: s.low },
+          { label: 'To optimize', value: s.to_optimize, qualifier: SEVERITIES.filter((k) => s[k] > 0).map((k) => `${fmtCount(s[k])} ${k}`).join(' · ') || null },
+          { label: 'Fit their hosts', value: s.clean, qualifier: s.not_checked ? `${fmtCount(s.not_checked)} not checked` : null },
         ]}
       />
 
@@ -247,11 +246,20 @@ export function ComputeReview({ review, snapshotPath }: { review: Review; snapsh
   );
 }
 
-/** The recommended layout, naming the vCPU count only when it changes. */
-function recommendedLine(f: ComputeFinding): string {
-  const r = f.recommended;
-  const parts = [r.vcpus !== f.current.vcpus ? `${r.vcpus} vCPU` : '', topology(r), vnumaText(r) || (f.current.vnuma_nodes && f.current.vnuma_nodes > 1 ? 'vNUMA off' : '')];
-  return parts.filter(Boolean).join(' · ');
+const LAYOUT_TIP = 'vCPUs · sockets × cores per socket · vNUMA nodes';
+
+/** A layout line; tokens that differ from the other side stand out, the rest recede. */
+function Layout({ tokens, recommended }: { tokens: LayoutToken[]; recommended?: boolean }): JSX.Element {
+  return (
+    <span className="opt-layout">
+      {tokens.map((t, i) => (
+        <React.Fragment key={t.key}>
+          {i > 0 && ' · '}
+          <span className={t.changed ? (recommended ? 'opt-tok changed' : 'opt-tok was') : 'opt-tok'}>{t.text}</span>
+        </React.Fragment>
+      ))}
+    </span>
+  );
 }
 
 function isOn(f: ComputeFinding): boolean {
@@ -337,8 +345,8 @@ function FindingDetail({ finding: f, onClose, onOpenInventory }: { finding: Comp
           </div>
           <div className="kv">
             <dt>Host CPU</dt>
-            <dd className="mono">
-              {h.sockets} × {h.cores_per_node} cores{h.threads_per_core && h.threads_per_core > 1 ? `, ${h.threads_per_core} threads per core` : ''}
+            <dd className="mono" title={h.threads_per_core && h.threads_per_core > 1 ? `${h.threads_per_core} threads per core` : undefined}>
+              {hostCpuText(h.sockets, h.cores_per_node, h.threads_per_core)}
             </dd>
           </div>
           <div className="kv">
