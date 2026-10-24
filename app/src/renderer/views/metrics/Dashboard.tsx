@@ -478,6 +478,8 @@ const TOP_TABS: { value: MetricsTopKey; label: string }[] = [
   { value: 'latency', label: 'Latency' },
 ];
 
+export const TOP_LABEL: Record<MetricsTopKey, string> = { cpu: 'CPU', memory: 'Memory', iops: 'IOPS', latency: 'Latency' };
+
 export function topRows(v: ScopeView, key: MetricsTopKey, withCluster: boolean) {
   return v.top[key].map((vm) => {
     const value = key === 'cpu' ? vm.cpu_pct : key === 'memory' ? vm.memory_pct : key === 'iops' ? vm.iops : vm.latency_usecs;
@@ -502,7 +504,15 @@ export function WorkloadsSection({ v, onOpen }: { v: ScopeView; onOpen(d: Detail
             <span className="eyebrow">Top VMs by</span>
             <Segmented<MetricsTopKey> aria-label="Top VMs by" value={tab} onChange={setTab} options={TOP_TABS} />
           </div>
-          <BarList rows={topRows(v, tab, v.clusterCount > 1)} color={SERIES_COLOR[tab]} max={pctScale} empty="No powered-on VMs reported." />
+          <BarList
+            rows={topRows(v, tab, v.clusterCount > 1)}
+            color={SERIES_COLOR[tab]}
+            max={pctScale}
+            sortId="dashboard.top"
+            label={`Top VMs by ${TOP_LABEL[tab]}`}
+            valueLabel={TOP_LABEL[tab]}
+            empty="No powered-on VMs reported."
+          />
           <button type="button" className="textlink mx-more" onClick={() => onOpen('vms')}>
             All top VMs
           </button>

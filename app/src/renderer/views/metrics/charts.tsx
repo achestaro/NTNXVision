@@ -8,6 +8,10 @@
 // for thresholds. Styles live in metrics.css (.mx-*).
 
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { CaretDownIcon, CaretUpIcon } from '@phosphor-icons/react';
+import { Icon } from '../../components';
+import { type SortDir, type SortValue, nextSort, sortRows } from '@shared/tableSort';
+import { useTableSort } from './sorting';
 
 /** The page's fixed resource colours, from theme tokens (both themes). */
 export const SERIES_COLOR = {
@@ -156,33 +160,91 @@ export function MeterBar({ segments, total, height = 8, label }: { segments: Met
 export interface BarRow {
   key: string;
   label: string;
-  /** Secondary text under the label (a cluster name). */
+  /** The row's cluster (All clusters only), shown as its own sortable column. */
   sub?: string;
   value: number | null;
   display: string;
 }
 
-/** Ranked rows: label and value on one line, a thin bar under them scaled to `max`. */
-export function BarList({ rows, color, max, empty = 'Nothing to show.' }: { rows: BarRow[]; color: string; max?: number; empty?: string }): JSX.Element {
+type BarKey = 'name' | 'sub' | 'value';
+
+const BAR_VALUE: Record<BarKey, (r: BarRow) => SortValue> = {
+  name: (r) => r.label,
+  sub: (r) => r.sub,
+  value: (r) => r.value,
+};
+
+/**
+ * Ranked rows: name, cluster and value on one line, a thin bar in the metric's colour under
+ * them scaled to `max`. A table to assistive tech; its headers sort it. It arrives ranked,
+ * so the value column starts highest first; the page remembers the sort as `sortId`.
+ */
+export function BarList({
+  rows,
+  color,
+  max,
+  sortId,
+  label,
+  valueLabel,
+  nameLabel = 'VM',
+  empty = 'Nothing to show.',
+}: {
+  rows: BarRow[];
+  color: string;
+  max?: number;
+  sortId: string;
+  /** The table's accessible name. */
+  label: string;
+  /** Header of the value column ("CPU", "IOPS"). */
+  valueLabel: string;
+  nameLabel?: string;
+  empty?: string;
+}): JSX.Element {
+  const [sort, setSort] = useTableSort(sortId, { key: 'value', dir: 'desc' });
   const top = max ?? Math.max(0, ...rows.map((r) => r.value ?? 0));
   if (!rows.length) return <p className="mx-empty">{empty}</p>;
+  const withSub = rows.some((r) => r.sub);
+  const by = sort && sort.key in BAR_VALUE && (sort.key !== 'sub' || withSub) ? sort : null;
+  const sorted = by ? sortRows(rows, BAR_VALUE[by.key as BarKey], by.dir) : rows;
+  const head = (k: BarKey, text: string, first: SortDir, className: string) => {
+    const dir = by?.key === k ? by.dir : null;
+    return (
+      <span role="columnheader" className={className} aria-sort={dir ? (dir === 'asc' ? 'ascending' : 'descending') : undefined}>
+        <button type="button" className="mx-sortbtn" onClick={() => setSort(nextSort(by, k, first))}>
+          {text}
+          {dir && <Icon icon={dir === 'asc' ? CaretUpIcon : CaretDownIcon} size={12} />}
+        </button>
+      </span>
+    );
+  };
   return (
-    <ol className="mx-barlist">
-      {rows.map((r) => (
-        <li key={r.key}>
+    <div className={withSub ? 'mx-barlist mx-barlist-clusters' : 'mx-barlist'} role="table" aria-label={label}>
+      <div className="mx-barlist-line mx-barlist-head" role="row">
+        {head('name', nameLabel, 'asc', 'mx-barlist-label')}
+        {withSub && head('sub', 'Cluster', 'asc', 'mx-barlist-sub')}
+        {head('value', valueLabel, 'desc', 'mx-barlist-value')}
+      </div>
+      {sorted.map((r) => (
+        <div key={r.key} className="mx-barlist-row" role="row">
           <div className="mx-barlist-line">
-            <span className="mx-barlist-label" title={r.label}>
+            <span className="mx-barlist-label" role="cell" title={r.label}>
               {r.label}
-              {r.sub && <span className="mx-barlist-sub">{r.sub}</span>}
             </span>
-            <span className="mx-barlist-value mono">{r.display}</span>
+            {withSub && (
+              <span className="mx-barlist-sub" role="cell" title={r.sub}>
+                {r.sub ?? ''}
+              </span>
+            )}
+            <span className="mx-barlist-value mono" role="cell">
+              {r.display}
+            </span>
           </div>
           <div className="mx-barlist-track" aria-hidden="true">
-            <span style={{ width: `${top > 0 && r.value ? Math.max(1.5, (r.value / top) * 100) : 0}%`, background: color }} />
+            <span style={{ width: `${top > 0 && r.value ? Math.max(1.5, Math.min(100, (r.value / top) * 100)) : 0}%`, background: color }} />
           </div>
-        </li>
+        </div>
       ))}
-    </ol>
+    </div>
   );
 }
 

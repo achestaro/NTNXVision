@@ -1856,6 +1856,11 @@ try {
   // snapshot, is remembered, and stops when switched off.
   await run('metrics-auto-refresh', async () => {
     const snapsBefore = (await readdir(join(dataDir, 'snapshots')).catch(() => [])).sort().join('|');
+    // A sorted table keeps its sort across the readings.
+    const topVms = page.getByRole('table', { name: 'Top VMs by CPU' });
+    await topVms.getByRole('columnheader', { name: 'VM' }).getByRole('button').click();
+    const vmSort = () => topVms.getByRole('columnheader', { name: 'VM' }).getAttribute('aria-sort');
+    if ((await vmSort()) !== 'ascending') throw new Error('the VM header did not sort A to Z');
     await page.getByRole('switch', { name: 'Auto refresh' }).click();
     await page.getByRole('combobox', { name: 'Auto refresh interval' }).waitFor();
     await page.getByText(/next in \d+ s/).waitFor({ timeout: 10_000 });
@@ -1863,6 +1868,7 @@ try {
       await page.getByRole('button', { name: 'Reading…' }).waitFor({ timeout: 20_000 });
       await page.getByRole('button', { name: 'Refresh' }).waitFor({ timeout: 120_000 });
     }
+    if ((await vmSort()) !== 'ascending') throw new Error('auto refresh lost the Top VMs sort');
     const saved = JSON.parse(await readFile(join(profile, 'userData', 'settings.json'), 'utf8'));
     if (saved.metricsAutoRefresh !== true) throw new Error(`auto refresh was not remembered: ${JSON.stringify(saved.metricsAutoRefresh)}`);
     const snapsAfter = (await readdir(join(dataDir, 'snapshots')).catch(() => [])).sort().join('|');

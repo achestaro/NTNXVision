@@ -604,29 +604,68 @@
   flex-direction: column;
   gap: 10px;
 }
+/* One grid per line, the same template on the header and every row, so the columns
+   (VM, Cluster on All clusters, value) line up; the value column has a fixed width. */
 .mx-barlist-line {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 84px;
   align-items: baseline;
-  justify-content: space-between;
   gap: 12px;
   font-size: 13px;
   line-height: 18px;
 }
-.mx-barlist-label {
+.mx-barlist-clusters .mx-barlist-line {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 34%) 84px;
+}
+.mx-barlist-label,
+.mx-barlist-sub {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.mx-barlist-label {
   color: var(--ink);
 }
 .mx-barlist-sub {
-  margin-left: 8px;
   font-size: 12px;
   color: var(--ink-3);
 }
 .mx-barlist-value {
-  flex: none;
   font-size: 12px;
+  color: var(--ink);
+  text-align: right;
+  white-space: nowrap;
+}
+/* Header: the table header anatomy (11 px uppercase ink-3), each label a sort button. */
+.mx-barlist-head {
+  padding-bottom: 4px;
+  border-bottom: 1px solid var(--rule-2);
+  font-size: 11px;
+  line-height: 16px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  font-weight: 500;
+}
+.mx-barlist-head > span {
+  color: var(--ink-3);
+  font-size: 11px;
+}
+.mx-sortbtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 100%;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+.mx-sortbtn:hover {
   color: var(--ink);
 }
 .mx-barlist-track {

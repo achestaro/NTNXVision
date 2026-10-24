@@ -941,6 +941,40 @@ const SHOTS = [
     await setHidden(false);
     await p.waitForFunction((n) => window.__metricsCalls.filter((c) => c.part === 'now' && c.refresh).length > n, before, { timeout: 1000 });
   }, 900],
+  // Sortable tables: header buttons with aria-sort; numbers by value (highest first on the
+  // first click), text natural and A to Z; the chosen sort survives auto refresh readings.
+  ['metrics-sort', { metricsAuto: true, metricsRefreshMs: 1200 }, async (p) => {
+    await openMetrics(p);
+    const top = p.getByRole('table', { name: 'Top VMs by CPU' });
+    const header = (t, name) => t.getByRole('columnheader', { name });
+    const sortOf = (t, name) => header(t, name).getAttribute('aria-sort');
+    const col = (t, i) => t.getByRole('row').evaluateAll((rows, i) => rows.slice(1).map((r) => r.querySelectorAll('[role="cell"]')[i]?.textContent ?? ''), i);
+    if ((await sortOf(top, 'CPU')) !== 'descending') throw new Error('the top list should start ranked, highest first');
+    await header(top, 'VM').getByRole('button').click();
+    const names = await col(top, 0);
+    const want = [...names].sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' }));
+    if (names.join() !== want.join()) throw new Error(`VM names not A to Z: ${names}`);
+    if ((await sortOf(top, 'VM')) !== 'ascending' || (await sortOf(top, 'CPU')) !== null) throw new Error('aria-sort did not follow the click');
+    await header(top, 'VM').getByRole('button').click();
+    if ((await sortOf(top, 'VM')) !== 'descending') throw new Error('a second click should reverse');
+    // A few auto refresh readings later the sort is unchanged.
+    const reads = () => p.evaluate(() => window.__metricsCalls.filter((c) => c.part === 'now' && c.refresh).length);
+    const before = await reads();
+    await p.waitForFunction((n) => window.__metricsCalls.filter((c) => c.part === 'now' && c.refresh).length >= n + 2, before, { timeout: 15000 });
+    if ((await sortOf(top, 'VM')) !== 'descending') throw new Error('auto refresh lost the sort');
+    // A detail table: CPU sorts numerically, highest first, missing values last.
+    await p.getByRole('button', { name: 'Nodes and CVMs: open the list' }).click();
+    const nodes = p.getByRole('table', { name: 'Nodes and CVMs' });
+    await header(nodes, 'CPU').getByRole('button').click();
+    if ((await sortOf(nodes, 'CPU')) !== 'descending') throw new Error('a numeric column should start highest first');
+    const cpu = await nodes.locator('tbody tr').evaluateAll((rows) => rows.map((r) => r.children[5].textContent));
+    const nums = cpu.filter((c) => /\d/.test(c)).map((c) => parseFloat(c));
+    if (nums.some((n, i) => i > 0 && n > nums[i - 1])) throw new Error(`node CPU not highest first: ${cpu}`);
+    if (cpu.findIndex((c) => !/\d/.test(c)) !== -1 && cpu.slice(cpu.findIndex((c) => !/\d/.test(c))).some((c) => /\d/.test(c))) throw new Error('missing values not last');
+    await p.waitForFunction((n) => window.__metricsCalls.filter((c) => c.part === 'now' && c.refresh).length >= n + 4, before, { timeout: 15000 });
+    if ((await sortOf(nodes, 'CPU')) !== 'descending') throw new Error('auto refresh lost the node sort');
+    await header(nodes, 'Node').getByRole('button').focus();
+  }, 1100],
   // Breadcrumbs: from a subpage, the target segment leads back to the dashboard.
   ['metrics-crumbs', {}, async (p) => {
     await openMetrics(p);
