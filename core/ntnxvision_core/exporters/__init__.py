@@ -68,6 +68,8 @@ class ExportOptions:
     section_order: tuple[str, ...] | None = None
     #: How the editable diagrams bundle is written: one "zip" or a "folder".
     diagrams_package: str = "zip"
+    #: Draw the legend under each diagram figure (the Diagrams page's Legend switch).
+    diagram_legend: bool = True
 
     def includes(self, section: str) -> bool:
         return self.sections is None or section in self.sections
@@ -96,6 +98,7 @@ class ExportOptions:
                 order := value.get("section_order"), list) else None,
             diagrams_package="folder" if value.get("diagrams_package") == "folder"
             else "zip",
+            diagram_legend=value.get("diagram_legend") is not False,
         )
 
 

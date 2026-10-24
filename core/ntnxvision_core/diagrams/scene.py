@@ -104,6 +104,11 @@ class Edge:
     arrow_end: bool = False
     labels: list[EdgeLabel] = field(default_factory=list)
     data: dict[str, str] = field(default_factory=dict)
+    #: Arrowhead shape at each end (`render.heads.HEADS`), set by an author's edit; ""
+    #: draws the default for `arrow_start` / `arrow_end` (a filled arrow, or none).
+    #: Serialised only when set.
+    head_start: str = ""
+    head_end: str = ""
 
 
 @dataclass
@@ -157,6 +162,10 @@ def dumps(obj: dict[str, Any]) -> bytes:
 def to_doc(sc: Scene) -> dict[str, Any]:
     doc = asdict(sc)
     doc["schema"] = SCENE_SCHEMA
+    for e in doc["edges"]:
+        for k in ("head_start", "head_end"):
+            if not e.get(k):
+                e.pop(k, None)
     return doc
 
 
@@ -183,7 +192,8 @@ def from_doc(d: dict[str, Any]) -> Scene:
                   labels=[EdgeLabel(x=lb["x"], y=lb["y"], w=lb["w"], h=lb["h"],
                                     lines=_lines(lb["lines"]), background=lb["background"])
                           for lb in e["labels"]],
-                  data=dict(e.get("data") or {})) for e in d["edges"]]
+                  data=dict(e.get("data") or {}), head_start=str(e.get("head_start") or ""),
+                  head_end=str(e.get("head_end") or "")) for e in d["edges"]]
     part = d.get("part") or (1, 1)
     return Scene(id=d["id"], type=d["type"], title=d["title"], caption=d["caption"],
                  width=d["width"], height=d["height"], nodes=nodes, edges=edges,

@@ -105,11 +105,11 @@
    "points": [
     [
      0.5,
-     155.43
+     150.68
     ],
     [
-     17.5,
-     155.43
+     8.2,
+     150.68
     ]
    ],
    "src": "",
@@ -130,12 +130,12 @@
    "labels": [],
    "points": [
     [
-     100.73,
-     155.43
+     0.5,
+     158.18
     ],
     [
-     117.73,
-     155.43
+     8.2,
+     158.18
     ]
    ],
    "src": "",
@@ -148,7 +148,7 @@
    }
   }
  ],
- "height": 162.18,
+ "height": 163.18,
  "id": "dr",
  "meta": {
   "hops": 0,
@@ -543,17 +543,17 @@
   },
   {
    "data": {},
-   "h": 10.5,
+   "h": 7.0,
    "id": "legend:0:label",
    "kind": "label",
    "lines": [
     {
-     "baseline": 7.35,
+     "baseline": 5.67,
      "bold": false,
      "color": "#3E4C59",
-     "size": 6.0,
+     "size": 6.2,
      "text": "NearSync (1 to 15 min)",
-     "width": 60.59,
+     "width": 62.61,
      "x": 0.0
     }
    ],
@@ -565,23 +565,23 @@
     "stroke": null,
     "stroke_w": 0.75
    },
-   "w": 65.23,
-   "x": 21.5,
-   "y": 150.18
+   "w": 67.37,
+   "x": 10.7,
+   "y": 147.18
   },
   {
    "data": {},
-   "h": 10.5,
+   "h": 7.0,
    "id": "legend:1:label",
    "kind": "label",
    "lines": [
     {
-     "baseline": 7.35,
+     "baseline": 5.67,
      "bold": false,
      "color": "#3E4C59",
-     "size": 6.0,
+     "size": 6.2,
      "text": "Async (1 h or more)",
-     "width": 51.98,
+     "width": 53.72,
      "x": 0.0
     }
    ],
@@ -593,13 +593,13 @@
     "stroke": null,
     "stroke_w": 0.75
    },
-   "w": 56.1,
-   "x": 121.73,
-   "y": 150.18
+   "w": 57.94,
+   "x": 10.7,
+   "y": 154.68
   },
   {
    "data": {},
-   "h": 7.5,
+   "h": 4.2,
    "id": "legend:2",
    "kind": "swatch",
    "lines": [],
@@ -611,23 +611,23 @@
     "stroke": "#5B3FD9",
     "stroke_w": 0.7
    },
-   "w": 17,
-   "x": 191.83,
-   "y": 151.68
+   "w": 7.7,
+   "x": 88.07,
+   "y": 148.58
   },
   {
    "data": {},
-   "h": 10.5,
+   "h": 7.0,
    "id": "legend:2:label",
    "kind": "label",
    "lines": [
     {
-     "baseline": 7.35,
+     "baseline": 5.67,
      "bold": false,
      "color": "#3E4C59",
-     "size": 6.0,
+     "size": 6.2,
      "text": "Protected cluster",
-     "width": 46.6,
+     "width": 48.15,
      "x": 0.0
     }
    ],
@@ -639,13 +639,13 @@
     "stroke": null,
     "stroke_w": 0.75
    },
-   "w": 50.39,
-   "x": 212.83,
-   "y": 150.18
+   "w": 52.04,
+   "x": 98.27,
+   "y": 147.18
   },
   {
    "data": {},
-   "h": 7.5,
+   "h": 4.2,
    "id": "legend:3",
    "kind": "swatch",
    "lines": [],
@@ -657,23 +657,23 @@
     "stroke": "#C9D0D6",
     "stroke_w": 0.7
    },
-   "w": 17,
-   "x": 277.22,
-   "y": 151.68
+   "w": 7.7,
+   "x": 88.07,
+   "y": 156.08
   },
   {
    "data": {},
-   "h": 10.5,
+   "h": 7.0,
    "id": "legend:3:label",
    "kind": "label",
    "lines": [
     {
-     "baseline": 7.35,
+     "baseline": 5.67,
      "bold": false,
      "color": "#3E4C59",
-     "size": 6.0,
+     "size": 6.2,
      "text": "No protection policy",
-     "width": 55.56,
+     "width": 57.41,
      "x": 0.0
     }
    ],
@@ -685,9 +685,9 @@
     "stroke": null,
     "stroke_w": 0.75
    },
-   "w": 59.89,
-   "x": 298.22,
-   "y": 150.18
+   "w": 61.86,
+   "x": 98.27,
+   "y": 154.68
   }
  ],
  "part": [

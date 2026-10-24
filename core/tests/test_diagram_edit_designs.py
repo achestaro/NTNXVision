@@ -14,6 +14,7 @@ from ntnxvision_core.diagrams import TYPES, check_scene
 from ntnxvision_core.diagrams import edits as E
 from ntnxvision_core.diagrams import store as ST
 from ntnxvision_core.diagrams import tokens as K
+from ntnxvision_core.diagrams.icons import LOOKS, PALETTE_LOOK
 from ntnxvision_core.diagrams.scene import Scene
 
 DESIGN_TYPES = ("logical", "management", "network", "dr")
@@ -67,7 +68,7 @@ def test_removing_any_element_lays_out_cleanly(design_envs: dict[str, Any], type
 
 @pytest.mark.parametrize("type_id", ("logical", "management", "dr"))
 @pytest.mark.parametrize("estate", ("small", "pc01"))
-def test_every_palette_item_is_drawn_as_user_added(design_envs: dict[str, Any],
+def test_every_palette_item_is_drawn_like_a_collected_element(design_envs: dict[str, Any],
                                                    type_id: str, estate: str) -> None:
     env = design_envs[estate]
     t = TYPES[type_id]
@@ -86,9 +87,12 @@ def test_every_palette_item_is_drawn_as_user_added(design_envs: dict[str, Any],
         assert not _problems(scenes), (item.id, _problems(scenes)[:3])
         nodes = {n.id: n for sc in scenes for n in sc.nodes}
         assert uid in nodes, f"{type_id}: the added {item.id} is not drawn"
-        assert nodes[uid].style in (K.USER, K.NOTE)
-        assert any(n.parent == uid and n.style is K.TAG_USER for n in nodes.values()), \
-            f"{type_id}: no USER-ADDED chip on the added {item.id}"
+        # Drawn with the generated element's style, never the amber USER-ADDED box.
+        look = LOOKS[PALETTE_LOOK[item.id]]
+        assert nodes[uid].style == look.style, (type_id, item.id)
+        assert not any(n.parent == uid and n.style == K.TAG_USER for n in nodes.values()), \
+            f"{type_id}: a USER-ADDED chip on the added {item.id}"
+        assert not any(n.style in (K.USER, K.USER_SITE) for n in nodes.values())
         assert any("(edited)" in sc.caption for sc in scenes)
 
 

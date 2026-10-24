@@ -1,0 +1,220 @@
+/* Insights > Optimization. Calm by design: Runway tokens only (light and dark follow),
+   colour only on severity glyphs and on changed recommended values. */
+
+/* ── review cards ─────────────────────────────────────────────────── */
+
+.opt-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 340px), 1fr));
+  gap: 16px;
+}
+.opt-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 20px 20px 16px;
+  text-align: left;
+  font: inherit;
+  color: var(--ink);
+  cursor: pointer;
+  transition: border-color 120ms ease, background-color 120ms ease;
+}
+.opt-card:hover {
+  border-color: var(--rule-strong);
+  background: var(--surface-hover);
+}
+.opt-card:focus-visible {
+  outline: 2px solid var(--focus, var(--accent));
+  outline-offset: 2px;
+}
+.opt-card-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+}
+.opt-card-figure {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-top: 4px;
+}
+.opt-card-unit {
+  font-size: 14px;
+  color: var(--ink-2);
+}
+.opt-card-desc {
+  font-size: 13px;
+  line-height: 19px;
+  color: var(--ink-2);
+}
+.opt-card-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 14px;
+  padding-top: 12px;
+  margin-top: 4px;
+  border-top: 1px solid var(--rule-2);
+}
+.opt-card-sev {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.opt-card-foot .mono {
+  white-space: nowrap;
+}
+.opt-card-go {
+  color: var(--ink-3);
+  flex: none;
+}
+.opt-card:hover .opt-card-go {
+  color: var(--ink);
+}
+
+/* ── findings ─────────────────────────────────────────────────────── */
+
+.opt-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--rule);
+  align-items: center;
+}
+.opt-pager {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 12px;
+  border-top: 1px solid var(--rule-2);
+}
+.opt-notes {
+  margin-top: 16px;
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--ink-3);
+}
+.opt-notes p {
+  margin: 0;
+}
+.opt-notes details {
+  margin-bottom: 8px;
+}
+.opt-notes summary {
+  cursor: pointer;
+  color: var(--ink-2);
+}
+.opt-notes ul {
+  margin: 6px 0 0;
+  padding-left: 18px;
+}
+
+/* ── details panel ────────────────────────────────────────────────── */
+
+.opt-detail {
+  padding: 14px 16px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.opt-detail-name {
+  font-size: 16px;
+  line-height: 24px;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.opt-detail-meta {
+  display: flex;
+  gap: 12px;
+  margin-top: 4px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+.opt-reasons {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.opt-reason-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+}
+.opt-reasons p {
+  margin: 4px 0 0 18px;
+  font-size: 13px;
+  line-height: 19px;
+  color: var(--ink-2);
+}
+.opt-compare {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+.opt-compare th,
+.opt-compare td {
+  text-align: left;
+  padding: 6px 8px 6px 0;
+  border-bottom: 1px solid var(--rule-2);
+  font-weight: 400;
+}
+.opt-compare thead th {
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+.opt-compare tbody th {
+  color: var(--ink-3);
+}
+.opt-compare td {
+  font-family: var(--font-mono);
+  color: var(--ink-2);
+}
+.opt-compare td.changed {
+  color: var(--ink);
+  font-weight: 500;
+}
+
+/* Current / Recommended layout lines in the findings table: the same tokens in the same
+   order on both sides; what differs stands out (recommended in ink, weight 500), the rest
+   recedes to ink-3. */
+.opt-layout {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--ink-3);
+  white-space: normal; /* the table cell is nowrap; a narrow window wraps between tokens */
+}
+.opt-tok {
+  white-space: nowrap; /* never inside "2 × 20" */
+}
+.opt-tok.was {
+  color: var(--ink-2);
+}
+.opt-tok.changed {
+  color: var(--ink);
+  font-weight: 500;
+}
+
+/* Host facts under the comparison: mono values at the table's 12px so "2 × 32 cores · SMT 2"
+   stays on one line in the narrow panel. */
+.opt-detail dl.grid-kv .kv {
+  grid-template-columns: 110px minmax(0, 1fr);
+}
+.opt-detail dl.grid-kv dd.mono {
+  font-size: 12px;
+}
+
+/* With a VM's details open at narrow widths, the finding wraps instead of pushing the table
+   past its panel. */
+.tbl td.opt-finding {
+  white-space: normal;
+  min-width: 180px;
+}

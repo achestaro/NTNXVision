@@ -942,8 +942,16 @@ export type DiagramArrow = 'none' | 'end' | 'start' | 'both';
 export const DIAGRAM_ARROWS: readonly DiagramArrow[] = ['none', 'end', 'start', 'both'];
 /** What an `edge` edit changes on a connector. */
 /** `route` (value 'auto') puts both sides back to Auto and the lane to 0 in one edit. */
-export type DiagramEdgeField = 'a' | 'b' | 'label' | 'a_side' | 'b_side' | 'bend' | 'arrow' | 'hidden' | 'route';
-export const DIAGRAM_EDGE_FIELDS: readonly DiagramEdgeField[] = ['a', 'b', 'label', 'a_side', 'b_side', 'bend', 'arrow', 'hidden', 'route'];
+/** `head_start` / `head_end` choose one end's arrowhead shape (an `arrow` edit afterwards puts plain arrows back). */
+export type DiagramEdgeField = 'a' | 'b' | 'label' | 'a_side' | 'b_side' | 'bend' | 'arrow' | 'hidden' | 'route' | 'head_start' | 'head_end';
+export const DIAGRAM_EDGE_FIELDS: readonly DiagramEdgeField[] = ['a', 'b', 'label', 'a_side', 'b_side', 'bend', 'arrow', 'hidden', 'route', 'head_start', 'head_end'];
+export type DiagramGrid = 'none' | 'dots' | 'lines';
+export const DIAGRAM_GRIDS: readonly DiagramGrid[] = ['none', 'dots', 'lines'];
+export type DiagramCanvasBg = 'white' | 'transparent';
+export const DIAGRAM_CANVAS_BGS: readonly DiagramCanvasBg[] = ['white', 'transparent'];
+/** An arrowhead shape at one end of a connector (core: diagrams/render/heads.py). */
+export type DiagramHead = 'none' | 'arrow' | 'open' | 'diamond' | 'circle';
+export const DIAGRAM_HEADS: readonly DiagramHead[] = ['none', 'arrow', 'open', 'diamond', 'circle'];
 /** Largest lane offset (points) a connector may carry (mirrors MAX_BEND). */
 export const MAX_DIAGRAM_BEND = 600;
 
@@ -977,7 +985,20 @@ export type DiagramOp =
       index: number;
       element: { id: string; palette: string; name?: string; note?: string };
     }
-  | { op: 'delete'; id: string };
+  | { op: 'delete'; id: string }
+  /** Put an icon of the catalog (DiagramIcon) on one figure scene at (x, y), in points. */
+  | { op: 'place'; id: string; icon: string; scene: string; x: number; y: number; w?: number; h?: number; label?: string | null; sub?: string | null; parent?: string | null; wraps?: string[] }
+  /**
+   * Move or resize a placed icon. `parent`: nest it in a placed icon or a collected
+   * element (null: free on the figure again); `wraps`: the collected top-level frames a
+   * placed frame wraps. A nested icon's place follows the slot rules (diagrams/nesting.py).
+   */
+  | { op: 'position'; id: string; x: number; y: number; w?: number; h?: number; parent?: string | null; wraps?: string[] }
+  /**
+   * Rewrite one text line of the figure: `id` is a scene node id, or "<edge id>#<label
+   * index>" for an edge label; `value` null puts the generated text back.
+   */
+  | { op: 'text'; id: string; line: number; value: string | null };
 
 /** Most edits one diagram can hold (mirrors MAX_OPS in diagrams/edits.py). */
 export const MAX_DIAGRAM_OPS = 2000;
@@ -1037,6 +1058,9 @@ export interface SceneEdge {
   arrow_end: boolean;
   labels: SceneEdgeLabel[];
   data: Record<string, string>;
+  /** Arrowhead shape where an author chose one (absent: a filled arrow when `arrow_*` is on). */
+  head_start?: DiagramHead;
+  head_end?: DiagramHead;
 }
 
 /** A laid-out diagram part, in points (1/72 in), origin top-left. */
@@ -1081,6 +1105,56 @@ export interface DiagramElement {
   move_targets: { id: string; label: string }[];
   /** Why the other containers of that kind refuse it (null: none refuses). */
   move_refusal: string | null;
+  /** A placed icon (op `place`): dragged anywhere on its figure, resized, never laid out. */
+  free?: boolean;
+  /** Placed icon: the placed icon or collected element it is nested in (null: free). */
+  nest_parent?: string | null;
+  /** Placed frame: the collected top-level frames it wraps. */
+  wraps?: string[];
+  /** Placed icon: its catalog id, the scene it is on and its box (points). */
+  icon?: string;
+  scene?: string;
+  x?: number;
+  y?: number;
+  w?: number;
+  h?: number;
+}
+
+/** An icon the Diagrams page can put on any figure: every element kind the engine draws. */
+export interface DiagramIcon {
+  id: string;
+  label: string;
+  /** Picker group ("Infrastructure", "Networking", …). */
+  group: string;
+  /** Default size (points) and text. */
+  w: number;
+  h: number;
+  name: string;
+  sub: string;
+  keywords: string;
+  hint: string;
+  container: boolean;
+  /** The generated element's style, for the picker's swatch. */
+  style: SceneStyle;
+  chip: { label: string; fill: string | null } | null;
+  ink: string;
+  /** The kinds it may hold (diagrams/nesting.py CHILDREN): icon ids. */
+  children?: string[];
+}
+
+/** Per placed icon on a scene (`scene.meta.placed`), from the nesting arrangement. */
+export interface DiagramPlacedMeta {
+  /** The placed icon or collected element it sits in (null: free on the figure). */
+  parent: string | null;
+  /** top | flow | strip | badge_br | badge_bl | free */
+  slot: string;
+  /** Smallest size a resize may give it (its children still fit). */
+  min_w: number;
+  min_h: number;
+  /** Its place follows the collected frames it wraps: resized, never dragged. */
+  anchored: boolean;
+  wraps: string[];
+  kind: string;
 }
 
 /** What the inspector knows about one connector (generated or user-added). */
@@ -1111,6 +1185,9 @@ export interface DiagramConnector {
   /** Why it is drawn differently: 'side' (Auto used), 'route' (not drawn), 'label' (label not drawn), 'parts' (ends in different parts). */
   issue: 'side' | 'route' | 'label' | 'parts' | null;
   arrow: DiagramArrow;
+  /** The arrowhead shape drawn at each end ('none': a plain end). Absent on connectors not drawn. */
+  head_start?: DiagramHead;
+  head_end?: DiagramHead;
   /** Scene indexes that draw it ([] = not drawn: its ends are in different parts). */
   parts: number[];
   edited: boolean;
@@ -1205,6 +1282,8 @@ export interface DiagramLayoutResult {
   outline: DiagramElement[];
   /** The figure's editable connectors (diagrams editor v2). */
   connectors: DiagramConnector[];
+  /** Collected scene node id -> its kind in the nesting hierarchy (az, pod, cluster, ...). */
+  nest_kinds?: Record<string, string>;
   problems: DiagramProblem[];
   /** Connector edits the layout drew differently (the edit stays): one per connector. */
   notes: DiagramLayoutNote[];
@@ -1238,6 +1317,8 @@ export interface DiagramDetail extends DiagramLayoutResult {
   } | null;
   stale: DiagramStale | null;
   palette: DiagramPaletteItem[];
+  /** Every icon that can be placed on any figure (the "Add" picker). */
+  icons?: DiagramIcon[];
 }
 
 /** Unsaved work in the renderer (window close guard). */
@@ -1570,6 +1651,25 @@ export interface SmtpSaveResult {
   settings: SmtpSettingsInfo;
 }
 
+/**
+ * Trust this certificate, stored at once for the saved server (schedules and the Email
+ * dialog only read saved settings). Refused unless host, port and security are the saved
+ * ones and the saved settings allow an untrusted certificate over TLS.
+ */
+export interface SmtpTrustRequest {
+  host: string;
+  port: number;
+  security: SmtpSecurity;
+  /** SHA-256 of the certificate the test showed (colons and case ignored). */
+  fingerprint: string;
+}
+
+export interface SmtpTrustResult {
+  /** False: not the saved server, so the pin stays in the form until Save. */
+  ok: boolean;
+  settings: SmtpSettingsInfo;
+}
+
 /** Remove email settings: the server, the saved password and the trusted certificate are gone. */
 export interface SmtpClearResult {
   settings: SmtpSettingsInfo;
@@ -1824,6 +1924,12 @@ export interface AppSettings {
   filePrefix?: string;
   /** The Export dialog's last "Editable diagrams" choice. Unset = on. */
   exportDiagrams?: boolean;
+  /** The Diagrams page's Legend switch: draw the legend under each figure, in exports too. Unset = on. */
+  diagramLegend?: boolean;
+  /** The Diagrams canvas grid (editor only, never exported). Unset = none. */
+  diagramGrid?: DiagramGrid;
+  /** The Diagrams canvas background: white, or transparent (the page's grey shows through). Editor only. Unset = white. */
+  diagramCanvas?: DiagramCanvasBg;
   /**
    * The default vCPU:pCPU target behind the cluster capacity figures ("vCPU Total"):
    * recorded on every cluster a new collection collects unless New collection sets a
@@ -1843,7 +1949,15 @@ export interface AppSettings {
   sectionOrder?: ReportSectionId[];
   /** Settings > Email: where the last test email went (not secret; the next test's default). */
   emailTestTo?: string;
+  /** Insights > Metrics auto refresh (re-reads the live APIs, never collects). Unset = off. */
+  metricsAutoRefresh?: boolean;
+  /** Minutes between Metrics auto refreshes (kept while off). Unset = 5. */
+  metricsRefreshMinutes?: MetricsRefreshMinutes;
 }
+
+/** The Metrics auto refresh intervals offered, in minutes. */
+export const METRICS_REFRESH_MINUTES = [5, 10, 30, 60] as const;
+export type MetricsRefreshMinutes = (typeof METRICS_REFRESH_MINUTES)[number];
 
 /** The vCPU:pCPU target used when the setting is unset (matches capacity.py). */
 export const DEFAULT_VCPU_RATIO = 4;
@@ -1859,6 +1973,14 @@ export interface AppInfo {
    * its snapshots apart from real ones.
    */
   demo?: boolean;
+  /** An unpackaged (development) build: the rail and Help menu tag the version "dev". */
+  dev?: boolean;
+  /**
+   * Test hook (unpackaged builds only, NTNXVISION_METRICS_REFRESH_MS): the Metrics auto
+   * refresh interval in milliseconds instead of the chosen minutes, so e2e can watch it fire.
+   * Never set in a packaged app.
+   */
+  metricsRefreshMs?: number;
 }
 
 /** The bundled legal documents (LICENSE, NOTICE, THIRD_PARTY_NOTICES.md), read by main. */
@@ -1874,6 +1996,107 @@ export interface LegalDocuments {
 export interface FileFilter {
   name: string;
   extensions: string[];
+}
+
+// ─── Insights > Optimization (sidecar `optimization`) ───────────────────
+
+export type OptimizationSeverity = 'high' | 'medium' | 'low';
+
+/** One review card on the Optimization page (only `vm_compute` exists today). */
+export interface OptimizationReview {
+  id: 'vm_compute';
+  title: string;
+  description: string;
+  /** "12 VMs to review" / "Nothing to review". */
+  headline: string;
+  count: number;
+  /** The worst severity among its findings, null when there are none. */
+  severity: OptimizationSeverity | null;
+  reviewed: number;
+}
+
+/** A VM's CPU / memory layout. `threads_per_core` is 1 when the API reports none (ESXi). */
+export interface ComputeLayout {
+  sockets: number;
+  cores_per_socket: number;
+  threads_per_core: number;
+  vcpus: number;
+  memory_bytes: number | null;
+  /** AHV virtual NUMA nodes (0 = off); null on ESXi or when the snapshot predates the field. */
+  vnuma_nodes: number | null;
+}
+
+export interface ComputeReason {
+  rule: string;
+  severity: OptimizationSeverity;
+  title: string;
+  text: string;
+}
+
+/** The host a VM was checked against (one NUMA node per socket). */
+export interface ComputeHost {
+  uuid: string;
+  name: string;
+  sockets: number;
+  cores: number;
+  cores_per_node: number;
+  threads_per_core: number | null;
+  memory_bytes: number | null;
+  memory_per_node_bytes: number | null;
+  numa_nodes: number;
+  /** current = the host it runs on; smallest = the cluster's smallest (powered off / unknown host). */
+  basis: 'current' | 'smallest';
+}
+
+export interface ComputeFinding {
+  /** VM UUID (also the Inventory deep link's objectId). */
+  id: string;
+  vm: string;
+  cluster: string;
+  cluster_uuid: string | null;
+  power_state: string | null;
+  hypervisor: string | null;
+  guest_os: string | null;
+  source_pc: string | null;
+  severity: OptimizationSeverity;
+  /** The title of the most severe reason. */
+  finding: string;
+  reasons: ComputeReason[];
+  current: ComputeLayout;
+  recommended: ComputeLayout;
+  /** The host the recommendation is sized for (the smallest one when the cluster is mixed). */
+  sized_for: string;
+  host: ComputeHost;
+  mixed_cluster: boolean;
+}
+
+export interface ComputeUnchecked {
+  id: string;
+  vm: string;
+  cluster: string;
+  power_state: string | null;
+  reason: string;
+}
+
+export interface ComputeReview {
+  summary: {
+    reviewed: number;
+    to_optimize: number;
+    clean: number;
+    high: number;
+    medium: number;
+    low: number;
+    not_checked: number;
+    powered_off: number;
+  };
+  findings: ComputeFinding[];
+  not_checked: ComputeUnchecked[];
+  assumptions: string[];
+}
+
+export interface OptimizationResult {
+  reviews: OptimizationReview[];
+  vm_compute: ComputeReview;
 }
 
 // ─── channels ───────────────────────────────────────────────────────────
@@ -1911,6 +2134,8 @@ export const IPC = {
   carryDiagrams: 'core:carryDiagrams',
   previewExport: 'core:previewExport',
   exportDiagram: 'core:exportDiagram',
+  /** Insights > Optimization: the reviews of one snapshot. */
+  getOptimization: 'core:getOptimization',
   // main-process only
   getAppInfo: 'app:getAppInfo',
   getLegalDocuments: 'app:getLegalDocuments',
@@ -1934,6 +2159,7 @@ export const IPC = {
   getSmtpSettings: 'email:getSettings',
   saveSmtpSettings: 'email:saveSettings',
   testSmtp: 'email:test',
+  trustSmtpCertificate: 'email:trustCertificate',
   emailSnapshot: 'email:sendSnapshot',
   clearSmtpSettings: 'email:clearSettings',
   // schedules (main process scheduler)
@@ -2010,6 +2236,9 @@ export interface NtnxApi {
   /** One diagram (saved version) as Visio, draw.io, SVG or PNG, written to the export folder. */
   exportDiagram(req: DiagramFileRequest): Promise<DiagramFileResult>;
 
+  /** Insights > Optimization: the optimization reviews computed from one snapshot (read-only). */
+  getOptimization(snapshotPath: string): Promise<OptimizationResult>;
+
   revealPath(path: string): Promise<void>;
   openPath(path: string): Promise<{ error: string | null }>;
   openExternal(url: string): Promise<void>;
@@ -2048,6 +2277,8 @@ export interface NtnxApi {
   saveSmtpSettings(req: SmtpSaveRequest): Promise<SmtpSaveResult>;
   /** Send a test message with the form's values (resolves with the outcome, never rejects for SMTP errors). */
   testSmtp(req: SmtpTestRequest): Promise<EmailResult>;
+  /** Store the trusted certificate for the saved server now, without saving the rest of the form. */
+  trustSmtpCertificate(req: SmtpTrustRequest): Promise<SmtpTrustResult>;
   /** Build the snapshot's reports and email them now. */
   emailSnapshot(req: EmailSnapshotRequest): Promise<EmailResult>;
   /** Remove the mail server, its saved password and trusted certificate; switches every schedule off. */
@@ -2067,3 +2298,258 @@ declare global {
     ntnx: NtnxApi;
   }
 }
+
+// ─── Insights > Metrics (live dashboard of a saved target) ──────────────
+// One self-contained block. Channels in METRICS_IPC; the NtnxApi methods are added by
+// declaration merging. Sidecar methods `metrics` / `cancel_metrics`, see
+// docs/IPC_CONTRACT.md "metrics". Percentages are 0 to 100, sizes bytes, latency µs.
+
+export const METRICS_IPC = {
+  getMetrics: 'core:getMetrics',
+  cancelMetrics: 'core:cancelMetrics',
+} as const;
+
+/** `now`: every card but trends (a few seconds). `trends`: 90 days of daily points and runway. */
+export type MetricsPart = 'now' | 'trends';
+export type MetricsRange = 30 | 60 | 90;
+
+export interface MetricsRequest {
+  /** A saved Prism Central target; the main process fills in its address, TLS and password. */
+  targetId: string;
+  part: MetricsPart;
+  /** Skip the sidecar's short cache (the Refresh button). */
+  refresh?: boolean;
+  /** Renderer-chosen id, so leaving the page can cancel the request. */
+  requestId: string;
+}
+
+export interface MetricsUtilization {
+  cpu_pct: number | null;
+  memory_pct: number | null;
+  storage_pct: number | null;
+}
+
+export interface MetricsCapacity {
+  cpu_count?: number | null;
+  memory_bytes?: number | null;
+  storage_used_bytes: number | null;
+  storage_capacity_bytes: number | null;
+  storage_free_bytes: number | null;
+  storage_logical_bytes: number | null;
+  redundancy_factor?: number | null;
+  /** Physical capacity x 0.95 / RF (capacity.py's reserve), and what of it is free. */
+  usable_bytes: number | null;
+  usable_free_bytes: number | null;
+}
+
+export interface MetricsPerformance {
+  iops: number | null;
+  read_iops?: number | null;
+  write_iops?: number | null;
+  latency_usecs: number | null;
+  bandwidth_kbps?: number | null;
+}
+
+export interface MetricsEfficiency {
+  /** Compression + dedup + erasure coding, "1.4 : 1". */
+  data_reduction_ratio?: number | null;
+  /** Including thin provisioning, clones and snapshots. */
+  overall_ratio?: number | null;
+  saved_bytes: number | null;
+  compression_ratio?: number | null;
+  dedup_ratio?: number | null;
+  erasure_coding_ratio?: number | null;
+}
+
+export interface MetricsResiliency {
+  current: number | null;
+  desired: number | null;
+  ok: boolean;
+  kind: 'fault_tolerance' | 'rf';
+}
+
+export type MetricsHealthStatus = 'ok' | 'warning' | 'critical';
+
+export interface MetricsHealth {
+  status: MetricsHealthStatus;
+  /** Display text, most important first ("3 critical alerts"). */
+  reasons: string[];
+  critical_alerts: number;
+  warning_alerts: number;
+  nodes_total: number;
+  nodes_ok: number;
+  resiliency: MetricsResiliency | null;
+}
+
+export interface MetricsNode {
+  uuid: string;
+  name: string;
+  status: 'ok' | 'warn' | 'error';
+  node_state: string | null;
+  maintenance: boolean;
+  degraded: boolean;
+  cvm_ip: string | null;
+  cvm_status: 'ok' | 'error' | null;
+  metadata_store: string | null;
+  cpu_pct: number | null;
+  memory_pct: number | null;
+  num_vms: number | null;
+}
+
+export interface MetricsNic {
+  host: string;
+  name: string | null;
+  link_speed_kbps: number | null;
+  rx_kBps: number | null;
+  tx_kBps: number | null;
+  rx_errors: number | null;
+  tx_errors: number | null;
+  rx_dropped: number | null;
+  tx_dropped: number | null;
+}
+
+export interface MetricsNetwork {
+  rx_kBps: number | null;
+  tx_kBps: number | null;
+  /** Error / dropped packets in the last sampling interval, all NICs. */
+  errors: number | null;
+  dropped: number | null;
+  nics: MetricsNic[];
+  links_up: number;
+}
+
+export interface MetricsVm {
+  uuid: string;
+  name: string;
+  cluster_uuid: string;
+  cpu_pct: number | null;
+  memory_pct: number | null;
+  iops: number | null;
+  latency_usecs: number | null;
+  vcpus: number | null;
+  memory_bytes: number | null;
+}
+
+export type MetricsTopKey = 'cpu' | 'memory' | 'iops' | 'latency';
+
+export interface MetricsAlert {
+  id: string;
+  title: string;
+  severity: 'critical';
+  cluster_uuid: string | null;
+  cluster_name: string | null;
+  source: string | null;
+  source_type: string | null;
+  created_at: string | null;
+  acknowledged: boolean;
+  impact: string | null;
+}
+
+export interface MetricsClusterNow {
+  uuid: string;
+  name: string;
+  aos_version: string | null;
+  hypervisors: string[];
+  num_nodes: number | null;
+  health: MetricsHealth;
+  utilization: MetricsUtilization;
+  capacity: MetricsCapacity;
+  performance: MetricsPerformance;
+  efficiency: MetricsEfficiency;
+  alerts: { critical: number; warning: number };
+  /** Prism Central's own runway estimate in days (capped at 365 by Prism), when served. */
+  prism_runway_days: { cpu: number | null; memory: number | null; storage: number | null; overall: number | null } | null;
+  nodes: MetricsNode[];
+  network: MetricsNetwork;
+  top_vms: Record<MetricsTopKey, MetricsVm[]>;
+}
+
+export interface MetricsTotalNow {
+  name: string;
+  clusters: number;
+  utilization: MetricsUtilization;
+  capacity: MetricsCapacity;
+  performance: MetricsPerformance;
+  efficiency: { saved_bytes: number | null };
+  health: { critical: number; warning: number; ok: number; nodes_total: number; nodes_ok: number };
+  alerts: { critical: number; warning: number };
+}
+
+interface MetricsHead {
+  host: string;
+  version: string | null;
+  collected_at: string;
+  ranges: MetricsRange[];
+  history_days: number;
+  cached: boolean;
+  age_seconds: number;
+  ttl_seconds: number;
+  /** Partial failures: one card's source failing never fails the page. */
+  notes: string[];
+}
+
+export interface MetricsNowResult extends MetricsHead {
+  part: 'now';
+  clusters: MetricsClusterNow[];
+  total: MetricsTotalNow | null;
+  alerts: { critical: MetricsAlert[]; critical_count: number; warning_count: number; listed: number };
+  sources: { card: string; api: string }[];
+}
+
+/** Columnar daily points: `t` epoch ms ascending, one value per day per metric (null = gap). */
+export interface MetricsTrends {
+  t: number[];
+  cpu_pct: (number | null)[];
+  memory_pct: (number | null)[];
+  storage_pct: (number | null)[];
+  storage_used_bytes?: (number | null)[];
+  iops?: (number | null)[];
+  latency_usecs?: (number | null)[];
+}
+
+export interface RunwayThreshold {
+  pct: number;
+  /** reached = already there; projected = `days` / `date` set; beyond = over 5 years; never = flat. */
+  state: 'reached' | 'projected' | 'beyond' | 'never' | 'unknown';
+  days: number | null;
+  /** ISO day. */
+  date: string | null;
+}
+
+export interface Runway {
+  status: 'not_enough_data' | 'no_growth' | 'growing';
+  window_days: number;
+  points: number;
+  current: number | null;
+  /** Percentage points per day from the linear fit. */
+  slope_per_day: number | null;
+  r2: number | null;
+  thresholds: RunwayThreshold[];
+}
+
+export type MetricsResource = 'cpu' | 'memory' | 'storage';
+/** Keyed by range in days ("30", "60", "90"). */
+export type RunwayByRange = Record<string, Record<MetricsResource, Runway>>;
+
+export interface MetricsClusterTrends {
+  uuid: string;
+  name: string;
+  trends: MetricsTrends;
+  runway: RunwayByRange;
+}
+
+export interface MetricsTrendsResult extends MetricsHead {
+  part: 'trends';
+  clusters: MetricsClusterTrends[];
+  total: { name: string; trends: MetricsTrends; runway: RunwayByRange } | null;
+}
+
+export type MetricsResult = MetricsNowResult | MetricsTrendsResult;
+
+export interface NtnxApi {
+  /** Live metrics of a saved Prism Central target (read-only). Rejects on failure or timeout. */
+  getMetrics(req: MetricsRequest): Promise<MetricsResult>;
+  /** Stop a running getMetrics (leaving the page); false when it already finished. */
+  cancelMetrics(requestId: string): Promise<{ cancelled: boolean }>;
+}
+// ─── end Insights > Metrics ─────────────────────────────────────────────

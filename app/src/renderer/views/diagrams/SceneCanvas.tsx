@@ -3,12 +3,19 @@
 // or positioned here). Elements are selectable, renamable in place, deletable and
 // draggable into slots of their container, or of another container the diagram allows;
 // connectors are selectable, reconnectable by their end handles and their lane can be
-// dragged. Every gesture becomes an edit; the engine lays the result out again, so
-// nothing is ever free-placed.
+// dragged. Every text line can be rewritten in place (double-click it). Icons placed from
+// the picker are the one free-placed thing: dragged anywhere, dropped into a container
+// that may hold them (nesting.ts; the core arranges them), and resized by an edge or a
+// corner, never below what they hold.
+// Every gesture becomes an edit; the engine lays the result out again.
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { DiagramConnector, DiagramElement, DiagramScene, DiagramSide, SceneEdge, SceneNode, SceneStyle, SceneTextLine } from '@shared/ipc';
 import { isMod } from '../../lib/keyboard';
+import { clearDrop, nameOf, placedMeta, planDrop, subtreeOf } from './nesting';
+import type { DropPlan, NestContext } from './nesting';
+import { edgeMarks, trimmedPoints } from './arrowheads';
+import type { CanvasBg, GridMode } from './CanvasOptions';
 
 const FONT = "'Figtree Variable', Figtree, Calibri, 'Segoe UI', Arial, sans-serif";
 /** Pointer travel (screen px) before a press becomes a drag. */
@@ -54,6 +61,39 @@ export interface CanvasProps {
   /** The lane the router would keep for `bend` (live, while the lane handle is dragged). */
   onLanePreview?(conn: DiagramConnector, bend: number): Promise<number | null>;
   onCancelTool(): void;
+  /** Draw the legend (the per-user Legend switch); off, the figure is cut above it. */
+  legend?: boolean;
+  /** Rewrite one text line (a node id, or "<edge id>#<label index>"); null: as generated. */
+  onText?(key: string, line: number, value: string | null): void;
+  onSublabel?(id: string, value: string | null): void;
+  /** A connector's label typed in place. */
+  onConnectorLabel?(conn: DiagramConnector, value: string | null): void;
+  /** Placed icons moved (several when a placed zone carries what is in it) or resized. */
+  onPlace?(moves: { id: string; x: number; y: number; w?: number; h?: number }[]): void;
+  // ─ nesting (views/diagrams/nesting.ts) ─
+  /** What may go into what (the core's hierarchy) for drops; null: drops never nest. */
+  nest?: NestContext | null;
+  /** A placed icon dropped into `parent` (null: out of its parent, free at x, y). */
+  onNest?(id: string, parent: string | null, x: number, y: number): void;
+  /** A placed frame dropped on a collected top-level frame it may hold: drawn around it. */
+  onWrap?(id: string, target: string, x: number, y: number): void;
+  /** A quiet line for the toolbar (a drop that could not nest). */
+  onHint?(text: string): void;
+  // ─ canvas view and context menu (CanvasOptions, ContextMenu) ─
+  /** Grid drawn under the figure (editor only, never exported). */
+  grid?: GridMode;
+  /** 'transparent': no white sheet, the stage's grey shows through. */
+  background?: CanvasBg;
+  /** Right-click (or the context-menu key / Shift+F10) on an element or a connector, at client (x, y). */
+  onContextMenu?(id: string, x: number, y: number): void;
+}
+
+/** Which sides a resize drag moves. */
+interface Sides {
+  l: boolean;
+  r: boolean;
+  t: boolean;
+  b: boolean;
 }
 
 type Pt = [number, number];
@@ -73,7 +113,34 @@ type Drag =
   | { kind: 'move'; id: string; startX: number; startY: number; x: number; y: number; active: boolean; slot: Slot | null; refused: { box: SceneNode; reason: string } | null }
   | { kind: 'wire'; from: string; side: DiagramSide; x: number; y: number; target: string | null; tside: Exclude<DiagramSide, 'auto'> | null }
   | { kind: 'end'; conn: DiagramConnector; end: 'a' | 'b'; x: number; y: number; target: string | null; tside: Exclude<DiagramSide, 'auto'> | null }
-  | { kind: 'lane'; conn: DiagramConnector; axis: 'x' | 'y'; start: number; delta: number; seg: [Pt, Pt] };
+  | { kind: 'lane'; conn: DiagramConnector; axis: 'x' | 'y'; start: number; delta: number; seg: [Pt, Pt] }
+  | { kind: 'free'; id: string; startX: number; startY: number; dx: number; dy: number; active: boolean; plan: DropPlan | null }
+  | { kind: 'resize'; id: string; w: number; h: number; x0: number; y0: number; x: number; y: number; sides: Sides; w0: number; h0: number; minW: number; minH: number };
+
+/** An in-place text editor: an element's label or sublabel, or any one text line. */
+type TextEdit =
+  | { kind: 'label' | 'sub'; id: string; line: SceneTextLine | null; ox: number; oy: number; w: number }
+  | { kind: 'text'; key: string; index: number; line: SceneTextLine; ox: number; oy: number; w: number }
+  | { kind: 'conn'; conn: DiagramConnector; line: SceneTextLine; ox: number; oy: number; w: number };
+
+/** A scene without its legend (ids "legend:…"), cut to `meta.legend_cut` (the engine's own cut). */
+export function withoutLegend(sc: DiagramScene): DiagramScene {
+  const cut = typeof sc.meta?.legend_cut === 'number' ? (sc.meta.legend_cut as number) : null;
+  if (cut === null && !sc.nodes.some((n) => n.id.startsWith('legend:'))) return sc;
+  return {
+    ...sc,
+    height: cut ?? sc.height,
+    nodes: sc.nodes.filter((n) => !n.id.startsWith('legend:')),
+    edges: sc.edges.filter((e) => !e.id.startsWith('legend:')),
+  };
+}
+
+/** Whether a drawn line is (part of) `full`: a wrapped or ellipsised label line. */
+export function partOf(line: string, full: string | null | undefined): boolean {
+  const norm = (t: string) => t.replace(/\u2026/g, '').replace(/[\s\u00a0]+/g, ' ').trim().toLowerCase();
+  const l = norm(line);
+  return !!l && !!full && norm(full).includes(l);
+}
 
 function rectFor(st: SceneStyle, x: number, y: number, w: number, h: number, extra: React.SVGProps<SVGRectElement> = {}): JSX.Element {
   return (
@@ -92,42 +159,38 @@ function rectFor(st: SceneStyle, x: number, y: number, w: number, h: number, ext
   );
 }
 
-function lines(ls: SceneTextLine[], ox: number, oy: number): JSX.Element[] {
-  return ls.map((t, i) => (
-    <text key={i} x={ox + t.x} y={oy + t.baseline} fontSize={t.size} fontWeight={t.bold ? 600 : 400} fill={t.color}>
-      {t.text}
-    </text>
-  ));
-}
-
-function sign(v: number): number {
-  return v > 0 ? 1 : v < 0 ? -1 : 0;
-}
-
-function arrow(p0: [number, number], p1: [number, number], w: number): string {
-  const len = 4.2 + w;
-  const half = 2 + w * 0.6;
-  const dx = sign(p1[0] - p0[0]);
-  const dy = sign(p1[1] - p0[1]);
-  const bx = p1[0] - dx * len;
-  const by = p1[1] - dy * len;
-  return `${p1[0]},${p1[1]} ${bx - dy * half},${by + dx * half} ${bx + dy * half},${by - dx * half}`;
-}
-
-function trimmed(e: SceneEdge): [number, number][] {
-  const pts = e.points.map((p) => [p[0], p[1]] as [number, number]);
-  if (pts.length < 2) return pts;
-  const cut = 3 + e.style.stroke_w;
-  const pull = (a: [number, number], b: [number, number]): [number, number] => [b[0] - sign(b[0] - a[0]) * cut, b[1] - sign(b[1] - a[1]) * cut];
-  if (e.arrow_end) pts[pts.length - 1] = pull(pts[pts.length - 2], pts[pts.length - 1]);
-  if (e.arrow_start) pts[0] = pull(pts[1], pts[0]);
-  return pts;
+function lines(ls: SceneTextLine[], ox: number, oy: number, onEdit?: (i: number) => void, hide?: number | null): JSX.Element[] {
+  return ls.map((t, i) =>
+    i === hide ? (
+      <React.Fragment key={i} />
+    ) : (
+      <text
+        key={i}
+        x={ox + t.x}
+        y={oy + t.baseline}
+        fontSize={t.size}
+        fontWeight={t.bold ? 600 : 400}
+        fill={t.color}
+        className={onEdit ? 'dg-txt' : undefined}
+        onDoubleClick={
+          onEdit
+            ? (ev) => {
+                ev.stopPropagation();
+                onEdit(i);
+              }
+            : undefined
+        }
+      >
+        {t.text}
+      </text>
+    ),
+  );
 }
 
 function EdgeShape({ e }: { e: SceneEdge }): JSX.Element {
+  // Arrowhead shapes and the trimmed stroke: the exports' geometry (arrowheads.ts).
   const color = e.style.stroke ?? '#000000';
-  const pts = trimmed(e);
-  const n = e.points.length;
+  const pts = trimmedPoints(e);
   return (
     <g data-edge={e.id}>
       <polyline
@@ -138,8 +201,15 @@ function EdgeShape({ e }: { e: SceneEdge }): JSX.Element {
         strokeLinejoin="round"
         strokeDasharray={e.style.dash ? `${e.style.dash[0]} ${e.style.dash[1]}` : undefined}
       />
-      {e.arrow_end && n >= 2 && <polygon points={arrow(e.points[n - 2], e.points[n - 1], e.style.stroke_w)} fill={color} />}
-      {e.arrow_start && n >= 2 && <polygon points={arrow(e.points[1], e.points[0], e.style.stroke_w)} fill={color} />}
+      {edgeMarks(e).map((m, i) =>
+        m.shape === 'circle' ? (
+          <circle key={i} cx={m.c[0]} cy={m.c[1]} r={m.r} fill={color} />
+        ) : m.shape === 'polyline' ? (
+          <polyline key={i} points={m.points.map((p) => p.join(',')).join(' ')} fill="none" stroke={color} strokeWidth={e.style.stroke_w} strokeLinejoin="miter" />
+        ) : (
+          <polygon key={i} points={m.points.map((p) => p.join(',')).join(' ')} fill={color} />
+        ),
+      )}
     </g>
   );
 }
@@ -195,10 +265,12 @@ export function laneSegment(points: [number, number][]): [Pt, Pt] | null {
 }
 
 export function SceneCanvas(props: CanvasProps): JSX.Element {
-  const { scene, zoom, outline, connectors, selected, marked, editRequest, tool, connectFrom } = props;
+  const { zoom, outline, connectors, selected, marked, editRequest, tool, connectFrom } = props;
   const { onSelect, onRename, onMove, onDelete, onPick, onStartConnect, onConnect, onReconnect, onSide, onBend, onCancelTool } = props;
+  const legendOn = props.legend !== false;
+  const scene = useMemo(() => (legendOn ? props.scene : withoutLegend(props.scene)), [props.scene, legendOn]);
   const svgRef = useRef<SVGSVGElement>(null);
-  const [editing, setEditing] = useState<string | null>(null);
+  const [textEdit, setTextEdit] = useState<TextEdit | null>(null);
   const [draft, setDraft] = useState('');
   const [drag, setDrag] = useState<Drag | null>(null);
   const dragRef = useRef<Drag | null>(null);
@@ -280,11 +352,12 @@ export function SceneCanvas(props: CanvasProps): JSX.Element {
 
   // ─ inline label editor ─
   const startEdit = useCallback(
-    (id: string) => {
+    (id: string, line: SceneTextLine | null = null) => {
       const el = outline.get(id);
-      if (!el?.can_rename || !byId.has(id)) return;
+      const n = byId.get(id);
+      if (!el?.can_rename || !n) return;
       setDraft(el.label ?? '');
-      setEditing(id);
+      setTextEdit({ kind: 'label', id, line: line ?? n.lines.find((t) => partOf(t.text, el.label)) ?? n.lines[0] ?? null, ox: n.x, oy: n.y, w: n.w });
     },
     [outline, byId],
   );
@@ -296,12 +369,23 @@ export function SceneCanvas(props: CanvasProps): JSX.Element {
     }
   }, [editRequest, selected, startEdit]);
   const commitEdit = () => {
-    if (!editing) return;
+    const ed = textEdit;
+    if (!ed) return;
+    setTextEdit(null);
     const text = draft.replace(/\s+/g, ' ').trim();
-    const el = outline.get(editing);
-    if (text && el && text !== el.label) onRename(editing, text);
-    setEditing(null);
-    focusElement(editing);
+    if (ed.kind === 'label') {
+      const el = outline.get(ed.id);
+      if (text && el && text !== el.label) onRename(ed.id, text);
+      focusElement(ed.id);
+    } else if (ed.kind === 'sub') {
+      const el = outline.get(ed.id);
+      if (el && text !== (el.sublabel ?? '')) props.onSublabel?.(ed.id, text || null);
+      focusElement(ed.id);
+    } else if (ed.kind === 'conn') {
+      if (text !== (ed.conn.label ?? '')) props.onConnectorLabel?.(ed.conn, text || (ed.conn.origin === 'user' ? null : ''));
+    } else if (ed.kind === 'text' && text !== ed.line.text.replace(/\u2026$/, '')) {
+      props.onText?.(ed.key, ed.index, text);
+    }
   };
   const focusElement = (id: string) =>
     requestAnimationFrame(() => svgRef.current?.querySelector<SVGGElement>(`[data-el="${CSS.escape(id)}"]`)?.focus());
@@ -388,6 +472,34 @@ export function SceneCanvas(props: CanvasProps): JSX.Element {
         const target = elementAt(x, y, d.from);
         const tn = target ? byId.get(target) : undefined;
         setDrag({ ...d, x, y, target, tside: tn ? nearestSide(tn, x, y) : null });
+      } else if (d.kind === 'free') {
+        const active = d.active || Math.hypot(ev.clientX - d.startX, ev.clientY - d.startY) > DRAG_START;
+        const n = byId.get(d.id);
+        if (!n) return;
+        const dx = Math.round((ev.clientX - d.startX) / zoom);
+        const dy = Math.round((ev.clientY - d.startY) / zoom);
+        const plan = active && props.nest ? planDrop(props.nest, d.id, x, y) : null;
+        // Anywhere, left of and above the figure too (the core moves the figure).
+        setDrag({ ...d, active, dx, dy, plan });
+      } else if (d.kind === 'resize') {
+        // Right / bottom sides follow the pointer; left / top move the box's corner too.
+        const right = d.x0 + d.w0;
+        const bottom = d.y0 + d.h0;
+        let nx = d.x0;
+        let ny = d.y0;
+        let w = d.w0;
+        let h = d.h0;
+        if (d.sides.r) w = Math.max(d.minW, Math.round(x - d.x0));
+        if (d.sides.b) h = Math.max(d.minH, Math.round(y - d.y0));
+        if (d.sides.l) {
+          nx = Math.min(Math.round(x), right - d.minW);
+          w = right - nx;
+        }
+        if (d.sides.t) {
+          ny = Math.min(Math.round(y), bottom - d.minH);
+          h = bottom - ny;
+        }
+        setDrag({ ...d, x: nx, y: ny, w, h });
       } else if (d.kind === 'end') {
         const other = d.end === 'a' ? d.conn.b : d.conn.a;
         const target = elementAt(x, y, other);
@@ -402,7 +514,40 @@ export function SceneCanvas(props: CanvasProps): JSX.Element {
       const d = dragRef.current;
       setDrag(null);
       if (!d) return;
-      if (d.kind === 'move') {
+      if (d.kind === 'free') {
+        const n = byId.get(d.id);
+        const plan = d.plan;
+        if (n && d.active && plan && (plan.mode === 'into' || plan.mode === 'wrap' || plan.mode === 'stay')) {
+          // Into a container that may hold it (or around a zone): not a collision.
+          const nx = n.x + d.dx;
+          const ny = n.y + d.dy;
+          if (plan.mode === 'into') props.onNest?.(d.id, plan.parent, nx, ny);
+          else if (plan.mode === 'wrap') props.onWrap?.(d.id, plan.target, nx, ny);
+        } else if (n && d.active && (d.dx || d.dy || plan?.mode === 'out' || plan?.mode === 'refused')) {
+          // A free drop never lands on top of another item: the dragged one moves aside
+          // (one edit list, so one undo step).
+          const spot = clearDrop(scene, { x: n.x + d.dx, y: n.y + d.dy, w: n.w, h: n.h }, subtreeOf(scene, d.id));
+          const dx = spot.x - n.x;
+          const dy = spot.y - n.y;
+          const aside = spot.hit ? `Moved beside ${nameFor(spot.hit)} so they don’t overlap.` : '';
+          if (plan?.mode === 'out') {
+            props.onNest?.(d.id, null, spot.x, spot.y);
+            if (aside) props.onHint?.(aside);
+          } else {
+            props.onPlace?.(carried(d.id).map((id) => {
+              const c = byId.get(id)!;
+              return { id, x: c.x + dx, y: c.y + dy };
+            }));
+            if (plan?.mode === 'refused')
+              props.onHint?.(`${outline.get(d.id)?.kind ?? 'This icon'} can’t go inside ${plan.label}${spot.hit ? `, so it was placed beside ${nameFor(spot.hit)}.` : ', so it stays where you dropped it.'}`);
+            else if (aside) props.onHint?.(aside);
+          }
+        }
+      } else if (d.kind === 'resize') {
+        const n = byId.get(d.id);
+        if (n && (Math.abs(d.w - n.w) >= 1 || Math.abs(d.h - n.h) >= 1 || Math.abs(d.x - n.x) >= 1 || Math.abs(d.y - n.y) >= 1))
+          props.onPlace?.([{ id: d.id, x: d.x, y: d.y, w: d.w, h: d.h }]);
+      } else if (d.kind === 'move') {
         const el = outline.get(d.id);
         if (d.active && d.slot && el) {
           if (d.slot.parent !== el.parent && d.slot.parent) onMove(d.id, d.slot.index, d.slot.parent);
@@ -432,10 +577,69 @@ export function SceneCanvas(props: CanvasProps): JSX.Element {
       window.removeEventListener('pointerup', up);
       window.removeEventListener('keydown', key);
     };
-  }, [drag?.kind, drag && 'id' in drag ? drag.id : null]);
+  }, [drag?.kind, drag && 'id' in drag ? drag.id : null, zoom]);
+
+  /** What the figure calls a node, for a hint. */
+  const nameFor = (n: SceneNode): string => (props.nest ? nameOf(props.nest, n.id) : outline.get(n.id)?.label ?? n.lines[0]?.text ?? 'it');
+
+  /** A placed icon and the placed icons inside it (a placed zone carries them). */
+  const carried = (id: string): string[] => {
+    const out = [id];
+    const meta = placedMeta(scene);
+    for (const n of scene.nodes) {
+      if (n.id !== id && outline.get(n.id)?.free && !meta[n.id]?.parent) {
+        let p = n.parent;
+        const seen = new Set<string>();
+        while (p && p !== id && !seen.has(p)) {
+          seen.add(p);
+          p = byId.get(p)?.parent ?? null;
+        }
+        if (p === id) out.push(n.id);
+      }
+    }
+    return out;
+  };
+
+  /** Double-click on a text line: the element's label or sublabel, else that one line. */
+  const startLineEdit = (n: SceneNode, i: number) => {
+    if (tool !== 'select' || drag) return;
+    const t = n.lines[i];
+    const el = outline.get(n.id);
+    if (el) {
+      if (selected !== n.id) onSelect(n.id);
+      if (el.can_rename && partOf(t.text, el.label)) {
+        startEdit(n.id, t);
+        return;
+      }
+      if (el.can_sublabel && el.sublabel && partOf(t.text, el.sublabel)) {
+        setDraft(el.sublabel);
+        setTextEdit({ kind: 'sub', id: n.id, line: t, ox: n.x, oy: n.y, w: n.w });
+        return;
+      }
+    }
+    if (!props.onText) return;
+    setDraft(t.text.replace(/\u2026$/, ''));
+    setTextEdit({ kind: 'text', key: n.id, index: i, line: t, ox: n.x, oy: n.y, w: n.w });
+  };
+  const startLabelEdit = (e: SceneEdge, li: number, i: number) => {
+    if (tool !== 'select' || drag) return;
+    const lab = e.labels[li];
+    const t = lab.lines[i];
+    const conn = connectors.get(e.id);
+    if (conn && props.onConnectorLabel) {
+      onSelect(e.id);
+      setDraft(conn.label ?? '');
+      setTextEdit({ kind: 'conn', conn, line: t, ox: lab.x, oy: lab.y, w: lab.w });
+      return;
+    }
+    if (!props.onText) return;
+    setDraft(t.text);
+    setTextEdit({ kind: 'text', key: `${e.id}#${li}`, index: i, line: t, ox: lab.x, oy: lab.y, w: lab.w });
+  };
 
   const onPointerDown = (ev: React.PointerEvent, id: string) => {
-    if (ev.button !== 0 || editing) return;
+    if (rightPress(ev, id)) return;
+    if (ev.button !== 0 || textEdit) return;
     ev.stopPropagation();
     if (tool === 'connect') {
       // No focus move: the click's focus would otherwise select the element it picked
@@ -446,6 +650,11 @@ export function SceneCanvas(props: CanvasProps): JSX.Element {
     }
     onSelect(id);
     const el = outline.get(id);
+    if (el?.free) {
+      if (!placedMeta(scene)[id]?.anchored)
+        setDrag({ kind: 'free', id, startX: ev.clientX, startY: ev.clientY, dx: 0, dy: 0, active: false, plan: null });
+      return;
+    }
     if (el?.can_reorder && byId.get(id)?.kind === 'box') {
       const [x, y] = toScene(ev.clientX, ev.clientY);
       setDrag({ kind: 'move', id, startX: ev.clientX, startY: ev.clientY, x, y, active: false, slot: null, refused: null });
@@ -466,10 +675,44 @@ export function SceneCanvas(props: CanvasProps): JSX.Element {
     return true;
   };
 
+  // ─ context menu: right-click, the context-menu key or Shift+F10 ─
+  const menuKeyAt = useRef(0);
+  /** The element a right button went down on: its contextmenu event may land elsewhere. */
+  const rightAt = useRef<{ id: string; t: number } | null>(null);
+  const rightPress = (ev: React.PointerEvent, id: string): boolean => {
+    if (ev.button !== 2 || !props.onContextMenu || tool !== 'select') return false;
+    // No focus move or deselect on the press: the menu opens on the element pressed.
+    ev.preventDefault();
+    ev.stopPropagation();
+    rightAt.current = { id, t: Date.now() };
+    return true;
+  };
+  const openMenu = (ev: React.MouseEvent, hit: string) => {
+    if (!props.onContextMenu || tool !== 'select' || textEdit) return;
+    ev.preventDefault();
+    ev.stopPropagation();
+    // The context-menu key also fires a contextmenu event: the keydown already opened it.
+    if (Date.now() - menuKeyAt.current < 300) return;
+    const pressed = rightAt.current && Date.now() - rightAt.current.t < 1500 ? rightAt.current.id : null;
+    rightAt.current = null;
+    const id = pressed ?? hit;
+    if (selected !== id) onSelect(id);
+    props.onContextMenu(id, ev.clientX, ev.clientY);
+  };
+  const menuKey = (ev: React.KeyboardEvent, id: string): boolean => {
+    if (!props.onContextMenu || !(ev.key === 'ContextMenu' || (ev.shiftKey && ev.key === 'F10'))) return false;
+    ev.preventDefault();
+    menuKeyAt.current = Date.now();
+    if (selected !== id) onSelect(id);
+    const r = (ev.currentTarget as Element).getBoundingClientRect();
+    props.onContextMenu(id, r.left + Math.min(r.width / 2, 24), r.top + Math.min(r.height, 24));
+    return true;
+  };
+
   const onKeyDown = (ev: React.KeyboardEvent, id: string) => {
     const el = outline.get(id);
     if (!el) return;
-    if (walk(ev)) return;
+    if (walk(ev) || menuKey(ev, id)) return;
     if (tool === 'connect' && (ev.key === 'Enter' || ev.key === ' ')) {
       ev.preventDefault();
       onPick(id);
@@ -485,6 +728,17 @@ export function SceneCanvas(props: CanvasProps): JSX.Element {
         ev.preventDefault();
         onDelete(id);
       }
+    } else if (ev.altKey && el.free && ['ArrowLeft', 'ArrowUp', 'ArrowRight', 'ArrowDown'].includes(ev.key)) {
+      ev.preventDefault();
+      const step = ev.shiftKey ? 16 : 4;
+      const dx = ev.key === 'ArrowLeft' ? -step : ev.key === 'ArrowRight' ? step : 0;
+      const dy = ev.key === 'ArrowUp' ? -step : ev.key === 'ArrowDown' ? step : 0;
+      props.onPlace?.(
+        carried(id).map((cid) => {
+          const c = byId.get(cid)!;
+          return { id: cid, x: c.x + dx, y: c.y + dy };
+        }),
+      );
     } else if (ev.altKey && ['ArrowLeft', 'ArrowUp', 'ArrowRight', 'ArrowDown'].includes(ev.key)) {
       ev.preventDefault();
       const delta = ev.key === 'ArrowLeft' || ev.key === 'ArrowUp' ? -1 : 1;
@@ -507,7 +761,7 @@ export function SceneCanvas(props: CanvasProps): JSX.Element {
   };
 
   const onEdgeKey = (ev: React.KeyboardEvent, c: DiagramConnector) => {
-    if (walk(ev)) return;
+    if (walk(ev) || menuKey(ev, c.id)) return;
     if (ev.key === 'Delete' || ev.key === 'Backspace') {
       if (c.can_delete) {
         ev.preventDefault();
@@ -531,14 +785,34 @@ export function SceneCanvas(props: CanvasProps): JSX.Element {
       ? selected
       : ordered.find((n) => outline.has(n.id))?.id ?? null;
 
+  const freeDrag = drag?.kind === 'free' && drag.active ? drag : null;
+  const moved = freeDrag ? new Set(carried(freeDrag.id)) : null;
+  /** Whether `n` moves with the placed icon being dragged (it, its chip, what it carries). */
+  const riding = (n: SceneNode): boolean => {
+    if (!moved) return false;
+    let cur: string | null = n.id;
+    const seen = new Set<string>();
+    while (cur && !seen.has(cur)) {
+      if (moved.has(cur)) return true;
+      seen.add(cur);
+      cur = byId.get(cur)?.parent ?? null;
+    }
+    return false;
+  };
+  const resizing = drag?.kind === 'resize' ? drag : null;
+
   const drawNode = (n: SceneNode): JSX.Element => {
     const elId = outline.has(n.id) ? n.id : null;
+    const editOwner = textEdit ? (textEdit.kind === 'text' ? textEdit.key : textEdit.kind === 'conn' ? null : textEdit.id) : null;
+    const hidden = editOwner === n.id && textEdit?.line ? n.lines.indexOf(textEdit.line) : null;
+    const box = resizing && resizing.id === n.id ? { x: resizing.x, y: resizing.y, w: resizing.w, h: Math.max(resizing.h, 4) } : { x: n.x, y: n.y, w: n.w, h: n.h };
     const body = (
       <>
-        {n.kind !== 'label' && rectFor(n.style, n.x, n.y, n.w, n.h)}
-        {editing === n.id ? null : lines(n.lines, n.x, n.y)}
+        {n.kind !== 'label' && rectFor(n.style, box.x, box.y, box.w, box.h)}
+        {lines(n.lines, n.x, n.y, tool === 'select' ? (i) => startLineEdit(n, i) : undefined, hidden)}
       </>
     );
+    const shift = freeDrag && riding(n) ? `translate(${freeDrag.dx} ${freeDrag.dy})` : undefined;
     if (!elId) {
       // A zone's Prism Central (an end box) is a connector end of its own.
       const own = tool === 'connect' && endBox(n) ? n.id : owner(n.id);
@@ -546,6 +820,7 @@ export function SceneCanvas(props: CanvasProps): JSX.Element {
         <g
           key={n.id}
           data-end={endBox(n) ? n.id : undefined}
+          transform={shift}
           onPointerDown={own ? (ev) => onPointerDown(ev, own) : undefined}
           onDoubleClick={own && tool === 'select' ? () => startEdit(own) : undefined}
           style={own ? { cursor: tool === 'connect' ? 'crosshair' : 'pointer' } : undefined}
@@ -561,7 +836,8 @@ export function SceneCanvas(props: CanvasProps): JSX.Element {
       <g
         key={n.id}
         data-el={n.id}
-        className="dg-el"
+        className={el.free ? 'dg-el dg-free' : 'dg-el'}
+        transform={shift}
         role="button"
         tabIndex={n.id === tabStop ? 0 : -1}
         aria-label={tool === 'connect' ? `${connectFrom ? 'End' : 'Start'} the connector at ${label}` : label}
@@ -569,8 +845,9 @@ export function SceneCanvas(props: CanvasProps): JSX.Element {
         onPointerDown={(ev) => onPointerDown(ev, n.id)}
         onDoubleClick={() => tool === 'select' && startEdit(n.id)}
         onKeyDown={(ev) => onKeyDown(ev, n.id)}
+        onContextMenu={(ev) => openMenu(ev, n.id)}
         onFocus={() => tool === 'select' && selected !== n.id && !drag && onSelect(n.id)}
-        style={{ cursor: tool === 'connect' ? 'crosshair' : el.can_reorder && n.kind === 'box' ? 'grab' : 'pointer', opacity: moving ? 0.35 : 1 }}
+        style={{ cursor: tool === 'connect' ? 'crosshair' : el.free ? (freeDrag ? 'grabbing' : 'move') : el.can_reorder && n.kind === 'box' ? 'grab' : 'pointer', opacity: moving ? 0.35 : 1 }}
       >
         <title>{label}</title>
         {body}
@@ -585,9 +862,9 @@ export function SceneCanvas(props: CanvasProps): JSX.Element {
   const moveDrag = drag?.kind === 'move' ? drag : null;
   const draggedEl = moveDrag ? outline.get(moveDrag.id) : undefined;
   const pad = 2.5;
-  const ed = editing ? byId.get(editing) : null;
   const fromNode = connectFrom ? byId.get(connectFrom) ?? null : null;
   const ports = sel && tool === 'select' && !drag && outline.has(sel.id) && sel.kind !== 'tag' ? (['top', 'right', 'bottom', 'left'] as const) : null;
+  const selFree = sel && tool === 'select' && outline.get(sel.id)?.free && (!drag || drag.kind === 'resize') ? sel : null;
   // Handles: 8 px to see, 14 px to hit, at any zoom.
   const handle = 4 / zoom;
   const hit = 7 / zoom;
@@ -624,6 +901,25 @@ export function SceneCanvas(props: CanvasProps): JSX.Element {
         warn: false,
       };
     }
+    if (freeDrag) {
+      const n = byId.get(freeDrag.id);
+      const pl = freeDrag.plan;
+      if (n) {
+        const at = { x: n.x + freeDrag.dx, y: n.y + freeDrag.dy + n.h + 10 };
+        if (pl?.mode === 'into') return { ...at, text: `Drop into ${pl.label}`, warn: false };
+        if (pl?.mode === 'out') return { ...at, text: `Drop to take it out of ${pl.label}`, warn: false };
+        if (pl?.mode === 'wrap') return { ...at, text: `Drop to draw it around ${pl.label}`, warn: false };
+        if (pl?.mode === 'stay') return { ...at, text: 'Drop to keep it in its place', warn: false };
+        if (pl?.mode === 'refused') return { ...at, text: `Can’t go inside ${pl.label}: drops beside it`, warn: true };
+        const spot = clearDrop(scene, { x: n.x + freeDrag.dx, y: n.y + freeDrag.dy, w: n.w, h: n.h }, subtreeOf(scene, freeDrag.id));
+        if (spot.hit) return { ...at, text: `Drops beside ${nameFor(spot.hit)}, not on top of it`, warn: false };
+        return { ...at, text: `${Math.round(n.x + freeDrag.dx)}, ${Math.round(n.y + freeDrag.dy)} pt`, warn: false };
+      }
+    }
+    if (resizing) {
+      const n = byId.get(resizing.id);
+      if (n) return { x: resizing.x + resizing.w - 30, y: resizing.y + resizing.h + 10, text: `${resizing.w} × ${resizing.h} pt`, warn: false };
+    }
     if (drag?.kind === 'wire' || drag?.kind === 'end')
       return { x: drag.x, y: drag.y + 14, text: drag.target ? `Connect to ${outline.get(drag.target)?.label ?? ''}` : 'Drop on an element', warn: false };
     if (drag?.kind === 'lane') {
@@ -640,7 +936,7 @@ export function SceneCanvas(props: CanvasProps): JSX.Element {
   })();
 
   return (
-    <div className={`dg-sheet${tool === 'connect' ? ' connecting' : ''}`} style={{ width: scene.width * zoom, height: scene.height * zoom }}>
+    <div className={`dg-sheet${tool === 'connect' ? ' connecting' : ''}${props.background === 'transparent' ? ' clear' : ''}`} style={{ width: scene.width * zoom, height: scene.height * zoom }}>
       <svg
         ref={svgRef}
         width={scene.width * zoom}
@@ -649,14 +945,16 @@ export function SceneCanvas(props: CanvasProps): JSX.Element {
         fontFamily={FONT}
         role="group"
         aria-label={scene.caption || scene.title}
+        onContextMenu={(ev) => (rightAt.current ? openMenu(ev, rightAt.current.id) : ev.preventDefault())}
         onPointerDown={() => {
-          if (editing) return;
+          if (textEdit) return;
           if (tool === 'connect') onCancelTool();
           else onSelect(null);
         }}
         onPointerMove={tool === 'connect' && fromNode ? (ev) => setHover(toScene(ev.clientX, ev.clientY)) : undefined}
       >
-        <rect width={scene.width} height={scene.height} fill="#FFFFFF" />
+        {/* The grid is the desk's (CanvasGrid): it fills the whole canvas, so no sheet over it. */}
+        {props.background !== 'transparent' && (!props.grid || props.grid === 'none') && <rect width={scene.width} height={scene.height} fill="#FFFFFF" />}
         {below.map(drawNode)}
         {scene.edges.map((e) => {
           const conn = connectors.get(e.id);
@@ -674,12 +972,14 @@ export function SceneCanvas(props: CanvasProps): JSX.Element {
               aria-pressed={selected === e.id}
               style={{ cursor: 'pointer', pointerEvents: tool === 'connect' ? 'none' : undefined }}
               onPointerDown={(ev) => {
+                if (rightPress(ev, own)) return;
                 if (ev.button !== 0 || tool === 'connect') return;
                 ev.stopPropagation();
                 onSelect(own);
               }}
               onFocus={() => selected !== own && !drag && onSelect(own)}
               onKeyDown={conn ? (ev) => onEdgeKey(ev, conn) : undefined}
+              onContextMenu={conn ? (ev) => openMenu(ev, e.id) : undefined}
             >
               <title>{label}</title>
               <polyline points={e.points.map((p) => p.join(',')).join(' ')} fill="none" stroke="transparent" strokeWidth={8} />
@@ -688,12 +988,15 @@ export function SceneCanvas(props: CanvasProps): JSX.Element {
           );
         })}
         {scene.edges.flatMap((e) =>
-          e.labels.map((lab, i) => (
-            <g key={`${e.id}:label:${i}`} onPointerDown={connectors.has(e.id) && tool === 'select' ? (ev) => (ev.stopPropagation(), onSelect(e.id)) : undefined}>
-              {lab.background && <rect x={lab.x} y={lab.y} width={lab.w} height={lab.h} rx={1.5} fill="#FFFFFF" />}
-              {lines(lab.lines, lab.x, lab.y)}
-            </g>
-          )),
+          e.labels.map((lab, li) => {
+            const hide = textEdit && (textEdit.kind === 'text' || textEdit.kind === 'conn') && textEdit.ox === lab.x && textEdit.oy === lab.y ? lab.lines.indexOf(textEdit.line) : null;
+            return (
+              <g key={`${e.id}:label:${li}`} onPointerDown={connectors.has(e.id) && tool === 'select' ? (ev) => (ev.stopPropagation(), onSelect(e.id)) : undefined}>
+                {lab.background && <rect x={lab.x} y={lab.y} width={lab.w} height={lab.h} rx={1.5} fill="#FFFFFF" />}
+                {lines(lab.lines, lab.x, lab.y, tool === 'select' && !e.id.startsWith('legend:') ? (i) => startLabelEdit(e, li, i) : undefined, hide)}
+              </g>
+            );
+          }),
         )}
         {above.map(drawNode)}
         {[...marked].map((id) => {
@@ -703,7 +1006,17 @@ export function SceneCanvas(props: CanvasProps): JSX.Element {
             <rect key={`mark:${id}`} className="dg-mark" x={n.x + 0.6} y={n.y + 0.6} width={n.w - 1.2} height={n.h - 1.2} rx={n.style.radius} pointerEvents="none" />
           ) : null;
         })}
-        {sel && !dragged && <rect className="dg-sel" x={sel.x - pad} y={sel.y - pad} width={sel.w + 2 * pad} height={sel.h + 2 * pad} rx={4} pointerEvents="none" />}
+        {sel && !dragged && (
+          <rect
+            className="dg-sel"
+            x={sel.x - pad + (freeDrag && moved?.has(sel.id) ? freeDrag.dx : 0)}
+            y={sel.y - pad + (freeDrag && moved?.has(sel.id) ? freeDrag.dy : 0)}
+            width={(resizing?.id === sel.id ? resizing.w : sel.w) + 2 * pad}
+            height={(resizing?.id === sel.id ? resizing.h : sel.h) + 2 * pad}
+            rx={4}
+            pointerEvents="none"
+          />
+        )}
         {selEdge && drag?.kind !== 'lane' && <EdgeShape e={{ ...selEdge, style: { ...selEdge.style, stroke: 'var(--accent)', stroke_w: selEdge.style.stroke_w + 1.4 } }} />}
         {!sel && !selConn && selected && edges.get(selected) && (
           <EdgeShape e={{ ...edges.get(selected)!, style: { ...edges.get(selected)!.style, stroke: 'var(--accent)', stroke_w: edges.get(selected)!.style.stroke_w + 1.4 } }} />
@@ -775,6 +1088,72 @@ export function SceneCanvas(props: CanvasProps): JSX.Element {
               </g>
             );
           })}
+        {/* The drop target of a dragged placed icon. */}
+        {freeDrag?.plan && (freeDrag.plan.mode === 'into' || freeDrag.plan.mode === 'wrap' || freeDrag.plan.mode === 'out') && (() => {
+          const pl = freeDrag.plan;
+          const t = byId.get(pl.mode === 'into' ? pl.parent : pl.mode === 'wrap' ? pl.target : pl.from);
+          if (!t) return null;
+          return <rect className={pl.mode === 'out' ? 'dg-drop-target out' : 'dg-drop-target'} x={t.x - 2} y={t.y - 2} width={t.w + 4} height={t.h + 4} rx={4} strokeWidth={1.4 / zoom} />;
+        })()}
+        {/* A placed icon's resize handles: never below what it holds (meta.min_w / min_h). */}
+        {selFree &&
+          (() => {
+            const meta = placedMeta(scene)[selFree.id];
+            const nested = !!meta?.parent || !!meta?.anchored;
+            const r = resizing?.id === selFree.id ? resizing : { x: selFree.x, y: selFree.y, w: selFree.w, h: selFree.h };
+            const all: [keyof Sides | 'br' | 'bl' | 'tr' | 'tl', Sides, number, number, string][] = [
+              ['br', { l: false, r: true, t: false, b: true }, r.x + r.w, r.y + r.h, 'nwse-resize'],
+              ['r', { l: false, r: true, t: false, b: false }, r.x + r.w, r.y + r.h / 2, 'ew-resize'],
+              ['b', { l: false, r: false, t: false, b: true }, r.x + r.w / 2, r.y + r.h, 'ns-resize'],
+              ['l', { l: true, r: false, t: false, b: false }, r.x, r.y + r.h / 2, 'ew-resize'],
+              ['t', { l: false, r: false, t: true, b: false }, r.x + r.w / 2, r.y, 'ns-resize'],
+              ['tl', { l: true, r: false, t: true, b: false }, r.x, r.y, 'nwse-resize'],
+              ['tr', { l: false, r: true, t: true, b: false }, r.x + r.w, r.y, 'nesw-resize'],
+              ['bl', { l: true, r: false, t: false, b: true }, r.x, r.y + r.h, 'nesw-resize'],
+            ];
+            const handles = all.filter(([k]) => !nested || k === 'br' || k === 'r' || k === 'b');
+            return handles.map(([k, sides, cx, cy, cursor]) => (
+              <g
+                key={k}
+                data-handle={k === 'br' ? 'resize' : `resize-${k}`}
+                style={{ cursor }}
+                onPointerDown={(ev) => {
+                  ev.stopPropagation();
+                  setDrag({
+                    kind: 'resize',
+                    id: selFree.id,
+                    x0: selFree.x,
+                    y0: selFree.y,
+                    w0: selFree.w,
+                    h0: selFree.h,
+                    x: selFree.x,
+                    y: selFree.y,
+                    w: selFree.w,
+                    h: selFree.h,
+                    sides,
+                    minW: Math.max(24, meta?.min_w ?? 24),
+                    minH: Math.max(10, meta?.min_h ?? 10),
+                  });
+                }}
+              >
+                <title>{k === 'br' ? 'Drag to resize' : 'Drag to resize this side'}</title>
+                <circle cx={cx} cy={cy} r={hit} fill="transparent" />
+                {k.length === 2 ? (
+                  <rect className="dg-handle" x={cx - handle} y={cy - handle} width={handle * 2} height={handle * 2} rx={handle * 0.4} pointerEvents="none" />
+                ) : (
+                  <rect
+                    className="dg-handle edge"
+                    x={cx - (k === 't' || k === 'b' ? handle * 1.6 : handle * 0.55)}
+                    y={cy - (k === 'l' || k === 'r' ? handle * 1.6 : handle * 0.55)}
+                    width={k === 't' || k === 'b' ? handle * 3.2 : handle * 1.1}
+                    height={k === 'l' || k === 'r' ? handle * 3.2 : handle * 1.1}
+                    rx={handle * 0.5}
+                    pointerEvents="none"
+                  />
+                )}
+              </g>
+            ));
+          })()}
         {(drag?.kind === 'wire' || drag?.kind === 'end') && (() => {
           let start: Pt;
           if (drag.kind === 'wire') {
@@ -827,30 +1206,54 @@ export function SceneCanvas(props: CanvasProps): JSX.Element {
         )}
       </svg>
       {tip && (
-        <div className={`dg-tip${tip.warn ? ' warn' : ''}`} role="status" style={{ left: Math.max(4, (tip.x - 60) * zoom), top: tip.y * zoom }}>
+        <div className={`dg-tip${tip.warn ? ' warn' : ''}`} role="status" style={{ left: (tip.x - 60) * zoom, top: tip.y * zoom }}>
           {tip.text}
         </div>
       )}
-      {ed && (
-        <input
-          className="dg-inline"
-          aria-label={`Label of ${outline.get(ed.id)?.label ?? ''}`}
-          autoFocus
-          value={draft}
-          maxLength={200}
-          style={{ left: (ed.x + 3) * zoom, top: (ed.y + 3) * zoom, width: Math.max(80, (ed.w - 6) * zoom), fontSize: Math.max(11, 7.2 * zoom) }}
-          onChange={(e) => setDraft(e.target.value)}
-          onBlur={commitEdit}
-          onKeyDown={(e) => {
-            e.stopPropagation();
-            if (e.key === 'Enter') commitEdit();
-            else if (e.key === 'Escape') {
-              setEditing(null);
-              focusElement(ed.id);
-            }
-          }}
-        />
-      )}
+      {textEdit &&
+        (() => {
+          const t = textEdit.line;
+          const size = t ? t.size : 7.2;
+          const left = t ? textEdit.ox + t.x - 3 : textEdit.ox + 3;
+          const top = t ? textEdit.oy + t.baseline - size * 1.2 : textEdit.oy + 3;
+          const width = Math.max(t ? t.width + 30 : 0, textEdit.ox + textEdit.w - left - 2, 60);
+          const what =
+            textEdit.kind === 'label'
+              ? `Label of ${outline.get(textEdit.id)?.label ?? ''}`
+              : textEdit.kind === 'sub'
+                ? `Sublabel of ${outline.get(textEdit.id)?.label ?? ''}`
+                : textEdit.kind === 'conn'
+                  ? 'Connector label'
+                  : 'Text on the figure';
+          return (
+            <input
+              className="dg-inline"
+              aria-label={what}
+              autoFocus
+              value={draft}
+              maxLength={200}
+              style={{
+                left: left * zoom,
+                top: top * zoom,
+                width: Math.max(80, width * zoom),
+                height: Math.max(22, size * 1.7 * zoom),
+                fontSize: Math.max(11, size * zoom),
+                fontWeight: t && !t.bold ? 400 : 600,
+              }}
+              onFocus={(e) => e.currentTarget.select()}
+              onChange={(e) => setDraft(e.target.value)}
+              onBlur={commitEdit}
+              onKeyDown={(e) => {
+                e.stopPropagation();
+                if (e.key === 'Enter') commitEdit();
+                else if (e.key === 'Escape') {
+                  setTextEdit(null);
+                  if (textEdit.kind === 'label' || textEdit.kind === 'sub') focusElement(textEdit.id);
+                }
+              }}
+            />
+          );
+        })()}
     </div>
   );
 }

@@ -102,3 +102,31 @@ test('legacy fallback is disabled when integrity is inactive at launch (R5 follo
   const fn = main.slice(main.indexOf('async function prepareTargets('), main.indexOf('// ─── demo mode'));
   assert.ok(/shouldMigrateSecrets[\s\S]*disableLegacy\(\)[\s\S]*return;/.test(fn), 'disableLegacy before the early return');
 });
+
+test('trusting the saved server stores the pin at once, so schedules see it', async () => {
+  let file = { ...smtpFile(), host: 'smtp.example.lab', allowUntrusted: true };
+  let tampered = false;
+  const st = new SmtpStore({ read: () => file, write: (v) => { file = v; }, tampered: () => tampered }, sec());
+  const fp = 'AB:'.repeat(31) + 'AB';
+  const r = await st.trust({ host: 'SMTP.example.lab', port: 587, security: 'starttls', fingerprint: fp });
+  assert.equal(r.ok, true);
+  assert.equal(file.pinnedSha256, 'ab'.repeat(32));
+  assert.equal((await st.info()).pinnedSha256, 'ab'.repeat(32));
+
+  for (const req of [
+    { host: 'other.example.lab', port: 587, security: 'starttls' },
+    { host: 'smtp.example.lab', port: 465, security: 'starttls' },
+    { host: 'smtp.example.lab', port: 587, security: 'ssl' },
+  ]) {
+    file = { ...file, pinnedSha256: '' };
+    assert.equal((await st.trust({ ...req, fingerprint: fp })).ok, false, JSON.stringify(req));
+    assert.equal(file.pinnedSha256, '');
+  }
+  assert.equal((await st.trust({ host: 'smtp.example.lab', port: 587, security: 'starttls', fingerprint: 'nope' })).ok, false);
+  file = { ...file, allowUntrusted: false };
+  assert.equal((await st.trust({ host: 'smtp.example.lab', port: 587, security: 'starttls', fingerprint: fp })).ok, false);
+  file = { ...file, allowUntrusted: true };
+  tampered = true;
+  assert.equal((await st.trust({ host: 'smtp.example.lab', port: 587, security: 'starttls', fingerprint: fp })).ok, false);
+  assert.equal(file.pinnedSha256, '');
+});

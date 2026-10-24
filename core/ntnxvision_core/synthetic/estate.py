@@ -468,6 +468,7 @@ def build_pc_estate(
     _catalog(est)
     _categories(est)
     _vms(est, specs)
+    _compute_shapes(est)
     _system_vms(est)
     _data_protection(est)
     _flow(est)
@@ -944,6 +945,73 @@ def pc_vm_ips(est: PcEstate) -> list[str]:
 def pc_host_cluster(est: PcEstate) -> dict[str, Any]:
     """The cluster running the PC VM(s) (`Features.pc_cluster`)."""
     return est.clusters[min(max(est.features.pc_cluster, 0), len(est.clusters) - 1)]
+
+
+# ─── Insights > Optimization: VM CPU / NUMA layouts ─────────────────────
+# The workload mix above is sized well inside one NUMA node, so the VM compute review
+# would find nothing. A few VMs per cluster get the layouts the review looks for, sized
+# from the cluster's own hardware so they hold on any node model: one VM per rule, plus a
+# correctly configured wide VM that must stay clean. Only `sockets`, `cores`, `threads`,
+# `vnuma`, `memory`, `power` and the host of those VMs change; names and counts do not.
+
+
+def _compute_shapes(est: PcEstate) -> None:
+    hosts_by_cluster: dict[str, list[dict[str, Any]]] = {}
+    for h in est.hosts:
+        hosts_by_cluster.setdefault(h["cluster_uuid"], []).append(h)
+    for cluster in est.clusters:
+        hosts = hosts_by_cluster.get(cluster["uuid"]) or []
+        if not hosts:
+            continue
+        vms = [v for v in est.vms if v["cluster_uuid"] == cluster["uuid"]]
+
+        def pick(prefix: str, k: int, vms: list[dict[str, Any]] = vms) -> dict[str, Any] | None:
+            matches = [v for v in vms if v["name"].startswith(f"{prefix}-")
+                       and v["name"][len(prefix) + 1:].isdigit()]
+            return matches[k] if len(matches) > k else None
+
+        def per_node(h: dict[str, Any]) -> int:
+            return int(h["cores"] // h["sockets"])
+
+        small = min(hosts, key=per_node)
+        big = max(hosts, key=per_node)
+        node = per_node(small)
+        if cluster["hypervisor"] == "ESXi":
+            # More vCPUs than the host has cores.
+            if (v := pick("web", 0)) is not None:
+                v.update(sockets=small["cores"] + 8, cores=1)
+            continue
+        shapes: list[tuple[str, int, dict[str, Any]]] = [
+            # Wider than a NUMA node, vNUMA off: the guest sees one node.
+            ("db", 0, {"sockets": node + 8, "cores": 1, "memory": 128 * GIB, "vnuma": 0}),
+            # A correctly sized wide VM: one socket per node, vNUMA on, even split.
+            ("db", 1, {"sockets": 2, "cores": node // 2 + 4, "memory": 192 * GIB,
+                       "vnuma": 2}),
+            # More vCPUs than the host has physical cores.
+            ("ml", 0, {"sockets": small["cores"] + 16, "cores": 1, "vnuma": 0}),
+            # Memory larger than one node's share.
+            ("app-sql", 1, {"memory": min(h["memory"] for h in hosts) // small["sockets"]
+                            + 64 * GIB, "vnuma": 0}),
+            # An odd vCPU count over two vNUMA nodes.
+            ("k8s-worker", 2, {"sockets": node + 1, "cores": 1, "vnuma": 2}),
+            # vNUMA on a VM that fits one node.
+            ("test-runner", 0, {"vnuma": 2}),
+            # vNUMA node count that does not match what the VM needs.
+            ("test-runner", 1, {"sockets": 3, "cores": node // 2, "vnuma": 3}),
+            # A desktop Windows VM given more sockets than it can use.
+            ("vdi", 0, {"sockets": 4, "cores": 1}),
+        ]
+        if small["sockets"] == 1:
+            # One NUMA node per host: no VM can span nodes, only the other rules apply.
+            shapes = [s for s in shapes if (s[0], s[1]) in (("ml", 0), ("test-runner", 0),
+                                                            ("vdi", 0))]
+        for prefix, k, change in shapes:
+            if (v := pick(prefix, k)) is not None:
+                v.update(change)
+        # Mixed hardware: fits the larger node it runs on, not the smaller ones.
+        if per_node(big) - node >= 4 and (v := pick("app", 0)) is not None:
+            v.update(sockets=1, cores=node + 4, vnuma=0, power="ON",
+                     host_uuid=big["uuid"], host_name=big["name"])
 
 
 def _system_vms(est: PcEstate) -> None:

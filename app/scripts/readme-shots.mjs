@@ -123,12 +123,6 @@ async function shot(name, opts = {}) {
   shots.push(name);
   console.log(`shot ${name}`);
 }
-async function setTheme(theme) {
-  await page.evaluate((t) => {
-    document.documentElement.dataset.theme = t;
-  }, theme);
-  await page.waitForTimeout(300);
-}
 async function step(name, fn) {
   if (!want(name)) return;
   try {
@@ -166,9 +160,6 @@ await step('overview', async () => {
   await rail('Overview');
   await page.getByText('Run notes').first().waitFor({ timeout: 30_000 });
   await shot('overview');
-  await setTheme('dark');
-  await shot('overview-dark');
-  await setTheme('light');
 });
 
 await step('collection', async () => {

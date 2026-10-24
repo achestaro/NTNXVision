@@ -23,6 +23,8 @@ export interface Column<T> {
   style?: React.CSSProperties;
   width?: number | string;
   sortable?: boolean;
+  /** Direction of the first click on this header (default 'asc'); a second click reverses. */
+  sortFirst?: 'asc' | 'desc';
   render(row: T, index: number): React.ReactNode;
 }
 
@@ -144,7 +146,7 @@ export function DataTable<T>({
     if (c.srHeader) return <span className="sr-only">{c.header}</span>;
     if (c.sortable && onSortChange) {
       const active = sort?.key === c.key;
-      const nextDir = active && sort?.dir === 'asc' ? 'desc' : 'asc';
+      const nextDir = active ? (sort?.dir === 'asc' ? 'desc' : 'asc') : (c.sortFirst ?? 'asc');
       return (
         <button type="button" className="sortbtn" onClick={() => onSortChange({ key: c.key, dir: nextDir })}>
           {c.header}

@@ -37,6 +37,7 @@ from ntnxvision_core.store.snapshot import diagrams_path
 
 from . import TYPES, DiagramType
 from . import edits as E
+from .icons import catalog_docs
 from .model import envelope
 from .scene import Scene
 from .scene import to_doc as scene_doc
@@ -416,6 +417,7 @@ def connector_outline(view: View, elements: list[dict[str, Any]]) -> list[dict[s
                 "b_side_used": side_of(nodes[e.dst], e.points[-1]) or "auto",
                 "bend": note.get("bend", 0), "bend_asked": want.get("bend", 0),
                 "arrow": arrow, "parts": [i],
+                **_heads_doc(e),
                 "edited": user or bool(want), "hidden": False, "issue": note.get("issue"),
                 "can_delete": True,
                 "delete_op": "delete" if user or e.id in labels else "hide",
@@ -472,6 +474,17 @@ def connector_outline(view: View, elements: list[dict[str, Any]]) -> list[dict[s
     return [out[k] for k in sorted(out, key=lambda k: (out[k]["parts"][:1] or [10**6], k))]
 
 
+def nest_kinds(scenes: list[Scene]) -> dict[str, str]:
+    """Collected scene node id -> its kind in the nesting hierarchy (`nesting.py`), so
+    the editor knows what an icon added into the selection may go into."""
+    from .nesting import collected_kinds
+
+    out: dict[str, str] = {}
+    for sc in scenes:
+        out.update(collected_kinds(sc))
+    return dict(sorted(out.items()))
+
+
 def _scene_docs(scenes: list[Scene]) -> list[dict[str, Any]]:
     return [scene_doc(sc) for sc in scenes]
 
@@ -494,6 +507,7 @@ def layout_result(env: Any, type_id: str, ops: list[dict[str, Any]],
         "scenes": _scene_docs(view.scenes),
         "outline": elements,
         "connectors": connector_outline(view, elements),
+        "nest_kinds": nest_kinds(view.scenes),
         "problems": _problem_docs(view),
         "notes": view.notes,
     }
@@ -542,12 +556,15 @@ def get_result(snapshot: Path, env: Any, type_id: str) -> dict[str, Any]:
         "scenes": _scene_docs(view.scenes),
         "outline": elements,
         "connectors": connector_outline(view, elements),
+        "nest_kinds": nest_kinds(view.scenes),
         "problems": _problem_docs(view),
         "notes": view.notes,
         "palette": [{"id": p.id, "label": p.label, "collection": p.collection,
                      "parents": list(p.parents), "hint": p.hint,
                      "template": {k: v for k, v in p.template.items() if k != "cards"}}
                     for p in t.edit_spec.palette if p.listed],
+        # Every icon the engine draws, for the "Add" picker (placed anywhere on a figure).
+        "icons": catalog_docs(),
     }
 
 
@@ -669,3 +686,11 @@ def carry_forward(src: Path, src_info: dict[str, Any], dst: Path, dst_env: Any,
         save(dst, item["type"], ops, entry["base_model"],
              carried_from={**src_info, "dropped": item["problems"]})
     return report
+
+
+def _heads_doc(e: Any) -> dict[str, str]:
+    """A drawn connector's arrowhead shape at each end ("none" where it has none)."""
+    from .render.heads import kinds
+
+    start, end = kinds(e)
+    return {"head_start": start, "head_end": end}

@@ -28,6 +28,7 @@ import {
   SchedulesState,
   SmtpSaveRequest,
   SmtpTestRequest,
+  SmtpTrustRequest,
   SnapshotFileExportRequest,
   SnapshotFilesExportRequest,
   TargetSaveRequest,
@@ -35,6 +36,7 @@ import {
   TrustCertificateRequest,
   UnsavedChangesRequest,
 } from '../shared/ipc';
+import { METRICS_IPC, type MetricsRequest } from '../shared/ipc'; // Insights > Metrics
 
 function subscribe<T>(channel: string, cb: (e: T) => void): () => void {
   const listener = (_: unknown, payload: T) => cb(payload);
@@ -73,6 +75,8 @@ const api: NtnxApi = {
     ipcRenderer.invoke(IPC.getObjectDetail, path, objectType, id),
   compareSnapshots: (baseline: string, current: string) =>
     ipcRenderer.invoke(IPC.compareSnapshots, baseline, current),
+  // Insights > Optimization
+  getOptimization: (path: string) => ipcRenderer.invoke(IPC.getOptimization, path),
   exportComparison: (req: CompareExportRequest) => ipcRenderer.invoke(IPC.exportComparison, req),
   exportSnapshot: (req: ExportRequest) => ipcRenderer.invoke(IPC.exportSnapshot, req),
   getReportSections: (path: string) => ipcRenderer.invoke(IPC.getReportSections, path),
@@ -120,6 +124,7 @@ const api: NtnxApi = {
   getSmtpSettings: () => ipcRenderer.invoke(IPC.getSmtpSettings),
   saveSmtpSettings: (req: SmtpSaveRequest) => ipcRenderer.invoke(IPC.saveSmtpSettings, req),
   testSmtp: (req: SmtpTestRequest) => ipcRenderer.invoke(IPC.testSmtp, req),
+  trustSmtpCertificate: (req: SmtpTrustRequest) => ipcRenderer.invoke(IPC.trustSmtpCertificate, req),
   emailSnapshot: (req: EmailSnapshotRequest) => ipcRenderer.invoke(IPC.emailSnapshot, req),
   clearSmtpSettings: () => ipcRenderer.invoke(IPC.clearSmtpSettings),
 
@@ -129,6 +134,11 @@ const api: NtnxApi = {
   setScheduleEnabled: (id: string, enabled: boolean) => ipcRenderer.invoke(IPC.setScheduleEnabled, id, enabled),
   runScheduleNow: (id: string) => ipcRenderer.invoke(IPC.runScheduleNow, id),
   onSchedulesChanged: (cb: (state: SchedulesState) => void) => subscribe(IPC.schedulesChanged, cb),
+
+  // ── Insights > Metrics ──
+  getMetrics: (req: MetricsRequest) => ipcRenderer.invoke(METRICS_IPC.getMetrics, req),
+  cancelMetrics: (requestId: string) => ipcRenderer.invoke(METRICS_IPC.cancelMetrics, requestId),
+  // ── end Insights > Metrics ──
 };
 
 contextBridge.exposeInMainWorld('ntnx', api);

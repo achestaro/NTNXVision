@@ -25,11 +25,12 @@ from . import connectors as _connectors
 from . import dr as _dr
 from . import edit_designs as _edits
 from . import estate as _estate
+from . import icons as _icons
 from . import management as _management
 from . import network as _network
 from .check import check_scene
 from .edit_conceptual import SPEC as CONCEPTUAL_EDIT
-from .edits import CONNECTORS, EDGE_EDITS, GENERIC, EditSpec
+from .edits import CONNECTORS, EDGE_EDITS, GENERIC, PLACED, TEXT_EDITS, EditSpec
 from .facts import conceptual_model
 from .layout.conceptual import Page, Refs
 from .layout.conceptual import layout as conceptual_layout
@@ -87,6 +88,26 @@ class DiagramType:
 
 #: Attribute holding a model's connector edits (`connectors.Extra`).
 _EXTRA = "_ntnx_connectors"
+#: Attribute holding what else is drawn over a model's layout (`icons.py`): placed icons,
+#: text edits and the palette id of each user-added element.
+_DRAWN = "_ntnx_drawn"
+#: Payload keys kept beside a type's own model.
+_KEYS = (CONNECTORS, EDGE_EDITS, PLACED, TEXT_EDITS)
+
+
+@dataclass
+class Drawn:
+    placed: list[dict[str, Any]]
+    texts: dict[str, dict[str, Any]]
+    looks: dict[str, str]
+
+    def __bool__(self) -> bool:
+        return bool(self.placed or self.texts or self.looks)
+
+
+def drawn_extra(model: Any) -> Drawn | None:
+    """The placed icons, text edits and user-added looks a model carries (None: none)."""
+    return getattr(model, _DRAWN, None)
 
 
 def connector_extra(model: Any) -> _connectors.Extra | None:
@@ -106,6 +127,12 @@ def _with_extra_doc(fn: Callable[[Any], dict[str, Any]]) -> Callable[[Any], dict
                 doc[CONNECTORS] = copy.deepcopy(extra.connectors)
             if extra.edits:
                 doc[EDGE_EDITS] = copy.deepcopy(extra.edits)
+        drawn = drawn_extra(model)
+        if drawn:
+            if drawn.placed:
+                doc[PLACED] = copy.deepcopy(drawn.placed)
+            if drawn.texts:
+                doc[TEXT_EDITS] = copy.deepcopy(drawn.texts)
         return doc
 
     to_doc._ntnx_wrapped = True  # type: ignore[attr-defined]
@@ -117,13 +144,18 @@ def _with_extra_model(fn: Callable[[dict[str, Any]], Any]) -> Callable[[dict[str
         return fn
 
     def from_doc(doc: dict[str, Any]) -> Any:
-        if not any(k in doc for k in (CONNECTORS, EDGE_EDITS)):
+        looks = _icons.user_looks(doc)
+        if not looks and not any(k in doc for k in _KEYS):
             return fn(doc)
-        model = fn({k: v for k, v in doc.items() if k not in (CONNECTORS, EDGE_EDITS)})
+        model = fn({k: v for k, v in doc.items() if k not in _KEYS})
         extra = _connectors.Extra(copy.deepcopy(list(doc.get(CONNECTORS) or [])),
                                   copy.deepcopy(dict(doc.get(EDGE_EDITS) or {})))
         if extra:
             object.__setattr__(model, _EXTRA, extra)
+        drawn = Drawn(copy.deepcopy(list(doc.get(PLACED) or [])),
+                      copy.deepcopy(dict(doc.get(TEXT_EDITS) or {})), looks)
+        if drawn:
+            object.__setattr__(model, _DRAWN, drawn)
         return model
 
     from_doc._ntnx_wrapped = True  # type: ignore[attr-defined]
@@ -136,9 +168,18 @@ def _with_overlay(fn: Callable[..., list[Scene]]) -> Callable[..., list[Scene]]:
 
     def layout(model: Any, *args: Any, **kwargs: Any) -> list[Scene]:
         scenes = fn(model, *args, **kwargs)
+        drawn = drawn_extra(model)
+        if drawn:
+            # User-added elements drawn like collected ones, then the placed icons, so
+            # connectors route to and around them.
+            _icons.restyle(scenes, drawn.looks)
+            _icons.place(scenes, drawn.placed)
         extra = connector_extra(model)
         if extra:
             _connectors.overlay(scenes, extra)
+        if drawn:
+            _icons.apply_texts(scenes, drawn.texts)
+        _icons.mark_legend(scenes)
         return scenes
 
     layout._ntnx_wrapped = True  # type: ignore[attr-defined]
@@ -209,7 +250,7 @@ def conceptual_scenes(env: Any, page: Page | None = None, refs: Refs | None = No
 
 __all__ = [
     "TYPES", "ConceptualModel", "DiagramType", "EditSpec", "Page", "Refs", "Scene",
-    "check_scene", "connector_extra",
+    "Drawn", "check_scene", "connector_extra", "drawn_extra",
     "conceptual_layout", "conceptual_model", "conceptual_scenes", "from_doc",
     "model_envelope", "model_from_envelope", "scene_json", "to_doc",
 ]

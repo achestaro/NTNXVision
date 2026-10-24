@@ -15,7 +15,18 @@ from typing import Any
 from .. import fmt
 from .. import text as tx
 from .. import tokens as K
-from ..build import CHIP_H, Row, box, chip, edge, edge_label, label_block, legend, measure
+from ..build import (
+    CHIP_H,
+    LEGEND_GAP,
+    Row,
+    box,
+    chip,
+    edge,
+    edge_label,
+    label_block,
+    legend,
+    measure,
+)
 from ..estate import EstateModel, EstateRefs, Tile
 from ..facts import short_name
 from ..model import Link, Repl
@@ -201,10 +212,10 @@ def layout(model: EstateModel, page: Page | None = None, refs: Any = None,
         items.append(("line", K.PAIRING, "AZ pairing"))
     if kinds["pairing_down"]:
         items.append(("line", K.PAIRING_DOWN, "AZ pairing, not connected"))
-    lh = legend(sc, items, MX, bottom + 9, page.width - 2 * MX)
+    lh = legend(sc, items, MX, bottom + LEGEND_GAP, page.width - 2 * MX)
     right = max(n.x + n.w for n in sc.nodes)
     sc.width = q(min(page.width, right + MX))
-    sc.height = q(bottom + 9 + lh + 1)
+    sc.height = q(bottom + LEGEND_GAP + lh + 1)
     figs = fmt.join_names(labels) if len(labels) == n_parts and labels else None
     sc.caption = (f"Estate map: {fmt.plural(len(model.tiles), 'availability zone')}, grouped "
                   + (f"into the parts drawn in {'Figures' if n_parts > 1 else 'Figure'} "

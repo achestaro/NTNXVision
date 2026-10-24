@@ -79,11 +79,11 @@
    "points": [
     [
      0.5,
-     192.79
+     188.04
     ],
     [
-     17.5,
-     192.79
+     8.2,
+     188.04
     ]
    ],
    "src": "",
@@ -96,7 +96,7 @@
    }
   }
  ],
- "height": 210.54,
+ "height": 208.04,
  "id": "dr",
  "meta": {
   "hops": 0,
@@ -329,17 +329,17 @@
   },
   {
    "data": {},
-   "h": 10.5,
+   "h": 7.0,
    "id": "legend:0:label",
    "kind": "label",
    "lines": [
     {
-     "baseline": 7.35,
+     "baseline": 5.67,
      "bold": false,
      "color": "#3E4C59",
-     "size": 6.0,
+     "size": 6.2,
      "text": "Async (1 h or more)",
-     "width": 51.98,
+     "width": 53.72,
      "x": 0.0
     }
    ],
@@ -351,13 +351,13 @@
     "stroke": null,
     "stroke_w": 0.75
    },
-   "w": 56.1,
-   "x": 21.5,
-   "y": 187.54
+   "w": 57.94,
+   "x": 10.7,
+   "y": 184.54
   },
   {
    "data": {},
-   "h": 7.5,
+   "h": 4.2,
    "id": "legend:1",
    "kind": "swatch",
    "lines": [],
@@ -369,23 +369,23 @@
     "stroke": "#5B3FD9",
     "stroke_w": 0.7
    },
-   "w": 17,
-   "x": 91.6,
-   "y": 189.04
+   "w": 7.7,
+   "x": 0.5,
+   "y": 193.44
   },
   {
    "data": {},
-   "h": 10.5,
+   "h": 7.0,
    "id": "legend:1:label",
    "kind": "label",
    "lines": [
     {
-     "baseline": 7.35,
+     "baseline": 5.67,
      "bold": false,
      "color": "#3E4C59",
-     "size": 6.0,
+     "size": 6.2,
      "text": "Protected cluster",
-     "width": 46.6,
+     "width": 48.15,
      "x": 0.0
     }
    ],
@@ -397,13 +397,13 @@
     "stroke": null,
     "stroke_w": 0.75
    },
-   "w": 50.39,
-   "x": 112.6,
-   "y": 187.54
+   "w": 52.04,
+   "x": 10.7,
+   "y": 192.04
   },
   {
    "data": {},
-   "h": 7.5,
+   "h": 4.2,
    "id": "legend:2",
    "kind": "swatch",
    "lines": [],
@@ -415,23 +415,23 @@
     "stroke": "#C9D0D6",
     "stroke_w": 0.7
    },
-   "w": 17,
+   "w": 7.7,
    "x": 0.5,
-   "y": 200.04
+   "y": 200.94
   },
   {
    "data": {},
-   "h": 10.5,
+   "h": 7.0,
    "id": "legend:2:label",
    "kind": "label",
    "lines": [
     {
-     "baseline": 7.35,
+     "baseline": 5.67,
      "bold": false,
      "color": "#3E4C59",
-     "size": 6.0,
+     "size": 6.2,
      "text": "No protection policy",
-     "width": 55.56,
+     "width": 57.41,
      "x": 0.0
     }
    ],
@@ -443,13 +443,13 @@
     "stroke": null,
     "stroke_w": 0.75
    },
-   "w": 59.89,
-   "x": 21.5,
-   "y": 198.54
+   "w": 61.86,
+   "x": 10.7,
+   "y": 199.54
   },
   {
    "data": {},
-   "h": 7.5,
+   "h": 4.2,
    "id": "legend:3",
    "kind": "swatch",
    "lines": [],
@@ -464,23 +464,23 @@
     "stroke": "#8E99A4",
     "stroke_w": 0.75
    },
-   "w": 17,
-   "x": 95.39,
-   "y": 200.04
+   "w": 7.7,
+   "x": 82.56,
+   "y": 185.94
   },
   {
    "data": {},
-   "h": 10.5,
+   "h": 7.0,
    "id": "legend:3:label",
    "kind": "label",
    "lines": [
     {
-     "baseline": 7.35,
+     "baseline": 5.67,
      "bold": false,
      "color": "#3E4C59",
-     "size": 6.0,
+     "size": 6.2,
      "text": "Outside this inventory",
-     "width": 59.44,
+     "width": 61.42,
      "x": 0.0
     }
    ],
@@ -492,9 +492,9 @@
     "stroke": null,
     "stroke_w": 0.75
    },
-   "w": 64.0,
-   "x": 116.39,
-   "y": 198.54
+   "w": 66.1,
+   "x": 92.76,
+   "y": 184.54
   }
  ],
  "part": [

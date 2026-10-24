@@ -13,6 +13,7 @@ import { useAsync } from '../lib/useAsync';
 import { useRouter } from '../lib/router';
 import { BackgroundSettingsPanel, EmailSettingsPanel } from './EmailSettings';
 import { NA, errorMessage, fmtBytes, fmtRatio, plural, tildify } from '../lib/format';
+import { buildTags } from '../shell/Rail';
 
 // Bounds for the vCPU:pCPU target (the core accepts 0.1 to 64 and falls back to 4); the
 // per-cluster targets of New collection share them.
@@ -211,7 +212,7 @@ export function SettingsView(): JSX.Element {
             <dl>
               <div className="kv">
                 <dt>Version</dt>
-                <dd className="mono">{appInfo?.version ?? NA}</dd>
+                <dd className="mono">{appInfo ? [appInfo.version, ...buildTags(appInfo)].join(' · ') : NA}</dd>
               </div>
               <div className="kv">
                 <dt>Snapshots</dt>

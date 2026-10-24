@@ -121,6 +121,11 @@ if (userDataOverride) {
 const loadBuiltRenderer = !isDev || testEnv('NTNXVISION_RENDERER') === 'dist' || (isDev && process.argv.includes('--dist'));
 // Automated end-to-end runs: never open Finder/Explorer windows, files or browsers.
 const e2e = e2eRun;
+/** Test hook: a short Metrics auto refresh interval (ms, 1 s to 1 h) for e2e; unpackaged only. */
+const metricsRefreshMs = (() => {
+  const n = Number(testEnv('NTNXVISION_METRICS_REFRESH_MS'));
+  return Number.isInteger(n) && n >= 1000 && n <= 3_600_000 ? n : undefined;
+})();
 // e2e only: the native file dialogs answer from this folder instead of opening.
 const e2eDialogDir = e2e ? testEnv('NTNXVISION_E2E_DIALOG_DIR') || null : null;
 const sidecar = new SidecarClient();
@@ -475,6 +480,8 @@ ipc.handle(IPC.getAppInfo, (): AppInfo => ({
   platform: process.platform as Platform,
   defaultExportDir: join(homedir(), 'Documents', 'NTNXVision'),
   demo,
+  dev: !app.isPackaged,
+  ...(metricsRefreshMs ? { metricsRefreshMs } : {}),
 }));
 
 registerLegalHandlers();
@@ -492,6 +499,11 @@ function vcpuRatio(): number | undefined {
 /** The Settings section order for every export that does not ask for its own (undefined = default order). */
 function sectionOrder(): string[] | undefined {
   return defaultSectionOrder(store.getSettings());
+}
+
+/** The Diagrams page's Legend switch, followed by every export that draws diagrams. */
+function diagramLegend(): boolean {
+  return store.getSettings().diagramLegend !== false;
 }
 
 /** The certificate pin for a test or listing: the request's own, else the saved target's for that endpoint. */
@@ -573,6 +585,7 @@ ipc.handle(IPC.startCollection, async (_e, raw: CollectionRequest) => {
     vcpu_ratio: vcpuRatio(),
     vcpu_ratio_overrides: overrides,
     section_order: sectionOrder(),
+    diagram_legend: diagramLegend(),
     // The one non-read action: only when the user switched it on for this run.
     lcm_inventory: req.mode === 'prism_central' && req.lcmInventory === true,
   });
@@ -621,6 +634,7 @@ ipc.handle(IPC.startMultiCollection, async (_e, raw: MultiCollectionRequest) => 
     combined_name: req.combinedName,
     vcpu_ratio: vcpuRatio(),
     section_order: sectionOrder(),
+    diagram_legend: diagramLegend(),
     lcm_inventory: req.lcmInventory === true,
   });
   legacyRuns.set(id, runId);
@@ -637,6 +651,57 @@ ipc.handle(IPC.startMultiCollection, async (_e, raw: MultiCollectionRequest) => 
 });
 
 ipc.handle(IPC.cancelRun, (_e, runId: string) => sidecar.call('cancel_run', { run_id: str(runId, 'runId', 128) }));
+
+// ─── Insights > Metrics (live dashboard of a saved target) ─────────────
+// The saved target's address, TLS choice (pin) and keychain password are filled in here,
+// exactly as for a collection run; the renderer only names the target. Each request has a
+// timeout, after which the sidecar is told to stop it (`cancel_metrics`).
+
+import { METRICS_IPC, type MetricsPart, type MetricsResult } from '../shared/ipc';
+
+/** Prism Central answers the 90-day series slowly (about 13 s on the lab PC). */
+const METRICS_TIMEOUT_MS: Record<MetricsPart, number> = { now: 60_000, trends: 150_000 };
+
+ipc.handle(METRICS_IPC.getMetrics, async (_e, raw: unknown) => {
+  const r = raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : {};
+  const targetId = str(r.targetId, 'targetId', 128);
+  const part = oneOf(r.part, 'part', ['now', 'trends'] as const);
+  const requestId = str(r.requestId, 'requestId', 128);
+  const refresh = r.refresh === true;
+  const t = store.targets.get(targetId);
+  if (t && t.mode !== 'prism_central') throw new Error('Metrics need a Prism Central target.');
+  const { password, ...conn } = await targetConnection(targetId, '', undefined);
+  assertDemoHost(conn.host);
+  const call = sidecar.call<MetricsResult>('metrics', {
+    request_id: requestId,
+    part,
+    refresh,
+    mode: conn.mode,
+    host: conn.host,
+    port: conn.port,
+    username: conn.username,
+    password,
+    insecure: conn.insecure,
+    pinned_sha256: conn.pinnedCert,
+  });
+  let timer: NodeJS.Timeout | undefined;
+  const timeout = new Promise<never>((_resolve, reject) => {
+    timer = setTimeout(() => {
+      void sidecar.call('cancel_metrics', { request_id: requestId }).catch(() => undefined);
+      reject(new Error(`Prism Central did not answer within ${METRICS_TIMEOUT_MS[part] / 1000} seconds. Try Refresh.`));
+    }, METRICS_TIMEOUT_MS[part]);
+  });
+  try {
+    return await Promise.race([call, timeout]);
+  } finally {
+    clearTimeout(timer);
+  }
+});
+
+ipc.handle(METRICS_IPC.cancelMetrics, (_e, requestId: unknown) =>
+  sidecar.call('cancel_metrics', { request_id: str(requestId, 'requestId', 128) }),
+);
+// ─── end Insights > Metrics ────────────────────────────────────────────
 
 ipc.handle(IPC.getOverview, () => sidecar.call('get_overview'));
 ipc.handle(IPC.listSnapshots, () => sidecar.call('list_snapshots'));
@@ -671,6 +736,11 @@ ipc.handle(IPC.getObjectDetail, (_e, snapshotPath: string, objectType: string, i
     id: str(id, 'id', 1024),
     vcpu_ratio: vcpuRatio(),
   }),
+);
+
+// Insights > Optimization
+ipc.handle(IPC.getOptimization, (_e, snapshotPath: string) =>
+  sidecar.call('optimization', { snapshot: snapshotPathArg(snapshotPath) }),
 );
 
 ipc.handle(IPC.compareSnapshots, (_e, baseline: string, current: string) =>
@@ -710,6 +780,7 @@ function exportParams(req: ExportRequest, exportDir: string | undefined): Record
     vcpu_ratio: req.vcpuRatio ?? vcpuRatio(),
     diagrams: req.diagrams === true,
     diagrams_package: req.diagramsPackage === 'folder' ? 'folder' : 'zip',
+    diagram_legend: diagramLegend(),
   };
 }
 
@@ -729,6 +800,7 @@ ipc.handle(IPC.exportDiagram, (_e, raw: unknown) => {
     format: req.format,
     export_dir: exportDir || store.getSettings().exportDir,
     file_prefix: filePrefix(req.filePrefix),
+    diagram_legend: diagramLegend(),
   });
 });
 

@@ -1,7 +1,7 @@
 {
  "caption": "Logical cluster design, sm-pc01: nodes, CVMs and containers.",
  "edges": [],
- "height": 214.71,
+ "height": 215.71,
  "id": "logical-sm-pc01.demo.local",
  "meta": {
   "drawn": [
@@ -585,7 +585,7 @@
   },
   {
    "data": {},
-   "h": 7.5,
+   "h": 4.2,
    "id": "legend:0",
    "kind": "swatch",
    "lines": [],
@@ -597,23 +597,23 @@
     "stroke": "#5B3FD9",
     "stroke_w": 0.7
    },
-   "w": 17,
+   "w": 7.7,
    "x": 0.5,
-   "y": 204.21
+   "y": 201.11
   },
   {
    "data": {},
-   "h": 10.5,
+   "h": 7.0,
    "id": "legend:0:label",
    "kind": "label",
    "lines": [
     {
-     "baseline": 7.35,
+     "baseline": 5.67,
      "bold": false,
      "color": "#3E4C59",
-     "size": 6.0,
+     "size": 6.2,
      "text": "Cluster",
-     "width": 19.36,
+     "width": 20.01,
      "x": 0.0
     }
    ],
@@ -625,13 +625,13 @@
     "stroke": null,
     "stroke_w": 0.75
    },
-   "w": 21.52,
-   "x": 21.5,
-   "y": 202.71
+   "w": 22.21,
+   "x": 10.7,
+   "y": 199.71
   },
   {
    "data": {},
-   "h": 7.5,
+   "h": 4.2,
    "id": "legend:1",
    "kind": "swatch",
    "lines": [],
@@ -643,23 +643,23 @@
     "stroke": "#0A7283",
     "stroke_w": 0.45
    },
-   "w": 17,
-   "x": 57.02,
-   "y": 204.21
+   "w": 7.7,
+   "x": 0.5,
+   "y": 208.61
   },
   {
    "data": {},
-   "h": 10.5,
+   "h": 7.0,
    "id": "legend:1:label",
    "kind": "label",
    "lines": [
     {
-     "baseline": 7.35,
+     "baseline": 5.67,
      "bold": false,
      "color": "#3E4C59",
-     "size": 6.0,
+     "size": 6.2,
      "text": "DSF container",
-     "width": 38.0,
+     "width": 39.26,
      "x": 0.0
     }
    ],
@@ -671,9 +671,9 @@
     "stroke": null,
     "stroke_w": 0.75
    },
-   "w": 41.28,
-   "x": 78.02,
-   "y": 202.71
+   "w": 42.62,
+   "x": 10.7,
+   "y": 207.21
   }
  ],
  "part": [

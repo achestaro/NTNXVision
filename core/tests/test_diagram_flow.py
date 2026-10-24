@@ -99,7 +99,8 @@ def test_edit_planned_policy(design_envs: dict[str, Any]) -> None:
     scs = H.laid_out("flow", payload)
     H.assert_clean(scs)
     texts = [t for sc in scs for t in H.texts(sc)]
-    assert "Planned web tier" in texts and "USER-ADDED" in texts and "PCI scope" in texts
+    assert "Planned web tier" in texts and "PCI scope" in texts
+    assert "USER-ADDED" not in texts
     # Lanes reorder but are never removed.
     _, bad = H.edit("flow", env, [{"op": "delete", "id": lane.id}])
     assert bad

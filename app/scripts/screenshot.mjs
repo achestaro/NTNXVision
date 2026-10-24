@@ -94,6 +94,13 @@ const finishRun = async (p) => {
   await p.waitForTimeout(5200); // let the toast auto-dismiss
 };
 
+// ── Insights > Metrics: open the page on PC01 Production (and wait for the trends) ──
+const openMetrics = async (p, waitTrends = true) => {
+  await rail(p, 'Metrics');
+  await p.getByRole('combobox', { name: 'Target' }).selectOption('t-pc01');
+  if (waitTrends) await p.getByRole('img', { name: 'CPU, memory and storage utilization per day' }).waitFor();
+};
+
 // name, stub options, steps, viewport height, viewport width
 const SHOTS = [
   // Targets page (CRUD) and how New collection / Multiple PCs pick targets.
@@ -391,6 +398,49 @@ const SHOTS = [
     await p.getByText('VM details').waitFor();
   }],
   ['inventory-empty', { empty: true }, async (p) => rail(p, 'Inventory')],
+  // ── Insights > Optimization: the only review opens directly; the card grid needs two ──
+  ['optimization', {}, async (p) => {
+    await rail(p, 'Optimization');
+    await p.getByRole('heading', { level: 1, name: 'VM compute' }).waitFor();
+    await p.locator('tbody tr button.lnk').first().waitFor();
+    if (await p.getByRole('button', { name: 'All reviews' }).count()) throw new Error('"All reviews" shown with a single review');
+    if (await p.locator('#opt-detail').count()) throw new Error('details panel open with no row clicked');
+    const first = await p.locator('thead th').first().innerText();
+    if (first.trim().toLowerCase() !== 'cluster') throw new Error(`first column is "${first}", not Cluster`);
+    const figs = await p.locator('.figs .fig').count();
+    if (figs !== 3) throw new Error(`summary strip has ${figs} figures, not 3`);
+    await cardsFit(p);
+  }],
+  ['optimization-selected', {}, async (p) => {
+    await rail(p, 'Optimization');
+    await p.locator('tbody tr button.lnk').nth(1).click();
+    await p.locator('#opt-detail').getByText('Open in Inventory').waitFor();
+    await cardsFit(p);
+  }, 1000, 1440],
+  ['optimization-1100', {}, async (p) => {
+    await rail(p, 'Optimization');
+    await p.locator('tbody tr button.lnk').first().waitFor();
+    await cardsFit(p);
+  }, 800, 1100],
+  ['optimization-selected-1100', {}, async (p) => {
+    await rail(p, 'Optimization');
+    await p.locator('tbody tr button.lnk').nth(1).click();
+    await p.locator('#opt-detail').getByText('Open in Inventory').waitFor();
+    await cardsFit(p);
+  }, 800, 1100],
+  ['optimization-clean', { optimization: 'clean' }, async (p) => {
+    await rail(p, 'Optimization');
+    await p.getByText('Every VM’s layout fits its hosts').waitFor();
+  }],
+  ['optimization-cards', { optimization: 'cards' }, async (p) => {
+    await rail(p, 'Optimization');
+    await p.getByRole('button', { name: /^VM compute:/ }).waitFor();
+    await cardsFit(p);
+    await p.getByRole('button', { name: /^VM compute:/ }).click();
+    await p.getByRole('button', { name: 'All reviews' }).click();
+    await p.getByRole('button', { name: /^VM compute:/ }).waitFor();
+  }],
+  ['optimization-empty', { empty: true }, async (p) => rail(p, 'Optimization')],
   ['snapshots', {}, async (p) => {
     await rail(p, 'Snapshots');
     await p.getByRole('checkbox', { name: 'Select pc01 Q4 review' }).check();
@@ -534,6 +584,141 @@ const SHOTS = [
     await p.getByRole('button', { name: 'Expand the canvas' }).click();
     await p.locator('.dg-expanded').waitFor();
     await p.locator('[data-el^="cluster:"]').first().click();
+  }],
+  // The canvas: white edge to edge, zoom controls floating bottom-right, an icon placed
+  // from the picker (drawn like a collected remote zone), the Add picker and the Legend switch.
+  ['diagrams-placed', { diagrams: 'edited' }, async (p) => {
+    await rail(p, 'Diagrams');
+    await p.locator('.dg-sheet svg').waitFor();
+    await p.getByRole('toolbar', { name: 'Zoom' }).waitFor();
+    await p.locator('[data-el="user:colo-dr"]').click();
+    await p.locator('[data-handle="resize"]').waitFor();
+    await p.getByText('Placed on the figure').waitFor();
+  }],
+  ['diagrams-add-picker', { diagrams: 'edited' }, async (p) => {
+    await rail(p, 'Diagrams');
+    await p.locator('.dg-sheet svg').waitFor();
+    await p.getByRole('button', { name: 'Add', exact: true }).click();
+    const list = p.getByRole('listbox', { name: 'Icons' });
+    await list.getByRole('option', { name: 'Availability zone', exact: true }).waitFor();
+    await p.getByRole('textbox', { name: 'Search icons' }).fill('clu');
+    await list.getByRole('option', { name: 'Cluster', exact: true }).waitFor();
+  }],
+  // Nesting: a hybrid example (a datacenter around the collected zone, a cloud region
+  // holding NC2 on AWS with its VPC, a cluster and bare-metal nodes, Direct Connect). A nested node selected: its
+  // inspector says where it sits, its edge and corner handles resize it.
+  ['diagrams-nested', { diagrams: 'nested' }, async (p) => {
+    await rail(p, 'Diagrams');
+    await p.locator('[data-el="user:bm1"]').click();
+    await p.locator('[data-handle="resize-r"]').waitFor();
+    await p.getByText('Take out').waitFor();
+  }],
+  ['diagrams-nested-1100', { diagrams: 'nested' }, async (p) => {
+    await rail(p, 'Diagrams');
+    await p.locator('[data-el="user:dc"]').click({ position: { x: 30, y: 12 } });
+    await p.getByRole('button', { name: 'Release' }).waitFor();
+  }, 1000, 1100],
+  // Add with a container selected: what fits says "into <it>"; NC2 / cloud is searchable.
+  ['diagrams-add-into', { diagrams: 'nested' }, async (p) => {
+    await rail(p, 'Diagrams');
+    await p.locator('[data-el="user:reg"]').click({ position: { x: 30, y: 12 } });
+    await p.getByRole('button', { name: 'Add', exact: true }).click();
+    const list = p.getByRole('listbox', { name: 'Icons' });
+    await p.getByRole('textbox', { name: 'Search icons' }).fill('nc2');
+    await list.getByText('into Cloud region').first().waitFor();
+  }],
+  ['diagrams-add-cloud', { diagrams: 'nested' }, async (p) => {
+    await rail(p, 'Diagrams');
+    await p.getByRole('button', { name: 'Add', exact: true }).click();
+    await p.getByRole('textbox', { name: 'Search icons' }).fill('expressroute');
+    await p.getByRole('listbox', { name: 'Icons' }).getByRole('option', { name: 'Azure ExpressRoute', exact: true }).waitFor();
+  }],
+  // The figure fitted to the canvas, no selection: no inspector column, the canvas fills
+  // the window to its bottom edge.
+  ['diagrams-1100', { diagrams: 'edited' }, async (p) => {
+    await rail(p, 'Diagrams');
+    await p.locator('.dg-sheet svg').waitFor();
+    if (await p.getByRole('complementary', { name: 'Inspector' }).count()) throw new Error('the inspector shows with nothing selected');
+    const gap = await p.evaluate(() => window.innerHeight - document.querySelector('.dg-canvas').getBoundingClientRect().bottom);
+    if (gap > 40) throw new Error(`the canvas ends ${Math.round(gap)}px above the window bottom`);
+    await cardsFit(p);
+  }, 1000, 1100],
+  ['diagrams-connectors-menu', { diagrams: 'edited' }, async (p) => {
+    await rail(p, 'Diagrams');
+    await p.locator('.dg-sheet svg').waitFor();
+    await p.getByRole('button', { name: /^Connectors \(\d+\)/ }).click();
+    await p.getByRole('dialog', { name: 'Connectors in this figure' }).waitFor();
+  }],
+  ['diagrams-menu', { diagrams: 'edited' }, async (p) => {
+    await rail(p, 'Diagrams');
+    await p.locator('.dg-sheet svg').waitFor();
+    await p.getByRole('button', { name: 'More diagram actions' }).click();
+    await p.getByRole('menuitem', { name: /Reset to generated/ }).waitFor();
+  }],
+  ['diagrams-legend-off', { diagrams: 'edited' }, async (p) => {
+    await rail(p, 'Diagrams');
+    await p.locator('.dg-sheet svg').waitFor();
+    await p.getByTestId('dg-legend').uncheck();
+    await p.getByTestId('dg-legend-overlay').waitFor({ state: 'detached' });
+  }],
+  // Canvas chrome: the legend overlay stays bottom-left while zoomed in and scrolled; the
+  // View menu's grid and background; the right-click menus.
+  ['diagrams-legend-scrolled', { diagrams: 'edited' }, async (p) => {
+    await rail(p, 'Diagrams');
+    await p.locator('.dg-sheet svg').waitFor();
+    const zin = p.getByRole('button', { name: 'Zoom in' });
+    for (let i = 0; i < 4; i++) await zin.click();
+    // The figure's right edge at the canvas's right (the canvas has empty room beyond it).
+    await p.locator('.dg-desk').evaluate((d) => {
+      const s = d.querySelector('.dg-sheet').getBoundingClientRect();
+      const r = d.getBoundingClientRect();
+      d.scrollLeft += s.right - r.right + 16;
+      d.scrollTop += s.top + s.height / 2 - (r.top + r.height / 2);
+    });
+    const lg = await p.getByTestId('dg-legend-overlay').boundingBox();
+    const stage = await p.locator('.dg-stage').boundingBox();
+    if (!lg || !stage || lg.x - stage.x > 16 || stage.y + stage.height - (lg.y + lg.height) > 16) throw new Error('the legend is not in the bottom-left corner');
+    await p.getByTestId('dg-legend-overlay').getByText('Cluster (Prism Element)').waitFor();
+  }],
+  ['diagrams-grid-dots', { diagrams: 'edited' }, async (p) => {
+    await rail(p, 'Diagrams');
+    await p.locator('.dg-sheet svg').waitFor();
+    await p.getByTestId('dg-view').click();
+    await p.getByRole('menuitemradio', { name: 'Dots' }).click();
+    await p.locator('[data-grid="dots"]').waitFor();
+  }],
+  ['diagrams-grid-lines-clear', { diagrams: 'edited' }, async (p) => {
+    await rail(p, 'Diagrams');
+    await p.locator('.dg-sheet svg').waitFor();
+    await p.getByTestId('dg-view').click();
+    await p.getByRole('menuitemradio', { name: 'Lines' }).click();
+    await p.getByRole('menuitemradio', { name: 'Transparent' }).click();
+    await p.locator('[data-grid="lines"]').waitFor();
+    await p.locator('.dg-stage.clear').waitFor();
+  }],
+  ['diagrams-context-element', { diagrams: 'edited' }, async (p) => {
+    await rail(p, 'Diagrams');
+    await p.locator('.dg-sheet svg').waitFor();
+    await p.locator('[data-el="user:backup-appliance"]').click({ button: 'right' });
+    await p.getByTestId('dg-context-menu').getByRole('menuitem', { name: /Remove/ }).waitFor();
+  }],
+  ['diagrams-context-connector', { diagrams: 'edited' }, async (p) => {
+    await rail(p, 'Diagrams');
+    await p.locator('.dg-sheet svg').waitFor();
+    await p.locator('[data-conn="user:backup-link"]').focus();
+    await p.keyboard.press('Shift+F10');
+    const menu = p.getByTestId('dg-context-menu');
+    await menu.getByRole('menuitemradio', { name: 'End: Diamond' }).click();
+    await p.locator('[data-conn="user:backup-link"]').focus();
+    await p.keyboard.press('Shift+F10');
+    await menu.getByRole('menuitemradio', { name: 'End: Diamond', checked: true }).waitFor();
+  }],
+  ['diagrams-zoomed', { diagrams: 'edited' }, async (p) => {
+    await rail(p, 'Diagrams');
+    await p.locator('.dg-sheet svg').waitFor();
+    // Zoomed out below the fit: the white canvas still fills the whole diagram area.
+    const out = p.getByRole('button', { name: 'Zoom out' });
+    while (await out.isEnabled()) await out.click();
   }],
   ['export-preview', { diagrams: 'stale' }, async (p) => {
     await rail(p, 'Snapshots');
@@ -679,11 +864,180 @@ const SHOTS = [
     await p.getByRole('menuitem', { name: 'Email reports…' }).click();
     await p.getByRole('dialog').getByText('Email isn’t set up.').waitFor();
   }, 1100],
+  // ── Insights > Metrics ──
+  // No target chosen yet: the page opens the first saved Prism Central by itself.
+  ['metrics-auto', {}, async (p) => {
+    await rail(p, 'Metrics');
+    await p.getByRole('heading', { name: 'Health' }).waitFor();
+    if ((await p.getByRole('heading', { name: 'Choose a target' }).count()) > 0) throw new Error('the page asks to choose a target although targets exist');
+  }],
+  ['metrics-empty', { noTargets: true }, async (p) => {
+    await rail(p, 'Metrics');
+    await p.getByRole('heading', { name: 'No Prism Central target yet' }).waitFor();
+  }],
+  ['metrics-loading', { metrics: 'loading' }, async (p) => {
+    await openMetrics(p, false);
+    await p.getByText(/^Reading PC01 Production/).waitFor();
+  }],
+  ['metrics-error', { metrics: 'error' }, async (p) => {
+    await openMetrics(p, false);
+    await p.getByText('Couldn’t read this Prism Central.').waitFor();
+  }],
+  ['metrics', {}, async (p) => {
+    await openMetrics(p);
+    await cardsFit(p);
+  }, 2300],
+  ['metrics-1100', {}, async (p) => {
+    await openMetrics(p);
+    await cardsFit(p);
+  }, 2900, 1100],
+  ['metrics-cluster', {}, async (p) => {
+    await openMetrics(p);
+    await p.getByRole('group', { name: 'Clusters' }).getByRole('button', { name: 'PHX-PROD-02' }).click();
+    await p.getByRole('group', { name: 'Top VMs by' }).getByRole('button', { name: 'IOPS' }).click();
+  }, 2300],
+  ['metrics-trends-loading', { metrics: 'trendsLoading' }, async (p) => {
+    await openMetrics(p, false);
+    await p.getByText(/^Reading 90 days of history/).waitFor();
+  }, 1400],
+  ['metrics-partial', { metrics: 'partial' }, async (p) => {
+    await openMetrics(p);
+    await p.locator('.mx-sources summary').click();
+  }, 2500],
+  ['metrics-hover', {}, async (p) => {
+    await openMetrics(p);
+    const chart = p.getByRole('img', { name: 'CPU, memory and storage utilization per day' });
+    await chart.scrollIntoViewIfNeeded();
+    const box = await chart.boundingBox();
+    await p.mouse.move(box.x + box.width * 0.7, box.y + box.height / 2);
+  }, 1400],
+  // Auto refresh on: the switch and interval under the Target select, "next in" in the facts.
+  ['metrics-autorefresh', { metricsAuto: true }, async (p) => {
+    await openMetrics(p);
+    await p.getByRole('combobox', { name: 'Auto refresh interval' }).waitFor();
+    await p.getByText(/next in \d+ min/).waitFor();
+  }, 900],
+  ['metrics-autorefresh-1100', { metricsAuto: true }, async (p) => {
+    await openMetrics(p);
+    await p.getByText(/next in \d+ min/).waitFor();
+  }, 900, 1100],
+  // With a short interval (the stub's stand-in for the e2e test hook) the cards re-read with
+  // refresh set, and the trends only every third reading.
+  ['metrics-autorefresh-fires', { metricsAuto: true, metricsRefreshMs: 1200 }, async (p) => {
+    await openMetrics(p);
+    await p.waitForFunction(() => (window.__metricsCalls || []).filter((c) => c.part === 'now' && c.refresh).length >= 3, null, { timeout: 15000 });
+    const calls = await p.evaluate(() => window.__metricsCalls);
+    const nowR = calls.filter((c) => c.part === 'now' && c.refresh).length;
+    const trR = calls.filter((c) => c.part === 'trends' && c.refresh).length;
+    if (trR >= nowR) throw new Error(`trends refreshed with every reading (${trR} of ${nowR})`);
+    // Hidden window: no reading; shown again: the overdue one runs at once.
+    const count = () => p.evaluate(() => window.__metricsCalls.filter((c) => c.part === 'now' && c.refresh).length);
+    const setHidden = (hidden) =>
+      p.evaluate((h) => {
+        Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => (h ? 'hidden' : 'visible') });
+        document.dispatchEvent(new Event('visibilitychange'));
+      }, hidden);
+    await p.getByRole('button', { name: 'Refresh' }).waitFor();
+    await setHidden(true);
+    const hiddenAt = await count();
+    await p.waitForTimeout(3000);
+    if ((await count()) > hiddenAt + 1) throw new Error('auto refresh kept reading while the window was hidden');
+    await p.getByText('auto refresh paused').waitFor();
+    const before = await count();
+    await setHidden(false);
+    await p.waitForFunction((n) => window.__metricsCalls.filter((c) => c.part === 'now' && c.refresh).length > n, before, { timeout: 1000 });
+  }, 900],
+  // Sortable tables: header buttons with aria-sort; numbers by value (highest first on the
+  // first click), text natural and A to Z; the chosen sort survives auto refresh readings.
+  ['metrics-sort', { metricsAuto: true, metricsRefreshMs: 1200 }, async (p) => {
+    await openMetrics(p);
+    const top = p.getByRole('table', { name: 'Top VMs by CPU' });
+    const header = (t, name) => t.getByRole('columnheader', { name });
+    const sortOf = (t, name) => header(t, name).getAttribute('aria-sort');
+    const col = (t, i) => t.getByRole('row').evaluateAll((rows, i) => rows.slice(1).map((r) => r.querySelectorAll('[role="cell"]')[i]?.textContent ?? ''), i);
+    if ((await sortOf(top, 'CPU')) !== 'descending') throw new Error('the top list should start ranked, highest first');
+    await header(top, 'VM').getByRole('button').click();
+    const names = await col(top, 0);
+    const want = [...names].sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' }));
+    if (names.join() !== want.join()) throw new Error(`VM names not A to Z: ${names}`);
+    if ((await sortOf(top, 'VM')) !== 'ascending' || (await sortOf(top, 'CPU')) !== null) throw new Error('aria-sort did not follow the click');
+    await header(top, 'VM').getByRole('button').click();
+    if ((await sortOf(top, 'VM')) !== 'descending') throw new Error('a second click should reverse');
+    // A few auto refresh readings later the sort is unchanged.
+    const reads = () => p.evaluate(() => window.__metricsCalls.filter((c) => c.part === 'now' && c.refresh).length);
+    const before = await reads();
+    await p.waitForFunction((n) => window.__metricsCalls.filter((c) => c.part === 'now' && c.refresh).length >= n + 2, before, { timeout: 15000 });
+    if ((await sortOf(top, 'VM')) !== 'descending') throw new Error('auto refresh lost the sort');
+    // A detail table: CPU sorts numerically, highest first, missing values last.
+    await p.getByRole('button', { name: 'Nodes and CVMs: open the list' }).click();
+    const nodes = p.getByRole('table', { name: 'Nodes and CVMs' });
+    await header(nodes, 'CPU').getByRole('button').click();
+    if ((await sortOf(nodes, 'CPU')) !== 'descending') throw new Error('a numeric column should start highest first');
+    const cpu = await nodes.locator('tbody tr').evaluateAll((rows) => rows.map((r) => r.children[5].textContent));
+    const nums = cpu.filter((c) => /\d/.test(c)).map((c) => parseFloat(c));
+    if (nums.some((n, i) => i > 0 && n > nums[i - 1])) throw new Error(`node CPU not highest first: ${cpu}`);
+    if (cpu.findIndex((c) => !/\d/.test(c)) !== -1 && cpu.slice(cpu.findIndex((c) => !/\d/.test(c))).some((c) => /\d/.test(c))) throw new Error('missing values not last');
+    await p.waitForFunction((n) => window.__metricsCalls.filter((c) => c.part === 'now' && c.refresh).length >= n + 4, before, { timeout: 15000 });
+    if ((await sortOf(nodes, 'CPU')) !== 'descending') throw new Error('auto refresh lost the node sort');
+    await header(nodes, 'Node').getByRole('button').focus();
+  }, 1100],
+  // Breadcrumbs: from a subpage, the target segment leads back to the dashboard.
+  ['metrics-crumbs', {}, async (p) => {
+    await openMetrics(p);
+    await p.getByRole('button', { name: 'Nodes and CVMs: open the list' }).click();
+    const crumbs = p.getByRole('navigation', { name: 'Breadcrumb' });
+    await crumbs.getByRole('button', { name: 'PC01 Production' }).click();
+    await p.getByRole('heading', { name: 'Health' }).waitFor();
+    await p.getByRole('button', { name: 'Critical alerts: open the list' }).click();
+    await crumbs.getByRole('button', { name: 'Metrics' }).waitFor();
+    if ((await p.getByRole('button', { name: 'Dashboard' }).count()) > 0) throw new Error('the Dashboard back button is still there');
+    await crumbs.getByRole('button', { name: 'Metrics' }).hover();
+  }, 900],
+  ['metrics-runway', {}, async (p) => {
+    await openMetrics(p);
+    await p.getByRole('button', { name: 'Storage runway: open the projection' }).click();
+    await p.getByRole('heading', { level: 1, name: 'Runway' }).waitFor();
+  }, 1500],
+  ['metrics-alerts', {}, async (p) => {
+    await openMetrics(p);
+    await p.getByRole('button', { name: 'Critical alerts: open the list' }).click();
+    await p.getByRole('table', { name: 'Unresolved critical alerts' }).waitFor();
+  }, 900],
+  ['metrics-nodes', {}, async (p) => {
+    await openMetrics(p);
+    await p.getByRole('button', { name: 'Nodes and CVMs: open the list' }).click();
+    await p.getByRole('table', { name: 'Nodes and CVMs' }).waitFor();
+  }, 1300],
+  ['metrics-vms', {}, async (p) => {
+    await openMetrics(p);
+    await p.getByRole('button', { name: 'All top VMs' }).click();
+    await p.getByRole('heading', { level: 1, name: 'Top VMs' }).waitFor();
+  }, 1100],
+  ['metrics-network', {}, async (p) => {
+    await openMetrics(p);
+    await p.getByRole('group', { name: 'Clusters' }).getByRole('button', { name: 'AMS-EDGE-02' }).click();
+    await p.getByRole('button', { name: 'Network: open the NIC list' }).click();
+    await p.getByRole('table', { name: 'Host NICs' }).waitFor();
+  }, 900],
+  // ── end Insights > Metrics ──
   ['palette', {}, async (p) => {
     await p.keyboard.press('Meta+k');
     await p.keyboard.type('pc0');
   }],
   ['shortcuts', {}, async (p) => p.keyboard.press('?')],
+  // Help menu (Runway account-menu layout) on a dev demo build: the menu header reads
+  // "v… · dev · demo"; the rail foot shows the bare version.
+  ['help-menu', { demo: true, dev: true }, async (p) => {
+    await p.getByTestId('help-menu').click();
+    await p.getByRole('menuitem', { name: 'Keyboard shortcuts' }).waitFor();
+    if (!(await p.locator('.help-menu-sub').innerText()).endsWith('· dev · demo')) throw new Error('Help menu lacks the dev / demo tags');
+    if ((await p.locator('.rail-foot').innerText()).includes('·')) throw new Error('rail foot shows build tags');
+  }],
+  ['help-menu-shortcuts', {}, async (p) => {
+    await p.getByTestId('help-menu').click();
+    await p.getByRole('menuitem', { name: 'Keyboard shortcuts' }).click();
+    await p.getByRole('dialog', { name: 'Keyboard shortcuts' }).waitFor();
+  }],
 ];
 
 let browser;

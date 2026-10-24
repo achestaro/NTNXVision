@@ -98,6 +98,8 @@
     exportDir: '',
     author: 'Alberto Chestaro',
     multiTargetIds: ['t-pc01', 't-pc02', 't-pc03'],
+    // metricsAuto: Metrics auto refresh switched on (every 5 minutes).
+    ...(opt.metricsAuto ? { metricsAutoRefresh: true, metricsRefreshMinutes: 5 } : {}),
     ...(opt.customOrder
       ? { customSectionOrder: true, sectionOrder: ['data_protection', 'networking', 'workloads', 'physical_design', 'logical_design'] }
       : {}),
@@ -582,7 +584,7 @@
   window.ntnx = {
     platform: opt.platform,
     ping: () => delay({ pong: true, version: '0.4.0' }),
-    getAppInfo: () => delay({ version: '0.4.0', platform: opt.platform, defaultExportDir: EXPORT_DIR, demo: !!opt.demo }),
+    getAppInfo: () => delay({ version: '0.4.0', platform: opt.platform, defaultExportDir: EXPORT_DIR, demo: !!opt.demo, dev: !!opt.dev, ...(opt.metricsRefreshMs ? { metricsRefreshMs: opt.metricsRefreshMs } : {}) }),
     getLegalDocuments: () =>
       delay({
         version: '0.4.0',
@@ -761,7 +763,7 @@
       const D = window.__STUB_DIAGRAMS__;
       if (!find(p) || !D) return fail('Snapshot not found');
       const mode = opt.diagrams || 'generated';
-      const edited = mode === 'edited' || mode === 'stale';
+      const edited = mode === 'edited' || mode === 'stale' || mode === 'nested';
       const prev = snapshots.find((s) => s.path !== p && s.source === find(p).source) || snapshots[1];
       return delay({
         snapshot: p,
@@ -772,12 +774,34 @@
     getDiagram: () => {
       const D = window.__STUB_DIAGRAMS__;
       const mode = opt.diagrams || 'generated';
-      return delay(mode === 'stale' ? D.stale : mode === 'edited' ? D.edited : D.generated);
+      // nested: a hybrid example (a datacenter around a zone, NC2 on AWS, Direct Connect).
+      return delay(mode === 'stale' ? D.stale : mode === 'edited' ? D.edited : mode === 'nested' ? D.nested : D.generated);
     },
     layoutDiagram: (_p, _t, ops) => {
       const D = window.__STUB_DIAGRAMS__;
-      const src = ops.length ? D.edited : D.generated;
-      return delay({ type: src.type, model: src.model, scenes: src.scenes, outline: src.outline, connectors: src.connectors || [], problems: [], notes: src.notes || [] }, 20);
+      const src = ops.length ? ((opt.diagrams || '') === 'nested' ? D.nested : D.edited) : D.generated;
+      // Arrowhead edits (the canvas's right-click menu) apply to the drawn edges, as the engine does.
+      const heads = {};
+      for (const o of ops) {
+        if (o.op !== 'edge') continue;
+        if (o.field === 'head_start' || o.field === 'head_end') (heads[o.id] = heads[o.id] || {})[o.field] = o.value;
+        else if (o.field === 'arrow') delete heads[o.id];
+      }
+      const withHeads = (e) => {
+        const h = heads[e.id];
+        if (!h) return e;
+        const out = { ...e };
+        for (const end of ['start', 'end']) {
+          const k = h[`head_${end}`];
+          if (k) {
+            if ('points' in out) out[`arrow_${end}`] = k !== 'none';
+            out[`head_${end}`] = k;
+          }
+        }
+        return out;
+      };
+      const scenes = src.scenes.map((sc) => ({ ...sc, edges: sc.edges.map(withHeads) }));
+      return delay({ type: src.type, model: src.model, scenes, outline: src.outline, connectors: (src.connectors || []).map(withHeads), nest_kinds: src.nest_kinds || {}, problems: [], notes: src.notes || [] }, 20);
     },
     saveDiagram: (_p, _t, ops) => {
       const D = window.__STUB_DIAGRAMS__;
@@ -928,6 +952,11 @@
       smtp = { ...rest, hasPassword: clearPassword ? false : !!password || smtp.hasPassword, configured: !!(rest.host && rest.fromAddress) };
       return delay(() => ({ ok: true, settings: { ...smtp } }));
     },
+    trustSmtpCertificate: (req) => {
+      const same = req.host === smtp.host && req.port === smtp.port && req.security === smtp.security && smtp.allowUntrusted;
+      if (same) smtp = { ...smtp, pinnedSha256: req.fingerprint.replace(/:/g, '').toLowerCase() };
+      return delay(() => ({ ok: same, settings: { ...smtp } }));
+    },
     testSmtp: (req) =>
       delay(() => (!opt.smtpTest || opt.smtpTest === 'ok'
         ? { ok: true, status: 'ok', message: `Sent to ${req.to}`, detail: `${req.host}:${req.port} · ${req.security === 'ssl' ? 'SSL/TLS' : req.security === 'starttls' ? 'STARTTLS' : 'no encryption'} · 250 2.0.0 OK queued`, recipients: [req.to] }
@@ -984,4 +1013,302 @@
       return delay(() => ({ ...settings }), 10);
     },
   };
+
+  // ── Insights > Optimization (getOptimization) ──
+  // A sample of what the sidecar's `optimization` returns for the demo pc01 estate.
+  // opt.optimization: 'findings' (default) | 'clean' (every VM fits its hosts) | 'cards' (a
+  // placeholder second review, so the page shows its card grid instead of opening the review).
+  (function () {
+    const host = (name, sockets, perNode, memGb, basis = 'current') => ({
+      uuid: `h-${name}`, name, sockets, cores: sockets * perNode, cores_per_node: perNode, threads_per_core: 2,
+      memory_bytes: memGb * GB, memory_per_node_bytes: (memGb / sockets) * GB, numa_nodes: sockets, basis,
+    });
+    const lay = (sockets, cores, memGb, vnuma, threads = 1) => ({
+      sockets, cores_per_socket: cores, threads_per_core: threads, vcpus: sockets * cores * threads, memory_bytes: memGb * GB, vnuma_nodes: vnuma,
+    });
+    const R = {
+      exceed: (v, c) => ['vcpus_exceed_cores', 'high', 'More vCPUs than physical cores', `${v} vCPUs on a host with ${c} physical cores. The vCPUs wait for each other to be scheduled; keep it at ${c} or fewer.`],
+      span: (v, c, n) => ['numa_span_cpu', 'high', 'Spans NUMA nodes, guest sees one', `${v} vCPUs do not fit in one NUMA node (${c} cores), so AHV spreads them over ${n} nodes while the guest sees a single node. Turn on vNUMA with ${n} nodes so the guest places its work and memory on the right node.`],
+      mem: (m, p) => ['numa_span_memory', 'medium', 'Memory spans NUMA nodes', `${m} GiB of memory is more than one NUMA node holds (${p} GiB of memory), so part of it is remote to the vCPUs. Turn on vNUMA with 2 nodes so the guest places its work and memory on the right node.`],
+      uneven: (v, t) => ['uneven_split', 'medium', 'vCPUs don’t split evenly', `${v} vCPUs over 2 NUMA nodes leaves the nodes unequal. ${t} vCPUs split evenly (${t / 2} per node).`],
+      straddle: (s) => ['socket_straddles_vnuma', 'medium', 'A socket straddles vNUMA nodes', `${s} sockets cannot be shared evenly over 2 vNUMA nodes, so the guest sees a socket split across nodes. Use 2 sockets.`],
+      mismatch: () => ['vnuma_mismatch', 'medium', 'vNUMA nodes don’t match the host', 'vNUMA is set to 3 nodes but the VM needs 2 of this host’s 2 NUMA nodes. Set it to 2.'],
+      notNeeded: () => ['vnuma_not_needed', 'low', 'vNUMA not needed', 'The VM fits in one NUMA node of this host, yet vNUMA shows the guest 2 nodes and splits its memory between them. Turn vNUMA off.'],
+      guest: () => ['guest_socket_limit', 'high', 'Guest can’t use all its sockets', 'Windows 11 Enterprise uses at most 2 CPU sockets, so the vCPUs on the other 2 sit unused. Give it fewer sockets with more cores each.'],
+      smaller: (h, s) => ['smaller_host', 'medium', 'Doesn’t fit the cluster’s smallest host', `It takes one NUMA node on ${h}, but the cluster also has smaller hosts such as ${s} (32 cores, 256 GB per NUMA node). Moved there by HA or ADS, it would span 2 NUMA nodes.`],
+    };
+    const f = (vm, cluster, power, hv, cur, rec, h, reasons, extra = {}) => {
+      const rs = reasons.map(([rule, severity, title, text]) => ({ rule, severity, title, text }));
+      const rank = { high: 3, medium: 2, low: 1 };
+      const top = rs.reduce((a, b) => (rank[b.severity] > rank[a.severity] ? b : a));
+      return {
+        id: `vm-${vm}`, vm, cluster, cluster_uuid: `c-${cluster.toLowerCase()}`, power_state: power, hypervisor: hv, guest_os: extra.guest_os ?? null,
+        source_pc: null, severity: top.severity, finding: top.title, reasons: rs, current: cur, recommended: rec,
+        sized_for: extra.sized_for ?? h.name, host: h, mixed_cluster: !!extra.mixed,
+      };
+    };
+    const P1 = host('phx-prod-01-n6', 2, 32, 1024);
+    const P2 = host('phx-prod-02-n10', 2, 48, 1024);
+    const DR = host('phx-dr-01-n5', 2, 24, 512);
+    const DRS = host('phx-dr-01-n1', 2, 24, 512, 'smallest');
+    const AMS = { ...host('ams-edge-02-n2', 1, 32, 512), threads_per_core: 2 };
+    const FINDINGS = [
+      f('web-235', 'AMS-EDGE-02', 'ON', 'ESXi', { ...lay(40, 1, 8, null) }, { ...lay(1, 32, 8, null) }, AMS, [R.exceed(40, 32)]),
+      f('db-01', 'PHX-PROD-01', 'ON', 'AHV', lay(40, 1, 128, 0), lay(2, 20, 128, 2), P1, [R.span(40, 32, 2)]),
+      f('ml-01', 'PHX-PROD-01', 'ON', 'AHV', lay(80, 1, 96, 0), lay(2, 32, 96, 2), P1, [R.exceed(80, 64), R.span(64, 32, 2)]),
+      f('vdi-01', 'PHX-PROD-01', 'ON', 'AHV', lay(4, 1, 8, 0), lay(1, 4, 8, 0), P1, [R.guest()], { guest_os: 'Windows 11 Enterprise' }),
+      f('db-59', 'PHX-DR-01', 'ON', 'AHV', lay(32, 1, 128, 0), lay(2, 16, 128, 2), DR, [R.span(32, 24, 2)]),
+      f('app-sql-41', 'PHX-DR-01', 'OFF', 'AHV', lay(8, 1, 320, 0), lay(2, 4, 320, 2), DRS, [R.mem(320, 256)]),
+      f('k8s-worker-03', 'PHX-PROD-01', 'ON', 'AHV', lay(33, 1, 64, 2), lay(2, 17, 64, 2), P1, [R.straddle(33), R.uneven(33, 34)]),
+      f('test-runner-02', 'PHX-PROD-01', 'ON', 'AHV', lay(3, 16, 16, 3), lay(2, 24, 16, 2), P1, [R.mismatch()]),
+      f('app-57', 'PHX-PROD-02', 'ON', 'AHV', lay(1, 36, 16, 0), lay(2, 18, 16, 2), P2, [R.smaller('phx-prod-02-n10', 'phx-prod-02-n1')], { mixed: true, sized_for: 'phx-prod-02-n1' }),
+      f('test-runner-01', 'PHX-PROD-01', 'ON', 'AHV', lay(8, 1, 16, 2), lay(8, 1, 16, 0), P1, [R.notNeeded()]),
+      f('test-runner-79', 'PHX-DR-01', 'ON', 'AHV', lay(8, 1, 16, 2), lay(8, 1, 16, 0), DR, [R.notNeeded()]),
+    ];
+    const reviewOf = (findings) => {
+      const count = (s) => findings.filter((x) => x.severity === s).length;
+      const summary = { reviewed: 1214, to_optimize: findings.length, clean: 1214 - findings.length, high: count('high'), medium: count('medium'), low: count('low'), not_checked: 0, powered_off: 99 };
+      const n = findings.length;
+      return {
+        reviews: [{
+          id: 'vm_compute', title: 'VM compute', description: 'vCPU and memory layouts that don’t fit their hosts’ NUMA layout.',
+          headline: n ? `${n} VM${n === 1 ? '' : 's'} to review` : 'Nothing to review', count: n,
+          severity: summary.high ? 'high' : summary.medium ? 'medium' : summary.low ? 'low' : null, reviewed: summary.reviewed,
+        }],
+        vm_compute: {
+          summary,
+          findings,
+          not_checked: [],
+          assumptions: ['One NUMA node per CPU socket (Nutanix APIs report no NUMA node count).', 'Powered-off VMs are checked against the smallest host in their cluster.'],
+        },
+      };
+    };
+    const withSecond = (r) => ({
+      ...r,
+      reviews: [...r.reviews, {
+        id: 'sample', title: 'Sample review', description: 'A placeholder second review for the card grid.',
+        headline: 'Nothing to review', count: 0, severity: null, reviewed: r.vm_compute.summary.reviewed,
+      }],
+    });
+    window.ntnx.getOptimization = (p) => {
+      if (!snapshots.some((s) => s.path === p)) return fail('Snapshot not found');
+      const r = reviewOf(opt.optimization === 'clean' ? [] : FINDINGS);
+      return delay(() => (opt.optimization === 'cards' ? withSecond(r) : r));
+    };
+  })();
+
+  // ── Insights > Metrics (getMetrics / cancelMetrics) ──────────────────
+  // Options: metrics: 'ok' (default) | 'loading' (never answers) | 'error' | 'trendsLoading'
+  // (cards answer, trends never) | 'trendsError' | 'partial' (a source failed: notes).
+  // Every getMetrics request is counted in window.__metricsCalls (part and refresh) so a
+  // screen can check what auto refresh asked for.
+  // Three clusters: PHX-PROD-02 grows in storage (80% in about six weeks), PHX-PROD-01 in
+  // memory, AMS-EDGE-02 is flat and healthy. Shapes as in docs/IPC_CONTRACT.md "metrics".
+  {
+    const DAY = 86_400_000;
+    const TB = 1024 ** 4;
+    const mopt = opt.metrics || 'ok';
+    const unit = (s) => {
+      let h = 2166136261;
+      for (const ch of String(s)) h = Math.imul(h ^ ch.charCodeAt(0), 16777619);
+      return ((h >>> 0) % 10000) / 10000;
+    };
+    const MC = [
+      { uuid: 'c-phx-prod-01', name: 'PHX-PROD-01', hv: 'AHV', nodes: 8, aos: '6.10.1', cpu: [34, 0], mem: [63, 0.11], sto: [48, 0.02], cap: 184 * TB, cores: 384, memB: 6 * TB, crit: 2, warn: 9 },
+      { uuid: 'c-phx-prod-02', name: 'PHX-PROD-02', hv: 'AHV', nodes: 12, aos: '7.0', cpu: [41, 0.03], mem: [49, 0], sto: [69.5, 0.26], cap: 276 * TB, cores: 576, memB: 9 * TB, crit: 1, warn: 6 },
+      { uuid: 'c-ams-edge-02', name: 'AMS-EDGE-02', hv: 'ESXi', nodes: 2, aos: '6.10', cpu: [26, 0], mem: [52, 0], sto: [37, 0], cap: 46 * TB, cores: 96, memB: 1.5 * TB, crit: 0, warn: 0 },
+    ];
+    const today = Date.now() - (Date.now() % DAY);
+    const val = (c, key, daysAgo) => {
+      const [level, growth] = c[key];
+      const noise = (unit(`${c.uuid}${key}${daysAgo}`) - 0.5) * (key === 'cpu' ? 3 : 1);
+      const weekly = key === 'cpu' ? 4 * Math.sin((2 * Math.PI * daysAgo) / 7) : 0;
+      return Math.round(Math.max(1, Math.min(99, level - growth * daysAgo + noise + weekly)) * 100) / 100;
+    };
+    const fit = (pts) => {
+      const n = pts.length;
+      const mx = pts.reduce((a, p) => a + p[0], 0) / n;
+      const my = pts.reduce((a, p) => a + p[1], 0) / n;
+      const sxx = pts.reduce((a, p) => a + (p[0] - mx) ** 2, 0);
+      const sxy = pts.reduce((a, p) => a + (p[0] - mx) * (p[1] - my), 0);
+      const slope = sxx ? sxy / sxx : 0;
+      const sst = pts.reduce((a, p) => a + (p[1] - my) ** 2, 0);
+      const ssr = pts.reduce((a, p) => a + (p[1] - (my + slope * (p[0] - mx))) ** 2, 0);
+      return { slope, r2: sst ? Math.max(0, 1 - ssr / sst) : 1 };
+    };
+    const iso = (ms) => new Date(ms).toISOString().slice(0, 10);
+    const runway = (t, values, days) => {
+      const end = t[t.length - 1];
+      const pts = t.map((x, i) => [(x - end) / DAY, values[i]]).filter((p) => p[0] >= -days && p[1] !== null);
+      const start = pts.slice(-3).reduce((a, p) => a + p[1], 0) / Math.min(3, pts.length);
+      const { slope, r2 } = fit(pts);
+      const status = slope >= 0.01 ? 'growing' : 'no_growth';
+      const thresholds = [80, 100].map((pct) => {
+        if (start >= pct) return { pct, state: 'reached', days: 0, date: iso(end) };
+        if (status !== 'growing') return { pct, state: 'never', days: null, date: null };
+        const d = Math.ceil((pct - start) / slope);
+        return d > 1825 ? { pct, state: 'beyond', days: null, date: null } : { pct, state: 'projected', days: d, date: iso(end + d * DAY) };
+      });
+      return { status, window_days: days, points: pts.length, current: Math.round(start * 100) / 100, slope_per_day: Math.round(slope * 10000) / 10000, r2: Math.round(r2 * 1000) / 1000, thresholds };
+    };
+    const runways = (tr) => Object.fromEntries([30, 60, 90].map((d) => [String(d), { cpu: runway(tr.t, tr.cpu_pct, d), memory: runway(tr.t, tr.memory_pct, d), storage: runway(tr.t, tr.storage_pct, d) }]));
+    const trendsOf = (c) => {
+      const t = [];
+      for (let d = 89; d >= 0; d -= 1) t.push(today - d * DAY);
+      const ago = (x) => Math.round((today - x) / DAY);
+      return {
+        t,
+        cpu_pct: t.map((x) => val(c, 'cpu', ago(x))),
+        memory_pct: t.map((x) => val(c, 'mem', ago(x))),
+        storage_pct: t.map((x) => val(c, 'sto', ago(x))),
+        storage_used_bytes: t.map((x) => Math.round((c.cap * val(c, 'sto', ago(x))) / 100)),
+        iops: t.map((x) => Math.round(380 * c.nodes * (0.7 + 0.6 * unit(`${c.uuid}io${ago(x)}`)))),
+        latency_usecs: t.map((x) => Math.round((c.hv === 'ESXi' ? 1300 : 650) * (0.8 + 0.5 * unit(`${c.uuid}lat${ago(x)}`)))),
+      };
+    };
+    const VMS = ['sql-prod-01', 'k8s-worker-07', 'exch-mbx-02', 'vdi-gold-image', 'erp-app-03', 'k8s-worker-12', 'elk-data-01', 'jenkins-agent-4', 'citrix-ddc-01', 'web-front-09'];
+    const vm = (c, i) => ({
+      uuid: `${c.uuid}-vm${i}`,
+      name: `${c.name.toLowerCase().slice(0, 3)}-${VMS[i % VMS.length]}`,
+      cluster_uuid: c.uuid,
+      cpu_pct: Math.round((88 - i * 13 - unit(c.uuid + i) * 6) * 100) / 100,
+      memory_pct: Math.round((91 - i * 9 - unit(c.uuid + 'm' + i) * 5) * 100) / 100,
+      iops: Math.round(2400 / (i + 1) - unit(c.uuid + 'i' + i) * 50),
+      latency_usecs: Math.round(5200 / (i + 1) + 300),
+      vcpus: [16, 8, 8, 4, 4][i],
+      memory_bytes: [64, 32, 48, 16, 16][i] * GB,
+    });
+    const top = (c) => {
+      const rows = [0, 1, 2, 3, 4].map((i) => vm(c, i));
+      const by = (f) => [...rows].sort((a, b) => b[f] - a[f]);
+      return { cpu: by('cpu_pct'), memory: by('memory_pct'), iops: by('iops'), latency: by('latency_usecs') };
+    };
+    const nodes = (c) =>
+      Array.from({ length: c.nodes }, (_, i) => ({
+        uuid: `${c.uuid}-n${i + 1}`,
+        name: `${c.name.toLowerCase()}-n${i + 1}`,
+        status: c.crit && i === 2 ? 'warn' : 'ok',
+        node_state: 'NORMAL',
+        maintenance: !!(c.crit && i === 2),
+        degraded: false,
+        cvm_ip: `10.20.${MC.indexOf(c)}.${31 + i}`,
+        cvm_status: 'ok',
+        metadata_store: 'Normal mode',
+        cpu_pct: Math.round((c.cpu[0] + (unit(c.uuid + 'n' + i) - 0.5) * 10) * 100) / 100,
+        memory_pct: Math.round((c.mem[0] + (unit(c.uuid + 'nm' + i) - 0.5) * 6) * 100) / 100,
+        num_vms: 18 + Math.round(unit(c.uuid + 'v' + i) * 20),
+      }));
+    const nics = (c) =>
+      nodes(c).flatMap((n, i) =>
+        [0, 1, 2, 3].map((k) => ({
+          host: n.name,
+          name: c.hv === 'ESXi' ? `vmnic${k}` : `eth${k}`,
+          link_speed_kbps: k < 2 ? 25_000_000 : 10_000_000,
+          rx_kBps: k % 2 === 0 ? Math.round(18000 * unit(n.uuid + 'rx' + k)) : 0,
+          tx_kBps: k % 2 === 0 ? Math.round(12000 * unit(n.uuid + 'tx' + k)) : 0,
+          rx_errors: c.crit && i === 0 && k === 0 ? 3 : 0,
+          tx_errors: 0,
+          rx_dropped: c.crit && i === 0 && k === 0 ? 12 : 0,
+          tx_dropped: 0,
+        })),
+      );
+    const ALERTS = ['Disk failure detected on {h}', 'Host {h} is down', 'CVM {h} rebooted', 'Boot RAID volumes degraded on CVM {h}'];
+    const alerts = [];
+    MC.forEach((c, ci) => {
+      for (let i = 0; i < c.crit; i += 1) {
+        alerts.push({ id: `a-${c.uuid}-${i}`, title: ci === 0 ? ALERTS[0].replace('{h}', `${c.name.toLowerCase()}-n3`) : ALERTS[(ci + i) % ALERTS.length].replace('{h}', `${c.name.toLowerCase()}-n${i + 3}`), severity: 'critical', cluster_uuid: c.uuid, cluster_name: c.name, source: `${c.name.toLowerCase()}-n${i + 3}`, source_type: 'node', created_at: new Date(Date.now() - (ci * 7 + i * 3 + 2) * 3600_000).toISOString(), acknowledged: i % 2 === 1, impact: 'Availability' });
+      }
+    });
+    alerts.sort((a, b) => b.created_at.localeCompare(a.created_at));
+    const cluster = (c) => {
+      const tr = trendsOf(c);
+      const sto = tr.storage_pct[tr.storage_pct.length - 1];
+      const used = Math.round((c.cap * sto) / 100);
+      const ns = nodes(c);
+      const nw = nics(c);
+      const sum = (k) => nw.reduce((a, n) => a + (n[k] ?? 0), 0);
+      const reasons = [];
+      if (c.crit) reasons.push(`${c.crit} critical alert${c.crit === 1 ? '' : 's'}`);
+      const status = c.crit ? 'critical' : c.warn ? 'warning' : 'ok';
+      if (!c.crit && c.warn) reasons.push(`${c.warn} warnings`);
+      return {
+        uuid: c.uuid, name: c.name, aos_version: c.aos, hypervisors: [c.hv], num_nodes: c.nodes,
+        health: { status, reasons, critical_alerts: c.crit, warning_alerts: c.warn, nodes_total: ns.length, nodes_ok: ns.length, resiliency: { current: c.nodes >= 8 ? 2 : 1, desired: c.nodes >= 8 ? 2 : 1, ok: true, kind: 'fault_tolerance' } },
+        utilization: { cpu_pct: tr.cpu_pct[89], memory_pct: tr.memory_pct[89], storage_pct: sto },
+        capacity: {
+          cpu_count: c.cores, memory_bytes: c.memB, storage_used_bytes: used, storage_capacity_bytes: c.cap, storage_free_bytes: c.cap - used,
+          storage_logical_bytes: Math.round(used * 1.45), redundancy_factor: c.nodes >= 8 ? 3 : 2,
+          usable_bytes: Math.round((c.cap * 0.95) / (c.nodes >= 8 ? 3 : 2)), usable_free_bytes: Math.round((c.cap * 0.95 - used) / (c.nodes >= 8 ? 3 : 2)),
+        },
+        performance: { iops: tr.iops[89], read_iops: Math.round(tr.iops[89] * 0.38), write_iops: Math.round(tr.iops[89] * 0.62), latency_usecs: tr.latency_usecs[89], bandwidth_kbps: tr.iops[89] * 24 },
+        efficiency: { data_reduction_ratio: 1.45, overall_ratio: 4.8, saved_bytes: Math.round(used * 0.45), compression_ratio: 1.36, dedup_ratio: 1.07, erasure_coding_ratio: 1.0 },
+        alerts: { critical: c.crit, warning: c.warn },
+        prism_runway_days: { cpu: 365, memory: c.mem[1] ? 160 : 365, storage: c.sto[1] > 0.1 ? 41 : 365, overall: c.sto[1] > 0.1 ? 41 : c.mem[1] ? 160 : 365 },
+        nodes: ns,
+        network: { rx_kBps: sum('rx_kBps'), tx_kBps: sum('tx_kBps'), errors: sum('rx_errors') + sum('tx_errors'), dropped: sum('rx_dropped') + sum('tx_dropped'), nics: nw, links_up: nw.length },
+        top_vms: top(c),
+      };
+    };
+    const head = (part) => ({ part, host: 'pc01.example.com', version: 'pc.2024.3', collected_at: new Date(Date.now() - 8000).toISOString(), ranges: [30, 60, 90], history_days: 90, cached: false, age_seconds: 0, ttl_seconds: 120, notes: mopt === 'partial' && part === 'now' ? ['PHX-PROD-01: network of phx-prod-01-n4: HTTP 500 from https://pc01.example.com:9440/PrismGateway/services/rest/v2.0/hosts/c-phx-prod-01-n4/host_nics'] : [] });
+    const weighted = (cl, key, w) => {
+      const tw = cl.reduce((a, c) => a + w(c), 0);
+      return Math.round((cl.reduce((a, c) => a + c.utilization[key] * w(c), 0) / tw) * 100) / 100;
+    };
+    const nowResult = () => {
+      const cl = MC.map(cluster);
+      const total = (k) => cl.reduce((a, c) => a + (c.capacity[k] ?? 0), 0);
+      return {
+        ...head('now'),
+        clusters: cl,
+        total: {
+          name: 'All clusters', clusters: cl.length,
+          utilization: { cpu_pct: weighted(cl, 'cpu_pct', (c) => c.capacity.cpu_count), memory_pct: weighted(cl, 'memory_pct', (c) => c.capacity.memory_bytes), storage_pct: Math.round((total('storage_used_bytes') / total('storage_capacity_bytes')) * 10000) / 100 },
+          capacity: { storage_used_bytes: total('storage_used_bytes'), storage_capacity_bytes: total('storage_capacity_bytes'), storage_free_bytes: total('storage_free_bytes'), usable_bytes: total('usable_bytes'), usable_free_bytes: total('usable_free_bytes'), storage_logical_bytes: total('storage_logical_bytes') },
+          performance: { iops: cl.reduce((a, c) => a + c.performance.iops, 0), latency_usecs: 880 },
+          efficiency: { saved_bytes: cl.reduce((a, c) => a + c.efficiency.saved_bytes, 0) },
+          health: { critical: cl.filter((c) => c.health.status === 'critical').length, warning: 0, ok: cl.filter((c) => c.health.status === 'ok').length, nodes_total: cl.reduce((a, c) => a + c.nodes.length, 0), nodes_ok: cl.reduce((a, c) => a + c.nodes.length, 0) },
+          alerts: { critical: alerts.length, warning: cl.reduce((a, c) => a + c.alerts.warning, 0) },
+        },
+        alerts: { critical: alerts, critical_count: alerts.length + 1, warning_count: 15, listed: alerts.length },
+        sources: [
+          { card: 'Clusters', api: 'v4 clusters' },
+          { card: 'Health, alerts', api: 'v3 groups (alert) · PE v2.0 hosts, cluster' },
+          { card: 'Utilization, efficiency, performance', api: 'v3 groups (cluster)' },
+          { card: 'Trends and runway', api: 'v3 groups time series, daily, 90 days' },
+          { card: 'Top VMs', api: 'v3 groups (mh_vm)' },
+          { card: 'Nodes and CVMs', api: 'v3 groups (host) · PE v2.0 hosts' },
+          { card: 'Network', api: 'PE v2.0 host_nics' },
+        ],
+      };
+    };
+    const trendsResult = () => {
+      const rows = MC.map((c) => {
+        const tr = trendsOf(c);
+        return { uuid: c.uuid, name: c.name, trends: tr, runway: runways(tr) };
+      });
+      const w = MC.map((c) => [c.cores, c.memB, c.cap]);
+      const t = rows[0].trends.t;
+      const agg = (col, wi) => t.map((_, i) => Math.round((rows.reduce((a, r, ri) => a + r.trends[col][i] * w[ri][wi], 0) / w.reduce((a, x) => a + x[wi], 0)) * 100) / 100);
+      const iops = t.map((_, i) => rows.reduce((a, r) => a + r.trends.iops[i], 0));
+      const lat = t.map((_, i) => Math.round(rows.reduce((a, r) => a + r.trends.latency_usecs[i] * r.trends.iops[i], 0) / iops[i]));
+      const tot = { t, cpu_pct: agg('cpu_pct', 0), memory_pct: agg('memory_pct', 1), storage_pct: agg('storage_pct', 2), iops, latency_usecs: lat };
+      return { ...head('trends'), clusters: rows, total: { name: 'All clusters', trends: tot, runway: runways(tot) } };
+    };
+    const never = () => new Promise(() => {});
+    Object.assign(window.ntnx, {
+      getMetrics: (req) => {
+        (window.__metricsCalls ||= []).push({ part: req.part, refresh: !!req.refresh });
+        if (mopt === 'loading') return never();
+        if (mopt === 'error' && req.part === 'now') return fail('Could not reach Prism Central at pc01.example.com:9440 (connection timed out)');
+        if (req.part === 'trends') {
+          if (mopt === 'trendsLoading') return never();
+          if (mopt === 'trendsError') return fail('Prism Central did not answer within 150 seconds. Try Refresh.');
+          return delay(trendsResult, 250);
+        }
+        return delay(nowResult, 80);
+      },
+      cancelMetrics: () => delay({ cancelled: true }, 5),
+    });
+  }
+  // ── end Insights > Metrics ───────────────────────────────────────────
 })();

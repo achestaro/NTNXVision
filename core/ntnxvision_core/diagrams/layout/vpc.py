@@ -19,7 +19,19 @@ from typing import Any
 
 from .. import text as tx
 from .. import tokens as K
-from ..build import CHIP_H, Row, box, chip, edge, legend, measure, place_lines, text_h, trunk_list
+from ..build import (
+    CHIP_H,
+    LEGEND_GAP,
+    Row,
+    box,
+    chip,
+    edge,
+    legend,
+    measure,
+    place_lines,
+    text_h,
+    trunk_list,
+)
 from ..netcommon import (
     MAX_AZ_FIGURES,
     MAX_PARTS,
@@ -249,8 +261,8 @@ def _scene(site: VSite, rows: list[list[VVpc]], part: tuple[int, int], level: in
         bottom = col_bottom
     cont.h = q(bottom + P - cont.y)
     y = cont.y + cont.h
-    lh = legend(sc, _legend_items(site, vpcs, exts), MX, y + 9, width - 2 * MX)
-    sc.height = q(y + 9 + lh + 1)
+    lh = legend(sc, _legend_items(site, vpcs, exts), MX, y + LEGEND_GAP, width - 2 * MX)
+    sc.height = q(y + LEGEND_GAP + lh + 1)
     where = site.name + (f", part {part[0]} of {part[1]}" if part[1] > 1 else "")
     sc.caption = (f"Flow virtual networking design, {where}: external subnets, VPCs, "
                   "overlay subnets and floating IPs.")
@@ -302,9 +314,6 @@ def _legend_items(site: VSite, vpcs: list[VVpc], exts: dict[str, ExtNet]
         items.append(("line", K.NAT_LINK, "NAT"))
     if any(v.fips for v in real):
         items.append(("box", K.EXTERNAL, "Floating IPs"))
-    if any(e.kind == "user" for e in site.externals) or \
-            any(o.kind == "user" for v in real for o in v.overlays):
-        items.append(("box", K.USER, "Added on the Diagrams page"))
     return items
 
 

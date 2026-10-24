@@ -19,6 +19,10 @@ export type Route =
   | { screen: 'compare'; baseline?: string; current?: string }
   /** `snapshot`: its path; `type` / `part`: the diagram to open. */
   | { screen: 'diagrams'; snapshot?: string; type?: string; part?: number }
+  /** `target`: a saved target id to show live metrics for. */
+  | { screen: 'metrics'; target?: string }
+  /** `snapshot`: its path; findings are computed from the snapshot. */
+  | { screen: 'optimization'; snapshot?: string }
   | { screen: 'settings' }
   | { screen: 'legal' };
 

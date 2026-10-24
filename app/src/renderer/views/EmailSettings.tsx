@@ -165,10 +165,25 @@ export function EmailSettingsPanel(): JSX.Element {
     }
   };
 
-  const trustCertificate = (fingerprint: string) => {
-    setForm((f) => ({ ...f, pinnedSha256: fingerprint.replace(/:/g, '').toLowerCase() }));
-    setPinnedFor({ host: form.host.trim(), port: Number(form.port), security: form.security });
+  const trustCertificate = async (fingerprint: string) => {
+    const pin = fingerprint.replace(/:/g, '').toLowerCase();
+    const server = { host: form.host.trim(), port: Number(form.port), security: form.security };
+    setForm((f) => ({ ...f, pinnedSha256: pin }));
+    setPinnedFor(server);
     setTest(null);
+    // Schedules and the Email dialog read only the saved settings: for the saved server the
+    // pin is stored now, so it never waits on a Save the user may not make.
+    try {
+      const r = await window.ntnx.trustSmtpCertificate({ ...server, fingerprint });
+      if (r.ok) {
+        setSaved(r.settings);
+        setPinnedFor(null);
+        toast.show({ tone: 'ok', title: 'Certificate trusted', detail: 'Saved. Scheduled and emailed reports use it now.' });
+        return;
+      }
+    } catch {
+      /* falls back to keeping it in the form */
+    }
     toast.show({ tone: 'ok', title: 'Certificate trusted', detail: 'Save the email settings to keep it.' });
   };
 
@@ -421,7 +436,7 @@ export function EmailSettingsPanel(): JSX.Element {
                     tone={form.pinnedSha256 ? 'error' : 'warn'}
                     title={form.pinnedSha256 ? `The certificate for ${form.host.trim()} changed.` : `Trust the certificate of ${form.host.trim()}?`}
                     actions={
-                      <Button size="sm" variant="primary" onClick={() => trustCertificate(test.result.certificate!.fingerprint_sha256)} data-testid="smtp-trust">
+                      <Button size="sm" variant="primary" onClick={() => void trustCertificate(test.result.certificate!.fingerprint_sha256)} data-testid="smtp-trust">
                         Trust this certificate
                       </Button>
                     }

@@ -133,3 +133,66 @@ test('a route reset and a dropped end side are checked', () => {
   assert.throws(() => asDiagramOps([{ op: 'edge', id: 'e', ends: ['x', 'y'], field: 'route', value: 'left' }]));
   assert.throws(() => asDiagramOps([{ op: 'edge', id: 'e', ends: ['x', 'y'], field: 'a', value: 'z', side: 'up' }]));
 });
+
+test('the Legend switch is a remembered setting', () => {
+  const { cleanSettings } = require('../dist/main/requests.js');
+  assert.deepEqual(cleanSettings({ diagramLegend: false }), { diagramLegend: false });
+  assert.deepEqual(cleanSettings({ diagramLegend: null }), { diagramLegend: undefined });
+  assert.throws(() => cleanSettings({ diagramLegend: 'off' }));
+});
+
+test('arrowhead shapes and the canvas view settings are checked', () => {
+  const { cleanSettings } = require('../dist/main/requests.js');
+  const [start, end] = asDiagramOps([
+    { op: 'edge', id: 'flow:a->b', ends: ['x', 'y'], field: 'head_start', value: 'circle' },
+    { op: 'edge', id: 'user:1', ends: ['x', 'y'], field: 'head_end', value: 'none' },
+  ]);
+  assert.deepEqual(start, { op: 'edge', id: 'flow:a->b', ends: ['x', 'y'], field: 'head_start', value: 'circle' });
+  assert.equal(end.value, 'none');
+  assert.throws(() => asDiagramOps([{ op: 'edge', id: 'e', ends: ['x', 'y'], field: 'head_end', value: 'star' }]));
+  assert.deepEqual(cleanSettings({ diagramGrid: 'dots', diagramCanvas: 'transparent' }), { diagramGrid: 'dots', diagramCanvas: 'transparent' });
+  assert.deepEqual(cleanSettings({ diagramGrid: null }), { diagramGrid: undefined });
+  assert.throws(() => cleanSettings({ diagramGrid: 'hex' }));
+  assert.throws(() => cleanSettings({ diagramCanvas: 'black' }));
+});
+
+test('placed icons, their moves and text edits are checked', () => {
+  const [place, move, text, back] = asDiagramOps([
+    { op: 'place', id: 'user:i1', icon: 'az', scene: 'flow-DC1', x: 10, y: 20.5, w: 200, label: 'Colo', sub: null, evil: 1 },
+    { op: 'position', id: 'user:i1', x: 40, y: 60, h: 90, icon: 'x' },
+    { op: 'text', id: 'legend:2:label', line: 0, value: 'Allowed traffic' },
+    { op: 'text', id: 'flow:a->b#0', line: 1, value: null },
+  ]);
+  assert.deepEqual(place, { op: 'place', id: 'user:i1', icon: 'az', scene: 'flow-DC1', x: 10, y: 20.5, w: 200, label: 'Colo', sub: null });
+  assert.deepEqual(move, { op: 'position', id: 'user:i1', x: 40, y: 60, h: 90 });
+  // Left of / above the generated layout: negative coordinates pass.
+  assert.deepEqual(asDiagramOps([{ op: 'position', id: 'user:i1', x: -120, y: -8.5 }])[0], { op: 'position', id: 'user:i1', x: -120, y: -8.5 });
+  assert.deepEqual(text, { op: 'text', id: 'legend:2:label', line: 0, value: 'Allowed traffic' });
+  assert.deepEqual(back, { op: 'text', id: 'flow:a->b#0', line: 1, value: null });
+  const bad = [
+    { op: 'place', id: 'i1', icon: 'az', scene: 's', x: 1, y: 1 },
+    { op: 'place', id: 'user:i1', icon: 'az', scene: 's', x: -20001, y: 1 },
+    { op: 'place', id: 'user:i1', icon: 'az', scene: 's', x: 1, y: 1, w: 99999 },
+    { op: 'position', id: 'user:i1', x: 'a', y: 1 },
+    { op: 'text', id: 'n', line: 1.5, value: 'x' },
+    { op: 'text', id: 'n', line: 0, value: 'x'.repeat(201) },
+  ];
+  for (const v of bad) assert.throws(() => asDiagramOps([v]), undefined, JSON.stringify(v));
+});
+
+test('nesting a placed icon: parent and wraps are checked', () => {
+  const [into, out, wrap] = asDiagramOps([
+    { op: 'place', id: 'user:n', icon: 'nic', scene: 's', x: 1, y: 1, parent: 'user:node' },
+    { op: 'position', id: 'user:n', x: 5, y: 6, parent: null },
+    { op: 'position', id: 'user:dc', x: 0, y: 0, wraps: ['site:pc01.example.lab'] },
+  ]);
+  assert.equal(into.parent, 'user:node');
+  assert.deepEqual(out, { op: 'position', id: 'user:n', x: 5, y: 6, parent: null });
+  assert.deepEqual(wrap.wraps, ['site:pc01.example.lab']);
+  for (const v of [
+    { op: 'position', id: 'user:n', x: 1, y: 1, parent: 3 },
+    { op: 'position', id: 'user:n', x: 1, y: 1, wraps: 'site:a' },
+    { op: 'position', id: 'user:n', x: 1, y: 1, wraps: Array(17).fill('site:a') },
+  ])
+    assert.throws(() => asDiagramOps([v]), undefined, JSON.stringify(v));
+});

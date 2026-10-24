@@ -384,6 +384,8 @@ def _export_options(params: dict[str, Any]) -> dict[str, Any]:
         "author": word.get("author") or "",
         "vcpu_ratio": params.get("vcpu_ratio"),
         "diagrams_package": "folder" if params.get("diagrams_package") == "folder" else "zip",
+        # The Diagrams page's Legend switch (unset: drawn).
+        "diagram_legend": params.get("diagram_legend") is not False,
     }
 
 
@@ -1174,7 +1176,8 @@ def _m_export_diagram(_req_id: Any, params: dict[str, Any]) -> dict[str, Any]:
     t = _diagram_call(lambda: diagram_store.dtype(_diagram_type(params)))
     if not t.applies(env):
         raise NutanixApiError(f"This snapshot has no {t.title.lower()}.")
-    options = _with_diagram_edits({**_export_options({}), "chapters": [t.chapter]},
+    options = _with_diagram_edits({**_export_options(
+        {"diagram_legend": params.get("diagram_legend")}), "chapters": [t.chapter]},
                                   snap_path, env)
     scenes = [sc for sc in report_scenes(env, options) if sc.type == t.id]
     if not scenes:
@@ -1967,3 +1970,38 @@ _METHODS = {
     "export_preview": _m_export_preview,
     "export_diagram": _m_export_diagram,
 }
+
+
+# ─── Insights > Optimization ───────────────────────────────────────────
+
+
+def _m_optimization(_req_id: Any, params: dict[str, Any]) -> dict[str, Any]:
+    """The optimization reviews of one snapshot (`analysis.compute_optimizer`)."""
+    from ntnxvision_core.analysis.compute_optimizer import optimization_reviews
+
+    path = _resolve_snapshot_path(params["snapshot"])
+    return optimization_reviews(_cache.get(path))
+
+
+_METHODS["optimization"] = _m_optimization
+
+# ─── Insights > Metrics (live dashboard of a saved target) ────────────
+# One self-contained block: the `metrics` operation (worker pool) and `cancel_metrics`
+# (answered inline, like `cancel_run`). Contract: docs/IPC_CONTRACT.md, "metrics".
+
+
+def _m_metrics(_req_id: Any, params: dict[str, Any]) -> dict[str, Any]:
+    from ntnxvision_core.metrics import get_metrics
+
+    return get_metrics(params)
+
+
+def _m_cancel_metrics(_req_id: Any, params: dict[str, Any]) -> dict[str, Any]:
+    from ntnxvision_core.metrics import cancel
+
+    return {"cancelled": cancel(params.get("request_id"))}
+
+
+_METHODS.update({"metrics": _m_metrics, "cancel_metrics": _m_cancel_metrics})
+_INLINE_METHODS.add("cancel_metrics")
+# ─── end Insights > Metrics ───────────────────────────────────────────

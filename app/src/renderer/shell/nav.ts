@@ -4,8 +4,10 @@ import {
   ArchiveIcon,
   ArrowsDownUpIcon,
   CalendarCheckIcon,
+  ChartLineUpIcon,
   DownloadSimpleIcon,
   GearSixIcon,
+  LightbulbIcon,
   SquaresFourIcon,
   StackIcon,
   TableIcon,
@@ -43,6 +45,13 @@ export const NAV_GROUPS: { label: string; items: NavItem[] }[] = [
       { screen: 'snapshots', label: 'Snapshots', icon: ArchiveIcon, key: 's' },
       { screen: 'diagrams', label: 'Diagrams', icon: TreeStructureIcon, key: 'd' },
       { screen: 'compare', label: 'Compare', icon: ArrowsDownUpIcon, key: 'c' },
+    ],
+  },
+  {
+    label: 'Insights',
+    items: [
+      { screen: 'metrics', label: 'Metrics', icon: ChartLineUpIcon, key: 'u' },
+      { screen: 'optimization', label: 'Optimization', icon: LightbulbIcon, key: 'p' },
     ],
   },
 ];

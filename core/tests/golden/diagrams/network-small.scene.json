@@ -258,7 +258,7 @@
    }
   }
  ],
- "height": 263.82,
+ "height": 264.82,
  "id": "network-a",
  "meta": {
   "group": "profile:67025c1055ad",
@@ -1107,7 +1107,7 @@
   },
   {
    "data": {},
-   "h": 7.5,
+   "h": 4.2,
    "id": "legend:0",
    "kind": "swatch",
    "lines": [],
@@ -1119,23 +1119,23 @@
     "stroke": "#5B3FD9",
     "stroke_w": 0.75
    },
-   "w": 17,
+   "w": 7.7,
    "x": 0.5,
-   "y": 253.32
+   "y": 250.22
   },
   {
    "data": {},
-   "h": 10.5,
+   "h": 7.0,
    "id": "legend:0:label",
    "kind": "label",
    "lines": [
     {
-     "baseline": 7.35,
+     "baseline": 5.67,
      "bold": false,
      "color": "#3E4C59",
-     "size": 6.0,
+     "size": 6.2,
      "text": "Virtual switch",
-     "width": 36.81,
+     "width": 38.04,
      "x": 0.0
     }
    ],
@@ -1147,13 +1147,13 @@
     "stroke": null,
     "stroke_w": 0.75
    },
-   "w": 40.02,
-   "x": 21.5,
-   "y": 251.82
+   "w": 41.32,
+   "x": 10.7,
+   "y": 248.82
   },
   {
    "data": {},
-   "h": 7.5,
+   "h": 4.2,
    "id": "legend:1",
    "kind": "swatch",
    "lines": [],
@@ -1165,23 +1165,23 @@
     "stroke": "#3E4C59",
     "stroke_w": 0.68
    },
-   "w": 17,
-   "x": 75.52,
-   "y": 253.32
+   "w": 7.7,
+   "x": 0.5,
+   "y": 257.72
   },
   {
    "data": {},
-   "h": 10.5,
+   "h": 7.0,
    "id": "legend:1:label",
    "kind": "label",
    "lines": [
     {
-     "baseline": 7.35,
+     "baseline": 5.67,
      "bold": false,
      "color": "#3E4C59",
-     "size": 6.0,
+     "size": 6.2,
      "text": "Bond, NIC or switch (reported)",
-     "width": 82.79,
+     "width": 85.55,
      "x": 0.0
     }
    ],
@@ -1193,9 +1193,9 @@
     "stroke": null,
     "stroke_w": 0.75
    },
-   "w": 88.76,
-   "x": 96.52,
-   "y": 251.82
+   "w": 91.69,
+   "x": 10.7,
+   "y": 256.32
   }
  ],
  "part": [

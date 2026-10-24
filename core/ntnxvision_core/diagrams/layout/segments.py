@@ -19,7 +19,7 @@ from typing import Any
 
 from .. import text as tx
 from .. import tokens as K
-from ..build import Row, box, chip, legend, measure, place_lines, text_h, trunk_list
+from ..build import LEGEND_GAP, Row, box, chip, legend, measure, place_lines, text_h, trunk_list
 from ..netcommon import (
     MAX_AZ_FIGURES,
     MAX_PARTS,
@@ -271,8 +271,6 @@ def _legend_items(cards: list[SCluster]) -> list[tuple[str, Style, str]]:
         items.append(("box", K.SEGMENT, label))
     if any(s.kind == "subnet" and s.ipam for s in segs):
         items.append(("box", K.IPAM_PILL, "Nutanix IPAM (managed)"))
-    if any(c.kind == "user" for c in cards) or "user" in kinds:
-        items.append(("box", K.USER, "Added on the Diagrams page"))
     return items
 
 
@@ -312,8 +310,8 @@ def _scene(site: SSite, rows: list[list[SCluster]], part: tuple[int, int], level
     cont.h = q(y - GAP + P - cont.y)
     y = cont.y + cont.h
     cards = [c for r in rows for c in r]
-    lh = legend(sc, _legend_items(cards), MX, y + 9, width - 2 * MX)
-    sc.height = q(y + 9 + lh + 1)
+    lh = legend(sc, _legend_items(cards), MX, y + LEGEND_GAP, width - 2 * MX)
+    sc.height = q(y + LEGEND_GAP + lh + 1)
     where = site.name + (f", part {part[0]} of {part[1]}" if part[1] > 1 else "")
     sc.caption = (f"Network segment design, {where}: virtual switches, VLANs, subnets"
                   + (" and port groups" if any(w.kind == "portgroups" for c in cards

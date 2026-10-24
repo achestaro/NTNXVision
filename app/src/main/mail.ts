@@ -6,7 +6,7 @@
 // Sending itself happens in the Python core (test_smtp / send_email): this module only
 // turns the saved settings plus the keychain password into the sidecar's `smtp` params.
 
-import type { SmtpField, SmtpSaveRequest, SmtpSaveResult, SmtpSecurity, SmtpSettings, SmtpSettingsInfo, SmtpTestRequest } from '../shared/ipc';
+import type { SmtpField, SmtpSaveRequest, SmtpSaveResult, SmtpSecurity, SmtpSettings, SmtpSettingsInfo, SmtpTestRequest, SmtpTrustRequest, SmtpTrustResult } from '../shared/ipc';
 import { DEFAULT_SMTP, SMTP_MAX_ATTACHMENT_MB, SMTP_MIN_ATTACHMENT_MB } from '../shared/ipc';
 import { isValidEmail } from '../shared/schedule';
 import { endpointHash, type SecretsIO } from './targets';
@@ -181,6 +181,27 @@ export class SmtpStore {
       };
     }
     this.io.write(next);
+    return { ok: true, settings: await this.info() };
+  }
+
+  /**
+   * Pin the certificate a test showed, straight into the saved settings. Only for the saved
+   * server (host, port, security) with untrusted certificates allowed over TLS: a pin for a
+   * server still being typed waits for Save, which binds it through `pinnedFor`.
+   */
+  async trust(req: SmtpTrustRequest): Promise<SmtpTrustResult> {
+    const saved = this.settings();
+    const pin = fingerprint(req.fingerprint);
+    const sameServer =
+      !this.io.tampered?.() &&
+      !!saved.host &&
+      str(req.host, 253).toLowerCase() === saved.host.toLowerCase() &&
+      Number(req.port) === saved.port &&
+      req.security === saved.security;
+    if (!pin || !sameServer || !saved.allowUntrusted || saved.security === 'none') {
+      return { ok: false, settings: await this.info() };
+    }
+    this.io.write({ ...saved, pinnedSha256: pin });
     return { ok: true, settings: await this.info() };
   }
 

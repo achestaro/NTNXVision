@@ -24,12 +24,17 @@ import type {
 } from '../shared/ipc';
 import {
   DIAGRAM_ARROWS,
+  DIAGRAM_CANVAS_BGS,
+  DIAGRAM_GRIDS,
+  DIAGRAM_HEADS,
   DIAGRAM_EDGE_FIELDS,
   DIAGRAM_FILE_FORMATS,
   DIAGRAM_SIDES,
   MAX_DIAGRAM_BEND,
   MAX_DIAGRAM_OPS,
   MAX_DIAGRAM_TEXT,
+  METRICS_REFRESH_MINUTES,
+  type MetricsRefreshMinutes,
 } from '../shared/ipc';
 import {
   ValidationError,
@@ -239,6 +244,11 @@ export function asTrustCertificateRequest(v: unknown): TrustCertificateRequest {
   return r as unknown as TrustCertificateRequest;
 }
 
+function refreshMinutes(v: unknown): MetricsRefreshMinutes {
+  if (!(METRICS_REFRESH_MINUTES as readonly unknown[]).includes(v)) throw new ValidationError('metricsRefreshMinutes is not a valid choice');
+  return v as MetricsRefreshMinutes;
+}
+
 /**
  * The settings the renderer may change: a fixed allowlist of keys with typed values.
  * Unknown keys are dropped. `exportDir` is checked by the caller against the folders the
@@ -257,10 +267,16 @@ export function cleanSettings(v: unknown): AppSettings {
   if ('author' in r) out.author = cleared('author') ? undefined : str(r.author, 'author', 500);
   if ('filePrefix' in r) out.filePrefix = cleared('filePrefix') ? undefined : str(r.filePrefix, 'filePrefix', 200);
   if ('exportDiagrams' in r) out.exportDiagrams = cleared('exportDiagrams') ? undefined : bool(r.exportDiagrams, 'exportDiagrams');
+  if ('diagramLegend' in r) out.diagramLegend = cleared('diagramLegend') ? undefined : bool(r.diagramLegend, 'diagramLegend');
+  if ('diagramGrid' in r) out.diagramGrid = cleared('diagramGrid') ? undefined : oneOf(r.diagramGrid, 'diagramGrid', DIAGRAM_GRIDS);
+  if ('diagramCanvas' in r) out.diagramCanvas = cleared('diagramCanvas') ? undefined : oneOf(r.diagramCanvas, 'diagramCanvas', DIAGRAM_CANVAS_BGS);
   if ('vcpuRatio' in r) out.vcpuRatio = cleared('vcpuRatio') ? undefined : num(r.vcpuRatio, 'vcpuRatio', RATIO_MIN, RATIO_MAX);
   if ('startAtLogin' in r) out.startAtLogin = bool(r.startAtLogin, 'startAtLogin');
   // Not secret: the next test email's default recipient (Settings > Email).
   if ('emailTestTo' in r) out.emailTestTo = cleared('emailTestTo') ? undefined : str(r.emailTestTo, 'emailTestTo', 320).trim();
+  if ('metricsAutoRefresh' in r) out.metricsAutoRefresh = cleared('metricsAutoRefresh') ? undefined : bool(r.metricsAutoRefresh, 'metricsAutoRefresh');
+  if ('metricsRefreshMinutes' in r)
+    out.metricsRefreshMinutes = cleared('metricsRefreshMinutes') ? undefined : refreshMinutes(r.metricsRefreshMinutes);
   if ('customSectionOrder' in r) out.customSectionOrder = bool(r.customSectionOrder, 'customSectionOrder');
   // Stored normalized: known movable ids only, every one once, missing ones appended.
   if ('sectionOrder' in r) out.sectionOrder = cleared('sectionOrder') ? undefined : normalizeSectionOrder(strArray(r.sectionOrder, 'sectionOrder', 64, 64));
@@ -269,7 +285,12 @@ export function cleanSettings(v: unknown): AppSettings {
 
 // ─── diagrams ───────────────────────────────────────────────────────────
 
-const DIAGRAM_OPS = ['set', 'move', 'add', 'delete', 'connect', 'edge'] as const;
+const DIAGRAM_OPS = ['set', 'move', 'add', 'delete', 'connect', 'edge', 'place', 'position', 'text'] as const;
+/** Placed icon coordinates and sizes, points (mirrors MAX_COORD / MAX_SIZE). */
+const DIAGRAM_COORD_MAX = 20000;
+const DIAGRAM_SIZE_MAX = 8000;
+/** Most collected frames one placed frame wraps (mirrors MAX_WRAPS). */
+const DIAGRAM_WRAPS_MAX = 16;
 const DIAGRAM_FIELDS = ['label', 'sublabel', 'role'] as const;
 const ID_MAX = 512;
 
@@ -327,6 +348,29 @@ export function asDiagramOps(v: unknown): DiagramOp[] {
       if (o.b_side !== undefined && o.b_side !== null) out.b_side = oneOf(o.b_side, `ops[${i}].b_side`, DIAGRAM_SIDES);
       return out;
     }
+    if (op === 'place' || op === 'position') {
+      if (!id.startsWith('user:') || id.length > 80) throw new ValidationError(`ops[${i}].id must start with user:`);
+      // Negative: left of / above the generated layout (the engine moves the figure).
+      const x = num(o.x, `ops[${i}].x`, -DIAGRAM_COORD_MAX, DIAGRAM_COORD_MAX);
+      const y = num(o.y, `ops[${i}].y`, -DIAGRAM_COORD_MAX, DIAGRAM_COORD_MAX);
+      const size: { w?: number; h?: number } = {};
+      if (o.w !== undefined && o.w !== null) size.w = num(o.w, `ops[${i}].w`, 4, DIAGRAM_SIZE_MAX);
+      if (o.h !== undefined && o.h !== null) size.h = num(o.h, `ops[${i}].h`, 4, DIAGRAM_SIZE_MAX);
+      // Nesting: the icon or collected element it goes into (null: free again), the
+      // collected frames a placed frame wraps.
+      const nest: { parent?: string | null; wraps?: string[] } = {};
+      if (o.parent !== undefined) nest.parent = o.parent === null || o.parent === '' ? null : str(o.parent, `ops[${i}].parent`, ID_MAX);
+      if (o.wraps !== undefined) nest.wraps = strArray(o.wraps, `ops[${i}].wraps`, DIAGRAM_WRAPS_MAX, ID_MAX);
+      if (op === 'position') return { op, id, x, y, ...size, ...nest };
+      const out: DiagramOp = { op, id, icon: str(o.icon, `ops[${i}].icon`, 200), scene: str(o.scene, `ops[${i}].scene`, 200), x, y, ...size, ...nest };
+      if (o.label !== undefined) out.label = o.label === null ? null : str(o.label, `ops[${i}].label`, MAX_DIAGRAM_TEXT);
+      if (o.sub !== undefined) out.sub = o.sub === null ? null : str(o.sub, `ops[${i}].sub`, MAX_DIAGRAM_TEXT);
+      return out;
+    }
+    if (op === 'text') {
+      const value = o.value === null || o.value === undefined ? null : str(o.value, `ops[${i}].value`, MAX_DIAGRAM_TEXT);
+      return { op, id, line: int(o.line, `ops[${i}].line`, 0, 63), value };
+    }
     if (op === 'edge') {
       if (!Array.isArray(o.ends) || o.ends.length !== 2) throw new ValidationError(`ops[${i}].ends must name two elements`);
       const ends: [string, string] = [str(o.ends[0], `ops[${i}].ends`, ID_MAX), str(o.ends[1], `ops[${i}].ends`, ID_MAX)];
@@ -336,6 +380,7 @@ export function asDiagramOps(v: unknown): DiagramOp[] {
       else if (field === 'label') value = o.value === null || o.value === undefined ? null : str(o.value, `ops[${i}].value`, MAX_DIAGRAM_TEXT);
       else if (field === 'a_side' || field === 'b_side') value = oneOf(o.value, `ops[${i}].value`, DIAGRAM_SIDES);
       else if (field === 'arrow') value = oneOf(o.value, `ops[${i}].value`, DIAGRAM_ARROWS);
+      else if (field === 'head_start' || field === 'head_end') value = oneOf(o.value, `ops[${i}].value`, DIAGRAM_HEADS);
       else if (field === 'bend') value = num(o.value, `ops[${i}].value`, -MAX_DIAGRAM_BEND, MAX_DIAGRAM_BEND);
       else if (field === 'route') value = oneOf(o.value, `ops[${i}].value`, ['auto'] as const);
       else value = bool(o.value, `ops[${i}].value`);

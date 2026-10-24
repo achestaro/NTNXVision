@@ -83,6 +83,8 @@ const app = await electron.launch({
     NTNXVISION_KEYCHAIN: 'memory',
     NTNXVISION_E2E_DIALOG_DIR: transferDir,
     NTNXVISION_DEMO_LATENCY_MS: process.env.NTNXVISION_DEMO_LATENCY_MS ?? '15',
+    // Test hook (unpackaged only): Metrics auto refresh every 4 s instead of minutes.
+    NTNXVISION_METRICS_REFRESH_MS: '4000',
   },
   timeout: 60_000,
 });
@@ -918,6 +920,29 @@ try {
     await expectDetailValue('Target ratio', '4.0 : 1 (default)', 'AMS-EDGE-02 target');
   });
 
+  // ── Insights > Optimization: the real sidecar `optimization` on the demo snapshot ──
+  await run('optimization-vm-compute', async () => {
+    await rail('Optimization');
+    // The only review opens directly, with no way back to a one-card list.
+    await page.getByRole('heading', { level: 1, name: 'VM compute' }).waitFor({ timeout: 30_000 });
+    await page.locator('tbody tr button.lnk').first().waitFor({ timeout: 30_000 });
+    if (await page.getByRole('button', { name: 'All reviews' }).count()) throw new Error('"All reviews" shown with a single review');
+    const first = (await page.locator('thead th').first().innerText()).trim().toLowerCase();
+    if (first !== 'cluster') throw new Error(`first findings column is "${first}", not Cluster`);
+    for (const sev of ['High', 'Medium', 'Low']) await page.locator('tbody td', { hasText: new RegExp(`^${sev}$`) }).first().waitFor({ timeout: 15_000 });
+    const vm = (await page.locator('tbody tr button.lnk').first().innerText()).trim();
+    await page.locator('tbody tr button.lnk').first().click();
+    const detail = page.locator('#opt-detail');
+    await detail.getByText('Recommended').waitFor({ timeout: 15_000 });
+    await uxShot('optimization-vm-compute');
+    // The VM's Inventory deep link opens it selected, with its details.
+    await detail.getByRole('button', { name: /Open in Inventory/ }).click();
+    await page.getByRole('heading', { level: 1, name: 'Virtual machines' }).waitFor({ timeout: 30_000 });
+    await page.getByText('VM details').waitFor({ timeout: 30_000 });
+    await expectExpanded(vm, true);
+    await page.keyboard.press('Escape');
+  });
+
   await run('compare', async () => {
     await rail('Compare');
     await page.getByText(/What changed/).first().waitFor({ timeout: 30_000 });
@@ -1070,6 +1095,8 @@ try {
   const order = () => page.locator('.dg-order .mono').innerText();
   let generatedDocx = '';
   let editedDocx = '';
+  // The connector whose arrowheads the context menu changes (checked after reload and in the SVG).
+  let arrowConn = '';
 
   await run('diagrams-open', async () => {
     await rail('Diagrams');
@@ -1077,13 +1104,14 @@ try {
     await page.locator('#dg-snap').selectOption({ label: (await page.locator('#dg-snap option', { hasText: 'pc01-week1' }).first().innerText()).trim() });
     await page.locator('.dg-sheet svg').waitFor({ timeout: 60_000 });
     await page.getByRole('button', { name: /Solution conceptual overview/ }).first().waitFor();
-    await page.getByText('No unsaved changes').waitFor();
+    await page.getByTestId('dg-dirty').waitFor({ state: 'detached' }); // nothing to save: no save state shown
     generatedDocx = await exportWordFromDiagrams();
   });
 
   await run('diagrams-rename', async () => {
     const card = el('cluster:').first();
-    await card.dblclick();
+    // Double-click its name: the label editor (another line edits that line).
+    await card.locator('text').first().dblclick();
     const input = page.locator('.dg-inline');
     await input.fill('E2E SQL tier');
     await input.press('Enter');
@@ -1096,12 +1124,13 @@ try {
     if ((await cards.count()) < 2) throw new Error('need two cluster cards to reorder');
     const second = cards.nth(1);
     const label = await second.getAttribute('aria-label');
-    // Drag the second card onto the left half of the first: it becomes first.
+    // Drag the second card onto the leading corner of the first (its left half in a row,
+    // its top half in a column): it becomes first.
     const a = await second.boundingBox();
     const b = await cards.nth(0).boundingBox();
     await page.mouse.move(a.x + a.width / 2, a.y + a.height / 2);
     await page.mouse.down();
-    await page.mouse.move(b.x + 10, b.y + b.height / 2, { steps: 8 });
+    await page.mouse.move(b.x + 10, b.y + b.height / 4, { steps: 8 });
     await page.getByText(/^Drop to move .* to position 1 of/).waitFor();
     await page.mouse.up();
     await page.waitForFunction((l) => document.querySelector('[data-el^="cluster:"]')?.getAttribute('aria-label') === l, label, { timeout: 15_000 });
@@ -1112,15 +1141,23 @@ try {
     if (!(await order()).startsWith('2 of')) throw new Error(`order after Alt+Right: ${await order()}`);
   });
 
+  /** Pick `name` in the Add picker (an option's accessible name). */
+  const addFromPicker = async (name, search) => {
+    await page.getByRole('toolbar', { name: 'Add to diagram' }).getByRole('button', { name: 'Add', exact: true }).click();
+    if (search) await page.getByRole('textbox', { name: 'Search icons' }).fill(search);
+    await page.getByRole('listbox', { name: 'Icons' }).getByRole('option', { name, exact: true }).click();
+  };
+
   await run('diagrams-add', async () => {
     await el('site:').first().click({ position: { x: 30, y: 12 } });
-    await page.getByRole('toolbar', { name: 'Add to diagram' }).getByRole('button', { name: 'Storage array' }).click();
+    await addFromPicker('Storage array, in this layout');
     await page.locator('[data-el^="user:"]').first().waitFor({ timeout: 15_000 });
     const label = page.getByLabel('Label', { exact: true });
     await label.fill('Backup appliance');
     await label.press('Enter');
     await page.locator('[data-el^="user:"]', { hasText: 'Backup appliance' }).waitFor({ timeout: 15_000 });
-    await page.locator('[data-el^="user:"]', { hasText: 'USER-ADDED' }).waitFor();
+    // Drawn like collected external storage: no USER-ADDED chip anywhere on the figure.
+    if (await page.locator('.dg-sheet svg text', { hasText: 'USER-ADDED' }).count()) throw new Error('a USER-ADDED chip is still drawn');
   });
 
   // Diagrams editor v2: connectors (tool, ports, keyboard, inspector), generated
@@ -1229,7 +1266,7 @@ try {
 
   await run('diagrams-drag-across', async () => {
     // A user-added card moves into another availability zone; a collected one is refused.
-    await page.getByRole('toolbar', { name: 'Add to diagram' }).getByRole('button', { name: 'AZ', exact: true }).click();
+    await addFromPicker('AZ, in this layout');
     const zone = page.locator('[data-el^="user:"]', { hasText: 'New availability zone' });
     await zone.waitFor({ timeout: 15_000 });
     const card = page.locator('[data-el^="user:"]', { hasText: 'Backup appliance' });
@@ -1250,6 +1287,348 @@ try {
     await page.mouse.move(z2.x + z2.width / 2, z2.y + z2.height / 2, { steps: 10 });
     await page.getByText(/^Can’t move here: A collected cluster stays in the availability zone/).waitFor();
     await page.mouse.up();
+  });
+
+  // Any icon anywhere (placed, moved, resized, renamed), any text rewritten in place, and
+  // the Legend switch (remembered, and the downloads follow it).
+  await run('diagrams-place-icon', async () => {
+    const placed = () => page.locator('.dg-free');
+    const before = await placed().count();
+    await addFromPicker('Remote availability zone', 'remote');
+    await page.waitForFunction((n) => document.querySelectorAll('.dg-free').length === n + 1, before, { timeout: 15_000 });
+    await page.getByText('Placed on the figure').waitFor();
+    const label = page.getByLabel('Label', { exact: true });
+    await label.fill('E2E colo site');
+    await label.press('Enter');
+    const icon = page.locator('.dg-free', { hasText: 'E2E colo site' });
+    await icon.waitFor({ timeout: 15_000 });
+    // Connect the author's zone to it (it lands on a clear spot, so the router finds a route).
+    const conns0 = await page.locator('[data-conn^="user:"]').count();
+    await page.locator('[data-el^="user:"]', { hasText: 'New availability zone' }).focus();
+    await page.keyboard.press('c');
+    await page.getByTestId('dg-connect-status').getByText('pick the end element').waitFor();
+    await icon.click();
+    await page.waitForFunction((n) => document.querySelectorAll('[data-conn^="user:"]').length === n + 1, conns0, { timeout: 15_000 });
+    // Drag it 40 px right and 30 px down: it lands there (a position edit).
+    const a = await icon.boundingBox();
+    await page.mouse.move(a.x + a.width / 2, a.y + a.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(a.x + a.width / 2 + 40, a.y + a.height / 2 + 30, { steps: 8 });
+    await page.getByText(/^\d+, \d+ pt$/).waitFor();
+    await page.mouse.up();
+    await page.waitForFunction((x) => {
+      const r = [...document.querySelectorAll('.dg-free')].find((g) => g.textContent.includes('E2E colo site'))?.getBoundingClientRect();
+      return r && r.x > x + 20;
+    }, a.x, { timeout: 15_000 });
+    // Resize it by its corner.
+    await icon.click();
+    const corner = await page.locator('[data-handle="resize"]').boundingBox();
+    const b = await icon.boundingBox();
+    await page.mouse.move(corner.x + corner.width / 2, corner.y + corner.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(corner.x + corner.width / 2 + 50, corner.y + corner.height / 2, { steps: 6 });
+    await page.mouse.up();
+    await page.waitForFunction((w) => {
+      const r = [...document.querySelectorAll('.dg-free')].find((g) => g.textContent.includes('E2E colo site'))?.getBoundingClientRect();
+      return r && r.width > w + 20;
+    }, b.width, { timeout: 15_000 });
+  });
+
+  // Nesting: add into the selection (a hybrid example: a datacenter around the collected
+  // zone, NC2 on AWS > region > NC2 cluster > bare-metal node > NIC), a quiet hint when
+  // the selection cannot hold the new icon, drop into a container (one undo step), and
+  // resize a container by its edge.
+  await run('diagrams-nest', async () => {
+    const selectedId = () => page.locator('[data-el][aria-pressed="true"]').first().getAttribute('data-el');
+    const hint = page.getByTestId('dg-nest-hint');
+    const box = async (id) => page.locator(`[data-el="${id}"]`).boundingBox();
+    const inside = (o, n) => n.x >= o.x - 1 && n.y >= o.y - 1 && n.x + n.width <= o.x + o.width + 1 && n.y + n.height <= o.y + o.height + 1;
+    const free0 = await page.locator('.dg-free').count();
+    const added = async (n) => page.waitForFunction((k) => document.querySelectorAll('.dg-free').length >= k, free0 + n, { timeout: 15_000 });
+    // A datacenter around the collected zone.
+    await el('site:').first().click({ position: { x: 30, y: 12 } });
+    const site = await el('site:').first().getAttribute('data-el');
+    await addFromPicker('Datacenter', 'datacenter');
+    await added(1);
+    await hint.getByText(/Datacenter drawn around/).waitFor({ timeout: 15_000 });
+    await page.getByRole('button', { name: 'Release' }).waitFor({ timeout: 15_000 });
+    const dc = await selectedId();
+    if (!inside(await box(dc), await box(site))) throw new Error('the datacenter does not wrap the zone');
+    // A cloud region, then each level added into the one selected: NC2 on AWS inside the
+    // region (never the reverse), an NC2 cluster, a bare-metal node, its NIC.
+    await page.getByRole('button', { name: 'Close the inspector (clears the selection)' }).click();
+    await addFromPicker('Cloud region / AZ', 'region');
+    await added(2);
+    const region = await selectedId();
+    const chain = [region];
+    for (const [name, search] of [['NC2 on AWS', 'aws'], ['NC2 cluster', 'nc2 cluster'], ['Bare-metal node', 'bare metal'], ['Physical NIC', 'nic']]) {
+      const n = await page.locator('.dg-free').count();
+      await addFromPicker(name, search);
+      await page.waitForFunction((k) => document.querySelectorAll('.dg-free').length === k + 1, n, { timeout: 15_000 });
+      await hint.getByText(/added into/).waitFor({ timeout: 15_000 });
+      await page.waitForFunction((prev) => document.querySelector('[data-el][aria-pressed="true"]')?.getAttribute('data-el') !== prev, chain[chain.length - 1], { timeout: 15_000 });
+      chain.push(await selectedId());
+    }
+    for (let i = 1; i < chain.length; i++) {
+      await page.locator(`[data-el="${chain[i]}"]`).waitFor();
+      if (!inside(await box(chain[i - 1]), await box(chain[i]))) throw new Error(`${chain[i]} is not inside ${chain[i - 1]}`);
+    }
+    // The NIC: a small badge in its node's bottom-right corner.
+    const nic = await box(chain[4]);
+    const node = await box(chain[3]);
+    if (node.x + node.width - (nic.x + nic.width) > 12 || node.y + node.height - (nic.y + nic.height) > 12) throw new Error('the NIC is not in the node corner');
+    // The selected NIC cannot hold a Direct Connect: placed beside it, a quiet hint.
+    await addFromPicker('AWS Direct Connect', 'direct connect');
+    await added(7);
+    await hint.getByText(/can’t go inside a physical NIC, so it is placed beside it/).waitFor({ timeout: 15_000 });
+    const dx = await selectedId();
+    // Dropped into the datacenter: nested there, and one undo takes it back out.
+    const dcBox = await box(dc);
+    const dxBox = await box(dx);
+    await page.mouse.move(dxBox.x + dxBox.width / 2, dxBox.y + dxBox.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(dcBox.x + 14, dcBox.y + dcBox.height - 6, { steps: 10 });
+    await page.getByText(/^Drop into /).waitFor();
+    await page.mouse.up();
+    await page.getByText('Take out').waitFor({ timeout: 15_000 });
+    if (!inside(await box(dc), await box(dx))) throw new Error('the Direct Connect is not inside the datacenter');
+    await page.keyboard.press(process.platform === 'darwin' ? 'Meta+z' : 'Control+z');
+    await page.getByText('Take out').waitFor({ state: 'detached', timeout: 15_000 });
+    // The region frame resized by its right edge: wider, its children still inside.
+    await page.locator(`[data-el="${region}"]`).click({ position: { x: 30, y: 12 } });
+    // The handle well inside the canvas (the inspector may have covered the figure's right side).
+    await page.locator('[data-handle="resize-r"]').evaluate((h) => h.scrollIntoView({ block: 'center', inline: 'center' }));
+    const edge = await page.locator('[data-handle="resize-r"]').boundingBox();
+    const w0 = (await box(region)).width;
+    await page.mouse.move(edge.x + edge.width / 2, edge.y + edge.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(edge.x + edge.width / 2 + 60, edge.y + edge.height / 2, { steps: 6 });
+    await page.mouse.up();
+    await page.waitForFunction(([id, w]) => document.querySelector(`[data-el="${id}"]`)?.getBoundingClientRect().width > w + 20, [region, w0], { timeout: 15_000 });
+    if (!inside(await box(region), await box(chain[1]))) throw new Error('NC2 on AWS left the resized region frame');
+
+    // The region with everything in it dropped on the datacenter (it cannot go in): the
+    // dragged group moves beside it, the datacenter stays put; one undo takes it back.
+    const overlap = (a, b) => a.x < b.x + b.width - 1 && b.x < a.x + a.width - 1 && a.y < b.y + b.height - 1 && b.y < a.y + a.height - 1;
+    /** An element's place in figure points (the fit may rescale the figure after an edit). */
+    const fig = (id) =>
+      page.evaluate((i) => {
+        const svg = document.querySelector('.dg-sheet svg');
+        const s = svg.getBoundingClientRect();
+        const z = s.width / svg.viewBox.baseVal.width;
+        const r = document.querySelector(`[data-el="${i}"]`).getBoundingClientRect();
+        return [(r.x - s.x) / z, (r.y - s.y) / z];
+      }, id);
+    const near = (a, b) => Math.abs(a[0] - b[0]) <= 1 && Math.abs(a[1] - b[1]) <= 1;
+    // The datacenter's place against a collected remote zone (the whole figure moves down
+    // when the dragged item goes above it all).
+    const remote = await el('az:').first().getAttribute('data-el');
+    const rel = async () => {
+      const [a, b] = [await fig(dc), await fig(remote)];
+      return [a[0] - b[0], a[1] - b[1]];
+    };
+    const dc0 = await box(dc);
+    const dcAt = await rel();
+    const reg0 = await box(region);
+    const regAt = await fig(region);
+    await page.mouse.move(reg0.x + 30, reg0.y + 12);
+    await page.mouse.down();
+    await page.mouse.move(dc0.x + 40, dc0.y + dc0.height / 2, { steps: 12 });
+    await page.getByText(/drops beside it/).waitFor();
+    await page.mouse.up();
+    await hint.getByText(/so it was placed beside/).waitFor({ timeout: 15_000 });
+    await page.waitForFunction(([id, at]) => {
+      const svg = document.querySelector('.dg-sheet svg');
+      const s = svg.getBoundingClientRect();
+      const z = s.width / svg.viewBox.baseVal.width;
+      const r = document.querySelector(`[data-el="${id}"]`)?.getBoundingClientRect();
+      return r && Math.hypot((r.x - s.x) / z - at[0], (r.y - s.y) / z - at[1]) > 2;
+    }, [region, regAt], { timeout: 15_000 });
+    if (overlap(await box(dc), await box(region))) throw new Error('the dropped region is on top of the datacenter');
+    if (!near(await rel(), dcAt)) throw new Error(`the datacenter moved: only the dragged item may ${JSON.stringify([dcAt, await rel()])}`);
+    if (!inside(await box(region), await box(chain[4]))) throw new Error('the region left its children behind');
+    await page.keyboard.press(process.platform === 'darwin' ? 'Meta+z' : 'Control+z');
+    await page.waitForFunction(([id, at]) => {
+      const svg = document.querySelector('.dg-sheet svg');
+      const s = svg.getBoundingClientRect();
+      const z = s.width / svg.viewBox.baseVal.width;
+      const r = document.querySelector(`[data-el="${id}"]`)?.getBoundingClientRect();
+      return r && Math.hypot((r.x - s.x) / z - at[0], (r.y - s.y) / z - at[1]) <= 1;
+    }, [region, regAt], { timeout: 15_000 }).catch(async (e) => {
+      throw new Error(`undo did not bring the region back: ${JSON.stringify([regAt, await fig(region)])} ${e.message}`);
+    });
+
+    // Left of and above the generated figure: the Direct Connect dragged out there; the
+    // figure grows that way and holds it.
+    await page.getByRole('button', { name: 'Close the inspector (clears the selection)' }).click();
+    await page.getByRole('button', { name: 'Fit to the canvas' }).click();
+    await page.waitForTimeout(150);
+    const sheet0 = await page.locator('.dg-sheet').boundingBox();
+    const dx0 = await box(dx);
+    await page.mouse.move(dx0.x + dx0.width / 2, dx0.y + dx0.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(sheet0.x - 70, sheet0.y - 30, { steps: 14 });
+    await page.mouse.up();
+    const leftOfAll = () =>
+      page.waitForFunction((id) => {
+        const r = document.querySelector(`[data-el="${id}"]`)?.getBoundingClientRect();
+        const others = [...document.querySelectorAll('.dg-sheet [data-el]')].filter((e) => e.getAttribute('data-el') !== id && !e.closest(`[data-el="${id}"]`));
+        return r && others.length && others.every((e) => {
+          const o = e.getBoundingClientRect();
+          return o.width === 0 || r.right <= o.left + 1 || r.bottom <= o.top + 1;
+        });
+      }, dx, { timeout: 15_000 });
+    await leftOfAll();
+    const dx1 = await box(dx);
+    const sheet1 = await page.locator('.dg-sheet').boundingBox();
+    if (dx1.x < sheet1.x - 1 || dx1.y < sheet1.y - 1) throw new Error('the figure does not hold the icon placed left of / above it');
+    // Zoomed in, a drag further out: the figure grows left and up, nothing else moves on screen.
+    await page.getByRole('button', { name: 'Zoom in' }).click();
+    await page.locator('.dg-desk').evaluate((d) => {
+      const s = d.querySelector('.dg-sheet').getBoundingClientRect();
+      const r = d.getBoundingClientRect();
+      d.scrollLeft += s.left - (r.left + 260);
+      d.scrollTop += s.top - (r.top + 200);
+    });
+    await page.waitForTimeout(150);
+    const site0 = await box(site);
+    const dx2 = await box(dx);
+    await page.mouse.move(dx2.x + dx2.width / 2, dx2.y + dx2.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(dx2.x + dx2.width / 2 - 120, dx2.y + dx2.height / 2 - 80, { steps: 10 });
+    await page.mouse.up();
+    await page.waitForFunction(([id, x]) => (document.querySelector(`[data-el="${id}"]`)?.getBoundingClientRect().x ?? x) < x - 60, [dx, dx2.x], { timeout: 15_000 });
+    await page.waitForTimeout(150);
+    const site1 = await box(site);
+    if (Math.abs(site1.x - site0.x) > 3 || Math.abs(site1.y - site0.y) > 3) throw new Error(`the figure jumped on screen: ${JSON.stringify([site0, site1])}`);
+    const dx3 = await box(dx);
+    if (Math.abs(dx3.x - (dx2.x - 120)) > 4 || Math.abs(dx3.y - (dx2.y - 80)) > 4) throw new Error(`the icon did not land where it was dropped: ${JSON.stringify([dx2, dx3])}`);
+    await page.getByRole('button', { name: 'Fit to the canvas' }).click();
+  });
+
+  await run('diagrams-edit-any-text', async () => {
+    // Close the inspector first: it covers the figure's right side, where the legend ends.
+    await page.getByRole('button', { name: 'Close the inspector (clears the selection)' }).click();
+    await page.getByRole('complementary', { name: 'Inspector' }).waitFor({ state: 'detached' });
+    // A legend label (the bottom-left overlay): not an element, still editable in place.
+    const overlay = page.getByTestId('dg-legend-overlay');
+    await overlay.getByText(/^Manages$/).dblclick();
+    const input = page.getByRole('textbox', { name: 'Text on the figure' });
+    await input.fill('Manages (E2E)');
+    await input.press('Enter');
+    await overlay.getByText('Manages (E2E)').waitFor({ timeout: 15_000 });
+    // The figure itself no longer draws the legend: the overlay does.
+    if (await page.locator('.dg-sheet svg text', { hasText: 'Manages (E2E)' }).count()) throw new Error('the legend is drawn in the scrolling figure');
+    // A zone's detail line, from the inspector's "Text on the figure" list.
+    await el('site:').first().click({ position: { x: 30, y: 12 } });
+    const field = page.locator('.dg-lines input').first();
+    await field.fill('E2E zone line');
+    await field.press('Enter');
+    await page.locator('.dg-sheet svg text', { hasText: 'E2E zone line' }).waitFor({ timeout: 15_000 });
+  });
+
+  await run('diagrams-legend-switch', async () => {
+    const legend = page.getByTestId('dg-legend');
+    await legend.uncheck();
+    await page.getByTestId('dg-legend-overlay').waitFor({ state: 'detached', timeout: 15_000 });
+    // Remembered per user (Settings).
+    const saved = await page.evaluate(() => window.ntnx.getSettings());
+    if (saved.diagramLegend !== false) throw new Error(`the Legend switch was not remembered: ${JSON.stringify(saved.diagramLegend)}`);
+    await legend.check();
+    await page.getByTestId('dg-legend-overlay').getByText('Manages (E2E)').waitFor({ timeout: 15_000 });
+  });
+
+  await run('diagrams-canvas-view', async () => {
+    // View > Grid and Background: drawn on the canvas only, remembered per user.
+    await page.getByTestId('dg-view').click();
+    await page.getByRole('menuitemradio', { name: 'Dots' }).click();
+    await page.locator('[data-grid="dots"]').waitFor();
+    await page.getByRole('menuitemradio', { name: 'Lines' }).click();
+    await page.locator('[data-grid="lines"]').waitFor();
+    await page.getByRole('menuitemradio', { name: 'Transparent' }).click();
+    await page.locator('.dg-stage.clear').waitFor();
+    await uxShot('diagrams-grid-lines-transparent');
+    const saved = await page.evaluate(() => window.ntnx.getSettings());
+    if (saved.diagramGrid !== 'lines' || saved.diagramCanvas !== 'transparent') throw new Error(`the canvas view was not remembered: ${JSON.stringify([saved.diagramGrid, saved.diagramCanvas])}`);
+    await page.getByRole('menuitemradio', { name: 'No grid' }).click();
+    await page.getByRole('menuitemradio', { name: 'White' }).click();
+    await page.keyboard.press('Escape');
+    await page.locator('[data-grid]').waitFor({ state: 'detached' });
+    if (await page.locator('.dg-stage.clear').count()) throw new Error('the background stayed transparent');
+  });
+
+  await run('diagrams-wheel-zoom', async () => {
+    const pct = async () => parseInt(await page.locator('.dg-zb-pct').innerText(), 10);
+    const box = await page.locator('.dg-desk').boundingBox();
+    const cx = box.x + box.width * 0.35;
+    const cy = box.y + box.height * 0.4;
+    const under = () => page.evaluate(([x, y]) => {
+      const r = document.querySelector('.dg-sheet').getBoundingClientRect();
+      const z = parseInt(document.querySelector('.dg-zb-pct').textContent, 10) / 100;
+      return [(x - r.left) / z, (y - r.top) / z];
+    }, [cx, cy]);
+    // While the figure is smaller than the canvas it stays centred (no room to scroll);
+    // zoomed past that, the point under the pointer stays put.
+    for (let i = 0; i < 3; i++) await page.getByRole('button', { name: 'Zoom in' }).click();
+    await page.locator('.dg-desk').evaluate((d) => d.scrollTo((d.scrollWidth - d.clientWidth) / 2, (d.scrollHeight - d.clientHeight) / 2));
+    const z0 = await pct();
+    const p0 = await under();
+    await page.mouse.move(cx, cy);
+    // Ctrl + wheel (and a trackpad pinch, which Chromium sends the same way) zooms around the pointer.
+    await page.keyboard.down('Control');
+    for (let i = 0; i < 4; i++) await page.mouse.wheel(0, -60);
+    await page.keyboard.up('Control');
+    await page.waitForFunction((z) => parseInt(document.querySelector('.dg-zb-pct').textContent, 10) > z, z0, { timeout: 5_000 });
+    await page.waitForTimeout(200);
+    const z1 = await pct();
+    const p1 = await under();
+    if (Math.hypot(p1[0] - p0[0], p1[1] - p0[1]) > 4) throw new Error(`the point under the pointer moved: ${p0} -> ${p1} (zoom ${z0}% -> ${z1}%)`);
+    // A plain wheel / two-finger scroll pans, and leaves the zoom alone.
+    const top = await page.locator('.dg-desk').evaluate((d) => d.scrollTop);
+    await page.mouse.wheel(0, 120);
+    await page.waitForTimeout(250);
+    if ((await pct()) !== z1) throw new Error('a plain wheel changed the zoom');
+    if ((await page.locator('.dg-desk').evaluate((d) => d.scrollTop)) <= top) throw new Error('a plain wheel did not pan');
+    // The legend stays in the bottom-left corner while zoomed in and scrolled.
+    const lg = await page.getByTestId('dg-legend-overlay').boundingBox();
+    const stage = await page.locator('.dg-stage').boundingBox();
+    if (!lg || lg.x - stage.x > 16 || stage.y + stage.height - (lg.y + lg.height) > 16) throw new Error('the legend left the bottom-left corner');
+    await uxShot('diagrams-zoomed-legend');
+    // The buttons still work from a wheel zoom; Fit goes back.
+    await page.getByRole('button', { name: 'Zoom out' }).click();
+    if ((await pct()) >= z1) throw new Error('Zoom out did nothing after a wheel zoom');
+    await page.getByRole('button', { name: 'Fit to the canvas' }).click();
+  });
+
+  await run('diagrams-context-menu', async () => {
+    // An element: right-click opens Rename / Connect from here / Remove.
+    await el('cluster:').first().click({ button: 'right' });
+    const menu = page.getByTestId('dg-context-menu');
+    await menu.getByRole('menuitem', { name: /^Rename/ }).waitFor();
+    await menu.getByRole('menuitem', { name: /^Connect from here/ }).waitFor();
+    await menu.getByRole('menuitem', { name: /^Remove/ }).waitFor();
+    await page.keyboard.press('Escape');
+    await menu.waitFor({ state: 'detached' });
+    // Closing gives the focus back to the element (next frame): only then move it on.
+    await page.waitForFunction(() => document.activeElement?.hasAttribute('data-el'));
+    // A connector, from the keyboard (Shift+F10): arrowheads with previews.
+    const conn = page.locator('[data-conn]').first();
+    arrowConn = await conn.getAttribute('data-conn');
+    await conn.focus();
+    await page.keyboard.press('Shift+F10');
+    await menu.getByRole('menuitemradio', { name: 'End: Diamond' }).waitFor();
+    await uxShot('diagrams-context-connector');
+    await menu.getByRole('menuitemradio', { name: 'Start: Circle' }).click();
+    await page.locator(`[data-conn="${arrowConn}"] [data-edge] circle`).waitFor({ timeout: 15_000 });
+    await conn.focus();
+    await page.keyboard.press('ContextMenu');
+    await menu.getByRole('menuitemradio', { name: 'End: Diamond' }).click();
+    await page.waitForFunction((id) => document.querySelectorAll(`[data-conn="${CSS.escape(id)}"] [data-edge] polygon`).length >= 1, arrowConn, { timeout: 15_000 });
+    await conn.focus();
+    await page.keyboard.press('Shift+F10');
+    await menu.getByRole('menuitemradio', { name: 'Start: Circle', checked: true }).waitFor();
+    await menu.getByRole('menuitemradio', { name: 'End: Diamond', checked: true }).waitFor();
+    await page.keyboard.press('Escape');
   });
 
   await run('diagrams-expand', async () => {
@@ -1275,7 +1654,7 @@ try {
   await run('diagrams-delete-undo-redo', async () => {
     const before = await el('cluster:').count();
     await el('cluster:').last().click();
-    await page.getByRole('toolbar', { name: 'Add to diagram' }).getByRole('button', { name: 'Delete' }).click();
+    await page.getByRole('complementary', { name: 'Inspector' }).getByRole('button', { name: 'Delete from diagram' }).click();
     await page.waitForFunction((n) => document.querySelectorAll('[data-el^="cluster:"]').length === n - 1, before, { timeout: 15_000 });
     await page.locator('.dg-canvas .phead').click({ position: { x: 5, y: 5 } }); // focus off the inputs
     await page.keyboard.press('ControlOrMeta+z');
@@ -1314,10 +1693,24 @@ try {
   await run('diagrams-save', async () => {
     await page.getByRole('button', { name: /^Save/ }).click();
     await page.getByText('Diagram saved.').first().waitFor({ timeout: 30_000 });
-    await page.getByText('No unsaved changes').waitFor();
+    await page.getByTestId('dg-dirty').waitFor({ state: 'detached' }); // nothing to save: no save state shown
     const snaps = await readdir(join(dataDir, 'snapshots'));
     if (!snaps.includes('pc01-week1.ntnxdiagrams.json')) throw new Error(`no saved diagram edits: ${snaps.join(', ')}`);
     await page.getByRole('button', { name: /Solution conceptual overview/ }).first().getByText(/Edited · saved/).waitFor();
+  });
+
+  await run('diagrams-reload-keeps-edits', async () => {
+    // Away and back: the placed icon and the rewritten text are still there (saved).
+    await rail('Overview');
+    await rail('Diagrams');
+    await page.locator('#dg-snap').selectOption({ label: (await page.locator('#dg-snap option', { hasText: 'pc01-week1' }).first().innerText()).trim() });
+    await page.locator('.dg-free', { hasText: 'E2E colo site' }).waitFor({ timeout: 60_000 });
+    await page.getByTestId('dg-legend-overlay').getByText('Manages (E2E)').waitFor();
+    await page.locator('.dg-sheet svg text', { hasText: 'E2E zone line' }).waitFor();
+    // The nesting survives too: the datacenter, the NC2 chain, the Direct Connect.
+    for (const t of ['DATACENTER', 'NC2 on AWS', 'BARE METAL', 'Direct Connect']) await page.locator('.dg-sheet svg text', { hasText: t }).first().waitFor();
+    // The arrowheads chosen from the context menu were saved with the edits.
+    await page.locator(`[data-conn="${arrowConn}"] [data-edge] circle`).waitFor();
   });
 
   await run('diagrams-export-word', async () => {
@@ -1362,11 +1755,32 @@ try {
   });
 
   await run('diagrams-download-svg', async () => {
-    const before = new Set(await readdir(exportDir));
-    await page.getByRole('group', { name: 'Download this diagram' }).getByRole('button', { name: 'SVG', exact: true }).click();
-    await page.getByText(/^Saved .*_solution-conceptual-overview.*\.svg/).first().waitFor({ timeout: 60_000 });
-    const added = (await readdir(exportDir)).filter((f) => !before.has(f));
-    if (!added.some((f) => f.endsWith('.svg'))) throw new Error(`no SVG written: ${added.join(', ')}`);
+    const download = async () => {
+      // Toasts from the exports before may sit over the Download links.
+      for (const x of await page.getByRole('region', { name: 'Notifications' }).getByRole('button', { name: 'Dismiss' }).all()) await x.click().catch(() => {});
+      const before = new Set(await readdir(exportDir));
+      await page.getByRole('group', { name: 'Download this diagram' }).getByRole('button', { name: 'SVG', exact: true }).click();
+      let added = [];
+      for (let i = 0; i < 120 && !added.length; i++) {
+        await page.waitForTimeout(500);
+        added = (await readdir(exportDir)).filter((f) => !before.has(f) && f.endsWith('.svg'));
+      }
+      if (!added.length) throw new Error('no SVG written');
+      return readFile(join(exportDir, added[0]), 'utf-8');
+    };
+    const shown = await download();
+    // The saved edits are in the download: the placed icon and the rewritten text.
+    for (const want of ['E2E colo site', 'Manages (E2E)', 'E2E zone line', 'DATACENTER', 'NC2 on AWS', 'Direct Connect']) if (!shown.includes(want)) throw new Error(`the SVG has no "${want}"`);
+    // The connector's arrowheads (a circle and a diamond) are in the download.
+    const at = shown.indexOf(`id="${arrowConn.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')}"`);
+    const group = at >= 0 ? shown.slice(at, shown.indexOf('</g>', at)) : '';
+    if (!group.includes('<circle') || !group.includes('<polygon')) throw new Error(`the SVG lost the arrowheads of ${arrowConn}`);
+    // The Legend switch off: the download has no legend.
+    await page.getByTestId('dg-legend').uncheck();
+    const bare = await download();
+    if (bare.includes('Manages (E2E)')) throw new Error('the SVG still has the legend with the switch off');
+    if (!bare.includes('E2E colo site')) throw new Error('the SVG lost the placed icon');
+    await page.getByTestId('dg-legend').check();
   });
 
   // A per-AZ network figure (Network Segment Design): rename a segment in place, save,
@@ -1375,14 +1789,14 @@ try {
     await page.getByRole('button', { name: /Network segment design/ }).first().click();
     const seg = page.locator('[data-el^="subnet:"]').first();
     await seg.waitFor({ timeout: 60_000 });
-    await seg.dblclick();
+    await seg.locator('text').first().dblclick();
     const input = page.locator('.dg-inline');
     await input.fill('E2E web segment');
     await input.press('Enter');
     await page.locator('[data-el^="subnet:"]', { hasText: 'E2E web segment' }).waitFor({ timeout: 15_000 });
     await page.getByRole('button', { name: /^Save/ }).click();
     await page.getByText('Diagram saved.').first().waitFor({ timeout: 30_000 });
-    await page.getByText('No unsaved changes').waitFor();
+    await page.getByTestId('dg-dirty').waitFor({ state: 'detached' }); // nothing to save: no save state shown
     const docx = await exportWordFromDiagrams();
     const disclosed = 'renamed to \u201cE2E web segment\u201d';
     const before = docxFacts(editedDocx, disclosed);
@@ -1508,6 +1922,64 @@ try {
     await rail('New collection');
     if ((await savedOptions()).some((o) => o.startsWith('PC03'))) throw new Error('a deleted target is still offered');
   });
+
+  // ── Insights > Metrics: live read of pc01 through the real sidecar and mock API ──
+  await run('metrics-live', async () => {
+    await rail('Metrics');
+    const picker = page.getByRole('combobox', { name: 'Target' });
+    await picker.waitFor({ timeout: 15_000 });
+    const value = await picker.locator('option').filter({ hasText: /PC01/ }).first().getAttribute('value');
+    await picker.selectOption(value);
+    await page.getByRole('heading', { name: 'Health' }).waitFor({ timeout: 60_000 });
+    await page.getByRole('group', { name: 'Clusters' }).getByRole('button', { name: 'PHX-PROD-02' }).waitFor();
+    await page.getByRole('img', { name: 'CPU, memory and storage utilization per day' }).waitFor({ timeout: 120_000 });
+    // PHX-PROD-02's storage grows in the demo: its runway shows a date.
+    await page.getByRole('group', { name: 'Clusters' }).getByRole('button', { name: 'PHX-PROD-02' }).click();
+    await page.getByRole('button', { name: 'Storage runway: open the projection' }).click();
+    await page.getByRole('heading', { level: 1, name: 'Runway' }).waitFor();
+    await page.getByText(/^Growing \d/).first().waitFor();
+    // Breadcrumbs lead back (no Dashboard button any more): Metrics, the target, Insights.
+    const crumbs = page.getByRole('navigation', { name: 'Breadcrumb' });
+    if ((await page.getByRole('button', { name: 'Dashboard', exact: true }).count()) > 0) throw new Error('the Dashboard back button is still there');
+    await crumbs.getByRole('button', { name: 'Metrics' }).click();
+    await page.getByRole('heading', { name: 'Health' }).waitFor();
+    await page.getByRole('button', { name: 'Nodes and CVMs: open the list' }).click();
+    await page.getByRole('table', { name: 'Nodes and CVMs' }).getByText('Normal mode').first().waitFor();
+    // The third segment is the target (whatever it is called by now), a link to its dashboard.
+    await crumbs.getByRole('button').nth(2).click();
+    await page.getByRole('heading', { name: 'Health' }).waitFor();
+    await page.getByRole('button', { name: 'All top VMs' }).click();
+    await crumbs.getByRole('button', { name: 'Insights' }).press('Enter');
+    await page.getByRole('heading', { name: 'Health' }).waitFor();
+    await page.getByRole('button', { name: 'Refresh' }).click();
+    await page.getByRole('button', { name: 'Refresh' }).waitFor({ timeout: 120_000 });
+  });
+
+  // Auto refresh (4 s through the test hook): re-reads live with refresh set, writes no
+  // snapshot, is remembered, and stops when switched off.
+  await run('metrics-auto-refresh', async () => {
+    const snapsBefore = (await readdir(join(dataDir, 'snapshots')).catch(() => [])).sort().join('|');
+    // A sorted table keeps its sort across the readings.
+    const topVms = page.getByRole('table', { name: 'Top VMs by CPU' });
+    await topVms.getByRole('columnheader', { name: 'VM' }).getByRole('button').click();
+    const vmSort = () => topVms.getByRole('columnheader', { name: 'VM' }).getAttribute('aria-sort');
+    if ((await vmSort()) !== 'ascending') throw new Error('the VM header did not sort A to Z');
+    await page.getByRole('switch', { name: 'Auto refresh' }).click();
+    await page.getByRole('combobox', { name: 'Auto refresh interval' }).waitFor();
+    await page.getByText(/next in \d+ s/).waitFor({ timeout: 10_000 });
+    for (let i = 0; i < 2; i++) {
+      await page.getByRole('button', { name: 'Reading…' }).waitFor({ timeout: 20_000 });
+      await page.getByRole('button', { name: 'Refresh' }).waitFor({ timeout: 120_000 });
+    }
+    if ((await vmSort()) !== 'ascending') throw new Error('auto refresh lost the Top VMs sort');
+    const saved = JSON.parse(await readFile(join(profile, 'userData', 'settings.json'), 'utf8'));
+    if (saved.metricsAutoRefresh !== true) throw new Error(`auto refresh was not remembered: ${JSON.stringify(saved.metricsAutoRefresh)}`);
+    const snapsAfter = (await readdir(join(dataDir, 'snapshots')).catch(() => [])).sort().join('|');
+    if (snapsAfter !== snapsBefore) throw new Error('auto refresh wrote to the snapshots folder');
+    await page.getByRole('switch', { name: 'Auto refresh' }).click();
+    if ((await page.getByText(/next in \d+/).count()) > 0) throw new Error('auto refresh still counts down after switching off');
+  });
+  // ── end Insights > Metrics ──
 
   await run('email-settings-unreachable', async () => {
     await rail('Settings');

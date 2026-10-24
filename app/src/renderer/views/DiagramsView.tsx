@@ -1,9 +1,10 @@
 // Diagrams (mocks: C1-C4 on the architecture diagrams canvas). The report's architecture
 // diagrams for one snapshot, editable: rename, reorder within a container, add from the
-// palette, delete, undo and redo, save. Saved edits are operations replayed on the data
-// by the sidecar, so every Word and PDF export draws the saved version.
+// palette or put any icon anywhere, rewrite any text, delete, undo and redo, save. Saved
+// edits are operations replayed on the data by the sidecar, so every Word and PDF export
+// draws the saved version. The Legend switch is remembered per user and exports follow it.
 
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import {
   ArrowArcLeftIcon,
   ArrowArcRightIcon,
@@ -11,23 +12,12 @@ import {
   CaretRightIcon,
   CornersInIcon,
   CornersOutIcon,
-  CubeIcon,
   FlowArrowIcon,
-  GlobeIcon,
-  HardDrivesIcon,
+  FrameCornersIcon,
   MinusIcon,
-  MonitorIcon,
-  NoteIcon,
   PlusIcon,
-  RectangleIcon,
-  ShareNetworkIcon,
-  ShieldCheckIcon,
-  SquaresFourIcon,
-  TrashIcon,
-  TreeStructureIcon,
-  WallIcon,
+  XIcon,
 } from '@phosphor-icons/react';
-import type { Icon as PhosphorIcon } from '@phosphor-icons/react';
 import type {
   DiagramArrow,
   DiagramConnector,
@@ -35,6 +25,7 @@ import type {
   DiagramEdgeField,
   DiagramElement,
   DiagramFileFormat,
+  DiagramIcon,
   DiagramLayoutResult,
   DiagramList,
   DiagramOp,
@@ -42,10 +33,13 @@ import type {
   DiagramProblem,
   DiagramSide,
   DiagramStale,
+  SceneEdge,
+  SceneNode,
+  SceneStyle,
   SnapshotList,
 } from '@shared/ipc';
 import { MAX_DIAGRAM_OPS } from '@shared/ipc';
-import { Badge, Button, Callout, Checkbox, ConfirmDialog, Dialog, ErrorState, Field, InlineEmpty, LoadingPage, PageHeader, Panel, useToast } from '../components';
+import { Badge, Button, Callout, Checkbox, ConfirmDialog, Dialog, ErrorState, Field, InlineEmpty, KebabMenu, LoadingPage, PageHeader, Panel, useToast } from '../components';
 import { useAsync } from '../lib/useAsync';
 import { useNavigationGuard, useRouter } from '../lib/router';
 import { useRun } from '../lib/run';
@@ -54,23 +48,121 @@ import { isMod, isTyping } from '../lib/keyboard';
 import { NA, errorMessage, fmtAbs, fmtDay, plural } from '../lib/format';
 import { useExportDialog } from './ExportDialog';
 import { useSnapshotTransfer } from './SnapshotTransfer';
-import { SceneCanvas, spoken } from './diagrams/SceneCanvas';
+import { SceneCanvas, partOf, spoken, withoutLegend } from './diagrams/SceneCanvas';
 import type { CanvasTool } from './diagrams/SceneCanvas';
+import { IconPicker } from './diagrams/IconPicker';
+import { ConnectorsMenu } from './diagrams/ConnectorsMenu';
+import type { PickerChoice } from './diagrams/IconPicker';
+import { holds, kindOf, nameOf, originOf, placedMeta, planAdd, unwarp } from './diagrams/nesting';
+import { gridBackground } from './diagrams/CanvasGrid';
+import type { NestContext } from './diagrams/nesting';
+// ─ canvas chrome: view options, legend overlay, context menu, wheel zoom ─
+import { CanvasOptions } from './diagrams/CanvasOptions';
+import { LegendOverlay } from './diagrams/LegendOverlay';
+import { CanvasMenu } from './diagrams/ContextMenu';
+import { useWheelZoom } from './diagrams/useWheelZoom';
 
-const PALETTE_ICONS: Record<string, PhosphorIcon> = {
-  cluster: CubeIcon,
-  pc: MonitorIcon,
-  az: SquaresFourIcon,
-  storage: HardDrivesIcon,
-  switch: RectangleIcon,
-  note: NoteIcon,
-  // Network segments, virtual networking and microsegmentation palettes.
-  segment: ShareNetworkIcon,
-  gateway: WallIcon,
-  overlay: ShareNetworkIcon,
-  external: GlobeIcon,
-  policy: ShieldCheckIcon,
-};
+const isLegend = (id: string) => id.startsWith('legend:');
+const sameStyle = (a: SceneStyle, b: SceneStyle) =>
+  (a.fill ?? '').toUpperCase() === (b.fill ?? '').toUpperCase() &&
+  (a.stroke ?? '').toUpperCase() === (b.stroke ?? '').toUpperCase() &&
+  JSON.stringify(a.dash ?? null) === JSON.stringify(b.dash ?? null);
+
+/**
+ * The size a new icon takes: that of the collected elements of its kind in this figure
+ * (the median card), a zone or POD frame no larger than the smallest collected one, else
+ * the catalog's default.
+ */
+export function iconSize(icon: Pick<DiagramIcon, 'w' | 'h' | 'container' | 'style'>, nodes: SceneNode[]): [number, number] {
+  // Collected elements drawn in the icon's style that read as one of its kind: a titled
+  // box of about its proportions (not a chip, a bar or a strip sharing its colours).
+  const same = nodes.filter(
+    (n) =>
+      !isLegend(n.id) &&
+      n.data?.origin !== 'user' &&
+      !n.id.startsWith('user:') &&
+      n.kind === (icon.container ? 'container' : 'box') &&
+      sameStyle(n.style, icon.style) &&
+      n.lines.length > 0 &&
+      (icon.container || (n.lines[0].bold && n.w >= icon.w * 0.6 && n.w <= icon.w * 2.5 && n.h >= icon.h * 0.5 && n.h <= icon.h * 3)),
+  );
+  if (!same.length) return [icon.w, icon.h];
+  if (icon.container) return [Math.min(icon.w, ...same.map((n) => n.w)), Math.min(icon.h, ...same.map((n) => n.h))];
+  const median = (xs: number[]) => [...xs].sort((a, b) => a - b)[Math.floor(xs.length / 2)];
+  return [Math.round(median(same.map((n) => n.w)) * 2) / 2, Math.round(median(same.map((n) => n.h)) * 2) / 2];
+}
+
+/**
+ * Where a new icon of `w` x `h` points goes: the empty slot nearest the right of the last
+ * top-level frame (else below it), inside the figure and above its legend, covering no box,
+ * line or label and either wholly inside or wholly outside each zone frame (a zone icon is
+ * never put inside another frame). With no room, under the figure: the engine grows it and
+ * moves the legend down, so the legend stays last.
+ */
+export function freeSpot(
+  nodes: SceneNode[],
+  width: number,
+  height: number,
+  w: number,
+  h: number,
+  edges: SceneEdge[] = [],
+  container = false,
+  /** The right edge of what is in view (scene points): not under the inspector. */
+  maxX = width,
+): [number, number] {
+  // Room for a connector to reach it: a stub, the clearance and another line's end zone.
+  const gap = 16;
+  const pad = 6;
+  const content = nodes.filter((n) => !isLegend(n.id));
+  const legendTops = [...nodes.filter((n) => isLegend(n.id)).map((n) => n.y), ...edges.filter((e) => isLegend(e.id)).flatMap((e) => e.points.map((p) => p[1]))];
+  const bottom = Math.max(0, ...content.map((n) => n.y + n.h));
+  // The area above the legend (a legend beside the content leaves the whole height).
+  const legendTop = legendTops.length ? Math.min(...legendTops) : height;
+  const floor = legendTop >= bottom - 0.5 ? legendTop - 12 : height;
+  const frames = content.filter((n) => n.kind === 'container');
+  const solid = content.filter((n) => n.kind !== 'container');
+  // Boxes around every connector run and label: a new icon covers no line either.
+  const runs = edges
+    .filter((e) => !isLegend(e.id))
+    .flatMap((e) => [
+      ...e.points.slice(1).map((p, i) => {
+        const q = e.points[i];
+        return { x: Math.min(p[0], q[0]), y: Math.min(p[1], q[1]), w: Math.abs(p[0] - q[0]), h: Math.abs(p[1] - q[1]) };
+      }),
+      ...e.labels.map((l) => ({ x: l.x, y: l.y, w: l.w, h: l.h })),
+    ]);
+  const hits = (x: number, y: number, n: { x: number; y: number; w: number; h: number }, g: number) => x < n.x + n.w + g && x + w + g > n.x && y < n.y + n.h + g && y + h + g > n.y;
+  const inside = (x: number, y: number, f: SceneNode) => !container && x >= f.x + pad && y >= f.y + pad + 8 && x + w <= f.x + f.w - pad && y + h <= f.y + f.h - pad;
+  const clear = (x: number, y: number, limit: number) =>
+    x >= 4 &&
+    y >= 4 &&
+    x + w <= Math.min(width, maxX) - 4 &&
+    y + h <= limit &&
+    !solid.some((n) => hits(x, y, n, gap)) &&
+    !runs.some((n) => hits(x, y, n, gap)) &&
+    frames.every((f) => inside(x, y, f) || !hits(x, y, f, gap));
+  const tops = content.filter((n) => !n.parent && n.kind !== 'label' && n.kind !== 'tag');
+  const last = tops.reduce<SceneNode | null>((a, n) => (!a || n.y + n.h > a.y + a.h + 0.5 || (Math.abs(n.y + n.h - a.y - a.h) <= 0.5 && n.x > a.x) ? n : a), null);
+  const anchors: [number, number][] = last ? [[last.x + last.w + gap, last.y], [last.x, last.y + last.h + gap]] : [[16, 16]];
+  for (const [ax, ay] of anchors) if (clear(Math.round(ax), Math.round(ay), floor)) return [Math.round(ax), Math.round(ay)];
+  // The nearest clear spot around the first anchor, inside the figure.
+  const [cx, cy] = anchors[0];
+  const reach = Math.min(1200, Math.max(width, height));
+  for (let r = 6; r <= reach; r += 6) {
+    const steps = Math.max(8, Math.round((Math.PI * 2 * r) / 6));
+    for (let k = 0; k < steps; k++) {
+      const a = (k / steps) * Math.PI * 2;
+      const x = Math.round(cx + Math.cos(a) * r);
+      const y = Math.round(cy + Math.sin(a) * r);
+      if (clear(x, y, floor)) return [x, y];
+    }
+  }
+  // No room in the figure: under the content, at the last frame's left edge.
+  return [Math.round(Math.max(4, last ? last.x : 8)), Math.round(bottom + gap)];
+}
+
+/** Smallest zoom (the fit never goes below it either). */
+const MIN_ZOOM = 0.5;
 
 const DISMISSED_KEY = 'ntnxvision.diagrams.carryDismissed';
 
@@ -112,6 +204,12 @@ export function describeOp(op: DiagramOp, label?: string | null): string {
       return `Added ${op.element.name ?? 'element'}`;
     case 'connect':
       return op.label ? `Connector “${op.label}”` : 'Added connector';
+    case 'place':
+      return `Added ${op.label ?? 'an icon'}`;
+    case 'position':
+      return op.w !== undefined || op.h !== undefined ? `Size of ${name}` : `New place of ${name}`;
+    case 'text':
+      return op.value === null ? 'Text back to generated' : `Text “${op.value}”`;
     case 'edge': {
       const what = label || 'a connector';
       if (op.field === 'hidden') return op.value ? `Removal of ${what}` : `Restore of ${what}`;
@@ -192,7 +290,12 @@ export function DiagramsView({ snapshot: snapProp, type: typeProp, part: partPro
   const { navigate } = useRouter();
   const { dataVersion } = useRun();
   const toast = useToast();
-  const { appInfo } = useSettings();
+  const { appInfo, settings, update: updateSettings } = useSettings();
+  // The Legend switch: per user (Settings), followed by every export that draws diagrams.
+  const legend = settings.diagramLegend !== false;
+  // Canvas view (View menu): per user, editor only.
+  const grid = settings.diagramGrid ?? 'none';
+  const canvasBg = settings.diagramCanvas ?? 'white';
   const exportDialog = useExportDialog();
   const transfer = useSnapshotTransfer();
 
@@ -219,7 +322,10 @@ export function DiagramsView({ snapshot: snapProp, type: typeProp, part: partPro
   const [ops, setOps] = useState<DiagramOp[]>([]);
   /** The edit list now (updated synchronously, so a save right after a commit has it). */
   const opsRef = useRef<DiagramOp[]>([]);
-  const [redo, setRedo] = useState<DiagramOp[]>([]);
+  // Redo holds whole steps: one gesture (a drop, a resize) is one undo step.
+  const [redo, setRedo] = useState<DiagramOp[][]>([]);
+  /** Sizes of the steps applied in this session (edits per gesture), newest last. */
+  const steps = useRef<number[]>([]);
   const [selected, setSelected] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [kept, setKept] = useState(false);
@@ -299,8 +405,9 @@ export function DiagramsView({ snapshot: snapProp, type: typeProp, part: partPro
   );
 
   const apply = useCallback(
-    (op: DiagramOp): boolean => {
-      if (opsRef.current.length >= MAX_DIAGRAM_OPS) {
+    (op: DiagramOp | DiagramOp[]): boolean => {
+      const list = Array.isArray(op) ? op : [op];
+      if (opsRef.current.length + list.length > MAX_DIAGRAM_OPS) {
         toast.show({
           tone: 'warn',
           title: `This diagram holds ${MAX_DIAGRAM_OPS.toLocaleString('en-US')} edits, the most it can keep.`,
@@ -308,7 +415,8 @@ export function DiagramsView({ snapshot: snapProp, type: typeProp, part: partPro
         });
         return false;
       }
-      setEdits([...opsRef.current, op]);
+      setEdits([...opsRef.current, ...list]);
+      steps.current.push(list.length);
       setRedo([]);
       return true;
     },
@@ -318,15 +426,17 @@ export function DiagramsView({ snapshot: snapProp, type: typeProp, part: partPro
   const undo = useCallback(() => {
     const cur = opsRef.current;
     if (!cur.length) return;
-    setRedo((r) => [...r, cur[cur.length - 1]]);
-    setEdits(cur.slice(0, -1));
+    const n = Math.min(cur.length, Math.max(1, steps.current.pop() ?? 1));
+    setRedo((r) => [...r, cur.slice(cur.length - n)]);
+    setEdits(cur.slice(0, -n));
   }, [setEdits]);
 
   const redoOne = useCallback(() => {
     if (!redo.length) return;
-    const op = redo[redo.length - 1];
+    const step = redo[redo.length - 1];
     setRedo(redo.slice(0, -1));
-    setEdits([...opsRef.current, op]);
+    steps.current.push(step.length);
+    setEdits([...opsRef.current, ...step]);
   }, [redo, setEdits]);
 
   const save = useCallback(
@@ -436,6 +546,13 @@ export function DiagramsView({ snapshot: snapProp, type: typeProp, part: partPro
     return () => window.removeEventListener('keydown', onKey);
   }, [detail, busy, save, undo, redoOne]);
 
+  // The full-window editor lifts the toasts off its zoom controls and downloads.
+  useEffect(() => {
+    if (!expanded) return undefined;
+    document.body.classList.add('dg-expanded-open');
+    return () => document.body.classList.remove('dg-expanded-open');
+  }, [expanded]);
+
   // ─ derived ─
   const outline = useMemo(() => new Map((view?.outline ?? []).map((o) => [o.id, o])), [view]);
   const connectors = useMemo(() => new Map((view?.connectors ?? []).map((c) => [c.id, c])), [view]);
@@ -444,6 +561,19 @@ export function DiagramsView({ snapshot: snapProp, type: typeProp, part: partPro
   const scene = scenes[partIndex];
   const sel = selected ? outline.get(selected) ?? null : null;
   const selConn = selected ? connectors.get(selected) ?? null : null;
+  // ─ nesting (add into the selection, drops): the hierarchy comes from the core ─
+  const iconById = useMemo(() => new Map((detail?.icons ?? []).map((i) => [i.id, i])), [detail]);
+  const nest = useMemo<NestContext | null>(
+    () => (scene ? { icons: iconById, outline, kinds: view?.nest_kinds ?? {}, scene } : null),
+    [iconById, outline, view, scene],
+  );
+  /** A quiet line in the toolbar (an icon placed beside, not inside): never an error. */
+  const [nestHint, setNestHint] = useState<string | null>(null);
+  useEffect(() => {
+    if (!nestHint) return undefined;
+    const t = window.setTimeout(() => setNestHint(null), 6000);
+    return () => window.clearTimeout(t);
+  }, [nestHint]);
   /** Elements drawn in this part (the ends a connector can take here). */
   const drawnHere = useMemo(() => {
     const ids = new Set(scene?.nodes.map((n) => n.id) ?? []);
@@ -489,19 +619,110 @@ export function DiagramsView({ snapshot: snapProp, type: typeProp, part: partPro
 
   // ─ zoom ─
   const deskRef = useRef<HTMLDivElement>(null);
-  const [deskW, setDeskW] = useState(800);
+  const layoutRef = useRef<HTMLDivElement>(null);
+  /** The desk's width without the inspector column, its height, and that column's width. */
+  const [desk, setDesk] = useState<[number, number, number]>([800, 520, 0]);
   const [zoomMode, setZoomMode] = useState<'fit' | number>('fit');
-  useEffect(() => {
+  /** The inspector is open (something selected): it takes a column beside the canvas. */
+  const inspecting = !!(sel || selConn);
+  useLayoutEffect(() => {
     const el = deskRef.current;
     if (!el) return undefined;
-    const ro = new ResizeObserver(() => setDeskW(el.clientWidth));
+    const measure = () => {
+      // The fit ignores the inspector's column: opening it on a click never rescales or
+      // moves the figure under the pointer (the covered side scrolls instead).
+      const ins = layoutRef.current?.querySelector<HTMLElement>('.dg-inspector');
+      const gap = layoutRef.current ? parseFloat(getComputedStyle(layoutRef.current).columnGap) || 0 : 0;
+      const extra = ins ? ins.offsetWidth + gap : 0;
+      setDesk([el.clientWidth + extra, el.clientHeight, extra]);
+    };
+    const ro = new ResizeObserver(measure);
     ro.observe(el);
-    setDeskW(el.clientWidth);
+    const ins = layoutRef.current?.querySelector<HTMLElement>('.dg-inspector');
+    if (ins) ro.observe(ins);
+    measure();
     return () => ro.disconnect();
-  }, [scene !== undefined]);
-  const fit = scene ? Math.max(0.5, Math.min(2.5, (deskW - 32) / scene.width)) : 1;
+  }, [scene !== undefined, inspecting, expanded]);
+  // A selection the opened inspector now covers scrolls back into view, after a
+  // double-click's second click has landed where the first one did.
+  useEffect(() => {
+    if (!selected) return undefined;
+    const t = window.setTimeout(() => {
+      const desk = deskRef.current;
+      const target = desk?.querySelector(`[data-el="${CSS.escape(selected)}"], [data-conn="${CSS.escape(selected)}"]`);
+      if (!desk || !target) return;
+      const d = desk.getBoundingClientRect();
+      const r = target.getBoundingClientRect();
+      const hidden = target.hasAttribute('data-conn') ? r.left >= d.right - 24 || r.right <= d.left + 24 : r.right > d.right || r.left < d.left;
+      if (hidden) target.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+    }, 400);
+    return () => window.clearTimeout(t);
+  }, [selected]);
+  // The legend is an overlay on the stage (LegendOverlay), never part of the scrolling figure.
+  const shownScene = scene ? withoutLegend(scene) : undefined;
+  // Fit: the whole figure in the canvas, width and height, with room under it for the
+  // floating zoom controls (the desk's padding: 16 each side, 16 top and 56 under).
+  const fit = shownScene ? Math.max(MIN_ZOOM, Math.min(2.5, (desk[0] - 32) / shownScene.width, (desk[1] - 72) / shownScene.height)) : 1;
   const zoom = zoomMode === 'fit' ? fit : zoomMode;
-  const stepZoom = (d: number) => setZoomMode(Math.max(0.5, Math.min(3, Math.round((zoom + d) * 4) / 4)));
+  const zoomAt = useWheelZoom(deskRef, zoom, setZoomMode, MIN_ZOOM, 3);
+  // ─ the canvas around the figure ─
+  // Empty room on every side, half the canvas each way (the inspector's column left
+  // out, so opening it moves nothing): icons go left of and above the figure as easily
+  // as right of and under it, and the grid covers all of it. A drop out there makes the
+  // core move the figure (`scene.meta.origin`) and the canvas grows that way.
+  const bleedX = Math.round(Math.max(160, desk[0] / 2));
+  const bleedY = Math.round(Math.max(120, desk[1] / 2));
+  /** The desk point the figure is centred on: the canvas without the inspector, above the zoom bar. */
+  const deskCentre = (): [number, number] | null => {
+    const d = deskRef.current;
+    if (!d) return null;
+    const r = d.getBoundingClientRect();
+    return [r.left + desk[0] / 2, r.top + Math.max(16, (d.clientHeight - 40) / 2)];
+  };
+  // Zoom buttons zoom around the canvas centre (the wheel, around the pointer).
+  const stepZoom = (step: number) => {
+    const c = deskCentre();
+    const next = Math.max(MIN_ZOOM, Math.min(3, Math.round((zoom + step) * 4) / 4));
+    if (c) zoomAt(c[0], c[1], next);
+    else setZoomMode(next);
+  };
+  const viewKey = scene ? `${snapPath}|${curType}|${partIndex}` : null;
+  /** Bumped by the Fit button: centre the figure again even when it is already fitted. */
+  const [fitTick, setFitTick] = useState(0);
+  const seen = useRef<{ key: string | null; origin: [number, number]; bleed: [number, number]; zoom: number; fit: boolean; tick: number }>({
+    tick: 0,
+    key: null,
+    origin: [0, 0],
+    bleed: [0, 0],
+    zoom: 0,
+    fit: false,
+  });
+  useLayoutEffect(() => {
+    const d = deskRef.current;
+    const sheet = d?.querySelector('.dg-sheet');
+    if (!d || !sheet || !viewKey) return;
+    const last = seen.current;
+    const origin = originOf(scene);
+    const fitting = zoomMode === 'fit';
+    if (last.key !== viewKey || last.tick !== fitTick || (fitting && (!last.fit || Math.abs(zoom - last.zoom) > 1e-6))) {
+      // A figure opened, fitted, or refitted (it changed size): centred on the canvas.
+      const c = deskCentre();
+      const r = sheet.getBoundingClientRect();
+      if (c) {
+        d.scrollLeft += r.left + r.width / 2 - c[0];
+        d.scrollTop += r.top + r.height / 2 - c[1];
+      }
+    } else {
+      // The core moved the figure right / down (an icon left of or above it) or the
+      // room around it changed: scroll by as much, so nothing moves on screen.
+      d.scrollLeft += (origin[0] - last.origin[0]) * zoom + (bleedX - last.bleed[0]);
+      d.scrollTop += (origin[1] - last.origin[1]) * zoom + (bleedY - last.bleed[1]);
+    }
+    seen.current = { key: viewKey, origin, bleed: [bleedX, bleedY], zoom, fit: fitting, tick: fitTick };
+  }, [viewKey, scene, zoomMode, zoom, bleedX, bleedY, fitTick]);
+  const gridStyle = grid !== 'none' ? gridBackground(grid, zoom, bleedX, bleedY) : undefined;
+  // ─ context menu (right-click, context-menu key, Shift+F10) ─
+  const [ctxMenu, setCtxMenu] = useState<{ id: string; x: number; y: number } | null>(null);
 
   // ─ edits from the canvas and inspector ─
   const rename = (id: string, label: string) => apply({ op: 'set', id, field: 'label', value: label });
@@ -604,6 +825,53 @@ export function DiagramsView({ snapshot: snapProp, type: typeProp, part: partPro
       setDownloading(null);
     }
   };
+  /** Text edits in force: node or edge-label key -> line -> text. */
+  const texts = useMemo(() => {
+    const payload = (view?.model as { payload?: { text_edits?: Record<string, Record<string, string>> } } | undefined)?.payload;
+    return payload?.text_edits ?? {};
+  }, [view]);
+  const rewrite = (key: string, line: number, value: string | null) => apply({ op: 'text', id: key, line, value });
+  const placeMoves = (moves: { id: string; x: number; y: number; w?: number; h?: number }[]) =>
+    apply(
+      moves.map((m) => {
+        const [x, y] = unwarp(scene, m.x, m.y);
+        return { op: 'position', id: m.id, x: Math.round(x * 2) / 2, y: Math.round(y * 2) / 2, ...(m.w !== undefined ? { w: m.w } : {}), ...(m.h !== undefined ? { h: m.h } : {}) };
+      }),
+    );
+  const placeIcon = (icon: DiagramIcon) => {
+    if (!scene) return;
+    // The legend's place counts even while it is hidden: the icon goes above it.
+    const [w, h] = iconSize(icon, scene.nodes);
+    // Only where it can be seen: the inspector may cover the figure's right side.
+    let maxX = scene.width;
+    const desk = deskRef.current;
+    const sheet = desk?.querySelector('.dg-sheet');
+    if (desk && sheet) maxX = (desk.getBoundingClientRect().right - 16 - sheet.getBoundingClientRect().left) / zoom;
+    const plan = nest ? planAdd(nest, icon, selected, w, h) : ({ mode: 'free' } as const);
+    const sn = selected ? scene.nodes.find((n) => n.id === selected) : undefined;
+    const [fx, fy] =
+      plan.mode === 'beside'
+        ? [plan.x, plan.y]
+        : plan.mode === 'free' || !sn
+          ? freeSpot(scene.nodes, scene.width, scene.height, w, h, scene.edges, icon.container, maxX)
+          : [Math.round(sn.x), Math.round(sn.y)];
+    const [x, y] = unwarp(scene, fx, fy).map(Math.round) as [number, number];
+    const id = newId();
+    // A nested icon takes the size its parent's slots give it; a frame grows to hold.
+    const sized = (w !== icon.w || h !== icon.h) && !(plan.mode === 'into' && icon.container) ? { w, h } : {};
+    const nesting = plan.mode === 'into' ? { parent: plan.parent } : plan.mode === 'wrap' ? { wraps: [plan.target] } : {};
+    const placed: DiagramOp = { op: 'place', id, icon: icon.id, scene: scene.id, x, y, ...sized, ...nesting };
+    // A frame drawn around a placed icon on its own takes it in: one step, one undo.
+    const ops: DiagramOp[] = plan.mode === 'adopt' ? [placed, { op: 'position', id: plan.child, x, y, parent: id }] : [placed];
+    if (apply(ops)) {
+      setNestHint(plan.mode === 'free' ? null : plan.hint);
+      setSelected(id);
+      afterLayout.current = () =>
+        requestAnimationFrame(() => deskRef.current?.querySelector(`[data-el="${CSS.escape(id)}"]`)?.scrollIntoView({ block: 'nearest', inline: 'nearest' }));
+    }
+  };
+  const pickAdd = (c: PickerChoice) => (c.kind === 'palette' ? add(c.item) : placeIcon(c.icon));
+
   const add = (item: DiagramPaletteItem) => {
     let parent: string | null = null;
     if (item.parents.length) {
@@ -751,7 +1019,7 @@ export function DiagramsView({ snapshot: snapProp, type: typeProp, part: partPro
           </select>
         </div>
       )}
-      <div className={expanded ? 'dg-layout dg-expanded' : 'dg-layout'} data-testid="dg-layout">
+      <div className={expanded ? 'dg-layout dg-expanded' : 'dg-layout'} data-testid="dg-layout" ref={layoutRef}>
         <Panel as="nav" className="dg-list" aria-label="Diagrams in this snapshot">
           <div className="phead">
             <span className="phead-title">Diagrams</span>
@@ -801,52 +1069,40 @@ export function DiagramsView({ snapshot: snapProp, type: typeProp, part: partPro
           <div className="phead dg-head">
             <span className="dg-title">{summary?.title ?? detail?.title ?? 'Diagram'}</span>
             {scenes.length > 1 && <span className="mono t12 muted">{summary?.parts[partIndex]?.label || `Part ${partIndex + 1} of ${scenes.length}`}</span>}
-            {detail && (
-              <Badge className={stale ? 'warn' : detail.edited ? 'acc' : undefined}>{stale ? 'Edited · stale' : detail.edited ? 'Edited' : 'Generated'}</Badge>
-            )}
             <div className="spacer" />
             <Button size="sm" variant="ghost" iconOnly icon={ArrowArcLeftIcon} aria-label="Undo" title="Undo (⌘Z)" disabled={!ops.length} onClick={undo} />
             <Button size="sm" variant="ghost" iconOnly icon={ArrowArcRightIcon} aria-label="Redo" title="Redo (⇧⌘Z)" disabled={!redo.length} onClick={redoOne} />
             <span className="dg-sep" aria-hidden="true" />
-            <Button size="sm" variant="ghost" iconOnly icon={MinusIcon} aria-label="Zoom out" onClick={() => stepZoom(-0.25)} />
-            <span className="mono t12 dg-zoom" aria-live="polite">
-              {Math.round(zoom * 100)}%
-            </span>
-            <Button size="sm" variant="ghost" iconOnly icon={PlusIcon} aria-label="Zoom in" onClick={() => stepZoom(0.25)} />
-            <Button size="sm" variant="ghost" onClick={() => setZoomMode('fit')} aria-pressed={zoomMode === 'fit'}>
-              Fit
-            </Button>
-            <Button
-              size="sm"
-              variant="ghost"
-              iconOnly
-              icon={expanded ? CornersInIcon : CornersOutIcon}
-              aria-label={expanded ? 'Leave the full-window editor' : 'Expand the canvas'}
-              aria-pressed={expanded}
-              title={expanded ? 'Leave the full-window editor (⇧⌘F or Esc)' : 'Expand the canvas to the full window (⇧⌘F)'}
-              onClick={() => setExpanded((v) => !v)}
-            />
-            <span className="dg-sep" aria-hidden="true" />
-            <span className="hint dg-dirty">
-              <span className={`dg-glyph ${dirty ? 'dirty' : 'clean'}`} aria-hidden="true" />
-              {dirty ? (unsaved ? plural(unsaved, 'unsaved change') : 'Unsaved changes') : 'No unsaved changes'}
-            </span>
-            <Button size="sm" variant="ghost" disabled={!detail || busy || (!detail.edited && !dirty)} onClick={() => (detail?.edited ? setConfirmReset(true) : (setEdits([]), setRedo([])))}>
-              Reset to generated
-            </Button>
+            {/* The save state, once: only while there is something to save. */}
+            {dirty && (
+              <span className="hint dg-dirty" data-testid="dg-dirty">
+                <span className="dg-glyph dirty" aria-hidden="true" />
+                {unsaved ? plural(unsaved, 'unsaved change') : 'Unsaved changes'}
+              </span>
+            )}
             <Button size="sm" variant="primary" disabled={!dirty || busy} onClick={() => void save()} kbd="⌘S">
               Save
             </Button>
+            <KebabMenu
+              label="More diagram actions"
+              items={[
+                {
+                  label: 'Reset to generated…',
+                  disabled: !detail || busy || (!detail.edited && !dirty),
+                  onSelect: () => (detail?.edited ? setConfirmReset(true) : (setEdits([]), setRedo([]))),
+                },
+              ]}
+            />
           </div>
 
           <div className="dg-tools" role="toolbar" aria-label="Add to diagram">
-            <span className="eyebrow">Add</span>
-            {(detail?.palette ?? []).map((p) => (
-              <button key={p.id} type="button" className="dg-tool" title={p.hint} onClick={() => add(p)} disabled={!view}>
-                {React.createElement(PALETTE_ICONS[p.id] ?? TreeStructureIcon, { size: 14, 'aria-hidden': true })}
-                {p.label}
-              </button>
-            ))}
+            <IconPicker
+              palette={detail?.palette ?? []}
+              icons={detail?.icons ?? []}
+              disabled={!view || !scene}
+              onPick={pickAdd}
+              into={nest && selected && kindOf(nest, selected) ? { label: nameOf(nest, selected), accepts: (k) => holds(nest, kindOf(nest, selected), k) } : null}
+            />
             <button
               type="button"
               className={tool === 'connect' ? 'dg-tool on' : 'dg-tool'}
@@ -858,17 +1114,33 @@ export function DiagramsView({ snapshot: snapProp, type: typeProp, part: partPro
               <FlowArrowIcon size={14} aria-hidden="true" />
               Connector
             </button>
+            {(partConnectors.length > 0 || removedHere.length > 0) && (
+              <ConnectorsMenu
+                connectors={partConnectors}
+                removed={removedHere}
+                onSelect={(id) => setSelected(id)}
+                onRestore={(c) => editConnector(c, 'hidden', false)}
+              />
+            )}
+            <span className="hint dg-hint" role="status" data-testid="dg-nest-hint">
+              {nestHint ?? 'Double-click any text to edit it.'}
+            </span>
             <div className="spacer" />
-            <Button
-              size="sm"
-              variant="ghost"
-              icon={TrashIcon}
-              className="dg-del"
-              disabled={!(sel?.can_delete || (selConn?.can_delete && !selConn.hidden))}
-              onClick={() => selected && remove(selected)}
+            <CanvasOptions
+              grid={grid}
+              background={canvasBg}
+              disabled={!scene}
+              onGrid={(v) => void updateSettings({ diagramGrid: v === 'none' ? undefined : v })}
+              onBackground={(v) => void updateSettings({ diagramCanvas: v === 'white' ? undefined : v })}
+            />
+            <Checkbox
+              className="dg-legend"
+              checked={legend}
+              onChange={(v) => void updateSettings({ diagramLegend: v ? undefined : false })}
+              data-testid="dg-legend"
             >
-              Delete
-            </Button>
+              Legend
+            </Checkbox>
           </div>
           {tool === 'connect' && (
             <div className="dg-mode" role="status" data-testid="dg-connect-status">
@@ -966,10 +1238,23 @@ export function DiagramsView({ snapshot: snapProp, type: typeProp, part: partPro
             </Callout>
           )}
 
-          <div className="dg-desk" ref={deskRef}>
+          <div className={canvasBg === 'transparent' ? 'dg-stage clear' : 'dg-stage'}>
+          <div className="dg-desk" ref={deskRef} data-grid={gridStyle ? grid : undefined} style={gridStyle}>
             {loadError ? (
               <InlineEmpty>{loadError}</InlineEmpty>
             ) : scene ? (
+              <div
+                className="dg-room"
+                style={{ padding: `${bleedY}px ${bleedX}px` }}
+                onPointerDown={(ev) => {
+                  // A press on the empty canvas around the figure: as on the figure's own empty space.
+                  if (ev.target !== ev.currentTarget || ev.button !== 0) return;
+                  if (tool === 'connect') {
+                    setTool('select');
+                    setConnectFrom(null);
+                  } else setSelected(null);
+                }}
+              >
               <SceneCanvas
                 scene={scene}
                 zoom={zoom}
@@ -992,18 +1277,62 @@ export function DiagramsView({ snapshot: snapProp, type: typeProp, part: partPro
                 onBend={(c, value) => bend(c, value)}
                 onLanePreview={lanePreview}
                 onCancelTool={() => (setTool('select'), setConnectFrom(null))}
+                legend={false}
+                grid={grid}
+                background={canvasBg}
+                onContextMenu={(id, x, y) => setCtxMenu({ id, x, y })}
+                onText={rewrite}
+                onSublabel={(id, v) => apply({ op: 'set', id, field: 'sublabel', value: v })}
+                onConnectorLabel={(c, v) => editConnector(c, 'label', v)}
+                onPlace={placeMoves}
+                nest={nest}
+                onNest={(id, parent, fx, fy) => {
+                  const [x, y] = unwarp(scene, fx, fy);
+                  apply({ op: 'position', id, x: Math.round(x * 2) / 2, y: Math.round(y * 2) / 2, parent });
+                }}
+                onWrap={(id, target, fx, fy) => {
+                  const [x, y] = unwarp(scene, fx, fy);
+                  apply({ op: 'position', id, x: Math.round(x), y: Math.round(y), wraps: [target] });
+                }}
+                onHint={setNestHint}
               />
+              </div>
             ) : (
               list.data && diagrams.length > 0 && <InlineEmpty>Drawing…</InlineEmpty>
             )}
           </div>
+          {scene && legend && <LegendOverlay scene={scene} onText={rewrite} />}
+          {scene && (
+            <div className="dg-zoombar" role="toolbar" aria-label="Zoom">
+              <button type="button" className="dg-zb" aria-label="Zoom out" title="Zoom out" onClick={() => stepZoom(-0.25)} disabled={zoom <= 0.5}>
+                <MinusIcon size={14} aria-hidden="true" />
+              </button>
+              <span className="dg-zb-pct" role="status" aria-label={`Zoom ${Math.round(zoom * 100)}%`}>
+                {Math.round(zoom * 100)}%
+              </span>
+              <button type="button" className="dg-zb" aria-label="Zoom in" title="Zoom in" onClick={() => stepZoom(0.25)} disabled={zoom >= 3}>
+                <PlusIcon size={14} aria-hidden="true" />
+              </button>
+              <span className="dg-zb-sep" aria-hidden="true" />
+              <button type="button" className={zoomMode === 'fit' ? 'dg-zb on' : 'dg-zb'} aria-label="Fit to the canvas" title="Fit the figure to the canvas" aria-pressed={zoomMode === 'fit'} onClick={() => (setZoomMode('fit'), setFitTick((t) => t + 1))}>
+                <FrameCornersIcon size={14} aria-hidden="true" />
+              </button>
+              <button
+                type="button"
+                className={expanded ? 'dg-zb on' : 'dg-zb'}
+                aria-label={expanded ? 'Leave the full-window editor' : 'Expand the canvas'}
+                aria-pressed={expanded}
+                title={expanded ? 'Leave the full-window editor (⇧⌘F or Esc)' : 'Expand the canvas to the full window (⇧⌘F)'}
+                onClick={() => setExpanded((v) => !v)}
+              >
+                {expanded ? <CornersInIcon size={14} aria-hidden="true" /> : <CornersOutIcon size={14} aria-hidden="true" />}
+              </button>
+            </div>
+          )}
+          </div>
           <div className="dg-foot">
-            <span className="hint">
-              {dirty
-                ? 'Unsaved changes are not in exports until you save.'
-                : detail?.edited
-                  ? `Edited ${fmtAbs(detail.saved_at)} · ${plural(savedOps.length, 'edit')} · exports use the saved version`
-                  : `Generated from ${snap?.name ?? 'the snapshot'}. Exports draw it from the data.`}
+            <span className="hint dg-caption" title={scene?.caption}>
+              {scene?.caption}
             </span>
             <span className="dg-dl" role="group" aria-label="Download this diagram">
               <span className="hint">Download</span>
@@ -1021,12 +1350,14 @@ export function DiagramsView({ snapshot: snapProp, type: typeProp, part: partPro
               ))}
             </span>
           </div>
-          {scene && <div className="hint dg-caption">{scene.caption}</div>}
         </Panel>
 
+        {inspecting && (
         <Panel as="aside" className="dg-inspector" aria-label="Inspector">
           <div className="phead">
             <span className="phead-title">Selection</span>
+            <div className="spacer" />
+            <Button size="sm" variant="ghost" iconOnly icon={XIcon} aria-label="Close the inspector (clears the selection)" title="Deselect (Esc)" onClick={() => setSelected(null)} />
           </div>
           {selConn ? (
             <ConnectorInspector
@@ -1043,8 +1374,11 @@ export function DiagramsView({ snapshot: snapProp, type: typeProp, part: partPro
             />
           ) : sel ? (
             <Inspector
-              key={sel.id + JSON.stringify([sel.label, sel.sublabel, sel.role])}
+              key={sel.id + JSON.stringify([sel.label, sel.sublabel, sel.role, texts])}
               el={sel}
+              nodes={scene ? scene.nodes.filter((n) => n.id === sel.id || (n.parent === sel.id && !outline.has(n.id))) : []}
+              texts={texts}
+              onText={rewrite}
               onLabel={(v) => rename(sel.id, v)}
               onSublabel={(v) => apply({ op: 'set', id: sel.id, field: 'sublabel', value: v })}
               onRole={(v) => apply({ op: 'set', id: sel.id, field: 'role', value: v })}
@@ -1053,57 +1387,72 @@ export function DiagramsView({ snapshot: snapProp, type: typeProp, part: partPro
               onConnect={() => startConnect(sel.id)}
               onDelete={() => remove(sel.id)}
               onEditInPlace={() => setEditRequest((n) => n + 1)}
+              nestInfo={
+                sel.free && scene
+                  ? {
+                      parent: placedMeta(scene)[sel.id]?.parent ?? null,
+                      parentLabel: nest && placedMeta(scene)[sel.id]?.parent ? nameOf(nest, placedMeta(scene)[sel.id].parent!) : null,
+                      wraps: (placedMeta(scene)[sel.id]?.wraps ?? []).map((w) => (nest ? nameOf(nest, w) : w)),
+                      // More collected top-level frames this frame may draw around.
+                      more:
+                        nest && placedMeta(scene)[sel.id]?.anchored
+                          ? scene.nodes
+                              .filter((n) => !n.parent && !outline.get(n.id)?.free && holds(nest, sel.icon ?? null, kindOf(nest, n.id)))
+                              .map((n) => ({ id: n.id, label: nameOf(nest, n.id) }))
+                          : [],
+                    }
+                  : null
+              }
+              onWrapMore={(id) => {
+                const n = scene?.nodes.find((o) => o.id === sel.id);
+                const cur = scene ? placedMeta(scene)[sel.id]?.wraps ?? [] : [];
+                if (!n) return;
+                const [x, y] = unwarp(scene, n.x, n.y).map(Math.round);
+                apply({ op: 'position', id: sel.id, x, y, wraps: [...cur, id] });
+              }}
+              onUnnest={() => {
+                const n = scene?.nodes.find((o) => o.id === sel.id);
+                if (!scene || !n) return;
+                const [x, y] = unwarp(scene, ...freeSpot(scene.nodes, scene.width, scene.height, n.w, n.h, scene.edges, false)).map(Math.round);
+                apply({ op: 'position', id: sel.id, x, y, parent: null });
+              }}
+              onRelease={() => {
+                const n = scene?.nodes.find((o) => o.id === sel.id);
+                if (!n) return;
+                const [x, y] = unwarp(scene, n.x, n.y).map(Math.round);
+                apply({ op: 'position', id: sel.id, x, y, wraps: [] });
+              }}
             />
-          ) : (
-            <div className="dg-ins-empty">
-              {removedHere.length > 0 && (
-                <div className="dg-conns" style={{ marginTop: 0, marginBottom: 12 }}>
-                  <span className="eyebrow">Removed from this figure</span>
-                  <ul>
-                    {removedHere.map((c) => (
-                      <li key={c.id}>
-                        <span>{spoken(c.kind, c.label)}</span>
-                        {c.a_label && c.b_label && (
-                          <span className="hint">
-                            {' '}
-                            {c.a_label} to {c.b_label}
-                          </span>
-                        )}
-                        <button type="button" className="textlink" onClick={() => editConnector(c, 'hidden', false)}>
-                          Restore
-                        </button>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              )}
-              <p className="hint">
-                Select an element on the canvas to edit its label, role and order, or a connector to change its ends, label and route. Double-click a label to edit it in place.
-              </p>
-              {partConnectors.length > 0 && (
-                <div className="dg-conns">
-                  <span className="eyebrow">Connectors in this figure</span>
-                  <ul>
-                    {partConnectors.map((c) => (
-                      <li key={c.id}>
-                        <button type="button" className="textlink" onClick={() => setSelected(c.id)}>
-                          {spoken(c.kind, c.label)}
-                        </button>
-                        <span className="hint">
-                          {' '}
-                          {c.a_label} to {c.b_label}
-                        </span>
-                        {c.origin === 'user' && <Badge className="warn">User-added</Badge>}
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              )}
-            </div>
-          )}
+          ) : null}
         </Panel>
+        )}
       </div>
 
+      {ctxMenu && (outline.has(ctxMenu.id) || connectors.has(ctxMenu.id)) && (
+        <CanvasMenu
+          at={ctxMenu}
+          el={outline.get(ctxMenu.id) ?? null}
+          conn={connectors.get(ctxMenu.id) ?? null}
+          onClose={() => {
+            const id = ctxMenu.id;
+            setCtxMenu(null);
+            requestAnimationFrame(() => deskRef.current?.querySelector<SVGGElement>(`[data-el="${CSS.escape(id)}"], [data-conn="${CSS.escape(id)}"]`)?.focus());
+          }}
+          onRename={() => {
+            setSelected(ctxMenu.id);
+            setEditRequest((n) => n + 1);
+          }}
+          onConnect={() => startConnect(ctxMenu.id)}
+          onRemove={() => remove(ctxMenu.id)}
+          onHead={(end, kind) => {
+            const c = connectors.get(ctxMenu.id);
+            if (!c) return;
+            const ends: [string, string] = [c.ends[0] ?? c.a ?? '', c.ends[1] ?? c.b ?? ''];
+            const op = (field: 'head_start' | 'head_end'): DiagramOp => ({ op: 'edge', id: c.id, ends, field, value: kind });
+            apply(end === 'both' ? [op('head_start'), op('head_end')] : [op(end === 'start' ? 'head_start' : 'head_end')]);
+          }}
+        />
+      )}
       <ConfirmDialog
         open={confirmReset}
         onClose={() => setConfirmReset(false)}
@@ -1153,8 +1502,54 @@ export function DiagramsView({ snapshot: snapProp, type: typeProp, part: partPro
   );
 }
 
+/** The text lines of an element and its chips that are not its label or sublabel. */
+function otherLines(el: DiagramElement, nodes: SceneNode[]): { key: string; line: number; text: string }[] {
+  const out: { key: string; line: number; text: string }[] = [];
+  for (const n of nodes) {
+    n.lines.forEach((t, i) => {
+      if (n.id === el.id && (partOf(t.text, el.label) || partOf(t.text, el.sublabel))) return;
+      out.push({ key: n.id, line: i, text: t.text });
+    });
+  }
+  return out;
+}
+
+function TextLineField({ k, line, text, edited, onText }: { k: string; line: number; text: string; edited: boolean; onText(key: string, line: number, value: string | null): void }): JSX.Element {
+  const [v, setV] = useState(text);
+  const commit = () => {
+    const t = v.replace(/\s+/g, ' ').trim();
+    if (t !== text) onText(k, line, t);
+  };
+  return (
+    <div className="dg-line">
+      <input
+        className="input"
+        aria-label={`Text: ${text}`}
+        value={v}
+        maxLength={200}
+        onChange={(e) => setV(e.target.value)}
+        onBlur={commit}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') {
+            e.preventDefault();
+            commit();
+          }
+        }}
+      />
+      {edited && (
+        <button type="button" className="textlink" onClick={() => onText(k, line, null)}>
+          Revert
+        </button>
+      )}
+    </div>
+  );
+}
+
 function Inspector({
   el,
+  nodes,
+  texts,
+  onText,
   onLabel,
   onSublabel,
   onRole,
@@ -1163,8 +1558,16 @@ function Inspector({
   onConnect,
   onDelete,
   onEditInPlace,
+  nestInfo,
+  onUnnest,
+  onRelease,
+  onWrapMore,
 }: {
   el: DiagramElement;
+  /** Its scene node and the chips drawn on it. */
+  nodes: SceneNode[];
+  texts: Record<string, Record<string, string>>;
+  onText(key: string, line: number, value: string | null): void;
   onLabel(v: string): void;
   onSublabel(v: string | null): void;
   onRole(v: string | null): void;
@@ -1173,6 +1576,11 @@ function Inspector({
   onConnect(): void;
   onDelete(): void;
   onEditInPlace(): void;
+  /** A placed icon: what it sits in, what collected frames it wraps. */
+  nestInfo?: { parent: string | null; parentLabel: string | null; wraps: string[]; more: { id: string; label: string }[] } | null;
+  onUnnest?(): void;
+  onRelease?(): void;
+  onWrapMore?(id: string): void;
 }): JSX.Element {
   const [label, setLabel] = useState(el.label ?? '');
   const [sub, setSub] = useState(el.sublabel ?? '');
@@ -1265,6 +1673,55 @@ function Inspector({
             ))}
           </select>
         </Field>
+      )}
+      {el.free && nestInfo?.parent ? (
+        <div className="dg-nest">
+          <span className="lbl">Inside</span>
+          <span className="dg-nest-name">{nestInfo.parentLabel ?? 'its container'}</span>
+          <button type="button" className="textlink" onClick={onUnnest}>
+            Take out
+          </button>
+          <p className="hint dg-ins-note">Placed by its container: drag it onto another container to move it, or out to free it. Drag an edge or a corner to resize it.</p>
+        </div>
+      ) : el.free && nestInfo?.wraps.length ? (
+        <div className="dg-nest">
+          <span className="lbl">Around</span>
+          <span className="dg-nest-name">{nestInfo.wraps.join(', ')}</span>
+          <button type="button" className="textlink" onClick={onRelease}>
+            Release
+          </button>
+          <p className="hint dg-ins-note">Drawn around the collected frame, so it follows it. Drag an edge or a corner to make it larger.</p>
+          {nestInfo.more.length > 0 && (
+            <select
+              className="input dg-nest-more"
+              aria-label="Also draw it around"
+              value=""
+              onChange={(e) => e.target.value && onWrapMore?.(e.target.value)}
+            >
+              <option value="">Also draw it around…</option>
+              {nestInfo.more.map((m) => (
+                <option key={m.id} value={m.id}>
+                  {m.label}
+                </option>
+              ))}
+            </select>
+          )}
+        </div>
+      ) : (
+        el.free && (
+          <p className="hint dg-ins-note">
+            Placed on the figure: drag it anywhere or onto a container to put it inside, drag an edge or a corner to resize it, or use ⌥ and the arrow keys to nudge it.
+          </p>
+        )
+      )}
+      {otherLines(el, nodes).length > 0 && (
+        <div className="dg-lines">
+          <span className="lbl">Text on the figure</span>
+          {otherLines(el, nodes).map((l) => (
+            <TextLineField key={`${l.key}|${l.line}`} k={l.key} line={l.line} text={l.text} edited={texts[l.key]?.[String(l.line)] !== undefined} onText={onText} />
+          ))}
+          <span className="hint">Or double-click any text on the canvas.</span>
+        </div>
       )}
       <button type="button" className="textlink dg-ins-inplace" style={{ alignSelf: 'flex-start' }} onClick={onConnect}>
         Connect from here (C)

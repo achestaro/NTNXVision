@@ -129,6 +129,8 @@
   --chart-6: #c65d26;
   --chart-7: #3899c5;
   --chart-8: #648828;
+  /* Teal (Metrics IOPS): 3.5:1 on the --rule-2 bar track, apart from --chart-1/5/8 under CVD */
+  --chart-9: #13857a;
   --seq-1: #88b1ef;
   --seq-2: #5f94e2;
   --seq-3: #3b77d0;
@@ -174,6 +176,8 @@
   --chart-6: #d46a34;
   --chart-7: #3e9dca;
   --chart-8: #759b3d;
+  /* Teal (Metrics IOPS): 5.4:1 on the --rule-2 bar track */
+  --chart-9: #2fa898;
   --seq-1: #204e90;
   --seq-2: #3169b9;
   --seq-3: #4d86d9;
@@ -253,6 +257,7 @@
   --chart-6: #d46a34;
   --chart-7: #3e9dca;
   --chart-8: #759b3d;
+  --chart-9: #2fa898;
   --seq-1: #204e90;
   --seq-2: #3169b9;
   --seq-3: #4d86d9;
