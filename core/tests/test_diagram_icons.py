@@ -267,7 +267,7 @@ def test_legend_is_compact_legible_and_cut_only_when_below(env: Environment) -> 
     # Legible: never smaller than the cards' detail text it explains.
     details = [t.size for n in sc0.nodes if n.kind == "box" for t in n.lines if not t.bold]
     assert all(t.size == LEGEND_SIZE for n in labels for t in n.lines)
-    assert LEGEND_SIZE >= max(details)
+    assert max(details) <= LEGEND_SIZE
     top = min(n.y for n in sc0.nodes if n.id.startswith("legend:"))
     content = max(n.y + n.h for n in sc0.nodes if not n.id.startswith("legend:"))
     assert top - content >= LEGEND_GAP - 0.01
