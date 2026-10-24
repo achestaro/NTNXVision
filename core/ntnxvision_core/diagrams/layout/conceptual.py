@@ -37,6 +37,7 @@ from .. import text as tx
 from .. import tokens as K
 from ..build import (
     CHIP_H,
+    LEGEND_GAP,
     LabelText,
     Row,
     box,
@@ -633,12 +634,12 @@ def _layout_part(model: ConceptualModel, plan: _Plan, page: Page, refs: Refs,
     # legend (one row instead of two); a narrow one keeps it within its own width.
     lg_w = min(page.width - 2 * MX, max(content_w, 300.0) if content_w <= 480.0
                else page.width)
-    lh = legend(sc, items, MX, content_bottom + 9, lg_w)
+    lh = legend(sc, items, MX, content_bottom + LEGEND_GAP, lg_w)
     right = max(max(nd.x + nd.w for nd in sc.nodes),
                 max((max(p[0] for p in e.points) for e in sc.edges), default=0.0),
                 max((lb.x + lb.w for e in sc.edges for lb in e.labels), default=0.0))
     sc.width = q(min(page.width, right + MX))
-    sc.height = q(content_bottom + 9 + lh + 1)
+    sc.height = q(content_bottom + LEGEND_GAP + lh + 1)
     sc.meta = {"drawn": drawn, "summarised": summarised,
                "sites": [s.id for s in sites]}
     return sc

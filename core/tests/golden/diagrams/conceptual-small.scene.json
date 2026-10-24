@@ -135,12 +135,12 @@
    "labels": [],
    "points": [
     [
-     85.5,
-     211.06
+     96.0,
+     215.56
     ],
     [
-     96.5,
-     211.06
+     107.0,
+     215.56
     ]
    ],
    "src": "",
@@ -161,12 +161,12 @@
    "labels": [],
    "points": [
     [
-     139.39,
-     211.06
+     155.2,
+     215.56
     ],
     [
-     150.39,
-     211.06
+     166.2,
+     215.56
     ]
    ],
    "src": "",
@@ -190,12 +190,12 @@
    "labels": [],
    "points": [
     [
-     190.73,
-     211.06
+     211.43,
+     215.56
     ],
     [
-     201.73,
-     211.06
+     222.43,
+     215.56
     ]
    ],
    "src": "",
@@ -208,7 +208,7 @@
    }
   }
  ],
- "height": 216.56,
+ "height": 221.56,
  "id": "conceptual",
  "meta": {
   "drawn": [
@@ -613,7 +613,7 @@
   },
   {
    "data": {},
-   "h": 5.5,
+   "h": 6.0,
    "id": "legend:0",
    "kind": "swatch",
    "lines": [],
@@ -627,21 +627,21 @@
    },
    "w": 11.0,
    "x": 0.5,
-   "y": 199.81
+   "y": 203.06
   },
   {
    "data": {},
-   "h": 8.0,
+   "h": 9.0,
    "id": "legend:0:label",
    "kind": "label",
    "lines": [
     {
-     "baseline": 6.1,
+     "baseline": 6.95,
      "bold": false,
      "color": "#3E4C59",
-     "size": 6.0,
+     "size": 7.0,
      "text": "Prism Central",
-     "width": 35.9,
+     "width": 41.89,
      "x": 0.0
     }
    ],
@@ -653,13 +653,13 @@
     "stroke": null,
     "stroke_w": 0.75
    },
-   "w": 39.06,
+   "w": 45.4,
    "x": 14.5,
-   "y": 198.56
+   "y": 201.56
   },
   {
    "data": {},
-   "h": 5.5,
+   "h": 6.0,
    "id": "legend:1",
    "kind": "swatch",
    "lines": [],
@@ -672,22 +672,22 @@
     "stroke_w": 0.7
    },
    "w": 11.0,
-   "x": 60.56,
-   "y": 199.81
+   "x": 66.9,
+   "y": 203.06
   },
   {
    "data": {},
-   "h": 8.0,
+   "h": 9.0,
    "id": "legend:1:label",
    "kind": "label",
    "lines": [
     {
-     "baseline": 6.1,
+     "baseline": 6.95,
      "bold": false,
      "color": "#3E4C59",
-     "size": 6.0,
+     "size": 7.0,
      "text": "Cluster (Prism Element)",
-     "width": 63.49,
+     "width": 74.07,
      "x": 0.0
     }
    ],
@@ -699,13 +699,13 @@
     "stroke": null,
     "stroke_w": 0.75
    },
-   "w": 68.3,
-   "x": 74.56,
-   "y": 198.56
+   "w": 79.52,
+   "x": 80.9,
+   "y": 201.56
   },
   {
    "data": {},
-   "h": 5.5,
+   "h": 6.0,
    "id": "legend:2",
    "kind": "swatch",
    "lines": [],
@@ -718,22 +718,22 @@
     "stroke_w": 0.45
    },
    "w": 11.0,
-   "x": 149.86,
-   "y": 199.81
+   "x": 167.42,
+   "y": 203.06
   },
   {
    "data": {},
-   "h": 8.0,
+   "h": 9.0,
    "id": "legend:2:label",
    "kind": "label",
    "lines": [
     {
-     "baseline": 6.1,
+     "baseline": 6.95,
      "bold": false,
      "color": "#3E4C59",
-     "size": 6.0,
+     "size": 7.0,
      "text": "DSF storage",
-     "width": 32.98,
+     "width": 38.48,
      "x": 0.0
     }
    ],
@@ -745,13 +745,13 @@
     "stroke": null,
     "stroke_w": 0.75
    },
-   "w": 35.96,
-   "x": 163.86,
-   "y": 198.56
+   "w": 41.79,
+   "x": 181.42,
+   "y": 201.56
   },
   {
    "data": {},
-   "h": 5.5,
+   "h": 6.0,
    "id": "legend:3",
    "kind": "swatch",
    "lines": [],
@@ -768,21 +768,21 @@
    },
    "w": 11.0,
    "x": 0.5,
-   "y": 208.31
+   "y": 212.56
   },
   {
    "data": {},
-   "h": 8.0,
+   "h": 9.0,
    "id": "legend:3:label",
    "kind": "label",
    "lines": [
     {
-     "baseline": 6.1,
+     "baseline": 6.95,
      "bold": false,
      "color": "#3E4C59",
-     "size": 6.0,
+     "size": 7.0,
      "text": "Outside this inventory",
-     "width": 59.44,
+     "width": 69.34,
      "x": 0.0
     }
    ],
@@ -794,23 +794,23 @@
     "stroke": null,
     "stroke_w": 0.75
    },
-   "w": 64.0,
+   "w": 74.5,
    "x": 14.5,
-   "y": 207.06
+   "y": 211.06
   },
   {
    "data": {},
-   "h": 8.0,
+   "h": 9.0,
    "id": "legend:4:label",
    "kind": "label",
    "lines": [
     {
-     "baseline": 6.1,
+     "baseline": 6.95,
      "bold": false,
      "color": "#3E4C59",
-     "size": 6.0,
+     "size": 7.0,
      "text": "Replication",
-     "width": 30.08,
+     "width": 35.1,
      "x": 0.0
     }
    ],
@@ -822,23 +822,23 @@
     "stroke": null,
     "stroke_w": 0.75
    },
-   "w": 32.89,
-   "x": 99.5,
-   "y": 207.06
+   "w": 38.2,
+   "x": 110.0,
+   "y": 211.06
   },
   {
    "data": {},
-   "h": 8.0,
+   "h": 9.0,
    "id": "legend:5:label",
    "kind": "label",
    "lines": [
     {
-     "baseline": 6.1,
+     "baseline": 6.95,
      "bold": false,
      "color": "#3E4C59",
-     "size": 6.0,
+     "size": 7.0,
      "text": "AZ pairing",
-     "width": 27.68,
+     "width": 32.29,
      "x": 0.0
     }
    ],
@@ -850,23 +850,23 @@
     "stroke": null,
     "stroke_w": 0.75
    },
-   "w": 30.34,
-   "x": 153.39,
-   "y": 207.06
+   "w": 35.23,
+   "x": 169.2,
+   "y": 211.06
   },
   {
    "data": {},
-   "h": 8.0,
+   "h": 9.0,
    "id": "legend:6:label",
    "kind": "label",
    "lines": [
     {
-     "baseline": 6.1,
+     "baseline": 6.95,
      "bold": false,
      "color": "#3E4C59",
-     "size": 6.0,
+     "size": 7.0,
      "text": "Manages",
-     "width": 24.14,
+     "width": 28.16,
      "x": 0.0
     }
    ],
@@ -878,9 +878,9 @@
     "stroke": null,
     "stroke_w": 0.75
    },
-   "w": 26.59,
-   "x": 204.73,
-   "y": 207.06
+   "w": 30.85,
+   "x": 225.43,
+   "y": 211.06
   }
  ],
  "part": [

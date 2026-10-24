@@ -1100,7 +1100,7 @@ try {
     await page.locator('#dg-snap').selectOption({ label: (await page.locator('#dg-snap option', { hasText: 'pc01-week1' }).first().innerText()).trim() });
     await page.locator('.dg-sheet svg').waitFor({ timeout: 60_000 });
     await page.getByRole('button', { name: /Solution conceptual overview/ }).first().waitFor();
-    await page.getByText('No unsaved changes').waitFor();
+    await page.getByTestId('dg-dirty').waitFor({ state: 'detached' }); // nothing to save: no save state shown
     generatedDocx = await exportWordFromDiagrams();
   });
 
@@ -1379,7 +1379,7 @@ try {
   await run('diagrams-delete-undo-redo', async () => {
     const before = await el('cluster:').count();
     await el('cluster:').last().click();
-    await page.getByRole('toolbar', { name: 'Add to diagram' }).getByRole('button', { name: 'Delete' }).click();
+    await page.getByRole('complementary', { name: 'Inspector' }).getByRole('button', { name: 'Delete from diagram' }).click();
     await page.waitForFunction((n) => document.querySelectorAll('[data-el^="cluster:"]').length === n - 1, before, { timeout: 15_000 });
     await page.locator('.dg-canvas .phead').click({ position: { x: 5, y: 5 } }); // focus off the inputs
     await page.keyboard.press('ControlOrMeta+z');
@@ -1418,7 +1418,7 @@ try {
   await run('diagrams-save', async () => {
     await page.getByRole('button', { name: /^Save/ }).click();
     await page.getByText('Diagram saved.').first().waitFor({ timeout: 30_000 });
-    await page.getByText('No unsaved changes').waitFor();
+    await page.getByTestId('dg-dirty').waitFor({ state: 'detached' }); // nothing to save: no save state shown
     const snaps = await readdir(join(dataDir, 'snapshots'));
     if (!snaps.includes('pc01-week1.ntnxdiagrams.json')) throw new Error(`no saved diagram edits: ${snaps.join(', ')}`);
     await page.getByRole('button', { name: /Solution conceptual overview/ }).first().getByText(/Edited · saved/).waitFor();
@@ -1513,7 +1513,7 @@ try {
     await page.locator('[data-el^="subnet:"]', { hasText: 'E2E web segment' }).waitFor({ timeout: 15_000 });
     await page.getByRole('button', { name: /^Save/ }).click();
     await page.getByText('Diagram saved.').first().waitFor({ timeout: 30_000 });
-    await page.getByText('No unsaved changes').waitFor();
+    await page.getByTestId('dg-dirty').waitFor({ state: 'detached' }); // nothing to save: no save state shown
     const docx = await exportWordFromDiagrams();
     const disclosed = 'renamed to \u201cE2E web segment\u201d';
     const before = docxFacts(editedDocx, disclosed);

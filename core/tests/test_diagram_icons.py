@@ -256,13 +256,43 @@ def test_legend_switch_in_reports_and_downloads(env: Environment, data_dir: Path
     assert b"Cluster (Prism Element)" in Path(out["path"]).read_bytes()
 
 
-def test_legend_is_compact_and_cut_only_when_below(env: Environment) -> None:
+def test_legend_is_compact_legible_and_cut_only_when_below(env: Environment) -> None:
+    from ntnxvision_core.diagrams.build import LEGEND_GAP, LEGEND_SIZE
+
     sc0 = _first(env, "conceptual")
     labels = [n for n in sc0.nodes if n.id.startswith("legend:") and n.kind == "label"]
     swatches = [n for n in sc0.nodes if n.kind == "swatch"]
-    assert labels and all(n.h <= 8.5 for n in labels)
+    assert labels and all(n.h <= 9 for n in labels)
     assert all(n.w <= 11 and n.h <= 6 for n in swatches)
+    # Legible: never smaller than the cards' detail text it explains.
+    details = [t.size for n in sc0.nodes if n.kind == "box" for t in n.lines if not t.bold]
+    assert all(t.size == LEGEND_SIZE for n in labels for t in n.lines)
+    assert LEGEND_SIZE >= max(details)
+    top = min(n.y for n in sc0.nodes if n.id.startswith("legend:"))
+    content = max(n.y + n.h for n in sc0.nodes if not n.id.startswith("legend:"))
+    assert top - content >= LEGEND_GAP - 0.01
     assert sc0.meta["legend_cut"] < sc0.height
-    # An icon placed below the legend keeps the figure's height when the legend goes.
-    view = _view(env, "conceptual", [_below(sc0, "note", "user:n")])
-    assert view.scenes[0].meta["legend_cut"] == view.scenes[0].height
+
+
+def test_placed_icons_push_the_legend_down(env: Environment) -> None:
+    from ntnxvision_core.diagrams.build import LEGEND_GAP
+
+    sc0 = _first(env, "conceptual")
+    legend_top = min(n.y for n in sc0.nodes if n.id.startswith("legend:"))
+    # An icon put on the legend, and one under it: the legend moves under both and the
+    # figure grows by as much, so the legend stays last.
+    view = _view(env, "conceptual", [
+        _below(sc0, "note", "user:on", dy=-(sc0.height - legend_top)),
+        _below(sc0, "cluster", "user:under"),
+    ])
+    sc1 = view.scenes[0]
+    nodes = {n.id: n for n in sc1.nodes}
+    placed_bottom = max(nodes[i].y + nodes[i].h for i in ("user:on", "user:under"))
+    legend = [n for n in sc1.nodes if n.id.startswith("legend:")]
+    assert min(n.y for n in legend) >= placed_bottom + LEGEND_GAP - 0.01
+    assert sc1.height >= max(n.y + n.h for n in legend)
+    assert sc1.meta["legend_cut"] < sc1.height
+    # An icon well above the legend leaves it where it was.
+    up = _view(env, "conceptual", [{"op": "place", "id": "user:up", "icon": "text",
+                                     "scene": sc0.id, "x": sc0.width - 60, "y": 2}])
+    assert min(n.y for n in up.scenes[0].nodes if n.id.startswith("legend:")) == legend_top

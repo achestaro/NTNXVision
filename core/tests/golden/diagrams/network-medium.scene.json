@@ -258,7 +258,7 @@
    }
   }
  ],
- "height": 312.65,
+ "height": 316.65,
  "id": "network-a",
  "meta": {
   "group": "profile:70713501173a",
@@ -1187,7 +1187,7 @@
   },
   {
    "data": {},
-   "h": 5.5,
+   "h": 6.0,
    "id": "legend:0",
    "kind": "swatch",
    "lines": [],
@@ -1201,21 +1201,21 @@
    },
    "w": 11.0,
    "x": 0.5,
-   "y": 304.4
+   "y": 307.65
   },
   {
    "data": {},
-   "h": 8.0,
+   "h": 9.0,
    "id": "legend:0:label",
    "kind": "label",
    "lines": [
     {
-     "baseline": 6.1,
+     "baseline": 6.95,
      "bold": false,
      "color": "#3E4C59",
-     "size": 6.0,
+     "size": 7.0,
      "text": "Virtual switch",
-     "width": 36.81,
+     "width": 42.94,
      "x": 0.0
     }
    ],
@@ -1227,13 +1227,13 @@
     "stroke": null,
     "stroke_w": 0.75
    },
-   "w": 40.02,
+   "w": 46.52,
    "x": 14.5,
-   "y": 303.15
+   "y": 306.15
   },
   {
    "data": {},
-   "h": 5.5,
+   "h": 6.0,
    "id": "legend:1",
    "kind": "swatch",
    "lines": [],
@@ -1246,22 +1246,22 @@
     "stroke_w": 0.68
    },
    "w": 11.0,
-   "x": 61.52,
-   "y": 304.4
+   "x": 68.02,
+   "y": 307.65
   },
   {
    "data": {},
-   "h": 8.0,
+   "h": 9.0,
    "id": "legend:1:label",
    "kind": "label",
    "lines": [
     {
-     "baseline": 6.1,
+     "baseline": 6.95,
      "bold": false,
      "color": "#3E4C59",
-     "size": 6.0,
+     "size": 7.0,
      "text": "Bond, NIC or switch (reported)",
-     "width": 82.79,
+     "width": 96.59,
      "x": 0.0
     }
    ],
@@ -1273,13 +1273,13 @@
     "stroke": null,
     "stroke_w": 0.75
    },
-   "w": 88.76,
-   "x": 75.52,
-   "y": 303.15
+   "w": 103.39,
+   "x": 82.02,
+   "y": 306.15
   },
   {
    "data": {},
-   "h": 5.5,
+   "h": 6.0,
    "id": "legend:2",
    "kind": "swatch",
    "lines": [],
@@ -1295,22 +1295,22 @@
     "stroke_w": 0.75
    },
    "w": 11.0,
-   "x": 171.28,
-   "y": 304.4
+   "x": 192.41,
+   "y": 307.65
   },
   {
    "data": {},
-   "h": 8.0,
+   "h": 9.0,
    "id": "legend:2:label",
    "kind": "label",
    "lines": [
     {
-     "baseline": 6.1,
+     "baseline": 6.95,
      "bold": false,
      "color": "#3E4C59",
-     "size": 6.0,
+     "size": 7.0,
      "text": "Not reported",
-     "width": 35.29,
+     "width": 41.17,
      "x": 0.0
     }
    ],
@@ -1322,9 +1322,9 @@
     "stroke": null,
     "stroke_w": 0.75
    },
-   "w": 38.41,
-   "x": 185.28,
-   "y": 303.15
+   "w": 44.64,
+   "x": 206.41,
+   "y": 306.15
   }
  ],
  "part": [
@@ -1596,7 +1596,7 @@
    }
   }
  ],
- "height": 261.32,
+ "height": 265.32,
  "id": "network-b",
  "meta": {
   "group": "profile:67025c1055ad",
@@ -2445,7 +2445,7 @@
   },
   {
    "data": {},
-   "h": 5.5,
+   "h": 6.0,
    "id": "legend:0",
    "kind": "swatch",
    "lines": [],
@@ -2459,21 +2459,21 @@
    },
    "w": 11.0,
    "x": 0.5,
-   "y": 253.07
+   "y": 256.32
   },
   {
    "data": {},
-   "h": 8.0,
+   "h": 9.0,
    "id": "legend:0:label",
    "kind": "label",
    "lines": [
     {
-     "baseline": 6.1,
+     "baseline": 6.95,
      "bold": false,
      "color": "#3E4C59",
-     "size": 6.0,
+     "size": 7.0,
      "text": "Virtual switch",
-     "width": 36.81,
+     "width": 42.94,
      "x": 0.0
     }
    ],
@@ -2485,13 +2485,13 @@
     "stroke": null,
     "stroke_w": 0.75
    },
-   "w": 40.02,
+   "w": 46.52,
    "x": 14.5,
-   "y": 251.82
+   "y": 254.82
   },
   {
    "data": {},
-   "h": 5.5,
+   "h": 6.0,
    "id": "legend:1",
    "kind": "swatch",
    "lines": [],
@@ -2504,22 +2504,22 @@
     "stroke_w": 0.68
    },
    "w": 11.0,
-   "x": 61.52,
-   "y": 253.07
+   "x": 68.02,
+   "y": 256.32
   },
   {
    "data": {},
-   "h": 8.0,
+   "h": 9.0,
    "id": "legend:1:label",
    "kind": "label",
    "lines": [
     {
-     "baseline": 6.1,
+     "baseline": 6.95,
      "bold": false,
      "color": "#3E4C59",
-     "size": 6.0,
+     "size": 7.0,
      "text": "Bond, NIC or switch (reported)",
-     "width": 82.79,
+     "width": 96.59,
      "x": 0.0
     }
    ],
@@ -2531,9 +2531,9 @@
     "stroke": null,
     "stroke_w": 0.75
    },
-   "w": 88.76,
-   "x": 75.52,
-   "y": 251.82
+   "w": 103.39,
+   "x": 82.02,
+   "y": 254.82
   }
  ],
  "part": [

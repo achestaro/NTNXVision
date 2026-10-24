@@ -32,6 +32,7 @@ from .. import text as tx
 from .. import tokens as K
 from ..build import (
     CHIP_H,
+    LEGEND_GAP,
     LabelText,
     Row,
     box,
@@ -955,10 +956,10 @@ def _layout_part(m: DrModel, sites: list[DrSite], parts: list[list[DrSite]], pag
                 max((max(p[0] for p in e.points) for e in sc.edges), default=0.0),
                 max((lb.x + lb.w for e in sc.edges for lb in e.labels), default=0.0))
     lg_w = min(page.width - 2 * MX, max(right_x, 300.0))
-    lh = legend(sc, items_l, MX, content_bottom + 9, lg_w)
+    lh = legend(sc, items_l, MX, content_bottom + LEGEND_GAP, lg_w)
     right_x = max(right_x, max(n.x + n.w for n in sc.nodes))
     sc.width = q(min(page.width, right_x + MX))
-    sc.height = q(content_bottom + 9 + lh + 1)
+    sc.height = q(content_bottom + LEGEND_GAP + lh + 1)
     sc.meta = {"sites": [s.id for s in sites], "rung": rung, "hops": hops}
     return sc
 
