@@ -928,6 +928,11 @@
       smtp = { ...rest, hasPassword: clearPassword ? false : !!password || smtp.hasPassword, configured: !!(rest.host && rest.fromAddress) };
       return delay(() => ({ ok: true, settings: { ...smtp } }));
     },
+    trustSmtpCertificate: (req) => {
+      const same = req.host === smtp.host && req.port === smtp.port && req.security === smtp.security && smtp.allowUntrusted;
+      if (same) smtp = { ...smtp, pinnedSha256: req.fingerprint.replace(/:/g, '').toLowerCase() };
+      return delay(() => ({ ok: same, settings: { ...smtp } }));
+    },
     testSmtp: (req) =>
       delay(() => (!opt.smtpTest || opt.smtpTest === 'ok'
         ? { ok: true, status: 'ok', message: `Sent to ${req.to}`, detail: `${req.host}:${req.port} · ${req.security === 'ssl' ? 'SSL/TLS' : req.security === 'starttls' ? 'STARTTLS' : 'no encryption'} · 250 2.0.0 OK queued`, recipients: [req.to] }

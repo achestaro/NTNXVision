@@ -28,6 +28,7 @@ import {
   SchedulesState,
   SmtpSaveRequest,
   SmtpTestRequest,
+  SmtpTrustRequest,
   SnapshotFileExportRequest,
   SnapshotFilesExportRequest,
   TargetSaveRequest,
@@ -120,6 +121,7 @@ const api: NtnxApi = {
   getSmtpSettings: () => ipcRenderer.invoke(IPC.getSmtpSettings),
   saveSmtpSettings: (req: SmtpSaveRequest) => ipcRenderer.invoke(IPC.saveSmtpSettings, req),
   testSmtp: (req: SmtpTestRequest) => ipcRenderer.invoke(IPC.testSmtp, req),
+  trustSmtpCertificate: (req: SmtpTrustRequest) => ipcRenderer.invoke(IPC.trustSmtpCertificate, req),
   emailSnapshot: (req: EmailSnapshotRequest) => ipcRenderer.invoke(IPC.emailSnapshot, req),
   clearSmtpSettings: () => ipcRenderer.invoke(IPC.clearSmtpSettings),
 

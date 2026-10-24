@@ -29,6 +29,7 @@ import type {
   SmtpClearResult,
   SmtpSaveRequest,
   SmtpTestRequest,
+  SmtpTrustRequest,
 } from '../shared/ipc';
 import { EMAIL_TAMPERED_MESSAGE, IPC, SCHEDULE_REVIEW_MESSAGE } from '../shared/ipc';
 import { TargetRef, collectionFailureReason, describeFrequency, failureNotice, scheduleSnapshotNames } from '../shared/schedule';
@@ -560,6 +561,12 @@ export class Scheduler {
       return { settings, disabledSchedules };
     });
     ipc.handle(IPC.saveSmtpSettings, (_e, req: SmtpSaveRequest) => mail.save(obj(req, 'request') as unknown as SmtpSaveRequest));
+    ipc.handle(IPC.trustSmtpCertificate, (_e, req: SmtpTrustRequest) => {
+      obj(req, 'request');
+      str(req.host, 'host', 253);
+      str(req.fingerprint, 'fingerprint', 200);
+      return mail.trust(req);
+    });
     ipc.handle(IPC.testSmtp, async (_e, req: SmtpTestRequest) => {
       obj(req, 'request');
       const password = await mail.testPassword(req);

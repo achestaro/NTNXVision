@@ -1570,6 +1570,25 @@ export interface SmtpSaveResult {
   settings: SmtpSettingsInfo;
 }
 
+/**
+ * Trust this certificate, stored at once for the saved server (schedules and the Email
+ * dialog only read saved settings). Refused unless host, port and security are the saved
+ * ones and the saved settings allow an untrusted certificate over TLS.
+ */
+export interface SmtpTrustRequest {
+  host: string;
+  port: number;
+  security: SmtpSecurity;
+  /** SHA-256 of the certificate the test showed (colons and case ignored). */
+  fingerprint: string;
+}
+
+export interface SmtpTrustResult {
+  /** False: not the saved server, so the pin stays in the form until Save. */
+  ok: boolean;
+  settings: SmtpSettingsInfo;
+}
+
 /** Remove email settings: the server, the saved password and the trusted certificate are gone. */
 export interface SmtpClearResult {
   settings: SmtpSettingsInfo;
@@ -1934,6 +1953,7 @@ export const IPC = {
   getSmtpSettings: 'email:getSettings',
   saveSmtpSettings: 'email:saveSettings',
   testSmtp: 'email:test',
+  trustSmtpCertificate: 'email:trustCertificate',
   emailSnapshot: 'email:sendSnapshot',
   clearSmtpSettings: 'email:clearSettings',
   // schedules (main process scheduler)
@@ -2048,6 +2068,8 @@ export interface NtnxApi {
   saveSmtpSettings(req: SmtpSaveRequest): Promise<SmtpSaveResult>;
   /** Send a test message with the form's values (resolves with the outcome, never rejects for SMTP errors). */
   testSmtp(req: SmtpTestRequest): Promise<EmailResult>;
+  /** Store the trusted certificate for the saved server now, without saving the rest of the form. */
+  trustSmtpCertificate(req: SmtpTrustRequest): Promise<SmtpTrustResult>;
   /** Build the snapshot's reports and email them now. */
   emailSnapshot(req: EmailSnapshotRequest): Promise<EmailResult>;
   /** Remove the mail server, its saved password and trusted certificate; switches every schedule off. */
