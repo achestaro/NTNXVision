@@ -99,6 +99,8 @@ export function freeSpot(
   h: number,
   edges: SceneEdge[] = [],
   container = false,
+  /** The right edge of what is in view (scene points): not under the inspector. */
+  maxX = width,
 ): [number, number] {
   // Room for a connector to reach it: a stub, the clearance and another line's end zone.
   const gap = 16;
@@ -126,7 +128,7 @@ export function freeSpot(
   const clear = (x: number, y: number, limit: number) =>
     x >= 4 &&
     y >= 4 &&
-    x + w <= width - 4 &&
+    x + w <= Math.min(width, maxX) - 4 &&
     y + h <= limit &&
     !solid.some((n) => hits(x, y, n, gap)) &&
     !runs.some((n) => hits(x, y, n, gap)) &&
@@ -749,7 +751,12 @@ export function DiagramsView({ snapshot: snapProp, type: typeProp, part: partPro
     if (!scene) return;
     // The legend's place counts even while it is hidden: the icon goes above it.
     const [w, h] = iconSize(icon, scene.nodes);
-    const [x, y] = freeSpot(scene.nodes, scene.width, scene.height, w, h, scene.edges, icon.container);
+    // Only where it can be seen: the inspector may cover the figure's right side.
+    let maxX = scene.width;
+    const desk = deskRef.current;
+    const sheet = desk?.querySelector('.dg-sheet');
+    if (desk && sheet) maxX = (desk.getBoundingClientRect().right - 16 - sheet.getBoundingClientRect().left) / zoom;
+    const [x, y] = freeSpot(scene.nodes, scene.width, scene.height, w, h, scene.edges, icon.container, maxX);
     const id = newId();
     const sized = w !== icon.w || h !== icon.h ? { w, h } : {};
     if (apply({ op: 'place', id, icon: icon.id, scene: scene.id, x, y, ...sized })) {

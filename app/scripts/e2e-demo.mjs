@@ -1120,12 +1120,13 @@ try {
     if ((await cards.count()) < 2) throw new Error('need two cluster cards to reorder');
     const second = cards.nth(1);
     const label = await second.getAttribute('aria-label');
-    // Drag the second card onto the left half of the first: it becomes first.
+    // Drag the second card onto the leading corner of the first (its left half in a row,
+    // its top half in a column): it becomes first.
     const a = await second.boundingBox();
     const b = await cards.nth(0).boundingBox();
     await page.mouse.move(a.x + a.width / 2, a.y + a.height / 2);
     await page.mouse.down();
-    await page.mouse.move(b.x + 10, b.y + b.height / 2, { steps: 8 });
+    await page.mouse.move(b.x + 10, b.y + b.height / 4, { steps: 8 });
     await page.getByText(/^Drop to move .* to position 1 of/).waitFor();
     await page.mouse.up();
     await page.waitForFunction((l) => document.querySelector('[data-el^="cluster:"]')?.getAttribute('aria-label') === l, label, { timeout: 15_000 });
@@ -1330,6 +1331,9 @@ try {
   });
 
   await run('diagrams-edit-any-text', async () => {
+    // Close the inspector first: it covers the figure's right side, where the legend ends.
+    await page.getByRole('button', { name: 'Close the inspector (clears the selection)' }).click();
+    await page.getByRole('complementary', { name: 'Inspector' }).waitFor({ state: 'detached' });
     // A legend label: not an element, still editable in place.
     const legendText = page.locator('.dg-sheet svg text', { hasText: /^Manages$/ });
     await legendText.first().dblclick();
