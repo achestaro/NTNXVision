@@ -302,9 +302,6 @@ def _legend_items(site: VSite, vpcs: list[VVpc], exts: dict[str, ExtNet]
         items.append(("line", K.NAT_LINK, "NAT"))
     if any(v.fips for v in real):
         items.append(("box", K.EXTERNAL, "Floating IPs"))
-    if any(e.kind == "user" for e in site.externals) or \
-            any(o.kind == "user" for v in real for o in v.overlays):
-        items.append(("box", K.USER, "Added on the Diagrams page"))
     return items
 
 

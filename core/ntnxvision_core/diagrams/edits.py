@@ -17,7 +17,14 @@ model generated from the snapshot, then lays the result out with the same engine
 * ``{"op": "edge", "id", "ends", "field", "value"}``: change a connector, user-added or
   generated (by its stable scene edge id; stored in ``payload["edge_edits"]``): reconnect
   an end, relabel, choose a side, offset its lane, set arrowheads, or remove it. The
-  router (`connectors.py`) turns these into geometry; nothing is free-placed.
+  router (`connectors.py`) turns these into geometry;
+* ``{"op": "place", "id", "icon", "scene", "x", "y", "w", "h", "label", "sub"}``: put an
+  icon of the catalog (`icons.CATALOG`) on one figure scene, at a position (stored in
+  ``payload["placed"]``); ``{"op": "position", "id", "x", "y", "w"?, "h"?}`` moves or
+  resizes it, ``set`` relabels it, ``delete`` removes it, connectors may end on it;
+* ``{"op": "text", "id", "line", "value"}``: rewrite one text line of the figure (a
+  scene node id, or ``<edge id>#<label index>`` for an edge label; ``value`` None: as
+  generated), stored in ``payload["text_edits"]``.
 
 Replaying is pure and deterministic: the same model and the same operations give the same
 document, byte for byte. An operation whose element is gone (a cluster no longer in a
@@ -46,11 +53,19 @@ from .scene import dumps
 MAX_OPS = 2000
 MAX_TEXT = 200
 USER_PREFIX = "user:"
-OPS = ("set", "move", "add", "delete", "connect", "edge")
+OPS = ("set", "move", "add", "delete", "connect", "edge", "place", "position", "text")
 #: Payload keys holding connector edits (never collections of model elements).
 CONNECTORS = "connectors"
 EDGE_EDITS = "edge_edits"
-CONNECTOR_KEYS = (CONNECTORS, EDGE_EDITS)
+#: Payload keys holding placed icons and text edits (drawn over the layout, `icons.py`).
+PLACED = "placed"
+TEXT_EDITS = "text_edits"
+CONNECTOR_KEYS = (CONNECTORS, EDGE_EDITS, PLACED, TEXT_EDITS)
+#: Coordinates and sizes of a placed icon (pt).
+MAX_COORD = 20000.0
+MAX_SIZE = 1600.0
+#: Most text lines a single node carries that a text edit may name.
+MAX_LINE = 64
 #: What an ``edge`` operation may change.
 EDGE_FIELDS = ("a", "b", "label", "a_side", "b_side", "bend", "arrow", "hidden", "route")
 SIDES = ("auto", "top", "right", "bottom", "left")
@@ -275,6 +290,17 @@ def clean_ops(raw: Any) -> list[dict[str, Any]]:
         if kind == "edge":
             out.append(_clean_edge(op, ident, i))
             continue
+        if kind in ("place", "position"):
+            out.append(_clean_place(op, ident, i))
+            continue
+        if kind == "text":
+            line = op.get("line")
+            if not isinstance(line, int) or isinstance(line, bool) or not 0 <= line < MAX_LINE:
+                raise EditError(f"Edit {i + 1}: line must be a whole number below {MAX_LINE}")
+            out.append({"op": "text", "id": ident, "line": line,
+                        "value": _text(op.get("value"), f"Edit {i + 1} value",
+                                       allow_none=True)})
+            continue
         if kind == "set":
             if op.get("field") not in ("label", "sublabel", "role"):
                 raise EditError(f"Edit {i + 1}: only label, sublabel and role can be set")
@@ -340,6 +366,34 @@ def _clean_edge(op: dict[str, Any], ident: str, i: int) -> dict[str, Any]:
         if side not in SIDES:
             raise EditError(f"Edit {i + 1}: a side is one of {', '.join(SIDES)}")
         out["side"] = side  # the side of the new end it was dropped on
+    return out
+
+
+def _num(v: Any, i: int, what: str, lo: float, hi: float) -> float:
+    if isinstance(v, bool) or not isinstance(v, (int, float)) or not lo <= v <= hi:
+        raise EditError(f"Edit {i + 1}: {what} must be a number from {lo:,.0f} to {hi:,.0f}")
+    r = round(float(v) * 2) / 2
+    return int(r) if r == int(r) else r
+
+
+def _clean_place(op: dict[str, Any], ident: str, i: int) -> dict[str, Any]:
+    if not ident.startswith(USER_PREFIX) or len(ident) > 80:
+        raise EditError(f"Edit {i + 1}: a placed icon id starts with {USER_PREFIX}")
+    out: dict[str, Any] = {"op": op["op"], "id": ident,
+                           "x": _num(op.get("x"), i, "x", 0, MAX_COORD),
+                           "y": _num(op.get("y"), i, "y", 0, MAX_COORD)}
+    for k in ("w", "h"):
+        if op.get(k) is not None:
+            out[k] = _num(op.get(k), i, k, 4, MAX_SIZE)
+    if op["op"] == "place":
+        for k in ("icon", "scene"):
+            v = op.get(k)
+            if not isinstance(v, str) or not v or len(v) > 200:
+                raise EditError(f"Edit {i + 1}: {k} must be text of at most 200 characters")
+            out[k] = v
+        for k in ("label", "sub"):
+            if k in op:
+                out[k] = _text(op[k], f"Edit {i + 1} {k}", allow_none=True)
     return out
 
 
@@ -422,7 +476,8 @@ def _apply_one(doc: dict[str, Any], op: dict[str, Any], slots: dict[str, Slot],
         new.update({k: v for k, v in el.items() if k not in ("palette", "kind")})
         new["id"] = el["id"]
         new.setdefault("data", {})
-        new["data"] = {**new["data"], "origin": "user"}
+        new["data"] = {**new["data"], "origin": "user",
+                       **({"icon": item.id} if item is not None else {})}
         items.insert(min(op["index"], len(items)), new)
         return None
 
@@ -430,6 +485,26 @@ def _apply_one(doc: dict[str, Any], op: dict[str, Any], slots: dict[str, Slot],
         return _connect(doc, op, slots)
     if kind == "edge":
         return _edge(doc, op, slots)
+    if kind in ("place", "position"):
+        return _place(doc, op, slots)
+    if kind == "text":
+        return _text_edit(doc, op)
+    icon_ = _placed(doc, op["id"])
+    if icon_ is not None and kind in ("set", "delete"):
+        if kind == "delete":
+            doc[PLACED] = [p for p in doc[PLACED] if p is not icon_]
+            if not doc[PLACED]:
+                del doc[PLACED]
+            return None
+        if op["field"] == "role":
+            return "this element has no role"
+        if op["field"] == "label":
+            if not op["value"]:
+                return "a label cannot be empty"
+            icon_["label"] = op["value"]
+        else:
+            icon_["sub"] = op["value"] or None
+        return None
     if kind == "delete" and op["id"].startswith(USER_PREFIX):
         links = doc.get(CONNECTORS)
         if isinstance(links, list) and any(c.get("id") == op["id"] for c in links):
@@ -468,6 +543,70 @@ def _apply_one(doc: dict[str, Any], op: dict[str, Any], slots: dict[str, Slot],
         return "a label cannot be empty"
     elem[target] = op["value"] if op["field"] == "label" else (op["value"] or None)
     return None
+
+
+# ─── placed icons and text edits ───────────────────────────────────────
+
+
+def _placed(doc: dict[str, Any], ident: str) -> dict[str, Any] | None:
+    for p in doc.get(PLACED) or []:
+        if isinstance(p, dict) and p.get("id") == ident:
+            return p
+    return None
+
+
+def placed_ids(doc: dict[str, Any]) -> set[str]:
+    return {str(p.get("id")) for p in doc.get(PLACED) or [] if isinstance(p, dict)}
+
+
+def _place(doc: dict[str, Any], op: dict[str, Any], slots: dict[str, Slot]) -> str | None:
+    from .icons import ICONS
+
+    item = _placed(doc, op["id"])
+    if op["op"] == "position":
+        if item is None:
+            return "the icon is not in this diagram"
+        for k in ("x", "y", "w", "h"):
+            if k in op:
+                item[k] = op[k]
+        return None
+    if item is not None or op["id"] in slots or op["id"] in _connector_ids(doc):
+        return "an element with this id is already in the diagram"
+    icon = ICONS.get(op["icon"])
+    if icon is None:
+        return "this kind of icon is not known"
+    new = {"id": op["id"], "icon": icon.id, "scene": op["scene"], "x": op["x"], "y": op["y"],
+           "w": op.get("w", icon.w), "h": op.get("h", icon.h),
+           "label": op["label"] if op.get("label") else icon.name,
+           "sub": op.get("sub", icon.sub or None) or None}
+    items = doc.get(PLACED)
+    if not isinstance(items, list):
+        items = doc[PLACED] = []
+    items.append(new)
+    return None
+
+
+def _text_edit(doc: dict[str, Any], op: dict[str, Any]) -> str | None:
+    edits = doc.get(TEXT_EDITS)
+    if not isinstance(edits, dict):
+        edits = doc[TEXT_EDITS] = {}
+    entry = dict(edits.get(op["id"]) or {})
+    if op["value"] is None:
+        entry.pop(str(op["line"]), None)
+    else:
+        entry[str(op["line"])] = op["value"]
+    if entry:
+        edits[op["id"]] = dict(sorted(entry.items(), key=lambda kv: int(kv[0])))
+    else:
+        edits.pop(op["id"], None)
+    if not edits:
+        del doc[TEXT_EDITS]
+    return None
+
+
+def _ends(doc: dict[str, Any], slots: dict[str, Slot]) -> set[str]:
+    """What a connector may end on: the model's elements and the placed icons."""
+    return set(slots) | placed_ids(doc)
 
 
 # ─── connectors and moves across containers ────────────────────────────
@@ -513,8 +652,9 @@ def _connector_ids(doc: dict[str, Any]) -> set[str]:
 def _connect(doc: dict[str, Any], op: dict[str, Any], slots: dict[str, Slot]) -> str | None:
     if op["id"] in slots or op["id"] in _connector_ids(doc):
         return "an element with this id is already in the diagram"
+    ends = _ends(doc, slots)
     for end in (op["a"], op["b"]):
-        if owner_of(end, slots) is None:
+        if owner_of(end, ends) is None:
             return "an end of the connector is not in this snapshot"
     if nested(slots, op["a"], op["b"]):
         return NESTED
@@ -530,7 +670,8 @@ def _connect(doc: dict[str, Any], op: dict[str, Any], slots: dict[str, Slot]) ->
 
 def _edge(doc: dict[str, Any], op: dict[str, Any], slots: dict[str, Slot]) -> str | None:
     fld, value = op["field"], op["value"]
-    if fld in ("a", "b") and owner_of(value, slots) is None:
+    ends_ok = _ends(doc, slots)
+    if fld in ("a", "b") and owner_of(value, ends_ok) is None:
         return "the new end is not in this snapshot"
     if op["id"].startswith(USER_PREFIX):
         conn = next((c for c in doc.get(CONNECTORS) or [] if c.get("id") == op["id"]), None)
@@ -554,7 +695,7 @@ def _edge(doc: dict[str, Any], op: dict[str, Any], slots: dict[str, Slot]) -> st
             conn[f"{fld}_side"] = op["side"]
         return None
     for end in op["ends"]:
-        if owner_of(end, slots) is None:
+        if owner_of(end, ends_ok) is None:
             return "an end of the connector is not in this snapshot"
     edits = doc.get(EDGE_EDITS)
     if not isinstance(edits, dict):
@@ -590,7 +731,7 @@ def normalize_connectors(doc: dict[str, Any], spec: EditSpec) -> None:
     """Drop connector edits an edit left dangling (an end removed later in the list)."""
     if not any(k in doc for k in CONNECTOR_KEYS):
         return
-    ids = set(walk(doc, spec))
+    ids = set(walk(doc, spec)) | placed_ids(doc)
 
     def live(end: Any) -> bool:
         return isinstance(end, str) and owner_of(end, ids) is not None
@@ -810,6 +951,8 @@ def disclosure(generated: dict[str, Any], edited: dict[str, Any], spec: EditSpec
         many = kind[:-1] + "ies" if kind.endswith("y") else kind + "s"
         parts.append(f"{_count(len(names), kind, many)} ({_named(names)}) not drawn")
     user = [i for i in ed if i.startswith(USER_PREFIX)]
+    if scope is None:
+        user += sorted(placed_ids(edited))
     if user:
         parts.append(_count(len(user), "user-added item"))
     renamed, roles, notes = [], 0, 0
@@ -836,6 +979,9 @@ def disclosure(generated: dict[str, Any], edited: dict[str, Any], spec: EditSpec
     if notes:
         parts.append(f"{_count(notes, 'note')} added")
     parts += links
+    texts = edited.get(TEXT_EDITS) or {}
+    if scope is None and texts:
+        parts.append(f"{_count(sum(len(v) for v in texts.values()), 'text line')} rewritten")
     if not parts:
         parts.append("elements reordered")
     origin = f" (edits carried from {carried_from})" if carried_from else ""
@@ -985,14 +1131,41 @@ def outline(payload: dict[str, Any], generated: dict[str, Any], spec: EditSpec
             "origin": "user" if user else "collected",
             "collected_label": collected.get(col.label) if col.label and not user else None,
             "source": (spec.source(elem) if spec.source else _source(elem)) if not user
-            else ("Added on the Diagrams page. Exports mark it USER-ADDED; it never "
-                  "appears in the tables."),
+            else ("Added on the Diagrams page and drawn like a collected element. It never "
+                  "appears in the tables; the report's figure summary says the figure was "
+                  "edited."),
             "can_rename": col.label is not None,
             "can_sublabel": col.sublabel is not None,
             "can_reorder": col.reorder and len(slot.items) > 1,
             "can_delete": col.delete or user,
             "move_targets": targets,
             "move_refusal": refusal,
+        })
+    out += placed_outline(payload)
+    return out
+
+
+def placed_outline(payload: dict[str, Any]) -> list[dict[str, Any]]:
+    """The inspector entries of the placed icons (free: dragged anywhere on the figure)."""
+    from .icons import ICONS
+
+    items = [p for p in payload.get(PLACED) or [] if isinstance(p, dict)
+             and str(p.get("icon")) in ICONS]
+    out = []
+    for i, p in enumerate(items):
+        icon = ICONS[str(p["icon"])]
+        out.append({
+            "id": p["id"], "kind": icon.label, "collection": PLACED, "parent": None,
+            "parent_label": "this figure", "index": i, "count": len(items),
+            "label": p.get("label") or icon.name, "sublabel": p.get("sub"), "role": None,
+            "roles": [], "origin": "user", "collected_label": None,
+            "source": "Added on the Diagrams page and drawn like a collected "
+                      f"{icon.label.lower()}. It never appears in the tables; the report's "
+                      "figure summary says the figure was edited.",
+            "can_rename": True, "can_sublabel": icon.id != "text", "can_reorder": False,
+            "can_delete": True, "move_targets": [], "move_refusal": None, "free": True,
+            "icon": icon.id, "scene": p.get("scene"),
+            "x": p.get("x"), "y": p.get("y"), "w": p.get("w"), "h": p.get("h"),
         })
     return out
 

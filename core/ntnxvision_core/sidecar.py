@@ -384,6 +384,8 @@ def _export_options(params: dict[str, Any]) -> dict[str, Any]:
         "author": word.get("author") or "",
         "vcpu_ratio": params.get("vcpu_ratio"),
         "diagrams_package": "folder" if params.get("diagrams_package") == "folder" else "zip",
+        # The Diagrams page's Legend switch (unset: drawn).
+        "diagram_legend": params.get("diagram_legend") is not False,
     }
 
 
@@ -1174,7 +1176,8 @@ def _m_export_diagram(_req_id: Any, params: dict[str, Any]) -> dict[str, Any]:
     t = _diagram_call(lambda: diagram_store.dtype(_diagram_type(params)))
     if not t.applies(env):
         raise NutanixApiError(f"This snapshot has no {t.title.lower()}.")
-    options = _with_diagram_edits({**_export_options({}), "chapters": [t.chapter]},
+    options = _with_diagram_edits({**_export_options(
+        {"diagram_legend": params.get("diagram_legend")}), "chapters": [t.chapter]},
                                   snap_path, env)
     scenes = [sc for sc in report_scenes(env, options) if sc.type == t.id]
     if not scenes:

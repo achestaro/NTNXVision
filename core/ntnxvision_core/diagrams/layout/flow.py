@@ -259,8 +259,6 @@ def _legend_items(lanes: list[Lane]) -> list[tuple[str, Style, str]]:
         items.append(("box", K.POLICY_SAVED, "Saved, not applied"))
     if any(p.type == "ISOLATION" for p in real):
         items.append(("line", K.ISOLATE, "Isolation"))
-    if any(p.kind == "user" for p in pols):
-        items.append(("box", K.USER, "Added on the Diagrams page"))
     return items
 
 

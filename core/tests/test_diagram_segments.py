@@ -166,7 +166,7 @@ def test_edit_rename_note_move_delete_add(design_envs: dict[str, Any]) -> None:
     # Compact rows put a segment's name and range on one line.
     assert any("Web tier" in t for t in texts) and any("Planned DMZ" in t for t in texts)
     assert "Edge firewall" in texts
-    assert "USER-ADDED" in texts
+    assert "USER-ADDED" not in texts
     # Replay is deterministic.
     assert H.edit("segments", env, ops)[0] == payload
 

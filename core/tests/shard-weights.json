@@ -20,6 +20,7 @@
  "tests/test_diagram_edit_designs.py": 14.3,
  "tests/test_diagram_edits.py": 115.7,
  "tests/test_diagram_flow.py": 0.5,
+ "tests/test_diagram_icons.py": 6.0,
  "tests/test_diagram_hashseed.py": 2.1,
  "tests/test_diagram_logical.py": 7.6,
  "tests/test_diagram_management.py": 5.5,

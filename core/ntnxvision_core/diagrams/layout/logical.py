@@ -443,8 +443,6 @@ def _layout_part(site: LSite, lines: list[list[_Seg]], width: float, cols: int, 
     _array_edges(sc, site, chips, arr_nodes)
 
     items = [("box", K.CLUSTER, "Cluster")]
-    if any(n.style is K.USER or n.style is K.NOTE for n in sc.nodes):
-        items.append(("box", K.USER, "Added by the author"))
     if pods_on:
         items.append(("box", K.POD, "POD (from a category)"))
     if used["dsf"]:

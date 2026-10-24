@@ -18,6 +18,7 @@ from ntnxvision_core.diagrams import TYPES, check_scene
 from ntnxvision_core.diagrams import edits as E
 from ntnxvision_core.diagrams import scene as S
 from ntnxvision_core.diagrams import store as ST
+from ntnxvision_core.diagrams import tokens as K
 from ntnxvision_core.diagrams.render.svg import render_svg
 from ntnxvision_core.exporters import ExportOptions
 from ntnxvision_core.exporters.content import SceneFigure, Table, build_report
@@ -131,7 +132,7 @@ def test_edits_apply_by_id(env: Environment) -> None:
     assert ops[4]["id"] not in ids
     user = site["cards"][-1]
     assert user["kind"] == "user" and user["note"] == "Not collected"
-    assert user["data"] == {"origin": "user"}
+    assert user["data"] == {"origin": "user", "icon": "storage"}
     # The generated payload is never touched.
     assert gen == ST.generated(env, "conceptual")
 
@@ -139,13 +140,15 @@ def test_edits_apply_by_id(env: Environment) -> None:
 def test_edited_figure_styles_user_elements(env: Environment) -> None:
     [scene] = _scenes(env, _ops(env))
     assert check_scene(scene) == []
+    # A user-added storage array is drawn like collected external storage: no amber
+    # dashes, no USER-ADDED chip, no legend entry of its own.
     node = scene.node("user:backup-1")
-    assert node.style.dash is not None and node.style.stroke == "#995800"
-    tag = scene.node("user:backup-1:tag")
-    assert tag.text == "USER-ADDED"
+    assert node.style == K.EXTERNAL and node.style.dash is None
+    assert not any(n.id == "user:backup-1:tag" for n in scene.nodes)
+    assert all(t.color == K.WHITE for t in node.lines)
     text = _text(scene)
     assert "SQL tier" in text and "Backup appliance" in text
-    assert any(lab == "User-added (not collected)" for lab in text)
+    assert "USER-ADDED" not in text and "User-added (not collected)" not in text
     assert not any(EM_DASH in t for t in text)
 
 
@@ -157,9 +160,12 @@ def test_user_zone_and_note(env: Environment) -> None:
                         "name": "Planned for Q3, not yet deployed"}}]
     [scene] = _scenes(env, ops)
     assert check_scene(scene) == []
-    assert scene.node("user:az").style.dash is not None
-    assert scene.node("user:az:tag").text == "USER-ADDED"
-    assert scene.node("user:note:tag").text == "USER-ADDED"
+    # A user zone looks like a collected one (its AZ chip back); a note keeps its card.
+    assert scene.node("user:az").style == K.SITE
+    assert scene.node("user:az:tag").text == "AZ"
+    assert scene.node("user:az:tag").style == K.TAG
+    assert scene.node("user:note").style == K.NOTE
+    assert not any(n.id == "user:note:tag" for n in scene.nodes)
     # The caption counts only collected zones and names the author's.
     assert "plus 1 user-added zone" in scene.caption
     assert check_scene(scene) == []
@@ -227,7 +233,7 @@ def test_outline_describes_elements(env: Environment) -> None:
     assert renamed["source"].startswith("Cluster ")
     user = out["user:backup-1"]
     assert user["origin"] == "user" and user["kind"] == "Component"
-    assert "USER-ADDED" in user["source"] and user["can_delete"]
+    assert "drawn like a collected" in user["source"] and user["can_delete"]
     link = next(o for o in out.values() if o["collection"] == "links")
     assert link["label"].startswith(("AZ pairing: ", "Replication: "))
     assert not link["can_rename"] and not link["can_reorder"]
@@ -420,7 +426,8 @@ def test_exports_draw_edits_in_figures_only(snap: Path, env: Environment) -> Non
     blocks = _blocks(_report(env, models))
     figs = [b for b in blocks if isinstance(b, SceneFigure) and b.scene.type == "conceptual"]
     text = [t for f in figs for t in _text(f.scene)]
-    assert "Backup appliance" in text and "SQL tier" in text and "USER-ADDED" in text
+    assert "Backup appliance" in text and "SQL tier" in text
+    assert "USER-ADDED" not in text
     cells = [str(c) for b in blocks if isinstance(b, Table) for row in b.rows for c in row]
     assert "Backup appliance" not in cells and "SQL tier" not in cells
     deleted = next(c for c in ST.generated(env, "conceptual")["sites"][0]["cards"]
@@ -485,7 +492,7 @@ def test_sidecar_operations_and_word_export(demo: Any, data_dir: Path,
     for fmt in ("word", "pdf"):
         text = [t for scene in drawn[fmt] if scene.type == "conceptual"
                 for t in _text(scene)]
-        assert "Backup appliance" in text and "USER-ADDED" in text, fmt
+        assert "Backup appliance" in text and "USER-ADDED" not in text, fmt
     # Carry forward: a second collection of the same PC offers the edits.
     sc._advance_demo("pc01.demo.local")
     snap2 = sc._m_inventory(None, {

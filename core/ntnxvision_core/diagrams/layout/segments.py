@@ -271,8 +271,6 @@ def _legend_items(cards: list[SCluster]) -> list[tuple[str, Style, str]]:
         items.append(("box", K.SEGMENT, label))
     if any(s.kind == "subnet" and s.ipam for s in segs):
         items.append(("box", K.IPAM_PILL, "Nutanix IPAM (managed)"))
-    if any(c.kind == "user" for c in cards) or "user" in kinds:
-        items.append(("box", K.USER, "Added on the Diagrams page"))
     return items
 
 
