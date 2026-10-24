@@ -2,8 +2,9 @@
 // reached from its card and returns with the back link; the cluster scope carries over.
 
 import React from 'react';
-import type { MetricsAlert, MetricsClusterTrends, MetricsResource, MetricsTopKey, MetricsTrends, MetricsTrendsResult, RunwayByRange } from '@shared/ipc';
-import { DataTable, Status } from '../../components';
+import type { MetricsAlert, MetricsClusterTrends, MetricsResource, MetricsTopKey, MetricsTrends, MetricsTrendsResult, Runway, RunwayByRange } from '@shared/ipc';
+import { Status } from '../../components';
+import { SortableTable } from './sorting';
 import { NA, fmtAbs, fmtCount } from '../../lib/format';
 import { BarList, SERIES_COLOR, TrendChart } from './charts';
 import { Card, Section, soonestCluster, topRows, type Detail } from './Dashboard';
@@ -38,20 +39,22 @@ export function AlertsDetail({ v, listed }: { v: ScopeView; listed: number }): J
   return (
     <Section title="Unresolved critical alerts" note={total > v.alerts.length ? `Newest ${fmtCount(v.alerts.length)} of ${fmtCount(total)}` : `${fmtCount(total)}`}>
       <div className="panel scroll-x">
-        <DataTable<MetricsAlert>
+        <SortableTable<MetricsAlert>
+          sortId="alerts"
           ariaLabel="Unresolved critical alerts"
           rows={v.alerts}
           rowKey={(a) => a.id}
           primary
           empty={total ? `These ${fmtCount(total)} alerts were raised by Prism Central itself or are past the newest ${fmtCount(listed)}.` : 'No unresolved critical alerts.'}
           columns={[
-            { key: 'cluster', header: 'Cluster', render: (a) => a.cluster_name ?? 'Prism Central' },
-            { key: 'title', header: 'Alert', className: 'nm', render: (a) => <span className="mx-wrap">{a.title}</span> },
-            { key: 'source', header: 'Source', render: (a) => a.source ?? NA },
-            { key: 'created', header: 'Raised', numeric: true, render: (a) => fmtAbs(a.created_at) },
+            { key: 'cluster', header: 'Cluster', sortValue: (a) => a.cluster_name ?? 'Prism Central', render: (a) => a.cluster_name ?? 'Prism Central' },
+            { key: 'title', header: 'Alert', className: 'nm', sortValue: (a) => a.title, render: (a) => <span className="mx-wrap">{a.title}</span> },
+            { key: 'source', header: 'Source', sortValue: (a) => a.source, render: (a) => a.source ?? NA },
+            { key: 'created', header: 'Raised', numeric: true, sortValue: (a) => timeOf(a.created_at), render: (a) => fmtAbs(a.created_at) },
             {
               key: 'ack',
               header: 'Acknowledged',
+              sortValue: (a) => (a.acknowledged ? 'Yes' : 'No'),
               render: (a) => (a.acknowledged ? <Status tone="idle">Yes</Status> : <Status tone="warn">No</Status>),
             },
           ]}
@@ -69,40 +72,49 @@ export function NodesDetail({ v }: { v: ScopeView }): JSX.Element {
   return (
     <Section title="Nodes and CVMs" note={`${fmtCount(v.health.nodesOk)} of ${fmtCount(v.health.nodesTotal)} healthy`}>
       <div className="panel scroll-x">
-        <DataTable<NodeRow>
+        <SortableTable<NodeRow>
+          sortId="nodes"
           ariaLabel="Nodes and CVMs"
           rows={v.nodes}
           rowKey={(n) => n.uuid}
           primary
           empty="No node data was returned."
           columns={[
-            { key: 'cluster', header: 'Cluster', render: (n) => n.cluster },
-            { key: 'name', header: 'Node', className: 'nm', render: (n) => n.name },
+            { key: 'cluster', header: 'Cluster', sortValue: (n) => n.cluster, render: (n) => n.cluster },
+            { key: 'name', header: 'Node', className: 'nm', sortValue: (n) => n.name, render: (n) => n.name },
             {
               key: 'status',
               header: 'State',
-              render: (n) => (
-                <Status tone={NODE_TONE[n.status]}>
-                  {n.maintenance ? 'Maintenance' : n.degraded ? 'Degraded' : n.node_state ? sentence(n.node_state) : NA}
-                </Status>
-              ),
+              sortValue: nodeState,
+              render: (n) => <Status tone={NODE_TONE[n.status]}>{nodeState(n) ?? NA}</Status>,
             },
             {
               key: 'cvm',
               header: 'CVM',
+              sortValue: (n) => (n.cvm_status === null ? null : (n.metadata_store ?? 'Normal')),
               render: (n) =>
                 n.cvm_status === null ? NA : <Status tone={n.cvm_status === 'ok' ? 'ok' : 'error'}>{n.metadata_store ?? 'Normal'}</Status>,
             },
-            { key: 'cvmip', header: 'CVM IP', render: (n) => <span className="mono">{n.cvm_ip ?? NA}</span> },
-            { key: 'cpu', header: 'CPU', numeric: true, render: (n) => pct(n.cpu_pct) },
-            { key: 'mem', header: 'Memory', numeric: true, render: (n) => pct(n.memory_pct) },
-            { key: 'vms', header: 'VMs', numeric: true, render: (n) => fmtCount(n.num_vms) },
+            { key: 'cvmip', header: 'CVM IP', sortValue: (n) => n.cvm_ip, render: (n) => <span className="mono">{n.cvm_ip ?? NA}</span> },
+            { key: 'cpu', header: 'CPU', numeric: true, sortValue: (n) => n.cpu_pct, render: (n) => pct(n.cpu_pct) },
+            { key: 'mem', header: 'Memory', numeric: true, sortValue: (n) => n.memory_pct, render: (n) => pct(n.memory_pct) },
+            { key: 'vms', header: 'VMs', numeric: true, sortValue: (n) => n.num_vms, render: (n) => fmtCount(n.num_vms) },
           ]}
         />
       </div>
       <p className="mx-foot">CVM status is its metadata store (Cassandra) state as Prism Element reports it.</p>
     </Section>
   );
+}
+
+function nodeState(n: NodeRow): string | null {
+  return n.maintenance ? 'Maintenance' : n.degraded ? 'Degraded' : n.node_state ? sentence(n.node_state) : null;
+}
+
+/** An ISO time as epoch ms for sorting (null when absent or unreadable). */
+function timeOf(iso: string | null | undefined): number | null {
+  const t = iso ? Date.parse(iso) : NaN;
+  return Number.isNaN(t) ? null : t;
 }
 
 function sentence(s: string): string {
@@ -127,8 +139,11 @@ export function VmsDetail({ v }: { v: ScopeView }): JSX.Element {
           <Card key={l.key} title={l.title}>
             <BarList
               rows={topRows(v, l.key, v.clusterCount > 1)}
-              color={SERIES_COLOR.perf}
+              color={SERIES_COLOR[l.key]}
               max={l.key === 'cpu' || l.key === 'memory' ? 100 : undefined}
+              sortId={`vms.${l.key}`}
+              label={`Top VMs by ${l.title}`}
+              valueLabel={l.title}
               empty="No powered-on VMs reported."
             />
           </Card>
@@ -145,21 +160,41 @@ export function NetworkDetail({ v }: { v: ScopeView }): JSX.Element {
   return (
     <Section title="Host NICs" note={`${fmtCount(v.network.nics.length)} NICs · receive ${rate(v.network.rx_kBps)} · transmit ${rate(v.network.tx_kBps)}`}>
       <div className="panel scroll-x">
-        <DataTable<NicRow>
+        <SortableTable<NicRow>
+          sortId="network"
           ariaLabel="Host NICs"
           rows={v.network.nics}
           rowKey={(n) => n.key}
           primary
           empty="No host NICs were returned."
           columns={[
-            { key: 'cluster', header: 'Cluster', render: (n) => n.cluster },
-            { key: 'host', header: 'Host', className: 'nm', render: (n) => n.host },
-            { key: 'nic', header: 'NIC', render: (n) => <span className="mono">{n.name ?? NA}</span> },
-            { key: 'link', header: 'Link', render: (n) => (n.link_speed_kbps ? linkSpeed(n.link_speed_kbps) : <Status tone="idle">Down</Status>) },
-            { key: 'rx', header: 'Receive', numeric: true, render: (n) => rate(n.rx_kBps) },
-            { key: 'tx', header: 'Transmit', numeric: true, render: (n) => rate(n.tx_kBps) },
-            { key: 'err', header: 'Errors', numeric: true, render: (n) => <span className={n.errors ? 'tone-warn' : undefined}>{fmtCount(n.errors)}</span> },
-            { key: 'drop', header: 'Dropped', numeric: true, render: (n) => <span className={n.dropped ? 'tone-warn' : undefined}>{fmtCount(n.dropped)}</span> },
+            { key: 'cluster', header: 'Cluster', sortValue: (n) => n.cluster, render: (n) => n.cluster },
+            { key: 'host', header: 'Host', className: 'nm', sortValue: (n) => n.host, render: (n) => n.host },
+            { key: 'nic', header: 'NIC', sortValue: (n) => n.name, render: (n) => <span className="mono">{n.name ?? NA}</span> },
+            {
+              key: 'link',
+              header: 'Link',
+              // Fastest first; a down link (no speed) counts as 0.
+              sortFirst: 'desc',
+              sortValue: (n) => n.link_speed_kbps ?? 0,
+              render: (n) => (n.link_speed_kbps ? linkSpeed(n.link_speed_kbps) : <Status tone="idle">Down</Status>),
+            },
+            { key: 'rx', header: 'Receive', numeric: true, sortValue: (n) => n.rx_kBps, render: (n) => rate(n.rx_kBps) },
+            { key: 'tx', header: 'Transmit', numeric: true, sortValue: (n) => n.tx_kBps, render: (n) => rate(n.tx_kBps) },
+            {
+              key: 'err',
+              header: 'Errors',
+              numeric: true,
+              sortValue: (n) => n.errors,
+              render: (n) => <span className={n.errors ? 'tone-warn' : undefined}>{fmtCount(n.errors)}</span>,
+            },
+            {
+              key: 'drop',
+              header: 'Dropped',
+              numeric: true,
+              sortValue: (n) => n.dropped,
+              render: (n) => <span className={n.dropped ? 'tone-warn' : undefined}>{fmtCount(n.dropped)}</span>,
+            },
           ]}
         />
       </div>
@@ -171,6 +206,21 @@ export function NetworkDetail({ v }: { v: ScopeView }): JSX.Element {
 // ─── runway ────────────────────────────────────────────────────────────
 
 const DAY = 86_400_000;
+
+/**
+ * A runway cell as a number for sorting, in the order the words read: reached (0), then
+ * days, then "Over 5 years", then "No growth"; "Not enough data" and no data are missing.
+ */
+export function runwaySortDays(rr: Runway | undefined): number | null {
+  const th = rr ? threshold(rr, 80) : undefined;
+  if (!rr || !th) return null;
+  if (th.state === 'reached') return 0;
+  if (rr.status === 'not_enough_data') return null;
+  if (th.state === 'projected') return th.days;
+  if (th.state === 'beyond') return 1e9;
+  if (th.state === 'never') return 2e9;
+  return null;
+}
 
 export function RunwayDetail({
   v,
@@ -213,15 +263,19 @@ export function RunwayDetail({
       {clusterRunways && clusterRunways.length > 1 && (
         <Section title="By cluster" note={`When each cluster reaches 80%, ${range}-day fit`}>
           <div className="panel scroll-x">
-            <DataTable<{ uuid: string; name: string; runway: RunwayByRange }>
+            <SortableTable<{ uuid: string; name: string; runway: RunwayByRange }>
+              sortId="runway.clusters"
               ariaLabel="Runway by cluster"
               rows={clusterRunways}
               rowKey={(c) => c.uuid}
               columns={[
-                { key: 'cluster', header: 'Cluster', className: 'nm', render: (c) => c.name },
+                { key: 'cluster', header: 'Cluster', className: 'nm', sortValue: (c) => c.name, render: (c) => c.name },
                 ...RESOURCES.map((r) => ({
                   key: r.key,
                   header: r.label,
+                  // Soonest first: what needs attention leads.
+                  sortFirst: 'asc' as const,
+                  sortValue: (c: { runway: RunwayByRange }) => runwaySortDays(c.runway[String(range)]?.[r.key]),
                   render: (c: { runway: RunwayByRange }) => {
                     const rr = c.runway[String(range)]?.[r.key];
                     const th = rr ? threshold(rr, 80) : undefined;

@@ -28,6 +28,7 @@ import {
 } from './metrics/Dashboard';
 import { AlertsDetail, DETAIL_TITLE, NetworkDetail, NodesDetail, RunwayDetail, VmsDetail } from './metrics/Details';
 import { ALL, scopeTrends, scopeView } from './metrics/model';
+import { SortMemoryProvider, useSortMemory } from './metrics/sorting';
 import { TRENDS_EVERY_MS, useAutoRefresh, useMetrics } from './metrics/useMetrics';
 import './metrics/metrics.css';
 
@@ -130,6 +131,8 @@ function TargetMetrics({ target, picker, gone }: { target: SavedConnection; pick
   const [scope, setScope] = useState<string>(ALL);
   const [detail, setDetail] = useState<Detail | null>(null);
   const [range, setRange] = useState(90);
+  // Each table's sort, held here above the data so a refresh keeps it.
+  const sorts = useSortMemory();
 
   const autoOn = settings.metricsAutoRefresh === true;
   const minutes: MetricsRefreshMinutes = settings.metricsRefreshMinutes ?? 5;
@@ -269,7 +272,7 @@ function TargetMetrics({ target, picker, gone }: { target: SavedConnection; pick
     ) : null;
 
   return (
-    <>
+    <SortMemoryProvider store={sorts}>
       {header}
       {scopeBar}
       {goneNote}
@@ -310,6 +313,6 @@ function TargetMetrics({ target, picker, gone }: { target: SavedConnection; pick
           <SourcesFooter sources={data.sources} notes={[...data.notes, ...(trends.data?.notes ?? [])]} collectedAt={data.collected_at} cached={data.cached} />
         </div>
       )}
-    </>
+    </SortMemoryProvider>
   );
 }
