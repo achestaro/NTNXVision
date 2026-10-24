@@ -66,8 +66,17 @@ const sameStyle = (a: SceneStyle, b: SceneStyle) =>
  * the catalog's default.
  */
 export function iconSize(icon: Pick<DiagramIcon, 'w' | 'h' | 'container' | 'style'>, nodes: SceneNode[]): [number, number] {
+  // Collected elements drawn in the icon's style that read as one of its kind: a titled
+  // box of about its proportions (not a chip, a bar or a strip sharing its colours).
   const same = nodes.filter(
-    (n) => !isLegend(n.id) && n.data?.origin !== 'user' && !n.id.startsWith('user:') && (n.kind === 'container') === icon.container && n.kind !== 'label' && sameStyle(n.style, icon.style),
+    (n) =>
+      !isLegend(n.id) &&
+      n.data?.origin !== 'user' &&
+      !n.id.startsWith('user:') &&
+      n.kind === (icon.container ? 'container' : 'box') &&
+      sameStyle(n.style, icon.style) &&
+      n.lines.length > 0 &&
+      (icon.container || (n.lines[0].bold && n.w >= icon.w * 0.6 && n.w <= icon.w * 2.5 && n.h >= icon.h * 0.5 && n.h <= icon.h * 3)),
   );
   if (!same.length) return [icon.w, icon.h];
   if (icon.container) return [Math.min(icon.w, ...same.map((n) => n.w)), Math.min(icon.h, ...same.map((n) => n.h))];
