@@ -70,14 +70,19 @@ def test_the_hierarchy_is_explicit_and_uses_catalog_kinds() -> None:
         assert set(kids) <= ids, (parent, set(kids) - ids)
     chain = [("datacenter", "az"), ("az", "pod"), ("pod", "pc"), ("pod", "cluster"),
              ("cluster", "node"), ("node", "nic"), ("node", "cvm"),
-             ("cloud_aws", "region"), ("cloud_azure", "region"), ("cloud_gcp", "region"),
-             ("region", "nc2_cluster"), ("nc2_cluster", "bm_node"), ("bm_node", "nic"),
+             ("region", "cloud_aws"), ("region", "cloud_azure"), ("region", "cloud_gcp"),
+             ("cloud_aws", "cloud_net"), ("cloud_azure", "cloud_net"),
+             ("cloud_gcp", "cloud_net"), ("cloud_aws", "nc2_cluster"),
+             ("nc2_cluster", "bm_node"), ("bm_node", "nic"),
              ("vpc", "overlay"), ("policy", "group"), ("datacenter", "directconnect"),
              ("cloud_net", "nc2_cluster")]
     for parent, child in chain:
         assert N.can_contain(parent, child), (parent, child)
     for parent, child in [("node", "az"), ("nic", "node"), ("pc", "cluster"),
                           ("cluster", "az"), ("region", "datacenter"), ("note", "text"),
+                          # Cloud region > NC2 on <cloud> > VPC / VNet, never the reverse.
+                          ("cloud_aws", "region"), ("cloud_azure", "region"),
+                          ("cloud_gcp", "region"), ("region", "cloud_net"),
                           (None, "az"), ("az", None)]:
         assert not N.can_contain(parent, child), (parent, child)
     # Nothing contains itself, and the frames are all containers.
@@ -88,6 +93,8 @@ def test_the_hierarchy_is_explicit_and_uses_catalog_kinds() -> None:
 def test_slot_rules() -> None:
     assert N.slot("pod", "pc") == "top"
     assert N.slot("region", "pc") == "top"
+    assert N.slot("cloud_aws", "pc") == "top"
+    assert N.slot("region", "cloud_aws") == "flow"
     assert N.slot("node", "nic") == "badge_br"
     assert N.slot("bm_node", "cvm") == "badge_bl"
     assert N.slot("cluster", "container") == "strip"
@@ -269,9 +276,10 @@ def test_a_datacenter_wraps_the_collected_zone(env: Environment, snap: Path) -> 
     site = next(i for i, k in kinds.items() if k == "az")
     ops = [_p(sc0, "user:dc", "datacenter", wraps=[site]),
            _p(sc0, "user:az2", "az", parent="user:dc", label="Planned zone"),
-           _p(sc0, "user:aws", "cloud_aws", y=sc0.height + 400),
-           _p(sc0, "user:reg", "region", parent="user:aws"),
-           _p(sc0, "user:nc2", "nc2_cluster", parent="user:reg"),
+           _p(sc0, "user:reg", "region", y=sc0.height + 400),
+           _p(sc0, "user:aws", "cloud_aws", parent="user:reg"),
+           _p(sc0, "user:vpc", "cloud_net", parent="user:aws"),
+           _p(sc0, "user:nc2", "nc2_cluster", parent="user:aws"),
            _p(sc0, "user:bm", "bm_node", parent="user:nc2"),
            _p(sc0, "user:dx", "directconnect", x=20, y=sc0.height + 340),
            {"op": "connect", "id": "user:l1", "a": "user:dc", "b": "user:dx"},
@@ -287,7 +295,8 @@ def test_a_datacenter_wraps_the_collected_zone(env: Environment, snap: Path) -> 
     assert n["user:az2"].y == n[site].y  # aligned with the collected zone
     assert sc.meta["placed"]["user:dc"]["anchored"] is True
     # Every subtree of the cloud sits in place.
-    assert _inside(n["user:reg"], n["user:nc2"]) and _inside(n["user:nc2"], n["user:bm"])
+    assert _inside(n["user:reg"], n["user:aws"]) and _inside(n["user:aws"], n["user:vpc"])
+    assert _inside(n["user:aws"], n["user:nc2"]) and _inside(n["user:nc2"], n["user:bm"])
     assert {e.id for e in sc.edges} >= {"user:l1", "user:l2"}
     # Saved through the edit store, it survives a reload and reaches every format.
     ST.save_result(snap, env, "conceptual", ops)
@@ -327,8 +336,8 @@ def test_hybrid_example_on_every_figure(env: Environment, type_id: str) -> None:
     tops = [i for i, k in kinds.items() if k in ("az", "remote") and
             next(x for x in sc0.nodes if x.id == i).parent is None]
     ops = ([_p(sc0, "user:dc", "datacenter", wraps=tops[:1])] if tops else []) + [
-        _p(sc0, "user:gcp", "cloud_gcp"), _p(sc0, "user:r", "region", parent="user:gcp"),
-        _p(sc0, "user:k", "nc2_cluster", parent="user:r"),
+        _p(sc0, "user:r", "region"), _p(sc0, "user:gcp", "cloud_gcp", parent="user:r"),
+        _p(sc0, "user:k", "nc2_cluster", parent="user:gcp"),
         _p(sc0, "user:b1", "bm_node", parent="user:k"),
         _p(sc0, "user:b2", "bm_node", parent="user:k"),
         _p(sc0, "user:nic", "nic", parent="user:b1")]

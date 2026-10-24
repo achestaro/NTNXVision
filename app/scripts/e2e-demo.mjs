@@ -1354,13 +1354,14 @@ try {
     await page.getByRole('button', { name: 'Release' }).waitFor({ timeout: 15_000 });
     const dc = await selectedId();
     if (!inside(await box(dc), await box(site))) throw new Error('the datacenter does not wrap the zone');
-    // NC2 on AWS, then each level added into the one selected.
+    // A cloud region, then each level added into the one selected: NC2 on AWS inside the
+    // region (never the reverse), an NC2 cluster, a bare-metal node, its NIC.
     await page.getByRole('button', { name: 'Close the inspector (clears the selection)' }).click();
-    await addFromPicker('NC2 on AWS', 'aws');
+    await addFromPicker('Cloud region / AZ', 'region');
     await added(2);
-    const aws = await selectedId();
-    const chain = [aws];
-    for (const [name, search] of [['Cloud region / AZ', 'region'], ['NC2 cluster', 'nc2 cluster'], ['Bare-metal node', 'bare metal'], ['Physical NIC', 'nic']]) {
+    const region = await selectedId();
+    const chain = [region];
+    for (const [name, search] of [['NC2 on AWS', 'aws'], ['NC2 cluster', 'nc2 cluster'], ['Bare-metal node', 'bare metal'], ['Physical NIC', 'nic']]) {
       const n = await page.locator('.dg-free').count();
       await addFromPicker(name, search);
       await page.waitForFunction((k) => document.querySelectorAll('.dg-free').length === k + 1, n, { timeout: 15_000 });
@@ -1393,16 +1394,16 @@ try {
     if (!inside(await box(dc), await box(dx))) throw new Error('the Direct Connect is not inside the datacenter');
     await page.keyboard.press(process.platform === 'darwin' ? 'Meta+z' : 'Control+z');
     await page.getByText('Take out').waitFor({ state: 'detached', timeout: 15_000 });
-    // The AWS frame resized by its right edge: wider, its children still inside.
-    await page.locator(`[data-el="${aws}"]`).click({ position: { x: 30, y: 12 } });
+    // The region frame resized by its right edge: wider, its children still inside.
+    await page.locator(`[data-el="${region}"]`).click({ position: { x: 30, y: 12 } });
     const edge = await page.locator('[data-handle="resize-r"]').boundingBox();
-    const w0 = (await box(aws)).width;
+    const w0 = (await box(region)).width;
     await page.mouse.move(edge.x + edge.width / 2, edge.y + edge.height / 2);
     await page.mouse.down();
     await page.mouse.move(edge.x + edge.width / 2 + 60, edge.y + edge.height / 2, { steps: 6 });
     await page.mouse.up();
-    await page.waitForFunction(([id, w]) => document.querySelector(`[data-el="${id}"]`)?.getBoundingClientRect().width > w + 20, [aws, w0], { timeout: 15_000 });
-    if (!inside(await box(aws), await box(chain[1]))) throw new Error('the region left the resized AWS frame');
+    await page.waitForFunction(([id, w]) => document.querySelector(`[data-el="${id}"]`)?.getBoundingClientRect().width > w + 20, [region, w0], { timeout: 15_000 });
+    if (!inside(await box(region), await box(chain[1]))) throw new Error('NC2 on AWS left the resized region frame');
   });
 
   await run('diagrams-edit-any-text', async () => {

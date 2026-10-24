@@ -604,8 +604,8 @@ const SHOTS = [
     await p.getByRole('textbox', { name: 'Search icons' }).fill('clu');
     await list.getByRole('option', { name: 'Cluster', exact: true }).waitFor();
   }],
-  // Nesting: a hybrid example (a datacenter around the collected zone, NC2 on AWS with a
-  // region, a cluster and bare-metal nodes, Direct Connect). A nested node selected: its
+  // Nesting: a hybrid example (a datacenter around the collected zone, a cloud region
+  // holding NC2 on AWS with its VPC, a cluster and bare-metal nodes, Direct Connect). A nested node selected: its
   // inspector says where it sits, its edge and corner handles resize it.
   ['diagrams-nested', { diagrams: 'nested' }, async (p) => {
     await rail(p, 'Diagrams');

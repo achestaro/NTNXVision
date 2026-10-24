@@ -3,9 +3,11 @@
 The Diagrams editor lets an author put an icon *into* another one (add with a container
 selected, or drop one icon on another). This module is the one place that says
 
-* **what may contain what** (`CHILDREN`): a cloud or datacenter holds regions and zones,
-  a zone holds PODs, Prism Centrals and clusters, a cluster holds nodes, a node holds its
-  NICs and its CVM, a VPC its overlay subnets, a policy its category groups, ...;
+* **what may contain what** (`CHILDREN`): a datacenter holds zones, a cloud region holds
+  the NC2 deployment on its cloud (NC2 on AWS / Azure / Google Cloud), which holds the
+  VPC / VNet and the NC2 clusters, a zone holds PODs, Prism Centrals and clusters, a
+  cluster holds nodes, a node holds its NICs and its CVM, a VPC its overlay subnets, a
+  policy its category groups, ...;
 * **where a child goes in its parent** (`slot`): a Prism Central sits on top of the
   clusters (``top``), a NIC is a small badge in its node's bottom-right corner
   (``badge_br``, the CVM bottom-left), storage containers and segments are full-width
@@ -51,8 +53,9 @@ _ON_PREM_NET = ("tor", "switch", "segment", "gateway", "external", "vpc")
 CHILDREN: dict[str, tuple[str, ...]] = {
     "datacenter": ("az", "remote", "pod", "pc", "cluster", "vcenter", "storage",
                    *_ON_PREM_NET, "policy", *LINKS, "note"),
-    **{c: ("region", *CLOUD_SERVICES, *LINKS, "note") for c in CLOUDS},
-    "region": ("nc2_cluster", "pc", "pod", *CLOUD_SERVICES, "note"),
+    # Cloud region > NC2 on <cloud> > VPC / VNet (and the NC2 clusters, PODs, ...).
+    "region": (*CLOUDS, *LINKS, "note"),
+    **{c: ("nc2_cluster", "pc", "pod", *CLOUD_SERVICES, *LINKS, "note") for c in CLOUDS},
     "az": ("pod", "pc", "cluster", "vcenter", "storage", *_ON_PREM_NET, "policy", "plans",
            "note"),
     "remote": ("pc", "cluster"),
