@@ -98,6 +98,8 @@
     exportDir: '',
     author: 'Alberto Chestaro',
     multiTargetIds: ['t-pc01', 't-pc02', 't-pc03'],
+    // metricsAuto: Metrics auto refresh switched on (every 5 minutes).
+    ...(opt.metricsAuto ? { metricsAutoRefresh: true, metricsRefreshMinutes: 5 } : {}),
     ...(opt.customOrder
       ? { customSectionOrder: true, sectionOrder: ['data_protection', 'networking', 'workloads', 'physical_design', 'logical_design'] }
       : {}),
@@ -582,7 +584,7 @@
   window.ntnx = {
     platform: opt.platform,
     ping: () => delay({ pong: true, version: '0.4.0' }),
-    getAppInfo: () => delay({ version: '0.4.0', platform: opt.platform, defaultExportDir: EXPORT_DIR, demo: !!opt.demo }),
+    getAppInfo: () => delay({ version: '0.4.0', platform: opt.platform, defaultExportDir: EXPORT_DIR, demo: !!opt.demo, ...(opt.metricsRefreshMs ? { metricsRefreshMs: opt.metricsRefreshMs } : {}) }),
     getLegalDocuments: () =>
       delay({
         version: '0.4.0',
@@ -1076,6 +1078,8 @@
   // ── Insights > Metrics (getMetrics / cancelMetrics) ──────────────────
   // Options: metrics: 'ok' (default) | 'loading' (never answers) | 'error' | 'trendsLoading'
   // (cards answer, trends never) | 'trendsError' | 'partial' (a source failed: notes).
+  // Every getMetrics request is counted in window.__metricsCalls (part and refresh) so a
+  // screen can check what auto refresh asked for.
   // Three clusters: PHX-PROD-02 grows in storage (80% in about six weeks), PHX-PROD-01 in
   // memory, AMS-EDGE-02 is flat and healthy. Shapes as in docs/IPC_CONTRACT.md "metrics".
   {
@@ -1271,6 +1275,7 @@
     const never = () => new Promise(() => {});
     Object.assign(window.ntnx, {
       getMetrics: (req) => {
+        (window.__metricsCalls ||= []).push({ part: req.part, refresh: !!req.refresh });
         if (mopt === 'loading') return never();
         if (mopt === 'error' && req.part === 'now') return fail('Could not reach Prism Central at pc01.example.com:9440 (connection timed out)');
         if (req.part === 'trends') {

@@ -1904,7 +1904,15 @@ export interface AppSettings {
   sectionOrder?: ReportSectionId[];
   /** Settings > Email: where the last test email went (not secret; the next test's default). */
   emailTestTo?: string;
+  /** Insights > Metrics auto refresh (re-reads the live APIs, never collects). Unset = off. */
+  metricsAutoRefresh?: boolean;
+  /** Minutes between Metrics auto refreshes (kept while off). Unset = 5. */
+  metricsRefreshMinutes?: MetricsRefreshMinutes;
 }
+
+/** The Metrics auto refresh intervals offered, in minutes. */
+export const METRICS_REFRESH_MINUTES = [5, 10, 30, 60] as const;
+export type MetricsRefreshMinutes = (typeof METRICS_REFRESH_MINUTES)[number];
 
 /** The vCPU:pCPU target used when the setting is unset (matches capacity.py). */
 export const DEFAULT_VCPU_RATIO = 4;
@@ -1920,6 +1928,12 @@ export interface AppInfo {
    * its snapshots apart from real ones.
    */
   demo?: boolean;
+  /**
+   * Test hook (unpackaged builds only, NTNXVISION_METRICS_REFRESH_MS): the Metrics auto
+   * refresh interval in milliseconds instead of the chosen minutes, so e2e can watch it fire.
+   * Never set in a packaged app.
+   */
+  metricsRefreshMs?: number;
 }
 
 /** The bundled legal documents (LICENSE, NOTICE, THIRD_PARTY_NOTICES.md), read by main. */

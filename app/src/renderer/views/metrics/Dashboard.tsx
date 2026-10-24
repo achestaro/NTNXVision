@@ -460,9 +460,11 @@ export function StorageSection({ v }: { v: ScopeView }): JSX.Element {
         <Card title="Efficiency">
           <Big>{e.data_reduction_ratio !== undefined ? ratio(e.data_reduction_ratio) : bytes(e.saved_bytes)}</Big>
           <p className="mx-sub">{e.data_reduction_ratio !== undefined ? 'Data reduction (compression, deduplication, erasure coding)' : 'Saved by data reduction'}</p>
-          {e.data_reduction_ratio !== undefined && <Line label="Saved" value={bytes(e.saved_bytes)} />}
-          {e.overall_ratio !== undefined && <Line label="Overall efficiency" value={ratio(e.overall_ratio)} />}
-          {c.storage_logical_bytes !== null && <Line label="Logical data" value={bytes(c.storage_logical_bytes)} />}
+          <div className="mx-figures">
+            {e.data_reduction_ratio !== undefined && <Line label="Saved" value={bytes(e.saved_bytes)} />}
+            {e.overall_ratio !== undefined && <Line label="Overall efficiency" value={ratio(e.overall_ratio)} />}
+            {c.storage_logical_bytes !== null && <Line label="Logical data" value={bytes(c.storage_logical_bytes)} />}
+          </div>
         </Card>
       </div>
     </Section>
