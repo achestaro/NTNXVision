@@ -2412,6 +2412,8 @@ h1 .imported-badge {
   min-width: 0;
   display: flex;
   flex-direction: column;
+  /* Sized by its canvas (window height), not by a long inspector beside it. */
+  align-self: flex-start;
 }
 .dg-head,
 .dg-tools,
@@ -2496,8 +2498,11 @@ h1 .imported-badge {
    with the zoom controls floating in its bottom-right corner. */
 .dg-stage {
   position: relative;
-  flex: 1;
+  flex: none;
   display: flex;
+  /* As tall as the window allows: a zoomed figure scrolls inside the canvas, so the zoom
+     controls stay in view. */
+  height: max(470px, calc(100vh - 400px));
   min-height: 470px;
   min-width: 0;
   background: #ffffff;
@@ -2904,6 +2909,13 @@ h1 .imported-badge {
 .dg-layout.dg-expanded .dg-stage,
 .dg-layout.dg-expanded .dg-desk {
   min-height: 0;
+}
+.dg-layout.dg-expanded .dg-stage {
+  flex: 1;
+  height: auto;
+}
+.dg-layout.dg-expanded .dg-canvas {
+  align-self: stretch;
 }
 .dg-layout.dg-expanded .dg-inspector {
   overflow-y: auto;

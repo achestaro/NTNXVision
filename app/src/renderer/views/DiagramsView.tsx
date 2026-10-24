@@ -8,7 +8,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   ArrowArcLeftIcon,
   ArrowArcRightIcon,
-  ArrowsInIcon,
+  ArrowsOutLineHorizontalIcon,
   CaretLeftIcon,
   CaretRightIcon,
   CornersInIcon,
@@ -1054,7 +1054,7 @@ export function DiagramsView({ snapshot: snapProp, type: typeProp, part: partPro
               </button>
               <span className="dg-zb-sep" aria-hidden="true" />
               <button type="button" className={zoomMode === 'fit' ? 'dg-zb on' : 'dg-zb'} aria-label="Fit" title="Fit the figure to the canvas width" aria-pressed={zoomMode === 'fit'} onClick={() => setZoomMode('fit')}>
-                <ArrowsInIcon size={14} aria-hidden="true" />
+                <ArrowsOutLineHorizontalIcon size={14} aria-hidden="true" />
               </button>
               <button
                 type="button"

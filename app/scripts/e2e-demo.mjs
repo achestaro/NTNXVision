@@ -1454,6 +1454,8 @@ try {
 
   await run('diagrams-download-svg', async () => {
     const download = async () => {
+      // Toasts from the exports before may sit over the Download links.
+      for (const x of await page.getByRole('region', { name: 'Notifications' }).getByRole('button', { name: 'Dismiss' }).all()) await x.click().catch(() => {});
       const before = new Set(await readdir(exportDir));
       await page.getByRole('group', { name: 'Download this diagram' }).getByRole('button', { name: 'SVG', exact: true }).click();
       let added = [];

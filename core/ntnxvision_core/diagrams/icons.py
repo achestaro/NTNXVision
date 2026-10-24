@@ -364,6 +364,8 @@ def _relabel_chip(n: Node, label: str, style: Style) -> Node:
 #: Node kinds whose box follows its text (a chip grows); others keep their box and the
 #: text is fitted into it.
 _GROW = frozenset({"tag", "pill", "label"})
+#: Side padding a rewritten centred line keeps inside its box (pt).
+TEXT_PAD = 6.0
 
 
 def edge_key(edge_id: str, index: int) -> str:
@@ -394,8 +396,10 @@ def _retext_node(n: Node, i: int, value: str) -> None:
                 n.lines[j] = replace(o, x=q((n.w - o.width) / 2))
         n.lines[i] = replace(new, x=q((n.w - new.width) / 2) if centred else t.x)
         return
+    # A centred line may use the box's width less a card's padding; a left-aligned one
+    # keeps its indent and as much room on the right.
     pad = max(t.x, 0.0)
-    room = n.w - 2 * pad if centred else n.w - t.x - max(min(pad, right_pad), 2.0)
+    room = n.w - 2 * TEXT_PAD if centred else n.w - t.x - max(min(pad, right_pad), 2.0)
     new = _refit(t, value, room)
     n.lines[i] = replace(new, x=q((n.w - new.width) / 2) if centred else t.x)
 
