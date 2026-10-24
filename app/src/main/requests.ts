@@ -30,6 +30,8 @@ import {
   MAX_DIAGRAM_BEND,
   MAX_DIAGRAM_OPS,
   MAX_DIAGRAM_TEXT,
+  METRICS_REFRESH_MINUTES,
+  type MetricsRefreshMinutes,
 } from '../shared/ipc';
 import {
   ValidationError,
@@ -239,6 +241,11 @@ export function asTrustCertificateRequest(v: unknown): TrustCertificateRequest {
   return r as unknown as TrustCertificateRequest;
 }
 
+function refreshMinutes(v: unknown): MetricsRefreshMinutes {
+  if (!(METRICS_REFRESH_MINUTES as readonly unknown[]).includes(v)) throw new ValidationError('metricsRefreshMinutes is not a valid choice');
+  return v as MetricsRefreshMinutes;
+}
+
 /**
  * The settings the renderer may change: a fixed allowlist of keys with typed values.
  * Unknown keys are dropped. `exportDir` is checked by the caller against the folders the
@@ -262,6 +269,9 @@ export function cleanSettings(v: unknown): AppSettings {
   if ('startAtLogin' in r) out.startAtLogin = bool(r.startAtLogin, 'startAtLogin');
   // Not secret: the next test email's default recipient (Settings > Email).
   if ('emailTestTo' in r) out.emailTestTo = cleared('emailTestTo') ? undefined : str(r.emailTestTo, 'emailTestTo', 320).trim();
+  if ('metricsAutoRefresh' in r) out.metricsAutoRefresh = cleared('metricsAutoRefresh') ? undefined : bool(r.metricsAutoRefresh, 'metricsAutoRefresh');
+  if ('metricsRefreshMinutes' in r)
+    out.metricsRefreshMinutes = cleared('metricsRefreshMinutes') ? undefined : refreshMinutes(r.metricsRefreshMinutes);
   if ('customSectionOrder' in r) out.customSectionOrder = bool(r.customSectionOrder, 'customSectionOrder');
   // Stored normalized: known movable ids only, every one once, missing ones appended.
   if ('sectionOrder' in r) out.sectionOrder = cleared('sectionOrder') ? undefined : normalizeSectionOrder(strArray(r.sectionOrder, 'sectionOrder', 64, 64));

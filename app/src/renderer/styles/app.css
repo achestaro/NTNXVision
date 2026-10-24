@@ -313,6 +313,35 @@ p {
   font-size: 20px;
   line-height: 28px;
 }
+/* Breadcrumb eyebrow: quiet until hover (the segments read as the eyebrow they replace). */
+.crumbs ol {
+  display: flex;
+  flex-wrap: wrap;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.crumbs li + li::before {
+  content: '/';
+  padding: 0 0.45em;
+  color: var(--ink-3);
+}
+.crumbs .crumb {
+  border: 0;
+  background: none;
+  padding: 0;
+  font: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+  color: inherit;
+  cursor: pointer;
+  border-radius: 2px;
+}
+.crumbs .crumb:hover {
+  color: var(--accent);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
 .ph-desc {
   margin: 4px 0 0;
   color: var(--ink-2);

@@ -830,6 +830,54 @@ const SHOTS = [
     const box = await chart.boundingBox();
     await p.mouse.move(box.x + box.width * 0.7, box.y + box.height / 2);
   }, 1400],
+  // Auto refresh on: the switch and interval under the Target select, "next in" in the facts.
+  ['metrics-autorefresh', { metricsAuto: true }, async (p) => {
+    await openMetrics(p);
+    await p.getByRole('combobox', { name: 'Auto refresh interval' }).waitFor();
+    await p.getByText(/next in \d+ min/).waitFor();
+  }, 900],
+  ['metrics-autorefresh-1100', { metricsAuto: true }, async (p) => {
+    await openMetrics(p);
+    await p.getByText(/next in \d+ min/).waitFor();
+  }, 900, 1100],
+  // With a short interval (the stub's stand-in for the e2e test hook) the cards re-read with
+  // refresh set, and the trends only every third reading.
+  ['metrics-autorefresh-fires', { metricsAuto: true, metricsRefreshMs: 1200 }, async (p) => {
+    await openMetrics(p);
+    await p.waitForFunction(() => (window.__metricsCalls || []).filter((c) => c.part === 'now' && c.refresh).length >= 3, null, { timeout: 15000 });
+    const calls = await p.evaluate(() => window.__metricsCalls);
+    const nowR = calls.filter((c) => c.part === 'now' && c.refresh).length;
+    const trR = calls.filter((c) => c.part === 'trends' && c.refresh).length;
+    if (trR >= nowR) throw new Error(`trends refreshed with every reading (${trR} of ${nowR})`);
+    // Hidden window: no reading; shown again: the overdue one runs at once.
+    const count = () => p.evaluate(() => window.__metricsCalls.filter((c) => c.part === 'now' && c.refresh).length);
+    const setHidden = (hidden) =>
+      p.evaluate((h) => {
+        Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => (h ? 'hidden' : 'visible') });
+        document.dispatchEvent(new Event('visibilitychange'));
+      }, hidden);
+    await p.getByRole('button', { name: 'Refresh' }).waitFor();
+    await setHidden(true);
+    const hiddenAt = await count();
+    await p.waitForTimeout(3000);
+    if ((await count()) > hiddenAt + 1) throw new Error('auto refresh kept reading while the window was hidden');
+    await p.getByText('auto refresh paused').waitFor();
+    const before = await count();
+    await setHidden(false);
+    await p.waitForFunction((n) => window.__metricsCalls.filter((c) => c.part === 'now' && c.refresh).length > n, before, { timeout: 1000 });
+  }, 900],
+  // Breadcrumbs: from a subpage, the target segment leads back to the dashboard.
+  ['metrics-crumbs', {}, async (p) => {
+    await openMetrics(p);
+    await p.getByRole('button', { name: 'Nodes and CVMs: open the list' }).click();
+    const crumbs = p.getByRole('navigation', { name: 'Breadcrumb' });
+    await crumbs.getByRole('button', { name: 'PC01 Production' }).click();
+    await p.getByRole('heading', { name: 'Health' }).waitFor();
+    await p.getByRole('button', { name: 'Critical alerts: open the list' }).click();
+    await crumbs.getByRole('button', { name: 'Metrics' }).waitFor();
+    if ((await p.getByRole('button', { name: 'Dashboard' }).count()) > 0) throw new Error('the Dashboard back button is still there');
+    await crumbs.getByRole('button', { name: 'Metrics' }).hover();
+  }, 900],
   ['metrics-runway', {}, async (p) => {
     await openMetrics(p);
     await p.getByRole('button', { name: 'Storage runway: open the projection' }).click();

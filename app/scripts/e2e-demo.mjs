@@ -83,6 +83,8 @@ const app = await electron.launch({
     NTNXVISION_KEYCHAIN: 'memory',
     NTNXVISION_E2E_DIALOG_DIR: transferDir,
     NTNXVISION_DEMO_LATENCY_MS: process.env.NTNXVISION_DEMO_LATENCY_MS ?? '15',
+    // Test hook (unpackaged only): Metrics auto refresh every 4 s instead of minutes.
+    NTNXVISION_METRICS_REFRESH_MS: '4000',
   },
   timeout: 60_000,
 });
@@ -1659,12 +1661,40 @@ try {
     await page.getByRole('button', { name: 'Storage runway: open the projection' }).click();
     await page.getByRole('heading', { level: 1, name: 'Runway' }).waitFor();
     await page.getByText(/^Growing \d/).first().waitFor();
-    await page.getByRole('button', { name: 'Dashboard' }).click();
+    // Breadcrumbs lead back (no Dashboard button any more): Metrics, the target, Insights.
+    const crumbs = page.getByRole('navigation', { name: 'Breadcrumb' });
+    if ((await page.getByRole('button', { name: 'Dashboard', exact: true }).count()) > 0) throw new Error('the Dashboard back button is still there');
+    await crumbs.getByRole('button', { name: 'Metrics' }).click();
+    await page.getByRole('heading', { name: 'Health' }).waitFor();
     await page.getByRole('button', { name: 'Nodes and CVMs: open the list' }).click();
     await page.getByRole('table', { name: 'Nodes and CVMs' }).getByText('Normal mode').first().waitFor();
-    await page.getByRole('button', { name: 'Dashboard' }).click();
+    // The third segment is the target (whatever it is called by now), a link to its dashboard.
+    await crumbs.getByRole('button').nth(2).click();
+    await page.getByRole('heading', { name: 'Health' }).waitFor();
+    await page.getByRole('button', { name: 'All top VMs' }).click();
+    await crumbs.getByRole('button', { name: 'Insights' }).press('Enter');
+    await page.getByRole('heading', { name: 'Health' }).waitFor();
     await page.getByRole('button', { name: 'Refresh' }).click();
     await page.getByRole('button', { name: 'Refresh' }).waitFor({ timeout: 120_000 });
+  });
+
+  // Auto refresh (4 s through the test hook): re-reads live with refresh set, writes no
+  // snapshot, is remembered, and stops when switched off.
+  await run('metrics-auto-refresh', async () => {
+    const snapsBefore = (await readdir(join(dataDir, 'snapshots')).catch(() => [])).sort().join('|');
+    await page.getByRole('switch', { name: 'Auto refresh' }).click();
+    await page.getByRole('combobox', { name: 'Auto refresh interval' }).waitFor();
+    await page.getByText(/next in \d+ s/).waitFor({ timeout: 10_000 });
+    for (let i = 0; i < 2; i++) {
+      await page.getByRole('button', { name: 'Reading…' }).waitFor({ timeout: 20_000 });
+      await page.getByRole('button', { name: 'Refresh' }).waitFor({ timeout: 120_000 });
+    }
+    const saved = JSON.parse(await readFile(join(profile, 'userData', 'settings.json'), 'utf8'));
+    if (saved.metricsAutoRefresh !== true) throw new Error(`auto refresh was not remembered: ${JSON.stringify(saved.metricsAutoRefresh)}`);
+    const snapsAfter = (await readdir(join(dataDir, 'snapshots')).catch(() => [])).sort().join('|');
+    if (snapsAfter !== snapsBefore) throw new Error('auto refresh wrote to the snapshots folder');
+    await page.getByRole('switch', { name: 'Auto refresh' }).click();
+    if ((await page.getByText(/next in \d+/).count()) > 0) throw new Error('auto refresh still counts down after switching off');
   });
   // ── end Insights > Metrics ──
 

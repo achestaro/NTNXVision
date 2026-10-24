@@ -121,6 +121,11 @@ if (userDataOverride) {
 const loadBuiltRenderer = !isDev || testEnv('NTNXVISION_RENDERER') === 'dist' || (isDev && process.argv.includes('--dist'));
 // Automated end-to-end runs: never open Finder/Explorer windows, files or browsers.
 const e2e = e2eRun;
+/** Test hook: a short Metrics auto refresh interval (ms, 1 s to 1 h) for e2e; unpackaged only. */
+const metricsRefreshMs = (() => {
+  const n = Number(testEnv('NTNXVISION_METRICS_REFRESH_MS'));
+  return Number.isInteger(n) && n >= 1000 && n <= 3_600_000 ? n : undefined;
+})();
 // e2e only: the native file dialogs answer from this folder instead of opening.
 const e2eDialogDir = e2e ? testEnv('NTNXVISION_E2E_DIALOG_DIR') || null : null;
 const sidecar = new SidecarClient();
@@ -475,6 +480,7 @@ ipc.handle(IPC.getAppInfo, (): AppInfo => ({
   platform: process.platform as Platform,
   defaultExportDir: join(homedir(), 'Documents', 'NTNXVision'),
   demo,
+  ...(metricsRefreshMs ? { metricsRefreshMs } : {}),
 }));
 
 registerLegalHandlers();

@@ -14,7 +14,7 @@ export { FigureCell, FigureStrip } from './FigureStrip';
 export { Icon } from './Icon';
 export { KebabMenu, MenuPopup, useAnchoredPopup } from './Menu';
 export type { MenuItem } from './Menu';
-export { PageHeader } from './PageHeader';
+export { PageHeader, type Crumb } from './PageHeader';
 export { Panel, PanelHeader } from './Panel';
 export { ProgressBar } from './ProgressBar';
 export { Segmented } from './Segmented';

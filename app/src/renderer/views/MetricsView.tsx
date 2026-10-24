@@ -4,13 +4,15 @@
 // Target select switches. The page reads its clusters live (read-only) in two parts: the
 // cards (health, utilization, storage, workloads, network) and, a little later, 90 days
 // of trends with the runway computed from them. "All clusters" or one cluster at a time.
-// Cards that hide detail open a subpage in place; "Dashboard" in the header returns.
-// Leaving the page cancels whatever is still loading. Pieces: views/metrics/*.
+// Cards that hide detail open a subpage in place; the eyebrow's breadcrumbs lead back.
+// Auto refresh (off by default, remembered in settings) re-reads live on an interval;
+// see useAutoRefresh. Leaving the page cancels whatever is still loading. Pieces: views/metrics/*.
 
 import React, { useEffect, useMemo, useState } from 'react';
-import { ArrowClockwiseIcon, ArrowLeftIcon } from '@phosphor-icons/react';
-import type { SavedConnection } from '@shared/ipc';
-import { Button, Callout, EmptyState, ErrorState, Loading, PageHeader, Panel, Segmented } from '../components';
+import { ArrowClockwiseIcon } from '@phosphor-icons/react';
+import { METRICS_REFRESH_MINUTES, type MetricsRefreshMinutes, type SavedConnection } from '@shared/ipc';
+import { Button, Callout, type Crumb, EmptyState, ErrorState, Loading, PageHeader, Panel, Segmented, Switch } from '../components';
+import { useSettings } from '../lib/settings';
 import { useAsync } from '../lib/useAsync';
 import { useRouter } from '../lib/router';
 import { fmtCount, fmtRel, plural, targetLabel } from '../lib/format';
@@ -26,7 +28,7 @@ import {
 } from './metrics/Dashboard';
 import { AlertsDetail, DETAIL_TITLE, NetworkDetail, NodesDetail, RunwayDetail, VmsDetail } from './metrics/Details';
 import { ALL, scopeTrends, scopeView } from './metrics/model';
-import { useMetrics } from './metrics/useMetrics';
+import { TRENDS_EVERY_MS, useAutoRefresh, useMetrics } from './metrics/useMetrics';
 import './metrics/metrics.css';
 
 const LAST_TARGET = 'ntnx.metrics.target';
@@ -114,12 +116,28 @@ export function MetricsView({ target }: { target?: string }): JSX.Element {
   return <TargetMetrics key={selected.id} target={selected} picker={picker} gone={gone} />;
 }
 
+/** "in 4 min", "in 20 s": when the next auto refresh is due. */
+function fmtIn(ms: number): string {
+  const s = Math.max(0, Math.ceil(ms / 1000));
+  return s < 60 ? `in ${s} s` : `in ${Math.ceil(s / 60)} min`;
+}
+
 function TargetMetrics({ target, picker, gone }: { target: SavedConnection; picker: React.ReactNode; gone: boolean }): JSX.Element {
-  const { now, trends, refresh } = useMetrics(target.id);
+  const { navigate } = useRouter();
+  const { settings, update, appInfo } = useSettings();
+  const metrics = useMetrics(target.id);
+  const { now, trends, refresh } = metrics;
   const [scope, setScope] = useState<string>(ALL);
   const [detail, setDetail] = useState<Detail | null>(null);
   const [range, setRange] = useState(90);
-  useTick(15_000);
+
+  const autoOn = settings.metricsAutoRefresh === true;
+  const minutes: MetricsRefreshMinutes = settings.metricsRefreshMinutes ?? 5;
+  // The test hook (unpackaged builds only) shortens the interval; trends then follow every third reading.
+  const testMs = appInfo?.metricsRefreshMs;
+  const intervalMs = testMs ?? minutes * 60_000;
+  const auto = useAutoRefresh(metrics, { enabled: autoOn, intervalMs, trendsEveryMs: Math.max(intervalMs, testMs ? testMs * 3 : TRENDS_EVERY_MS) });
+  useTick(auto.dueAt !== null && intervalMs < 120_000 ? 1_000 : 15_000);
 
   const data = now.data;
   const clusters = data?.clusters ?? [];
@@ -133,27 +151,60 @@ function TargetMetrics({ target, picker, gone }: { target: SavedConnection; pick
     requestAnimationFrame(() => document.querySelector('main')?.scrollTo({ top: 0 }));
   };
 
+  const next = auto.dueAt === null || loading ? null : auto.paused ? 'auto refresh paused' : `next ${fmtIn(auto.dueAt - Date.now())}`;
   const facts = data
-    ? [data.version, plural(clusters.length, 'cluster'), `read ${fmtRel(data.collected_at)}`].filter(Boolean).join(' · ')
+    ? [data.version, plural(clusters.length, 'cluster'), `read ${fmtRel(data.collected_at)}`, next].filter(Boolean).join(' · ')
     : `${target.host} · reading live`;
 
   const actions = (
-    <>
-      {detail && (
-        <Button variant="ghost" icon={ArrowLeftIcon} onClick={() => setDetail(null)}>
-          Dashboard
+    <div className="mx-actions">
+      <div className="mx-actions-row">
+        {picker}
+        <Button icon={ArrowClockwiseIcon} onClick={refresh} disabled={loading}>
+          {loading ? 'Reading…' : 'Refresh'}
         </Button>
-      )}
-      {picker}
-      <Button icon={ArrowClockwiseIcon} onClick={refresh} disabled={loading}>
-        {loading ? 'Reading…' : 'Refresh'}
-      </Button>
-    </>
+      </div>
+      <div className="mx-actions-row mx-auto">
+        <span id="mx-auto-lbl">Auto refresh</span>
+        <Switch checked={autoOn} onChange={(v) => void update({ metricsAutoRefresh: v })} labelledBy="mx-auto-lbl" />
+        {autoOn && (
+          <select
+            className="input mx-every"
+            aria-label="Auto refresh interval"
+            value={String(minutes)}
+            onChange={(e) => void update({ metricsRefreshMinutes: Number(e.target.value) as MetricsRefreshMinutes })}
+          >
+            {METRICS_REFRESH_MINUTES.map((m) => (
+              <option key={m} value={m}>
+                Every {m} min
+              </option>
+            ))}
+          </select>
+        )}
+      </div>
+    </div>
   );
+
+  const toDashboard = () => setDetail(null);
+  const crumbs: Crumb[] | undefined = detail
+    ? [
+        {
+          label: 'Insights',
+          onClick: () => {
+            setDetail(null);
+            navigate({ screen: 'metrics' });
+          },
+        },
+        { label: 'Metrics', onClick: toDashboard },
+        { label: targetLabel(target), onClick: toDashboard },
+        { label: DETAIL_TITLE[detail] },
+      ]
+    : undefined;
 
   const header = (
     <PageHeader
-      eyebrow={detail ? `Insights / Metrics / ${targetLabel(target)}` : 'Insights / Metrics'}
+      eyebrow="Insights / Metrics"
+      crumbs={crumbs}
       title={detail ? DETAIL_TITLE[detail] : targetLabel(target)}
       facts={facts}
       actions={actions}
