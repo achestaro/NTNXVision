@@ -6,6 +6,44 @@ format older builds can't read. Windows shows the version as X.Y.Z.0 in Installe
 Every pull request that changes shipped code raises it with `node scripts/bump-version.mjs`
 and adds a section here (CI checks both).
 
+## 0.14.0 (2026-10-24)
+
+### Added
+- Insights section in the rail with two new pages.
+- Metrics: a live dashboard per saved target, read from Prism Central on demand (nothing is
+  collected or stored). Utilization, efficiency, performance and network cards, the
+  capacity runway for the target and per cluster (the soonest cluster named within a year),
+  trends, and subpages for top VMs, alerts, nodes and host NICs. Clickable breadcrumbs, an
+  optional Auto refresh every 5, 10, 30 or 60 minutes, workload bars coloured by metric (CPU
+  blue, memory violet, storage green, IOPS teal, latency orange), and every table sorts by a
+  click on its column header.
+- Optimization: a VM compute review (right-sizing vCPU and memory against the host topology,
+  Nutanix-only rules), with three summary figures.
+- Diagrams editor:
+  - The canvas fills the window: Fit to the whole figure, Ctrl/⌘ + wheel and pinch zoom,
+    two-finger scroll pans, a floating zoom bar, and a View menu with a dots or lines grid
+    over the whole canvas and a white or transparent background.
+  - Add any icon (Datacenter, NC2 on AWS / Azure / Google Cloud and more) and edit any
+    text; new icons take the size of collected elements of their kind and land in view.
+  - Containers: add into the selection, drop to nest, resize by edge, auto-arrange on drop.
+    A cloud region holds NC2 on AWS / Azure / Google Cloud, which holds its VPC / VNet.
+  - Icons can be placed left of and above the generated layout, and exports frame them.
+  - A dropped icon or group that would cover another moves beside it (right, else above);
+    the other stays put.
+  - Right-click menus (rename, connect from here, remove; arrowheads on connectors) and a
+    Legend switch; the legend sits bottom-left in the editor and every export.
+- Help menu in the command bar, laid out like Runway's account menu: version and build,
+  Keyboard shortcuts, About.
+
+### Changed
+- The rail shows the bare version; dev and demo builds are tagged in the Help menu and in
+  Settings > About.
+- Dependencies: Electron 44.9.3, fast-uri 3.1.9, setuptools 84.2.1 (audit findings).
+
+### Fixed
+- Email: Trust this certificate saves the pinned certificate at once, so scheduled runs use
+  it instead of failing on an untrusted SMTP server.
+
 ## 0.13.1 (2026-10-20)
 
 ### Changed
