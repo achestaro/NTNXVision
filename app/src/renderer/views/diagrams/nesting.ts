@@ -51,6 +51,7 @@ export function aKind(ctx: NestContext, kind: string | null): string {
 export type AddPlan =
   | { mode: 'into'; parent: string; hint: string }
   | { mode: 'wrap'; target: string; hint: string }
+  | { mode: 'adopt'; child: string; hint: string }
   | { mode: 'beside'; x: number; y: number; hint: string }
   | { mode: 'free' };
 
@@ -70,6 +71,10 @@ export function planAdd(ctx: NestContext, icon: DiagramIcon, selected: string | 
   const meta = placedMeta(ctx.scene)[selected];
   if (icon.container && isTop(ctx, n) && k && holds(ctx, icon.id, k) && !meta)
     return { mode: 'wrap', target: selected, hint: `${icon.label} drawn around ${nameOf(ctx, selected)}.` };
+  // A placed icon on its own that the new frame may hold (NC2 on AWS, then a cloud
+  // region): the frame goes where it is and takes it in.
+  if (icon.container && ctx.outline.get(selected)?.free && meta && !meta.parent && !(meta.wraps ?? []).length && holds(ctx, icon.id, k))
+    return { mode: 'adopt', child: selected, hint: `${icon.label} drawn around ${nameOf(ctx, selected)}.` };
   // Beside the outermost frame around the selection, so it never looks nested.
   let top = n;
   for (let p = n.parent, i = 0; p && i < 64; i++) {
@@ -102,12 +107,25 @@ export function besideSpot(scene: DiagramScene, n: SceneNode, w: number, h: numb
 }
 
 /**
+ * How far the core moved the whole figure right and down (`scene.meta.origin`) so that
+ * icons placed left of or above the generated layout (negative coordinates) are on it.
+ */
+export function originOf(scene: DiagramScene | undefined): [number, number] {
+  const o = scene?.meta?.origin;
+  return Array.isArray(o) && typeof o[0] === 'number' && typeof o[1] === 'number' ? [o[0], o[1]] : [0, 0];
+}
+
+/**
  * A figure point back in stored coordinates: the core opens bands in the generated
  * layout to make room for nested icons (`scene.meta.warp`: [axis, at, width] in order)
  * and moves free icons with them, so a free icon's stored place is in the unopened
- * layout. A point inside a band maps to the band's start.
+ * layout. A point inside a band maps to the band's start. The figure's origin shift
+ * (`originOf`) comes off first; a point left of or above the layout stays negative.
  */
 export function unwarp(scene: DiagramScene | undefined, x: number, y: number): [number, number] {
+  const [ox, oy] = originOf(scene);
+  x -= ox;
+  y -= oy;
   const bands = scene?.meta?.warp;
   if (!Array.isArray(bands)) return [x, y];
   for (const band of [...(bands as [string, number, number][])].reverse()) {
@@ -115,7 +133,72 @@ export function unwarp(scene: DiagramScene | undefined, x: number, y: number): [
     if (axis === 'x') x = x >= at + d - 0.05 ? x - d : x >= at - 0.05 ? at : x;
     else y = y >= at + d - 0.05 ? y - d : y >= at - 0.05 ? at : y;
   }
-  return [Math.max(0, x), Math.max(0, y)];
+  return [x, y];
+}
+
+/** Space kept between a dropped item moved off another one and that one (pt). */
+export const DROP_GAP = 16;
+/** Clearance a resolved spot keeps from every other item (pt). */
+const DROP_CLEAR = 8;
+
+export interface Rect {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+const overlaps = (a: Rect, b: Rect, pad = 0) => a.x < b.x + b.w + pad && a.x + a.w + pad > b.x && a.y < b.y + b.h + pad && a.y + a.h + pad > b.y;
+
+/**
+ * Where a dragged item lands so it is not on top of another top-level item: `rect` is
+ * its dropped box (it and what it carries), `moving` the scene ids that move with it.
+ * Unchanged when it overlaps nothing. Else the dragged item (never the other one) goes
+ * directly right of the item it collided with, else directly above it, `DROP_GAP`
+ * clear; if both are taken, the nearest free spot found by stepping right of or above
+ * whatever is in the way. Nested items are not considered: the core lays out a
+ * container's children in its slots, so siblings never overlap.
+ */
+export function clearDrop(scene: DiagramScene, rect: Rect, moving: Set<string>): { x: number; y: number; hit: SceneNode | null } {
+  const items = scene.nodes.filter((n) => !n.parent && !moving.has(n.id) && !n.id.startsWith('legend:') && n.w > 0 && n.h > 0);
+  const at = (x: number, y: number): Rect => ({ x, y, w: rect.w, h: rect.h });
+  /** The item a box runs into (the biggest overlap), with `pad` clearance. */
+  const blocker = (r: Rect, pad: number): SceneNode | null => {
+    let best: SceneNode | null = null;
+    let area = -Infinity;
+    for (const n of items) {
+      if (!overlaps(r, n, pad)) continue;
+      const a = (Math.min(r.x + r.w, n.x + n.w) - Math.max(r.x, n.x)) * (Math.min(r.y + r.h, n.y + n.h) - Math.max(r.y, n.y));
+      if (a > area) {
+        area = a;
+        best = n;
+      }
+    }
+    return best;
+  };
+  const hit = blocker(rect, 0);
+  if (!hit) return { x: rect.x, y: rect.y, hit: null };
+  const right = (n: Rect, y: number): [number, number] => [Math.round(n.x + n.w + DROP_GAP), Math.round(y)];
+  const above = (n: Rect, x: number): [number, number] => [Math.round(x), Math.round(n.y - DROP_GAP - rect.h)];
+  // 1. Directly right of, 2. directly above the item it collided with.
+  for (const [x, y] of [right(hit, rect.y), above(hit, rect.x)]) if (!blocker(at(x, y), DROP_CLEAR)) return { x, y, hit };
+  // 3. Outward: the nearest spot right of or above whatever is in the way.
+  const seen = new Set<string>();
+  const frontier: [number, number][] = [right(hit, rect.y), above(hit, rect.x)];
+  const dist = ([x, y]: [number, number]) => Math.hypot(x - rect.x, y - rect.y);
+  for (let i = 0; i < 400 && frontier.length; i++) {
+    frontier.sort((a, b) => dist(a) - dist(b));
+    const p = frontier.shift()!;
+    const key = `${p[0]},${p[1]}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    const b = blocker(at(p[0], p[1]), DROP_CLEAR);
+    if (!b) return { x: p[0], y: p[1], hit };
+    frontier.push(right(b, p[1]), above(b, p[0]));
+  }
+  // Never stuck: above everything, across from where it was dropped.
+  const top = Math.min(...items.map((n) => n.y));
+  return { x: Math.round(rect.x), y: Math.round(top - DROP_GAP - rect.h), hit };
 }
 
 /** `id` and the placed icons nested in it (it never drops into one of those). */

@@ -4,6 +4,7 @@
 // * a plain wheel or two-finger scroll pans (the desk's own scrolling, untouched).
 // Steps are batched per animation frame and proportional to the wheel distance, so a
 // pinch is smooth and a mouse notch is one comfortable step; clamped to [min, max].
+// Returns `zoomAt(clientX, clientY, zoom)`: the same anchored zoom, for the zoom buttons.
 
 import { useEffect, useLayoutEffect, useRef } from 'react';
 
@@ -17,7 +18,7 @@ export function useWheelZoom(
   setZoom: (z: number) => void,
   min: number,
   max: number,
-): void {
+): (clientX: number, clientY: number, next: number) => void {
   const live = useRef({ zoom, setZoom, min, max });
   live.current = { zoom, setZoom, min, max };
   /** The figure point (pt) to keep under the client point, once the new zoom is drawn. */
@@ -76,4 +77,12 @@ export function useWheelZoom(
     desk.scrollLeft += r.left + a.sx * zoom - a.cx;
     desk.scrollTop += r.top + a.sy * zoom - a.cy;
   }, [zoom]);
+
+  return (cx: number, cy: number, next: number) => {
+    const { zoom: z, setZoom: set, min: lo, max: hi } = live.current;
+    const to = Math.max(lo, Math.min(hi, next));
+    const r = deskRef.current?.querySelector('.dg-sheet')?.getBoundingClientRect();
+    if (r && to !== z) anchor.current = { sx: (cx - r.left) / z, sy: (cy - r.top) / z, cx, cy };
+    set(to);
+  };
 }

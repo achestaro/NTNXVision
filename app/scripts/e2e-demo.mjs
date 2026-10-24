@@ -1354,13 +1354,14 @@ try {
     await page.getByRole('button', { name: 'Release' }).waitFor({ timeout: 15_000 });
     const dc = await selectedId();
     if (!inside(await box(dc), await box(site))) throw new Error('the datacenter does not wrap the zone');
-    // NC2 on AWS, then each level added into the one selected.
+    // A cloud region, then each level added into the one selected: NC2 on AWS inside the
+    // region (never the reverse), an NC2 cluster, a bare-metal node, its NIC.
     await page.getByRole('button', { name: 'Close the inspector (clears the selection)' }).click();
-    await addFromPicker('NC2 on AWS', 'aws');
+    await addFromPicker('Cloud region / AZ', 'region');
     await added(2);
-    const aws = await selectedId();
-    const chain = [aws];
-    for (const [name, search] of [['Cloud region / AZ', 'region'], ['NC2 cluster', 'nc2 cluster'], ['Bare-metal node', 'bare metal'], ['Physical NIC', 'nic']]) {
+    const region = await selectedId();
+    const chain = [region];
+    for (const [name, search] of [['NC2 on AWS', 'aws'], ['NC2 cluster', 'nc2 cluster'], ['Bare-metal node', 'bare metal'], ['Physical NIC', 'nic']]) {
       const n = await page.locator('.dg-free').count();
       await addFromPicker(name, search);
       await page.waitForFunction((k) => document.querySelectorAll('.dg-free').length === k + 1, n, { timeout: 15_000 });
@@ -1393,16 +1394,116 @@ try {
     if (!inside(await box(dc), await box(dx))) throw new Error('the Direct Connect is not inside the datacenter');
     await page.keyboard.press(process.platform === 'darwin' ? 'Meta+z' : 'Control+z');
     await page.getByText('Take out').waitFor({ state: 'detached', timeout: 15_000 });
-    // The AWS frame resized by its right edge: wider, its children still inside.
-    await page.locator(`[data-el="${aws}"]`).click({ position: { x: 30, y: 12 } });
+    // The region frame resized by its right edge: wider, its children still inside.
+    await page.locator(`[data-el="${region}"]`).click({ position: { x: 30, y: 12 } });
+    // The handle well inside the canvas (the inspector may have covered the figure's right side).
+    await page.locator('[data-handle="resize-r"]').evaluate((h) => h.scrollIntoView({ block: 'center', inline: 'center' }));
     const edge = await page.locator('[data-handle="resize-r"]').boundingBox();
-    const w0 = (await box(aws)).width;
+    const w0 = (await box(region)).width;
     await page.mouse.move(edge.x + edge.width / 2, edge.y + edge.height / 2);
     await page.mouse.down();
     await page.mouse.move(edge.x + edge.width / 2 + 60, edge.y + edge.height / 2, { steps: 6 });
     await page.mouse.up();
-    await page.waitForFunction(([id, w]) => document.querySelector(`[data-el="${id}"]`)?.getBoundingClientRect().width > w + 20, [aws, w0], { timeout: 15_000 });
-    if (!inside(await box(aws), await box(chain[1]))) throw new Error('the region left the resized AWS frame');
+    await page.waitForFunction(([id, w]) => document.querySelector(`[data-el="${id}"]`)?.getBoundingClientRect().width > w + 20, [region, w0], { timeout: 15_000 });
+    if (!inside(await box(region), await box(chain[1]))) throw new Error('NC2 on AWS left the resized region frame');
+
+    // The region with everything in it dropped on the datacenter (it cannot go in): the
+    // dragged group moves beside it, the datacenter stays put; one undo takes it back.
+    const overlap = (a, b) => a.x < b.x + b.width - 1 && b.x < a.x + a.width - 1 && a.y < b.y + b.height - 1 && b.y < a.y + a.height - 1;
+    /** An element's place in figure points (the fit may rescale the figure after an edit). */
+    const fig = (id) =>
+      page.evaluate((i) => {
+        const svg = document.querySelector('.dg-sheet svg');
+        const s = svg.getBoundingClientRect();
+        const z = s.width / svg.viewBox.baseVal.width;
+        const r = document.querySelector(`[data-el="${i}"]`).getBoundingClientRect();
+        return [(r.x - s.x) / z, (r.y - s.y) / z];
+      }, id);
+    const near = (a, b) => Math.abs(a[0] - b[0]) <= 1 && Math.abs(a[1] - b[1]) <= 1;
+    // The datacenter's place against a collected remote zone (the whole figure moves down
+    // when the dragged item goes above it all).
+    const remote = await el('az:').first().getAttribute('data-el');
+    const rel = async () => {
+      const [a, b] = [await fig(dc), await fig(remote)];
+      return [a[0] - b[0], a[1] - b[1]];
+    };
+    const dc0 = await box(dc);
+    const dcAt = await rel();
+    const reg0 = await box(region);
+    const regAt = await fig(region);
+    await page.mouse.move(reg0.x + 30, reg0.y + 12);
+    await page.mouse.down();
+    await page.mouse.move(dc0.x + 40, dc0.y + dc0.height / 2, { steps: 12 });
+    await page.getByText(/drops beside it/).waitFor();
+    await page.mouse.up();
+    await hint.getByText(/so it was placed beside/).waitFor({ timeout: 15_000 });
+    await page.waitForFunction(([id, at]) => {
+      const svg = document.querySelector('.dg-sheet svg');
+      const s = svg.getBoundingClientRect();
+      const z = s.width / svg.viewBox.baseVal.width;
+      const r = document.querySelector(`[data-el="${id}"]`)?.getBoundingClientRect();
+      return r && Math.hypot((r.x - s.x) / z - at[0], (r.y - s.y) / z - at[1]) > 2;
+    }, [region, regAt], { timeout: 15_000 });
+    if (overlap(await box(dc), await box(region))) throw new Error('the dropped region is on top of the datacenter');
+    if (!near(await rel(), dcAt)) throw new Error(`the datacenter moved: only the dragged item may ${JSON.stringify([dcAt, await rel()])}`);
+    if (!inside(await box(region), await box(chain[4]))) throw new Error('the region left its children behind');
+    await page.keyboard.press(process.platform === 'darwin' ? 'Meta+z' : 'Control+z');
+    await page.waitForFunction(([id, at]) => {
+      const svg = document.querySelector('.dg-sheet svg');
+      const s = svg.getBoundingClientRect();
+      const z = s.width / svg.viewBox.baseVal.width;
+      const r = document.querySelector(`[data-el="${id}"]`)?.getBoundingClientRect();
+      return r && Math.hypot((r.x - s.x) / z - at[0], (r.y - s.y) / z - at[1]) <= 1;
+    }, [region, regAt], { timeout: 15_000 }).catch(async (e) => {
+      throw new Error(`undo did not bring the region back: ${JSON.stringify([regAt, await fig(region)])} ${e.message}`);
+    });
+
+    // Left of and above the generated figure: the Direct Connect dragged out there; the
+    // figure grows that way and holds it.
+    await page.getByRole('button', { name: 'Close the inspector (clears the selection)' }).click();
+    await page.getByRole('button', { name: 'Fit to the canvas' }).click();
+    await page.waitForTimeout(150);
+    const sheet0 = await page.locator('.dg-sheet').boundingBox();
+    const dx0 = await box(dx);
+    await page.mouse.move(dx0.x + dx0.width / 2, dx0.y + dx0.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(sheet0.x - 70, sheet0.y - 30, { steps: 14 });
+    await page.mouse.up();
+    const leftOfAll = () =>
+      page.waitForFunction((id) => {
+        const r = document.querySelector(`[data-el="${id}"]`)?.getBoundingClientRect();
+        const others = [...document.querySelectorAll('.dg-sheet [data-el]')].filter((e) => e.getAttribute('data-el') !== id && !e.closest(`[data-el="${id}"]`));
+        return r && others.length && others.every((e) => {
+          const o = e.getBoundingClientRect();
+          return o.width === 0 || r.right <= o.left + 1 || r.bottom <= o.top + 1;
+        });
+      }, dx, { timeout: 15_000 });
+    await leftOfAll();
+    const dx1 = await box(dx);
+    const sheet1 = await page.locator('.dg-sheet').boundingBox();
+    if (dx1.x < sheet1.x - 1 || dx1.y < sheet1.y - 1) throw new Error('the figure does not hold the icon placed left of / above it');
+    // Zoomed in, a drag further out: the figure grows left and up, nothing else moves on screen.
+    await page.getByRole('button', { name: 'Zoom in' }).click();
+    await page.locator('.dg-desk').evaluate((d) => {
+      const s = d.querySelector('.dg-sheet').getBoundingClientRect();
+      const r = d.getBoundingClientRect();
+      d.scrollLeft += s.left - (r.left + 260);
+      d.scrollTop += s.top - (r.top + 200);
+    });
+    await page.waitForTimeout(150);
+    const site0 = await box(site);
+    const dx2 = await box(dx);
+    await page.mouse.move(dx2.x + dx2.width / 2, dx2.y + dx2.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(dx2.x + dx2.width / 2 - 120, dx2.y + dx2.height / 2 - 80, { steps: 10 });
+    await page.mouse.up();
+    await page.waitForFunction(([id, x]) => (document.querySelector(`[data-el="${id}"]`)?.getBoundingClientRect().x ?? x) < x - 60, [dx, dx2.x], { timeout: 15_000 });
+    await page.waitForTimeout(150);
+    const site1 = await box(site);
+    if (Math.abs(site1.x - site0.x) > 3 || Math.abs(site1.y - site0.y) > 3) throw new Error(`the figure jumped on screen: ${JSON.stringify([site0, site1])}`);
+    const dx3 = await box(dx);
+    if (Math.abs(dx3.x - (dx2.x - 120)) > 4 || Math.abs(dx3.y - (dx2.y - 80)) > 4) throw new Error(`the icon did not land where it was dropped: ${JSON.stringify([dx2, dx3])}`);
+    await page.getByRole('button', { name: 'Fit to the canvas' }).click();
   });
 
   await run('diagrams-edit-any-text', async () => {
@@ -1508,6 +1609,8 @@ try {
     await menu.getByRole('menuitem', { name: /^Remove/ }).waitFor();
     await page.keyboard.press('Escape');
     await menu.waitFor({ state: 'detached' });
+    // Closing gives the focus back to the element (next frame): only then move it on.
+    await page.waitForFunction(() => document.activeElement?.hasAttribute('data-el'));
     // A connector, from the keyboard (Shift+F10): arrowheads with previews.
     const conn = page.locator('[data-conn]').first();
     arrowConn = await conn.getAttribute('data-conn');

@@ -12,10 +12,9 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { DiagramConnector, DiagramElement, DiagramScene, DiagramSide, SceneEdge, SceneNode, SceneStyle, SceneTextLine } from '@shared/ipc';
 import { isMod } from '../../lib/keyboard';
-import { placedMeta, planDrop } from './nesting';
+import { clearDrop, nameOf, placedMeta, planDrop, subtreeOf } from './nesting';
 import type { DropPlan, NestContext } from './nesting';
 import { edgeMarks, trimmedPoints } from './arrowheads';
-import { CanvasGrid } from './CanvasGrid';
 import type { CanvasBg, GridMode } from './CanvasOptions';
 
 const FONT = "'Figtree Variable', Figtree, Calibri, 'Segoe UI', Arial, sans-serif";
@@ -480,7 +479,8 @@ export function SceneCanvas(props: CanvasProps): JSX.Element {
         const dx = Math.round((ev.clientX - d.startX) / zoom);
         const dy = Math.round((ev.clientY - d.startY) / zoom);
         const plan = active && props.nest ? planDrop(props.nest, d.id, x, y) : null;
-        setDrag({ ...d, active, dx: Math.max(-n.x, dx), dy: Math.max(-n.y, dy), plan });
+        // Anywhere, left of and above the figure too (the core moves the figure).
+        setDrag({ ...d, active, dx, dy, plan });
       } else if (d.kind === 'resize') {
         // Right / bottom sides follow the pointer; left / top move the box's corner too.
         const right = d.x0 + d.w0;
@@ -492,11 +492,11 @@ export function SceneCanvas(props: CanvasProps): JSX.Element {
         if (d.sides.r) w = Math.max(d.minW, Math.round(x - d.x0));
         if (d.sides.b) h = Math.max(d.minH, Math.round(y - d.y0));
         if (d.sides.l) {
-          nx = Math.max(0, Math.min(Math.round(x), right - d.minW));
+          nx = Math.min(Math.round(x), right - d.minW);
           w = right - nx;
         }
         if (d.sides.t) {
-          ny = Math.max(0, Math.min(Math.round(y), bottom - d.minH));
+          ny = Math.min(Math.round(y), bottom - d.minH);
           h = bottom - ny;
         }
         setDrag({ ...d, x: nx, y: ny, w, h });
@@ -517,22 +517,31 @@ export function SceneCanvas(props: CanvasProps): JSX.Element {
       if (d.kind === 'free') {
         const n = byId.get(d.id);
         const plan = d.plan;
-        if (n && d.active && plan && plan.mode !== 'move') {
-          const nx = Math.max(0, n.x + d.dx);
-          const ny = Math.max(0, n.y + d.dy);
+        if (n && d.active && plan && (plan.mode === 'into' || plan.mode === 'wrap' || plan.mode === 'stay')) {
+          // Into a container that may hold it (or around a zone): not a collision.
+          const nx = n.x + d.dx;
+          const ny = n.y + d.dy;
           if (plan.mode === 'into') props.onNest?.(d.id, plan.parent, nx, ny);
-          else if (plan.mode === 'out') props.onNest?.(d.id, null, nx, ny);
           else if (plan.mode === 'wrap') props.onWrap?.(d.id, plan.target, nx, ny);
-          else if (plan.mode === 'refused') {
-            props.onPlace?.([{ id: d.id, x: nx, y: ny }]);
-            props.onHint?.(`${outline.get(d.id)?.kind ?? 'This icon'} can’t go inside ${plan.label}, so it stays where you dropped it.`);
+        } else if (n && d.active && (d.dx || d.dy || plan?.mode === 'out' || plan?.mode === 'refused')) {
+          // A free drop never lands on top of another item: the dragged one moves aside
+          // (one edit list, so one undo step).
+          const spot = clearDrop(scene, { x: n.x + d.dx, y: n.y + d.dy, w: n.w, h: n.h }, subtreeOf(scene, d.id));
+          const dx = spot.x - n.x;
+          const dy = spot.y - n.y;
+          const aside = spot.hit ? `Moved beside ${nameFor(spot.hit)} so they don’t overlap.` : '';
+          if (plan?.mode === 'out') {
+            props.onNest?.(d.id, null, spot.x, spot.y);
+            if (aside) props.onHint?.(aside);
+          } else {
+            props.onPlace?.(carried(d.id).map((id) => {
+              const c = byId.get(id)!;
+              return { id, x: c.x + dx, y: c.y + dy };
+            }));
+            if (plan?.mode === 'refused')
+              props.onHint?.(`${outline.get(d.id)?.kind ?? 'This icon'} can’t go inside ${plan.label}${spot.hit ? `, so it was placed beside ${nameFor(spot.hit)}.` : ', so it stays where you dropped it.'}`);
+            else if (aside) props.onHint?.(aside);
           }
-        } else if (d.active && (d.dx || d.dy)) {
-          const moves = carried(d.id).map((id) => {
-            const c = byId.get(id)!;
-            return { id, x: Math.max(0, c.x + d.dx), y: Math.max(0, c.y + d.dy) };
-          });
-          props.onPlace?.(moves);
         }
       } else if (d.kind === 'resize') {
         const n = byId.get(d.id);
@@ -569,6 +578,9 @@ export function SceneCanvas(props: CanvasProps): JSX.Element {
       window.removeEventListener('keydown', key);
     };
   }, [drag?.kind, drag && 'id' in drag ? drag.id : null, zoom]);
+
+  /** What the figure calls a node, for a hint. */
+  const nameFor = (n: SceneNode): string => (props.nest ? nameOf(props.nest, n.id) : outline.get(n.id)?.label ?? n.lines[0]?.text ?? 'it');
 
   /** A placed icon and the placed icons inside it (a placed zone carries them). */
   const carried = (id: string): string[] => {
@@ -724,7 +736,7 @@ export function SceneCanvas(props: CanvasProps): JSX.Element {
       props.onPlace?.(
         carried(id).map((cid) => {
           const c = byId.get(cid)!;
-          return { id: cid, x: Math.max(0, c.x + dx), y: Math.max(0, c.y + dy) };
+          return { id: cid, x: c.x + dx, y: c.y + dy };
         }),
       );
     } else if (ev.altKey && ['ArrowLeft', 'ArrowUp', 'ArrowRight', 'ArrowDown'].includes(ev.key)) {
@@ -898,7 +910,9 @@ export function SceneCanvas(props: CanvasProps): JSX.Element {
         if (pl?.mode === 'out') return { ...at, text: `Drop to take it out of ${pl.label}`, warn: false };
         if (pl?.mode === 'wrap') return { ...at, text: `Drop to draw it around ${pl.label}`, warn: false };
         if (pl?.mode === 'stay') return { ...at, text: 'Drop to keep it in its place', warn: false };
-        if (pl?.mode === 'refused') return { ...at, text: `Can’t go inside ${pl.label}`, warn: true };
+        if (pl?.mode === 'refused') return { ...at, text: `Can’t go inside ${pl.label}: drops beside it`, warn: true };
+        const spot = clearDrop(scene, { x: n.x + freeDrag.dx, y: n.y + freeDrag.dy, w: n.w, h: n.h }, subtreeOf(scene, freeDrag.id));
+        if (spot.hit) return { ...at, text: `Drops beside ${nameFor(spot.hit)}, not on top of it`, warn: false };
         return { ...at, text: `${Math.round(n.x + freeDrag.dx)}, ${Math.round(n.y + freeDrag.dy)} pt`, warn: false };
       }
     }
@@ -939,8 +953,8 @@ export function SceneCanvas(props: CanvasProps): JSX.Element {
         }}
         onPointerMove={tool === 'connect' && fromNode ? (ev) => setHover(toScene(ev.clientX, ev.clientY)) : undefined}
       >
-        {props.background !== 'transparent' && <rect width={scene.width} height={scene.height} fill="#FFFFFF" />}
-        {props.grid && props.grid !== 'none' && <CanvasGrid mode={props.grid} width={scene.width} height={scene.height} zoom={zoom} />}
+        {/* The grid is the desk's (CanvasGrid): it fills the whole canvas, so no sheet over it. */}
+        {props.background !== 'transparent' && (!props.grid || props.grid === 'none') && <rect width={scene.width} height={scene.height} fill="#FFFFFF" />}
         {below.map(drawNode)}
         {scene.edges.map((e) => {
           const conn = connectors.get(e.id);
@@ -1192,7 +1206,7 @@ export function SceneCanvas(props: CanvasProps): JSX.Element {
         )}
       </svg>
       {tip && (
-        <div className={`dg-tip${tip.warn ? ' warn' : ''}`} role="status" style={{ left: Math.max(4, (tip.x - 60) * zoom), top: tip.y * zoom }}>
+        <div className={`dg-tip${tip.warn ? ' warn' : ''}`} role="status" style={{ left: (tip.x - 60) * zoom, top: tip.y * zoom }}>
           {tip.text}
         </div>
       )}

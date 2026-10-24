@@ -604,8 +604,8 @@ const SHOTS = [
     await p.getByRole('textbox', { name: 'Search icons' }).fill('clu');
     await list.getByRole('option', { name: 'Cluster', exact: true }).waitFor();
   }],
-  // Nesting: a hybrid example (a datacenter around the collected zone, NC2 on AWS with a
-  // region, a cluster and bare-metal nodes, Direct Connect). A nested node selected: its
+  // Nesting: a hybrid example (a datacenter around the collected zone, a cloud region
+  // holding NC2 on AWS with its VPC, a cluster and bare-metal nodes, Direct Connect). A nested node selected: its
   // inspector says where it sits, its edge and corner handles resize it.
   ['diagrams-nested', { diagrams: 'nested' }, async (p) => {
     await rail(p, 'Diagrams');
@@ -668,7 +668,13 @@ const SHOTS = [
     await p.locator('.dg-sheet svg').waitFor();
     const zin = p.getByRole('button', { name: 'Zoom in' });
     for (let i = 0; i < 4; i++) await zin.click();
-    await p.locator('.dg-desk').evaluate((d) => d.scrollTo(d.scrollWidth, d.scrollHeight / 2));
+    // The figure's right edge at the canvas's right (the canvas has empty room beyond it).
+    await p.locator('.dg-desk').evaluate((d) => {
+      const s = d.querySelector('.dg-sheet').getBoundingClientRect();
+      const r = d.getBoundingClientRect();
+      d.scrollLeft += s.right - r.right + 16;
+      d.scrollTop += s.top + s.height / 2 - (r.top + r.height / 2);
+    });
     const lg = await p.getByTestId('dg-legend-overlay').boundingBox();
     const stage = await p.locator('.dg-stage').boundingBox();
     if (!lg || !stage || lg.x - stage.x > 16 || stage.y + stage.height - (lg.y + lg.height) > 16) throw new Error('the legend is not in the bottom-left corner');

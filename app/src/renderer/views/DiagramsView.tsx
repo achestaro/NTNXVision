@@ -53,7 +53,8 @@ import type { CanvasTool } from './diagrams/SceneCanvas';
 import { IconPicker } from './diagrams/IconPicker';
 import { ConnectorsMenu } from './diagrams/ConnectorsMenu';
 import type { PickerChoice } from './diagrams/IconPicker';
-import { holds, kindOf, nameOf, placedMeta, planAdd, unwarp } from './diagrams/nesting';
+import { holds, kindOf, nameOf, originOf, placedMeta, planAdd, unwarp } from './diagrams/nesting';
+import { gridBackground } from './diagrams/CanvasGrid';
 import type { NestContext } from './diagrams/nesting';
 // ─ canvas chrome: view options, legend overlay, context menu, wheel zoom ─
 import { CanvasOptions } from './diagrams/CanvasOptions';
@@ -663,13 +664,65 @@ export function DiagramsView({ snapshot: snapProp, type: typeProp, part: partPro
   // floating zoom controls (the desk's padding: 16 each side, 16 top and 56 under).
   const fit = shownScene ? Math.max(MIN_ZOOM, Math.min(2.5, (desk[0] - 32) / shownScene.width, (desk[1] - 72) / shownScene.height)) : 1;
   const zoom = zoomMode === 'fit' ? fit : zoomMode;
-  const stepZoom = (d: number) => setZoomMode(Math.max(MIN_ZOOM, Math.min(3, Math.round((zoom + d) * 4) / 4)));
-  useWheelZoom(deskRef, zoom, setZoomMode, MIN_ZOOM, 3);
+  const zoomAt = useWheelZoom(deskRef, zoom, setZoomMode, MIN_ZOOM, 3);
+  // ─ the canvas around the figure ─
+  // Empty room on every side, half the canvas each way (the inspector's column left
+  // out, so opening it moves nothing): icons go left of and above the figure as easily
+  // as right of and under it, and the grid covers all of it. A drop out there makes the
+  // core move the figure (`scene.meta.origin`) and the canvas grows that way.
+  const bleedX = Math.round(Math.max(160, desk[0] / 2));
+  const bleedY = Math.round(Math.max(120, desk[1] / 2));
+  /** The desk point the figure is centred on: the canvas without the inspector, above the zoom bar. */
+  const deskCentre = (): [number, number] | null => {
+    const d = deskRef.current;
+    if (!d) return null;
+    const r = d.getBoundingClientRect();
+    return [r.left + desk[0] / 2, r.top + Math.max(16, (d.clientHeight - 40) / 2)];
+  };
+  // Zoom buttons zoom around the canvas centre (the wheel, around the pointer).
+  const stepZoom = (step: number) => {
+    const c = deskCentre();
+    const next = Math.max(MIN_ZOOM, Math.min(3, Math.round((zoom + step) * 4) / 4));
+    if (c) zoomAt(c[0], c[1], next);
+    else setZoomMode(next);
+  };
+  const viewKey = scene ? `${snapPath}|${curType}|${partIndex}` : null;
+  /** Bumped by the Fit button: centre the figure again even when it is already fitted. */
+  const [fitTick, setFitTick] = useState(0);
+  const seen = useRef<{ key: string | null; origin: [number, number]; bleed: [number, number]; zoom: number; fit: boolean; tick: number }>({
+    tick: 0,
+    key: null,
+    origin: [0, 0],
+    bleed: [0, 0],
+    zoom: 0,
+    fit: false,
+  });
+  useLayoutEffect(() => {
+    const d = deskRef.current;
+    const sheet = d?.querySelector('.dg-sheet');
+    if (!d || !sheet || !viewKey) return;
+    const last = seen.current;
+    const origin = originOf(scene);
+    const fitting = zoomMode === 'fit';
+    if (last.key !== viewKey || last.tick !== fitTick || (fitting && (!last.fit || Math.abs(zoom - last.zoom) > 1e-6))) {
+      // A figure opened, fitted, or refitted (it changed size): centred on the canvas.
+      const c = deskCentre();
+      const r = sheet.getBoundingClientRect();
+      if (c) {
+        d.scrollLeft += r.left + r.width / 2 - c[0];
+        d.scrollTop += r.top + r.height / 2 - c[1];
+      }
+    } else {
+      // The core moved the figure right / down (an icon left of or above it) or the
+      // room around it changed: scroll by as much, so nothing moves on screen.
+      d.scrollLeft += (origin[0] - last.origin[0]) * zoom + (bleedX - last.bleed[0]);
+      d.scrollTop += (origin[1] - last.origin[1]) * zoom + (bleedY - last.bleed[1]);
+    }
+    seen.current = { key: viewKey, origin, bleed: [bleedX, bleedY], zoom, fit: fitting, tick: fitTick };
+  }, [viewKey, scene, zoomMode, zoom, bleedX, bleedY, fitTick]);
+  const gridStyle = grid !== 'none' ? gridBackground(grid, zoom, bleedX, bleedY) : undefined;
   // ─ context menu (right-click, context-menu key, Shift+F10) ─
   const [ctxMenu, setCtxMenu] = useState<{ id: string; x: number; y: number } | null>(null);
-  // With the inspector open the figure stays where it was centred without it.
-  const figW = shownScene ? shownScene.width * zoom : 0;
-  const shift = desk[2] ? Math.max(0, (desk[0] - 32 - figW) / 2) - Math.max(0, (desk[0] - desk[2] - 32 - figW) / 2) : 0;
 
   // ─ edits from the canvas and inspector ─
   const rename = (id: string, label: string) => apply({ op: 'set', id, field: 'label', value: label });
@@ -807,7 +860,10 @@ export function DiagramsView({ snapshot: snapProp, type: typeProp, part: partPro
     // A nested icon takes the size its parent's slots give it; a frame grows to hold.
     const sized = (w !== icon.w || h !== icon.h) && !(plan.mode === 'into' && icon.container) ? { w, h } : {};
     const nesting = plan.mode === 'into' ? { parent: plan.parent } : plan.mode === 'wrap' ? { wraps: [plan.target] } : {};
-    if (apply({ op: 'place', id, icon: icon.id, scene: scene.id, x, y, ...sized, ...nesting })) {
+    const placed: DiagramOp = { op: 'place', id, icon: icon.id, scene: scene.id, x, y, ...sized, ...nesting };
+    // A frame drawn around a placed icon on its own takes it in: one step, one undo.
+    const ops: DiagramOp[] = plan.mode === 'adopt' ? [placed, { op: 'position', id: plan.child, x, y, parent: id }] : [placed];
+    if (apply(ops)) {
       setNestHint(plan.mode === 'free' ? null : plan.hint);
       setSelected(id);
       afterLayout.current = () =>
@@ -1183,10 +1239,22 @@ export function DiagramsView({ snapshot: snapProp, type: typeProp, part: partPro
           )}
 
           <div className={canvasBg === 'transparent' ? 'dg-stage clear' : 'dg-stage'}>
-          <div className="dg-desk" ref={deskRef} style={{ '--dg-shift': `${Math.round(shift)}px` } as React.CSSProperties}>
+          <div className="dg-desk" ref={deskRef} data-grid={gridStyle ? grid : undefined} style={gridStyle}>
             {loadError ? (
               <InlineEmpty>{loadError}</InlineEmpty>
             ) : scene ? (
+              <div
+                className="dg-room"
+                style={{ padding: `${bleedY}px ${bleedX}px` }}
+                onPointerDown={(ev) => {
+                  // A press on the empty canvas around the figure: as on the figure's own empty space.
+                  if (ev.target !== ev.currentTarget || ev.button !== 0) return;
+                  if (tool === 'connect') {
+                    setTool('select');
+                    setConnectFrom(null);
+                  } else setSelected(null);
+                }}
+              >
               <SceneCanvas
                 scene={scene}
                 zoom={zoom}
@@ -1228,6 +1296,7 @@ export function DiagramsView({ snapshot: snapProp, type: typeProp, part: partPro
                 }}
                 onHint={setNestHint}
               />
+              </div>
             ) : (
               list.data && diagrams.length > 0 && <InlineEmpty>Drawing…</InlineEmpty>
             )}
@@ -1245,7 +1314,7 @@ export function DiagramsView({ snapshot: snapProp, type: typeProp, part: partPro
                 <PlusIcon size={14} aria-hidden="true" />
               </button>
               <span className="dg-zb-sep" aria-hidden="true" />
-              <button type="button" className={zoomMode === 'fit' ? 'dg-zb on' : 'dg-zb'} aria-label="Fit to the canvas" title="Fit the figure to the canvas" aria-pressed={zoomMode === 'fit'} onClick={() => setZoomMode('fit')}>
+              <button type="button" className={zoomMode === 'fit' ? 'dg-zb on' : 'dg-zb'} aria-label="Fit to the canvas" title="Fit the figure to the canvas" aria-pressed={zoomMode === 'fit'} onClick={() => (setZoomMode('fit'), setFitTick((t) => t + 1))}>
                 <FrameCornersIcon size={14} aria-hidden="true" />
               </button>
               <button

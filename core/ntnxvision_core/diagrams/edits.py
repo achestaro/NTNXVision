@@ -390,8 +390,9 @@ def _clean_place(op: dict[str, Any], ident: str, i: int) -> dict[str, Any]:
     if not ident.startswith(USER_PREFIX) or len(ident) > 80:
         raise EditError(f"Edit {i + 1}: a placed icon id starts with {USER_PREFIX}")
     out: dict[str, Any] = {"op": op["op"], "id": ident,
-                           "x": _num(op.get("x"), i, "x", 0, MAX_COORD),
-                           "y": _num(op.get("y"), i, "y", 0, MAX_COORD)}
+                           # Negative: left of / above the generated layout.
+                           "x": _num(op.get("x"), i, "x", -MAX_COORD, MAX_COORD),
+                           "y": _num(op.get("y"), i, "y", -MAX_COORD, MAX_COORD)}
     for k in ("w", "h"):
         if op.get(k) is not None:
             out[k] = _num(op.get(k), i, k, 4, MAX_SIZE)

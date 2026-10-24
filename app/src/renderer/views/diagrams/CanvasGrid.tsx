@@ -1,9 +1,11 @@
-// The canvas grid (View > Grid): dots or lines in figure points, under everything, scaled
-// with the zoom. Like draw.io and Figma it stays out of the way: hairline strokes and small
-// dots in a pale neutral, a major line every 5 cells, and a coarser step when zoomed out so
-// it never turns into a texture. Editor only: no export draws it.
+// The canvas grid (View > Grid): dots or lines in figure points, scaled with the zoom.
+// Like draw.io and Figma it stays out of the way: hairline strokes and small dots in a
+// pale neutral, a major line every 5 cells, and a coarser step when zoomed out so it
+// never turns into a texture. It is the desk's background, so it fills the whole visible
+// canvas at every zoom and scroll position (empty space beyond the figure too), scrolls
+// with it and stays aligned to the figure's points. Editor only: no export draws it.
 
-import React, { useId } from 'react';
+import type React from 'react';
 import type { GridMode } from './CanvasOptions';
 
 /** One grid cell, in points (the placed-icon nudge is 4 pt, the layout gaps 6 to 12). */
@@ -19,38 +21,29 @@ export function gridStep(zoom: number): number {
   return step;
 }
 
-export function CanvasGrid({ mode, width, height, zoom }: { mode: Exclude<GridMode, 'none'>; width: number; height: number; zoom: number }): JSX.Element {
-  const id = useId().replace(/:/g, '');
-  const step = gridStep(zoom);
-  const px = 1 / zoom; // one screen pixel, in points
+/**
+ * The desk's background for a grid: `ox`, `oy` is where the figure's (0, 0) sits in the
+ * desk's scrolling content (px), so grid lines fall on whole figure points. Colours are
+ * the `--dg-grid-*` custom properties (app.css: the white and the transparent canvas).
+ */
+export function gridBackground(mode: Exclude<GridMode, 'none'>, zoom: number, ox: number, oy: number): React.CSSProperties {
+  const s = gridStep(zoom) * zoom; // one cell, px
+  const px = (v: number) => `${Math.round(v * 100) / 100}px`;
   if (mode === 'dots') {
-    return (
-      <g className="dg-grid" data-grid="dots" pointerEvents="none" aria-hidden="true">
-        <defs>
-          <pattern id={`g${id}`} width={step} height={step} patternUnits="userSpaceOnUse">
-            <circle cx={0} cy={0} r={0.9 * px} className="dg-grid-dot" />
-            <circle cx={step} cy={0} r={0.9 * px} className="dg-grid-dot" />
-            <circle cx={0} cy={step} r={0.9 * px} className="dg-grid-dot" />
-            <circle cx={step} cy={step} r={0.9 * px} className="dg-grid-dot" />
-          </pattern>
-        </defs>
-        <rect width={width} height={height} fill={`url(#g${id})`} />
-      </g>
-    );
+    // A dot centred in each tile, the tiles offset half a cell: dots on the intersections.
+    return {
+      backgroundImage: 'radial-gradient(circle at center, var(--dg-grid-dot) 0 0.9px, transparent 1.3px)',
+      backgroundSize: `${px(s)} ${px(s)}`,
+      backgroundPosition: `${px(ox - s / 2)} ${px(oy - s / 2)}`,
+      backgroundAttachment: 'local',
+    };
   }
-  const major = step * MAJOR;
-  return (
-    <g className="dg-grid" data-grid="lines" pointerEvents="none" aria-hidden="true">
-      <defs>
-        <pattern id={`m${id}`} width={step} height={step} patternUnits="userSpaceOnUse">
-          <path d={`M ${step} 0 L 0 0 0 ${step}`} fill="none" className="dg-grid-minor" strokeWidth={px} />
-        </pattern>
-        <pattern id={`M${id}`} width={major} height={major} patternUnits="userSpaceOnUse">
-          <rect width={major} height={major} fill={`url(#m${id})`} />
-          <path d={`M ${major} 0 L 0 0 0 ${major}`} fill="none" className="dg-grid-major" strokeWidth={px} />
-        </pattern>
-      </defs>
-      <rect width={width} height={height} fill={`url(#M${id})`} />
-    </g>
-  );
+  const m = s * MAJOR;
+  const line = (dir: 'right' | 'bottom', color: string) => `linear-gradient(to ${dir}, var(${color}) 0 1px, transparent 1px)`;
+  return {
+    backgroundImage: [line('right', '--dg-grid-major'), line('bottom', '--dg-grid-major'), line('right', '--dg-grid-minor'), line('bottom', '--dg-grid-minor')].join(', '),
+    backgroundSize: [`${px(m)} ${px(m)}`, `${px(m)} ${px(m)}`, `${px(s)} ${px(s)}`, `${px(s)} ${px(s)}`].join(', '),
+    backgroundPosition: Array(4).fill(`${px(ox)} ${px(oy)}`).join(', '),
+    backgroundAttachment: 'local',
+  };
 }
