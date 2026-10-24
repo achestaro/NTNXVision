@@ -377,6 +377,53 @@ def smtp_sink(
         sink.stop()
 
 
+# ─── Insights > Metrics ──────────────────────────────────────────────
+
+
+@app.command()
+def metrics(
+    host: str = typer.Option(..., help="Prism Central FQDN or IP"),
+    username: str = typer.Option(..., help="PC username"),
+    password: str = typer.Option(None, help="PC password (prompted if omitted)"),
+    port: int = typer.Option(9440, help="PC port"),
+    insecure: bool = typer.Option(False, "--insecure", help="Skip TLS verification (lab only)"),
+    pin: str = typer.Option(
+        None, "--pin", help="With --insecure: SHA-256 fingerprint the certificate must match"),
+    part: str = typer.Option("now", help="now (cards) or trends (90 days and runway)"),
+    out: str = typer.Option("", help="Write the full JSON result to this file"),
+) -> None:
+    """Live metrics of a Prism Central (the Insights > Metrics page), read-only."""
+    import json
+
+    from ntnxvision_core.metrics import get_metrics
+
+    pwd = password or getpass.getpass("Prism Central password: ")
+    tls = _tls(insecure, pin)
+    result = get_metrics({"host": host, "port": port, "username": username, "password": pwd,
+                          "insecure": insecure, "pinned_sha256": tls.get("pinned_sha256"),
+                          "part": part, "refresh": True},
+                         allow_unpinned=bool(tls.get("allow_unpinned")))
+    if out:
+        with open(out, "w", encoding="utf-8") as fh:
+            json.dump(result, fh, indent=1)
+        console.print(f"Wrote {out}")
+    table = Table(title=f"Metrics ({part}) · {result.get('version') or host}")
+    for col in ("Cluster", "CPU %", "Memory %", "Storage %", "Health / runway 90 d"):
+        table.add_column(col)
+    for c in result.get("clusters") or []:
+        if part == "trends":
+            r90 = (c.get("runway") or {}).get("90") or {}
+            cells = [f"{k} {v['status']}" for k, v in r90.items()]
+            table.add_row(c["name"], "", "", "", ", ".join(cells))
+        else:
+            u = c["utilization"]
+            table.add_row(c["name"], str(u["cpu_pct"]), str(u["memory_pct"]),
+                          str(u["storage_pct"]), c["health"]["status"])
+    console.print(table)
+    for note in result.get("notes") or []:
+        console.print(f"[yellow]note:[/yellow] {note}")
+
+
 @app.command()
 def sidecar() -> None:
     """Run the stdio JSON-RPC sidecar (used by the Electron app)."""

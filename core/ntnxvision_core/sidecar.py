@@ -1967,3 +1967,25 @@ _METHODS = {
     "export_preview": _m_export_preview,
     "export_diagram": _m_export_diagram,
 }
+
+
+# ─── Insights > Metrics (live dashboard of a saved target) ────────────
+# One self-contained block: the `metrics` operation (worker pool) and `cancel_metrics`
+# (answered inline, like `cancel_run`). Contract: docs/IPC_CONTRACT.md, "metrics".
+
+
+def _m_metrics(_req_id: Any, params: dict[str, Any]) -> dict[str, Any]:
+    from ntnxvision_core.metrics import get_metrics
+
+    return get_metrics(params)
+
+
+def _m_cancel_metrics(_req_id: Any, params: dict[str, Any]) -> dict[str, Any]:
+    from ntnxvision_core.metrics import cancel
+
+    return {"cancelled": cancel(params.get("request_id"))}
+
+
+_METHODS.update({"metrics": _m_metrics, "cancel_metrics": _m_cancel_metrics})
+_INLINE_METHODS.add("cancel_metrics")
+# ─── end Insights > Metrics ───────────────────────────────────────────
