@@ -108,6 +108,8 @@ BADGE_W, BADGE_H = 30.0, 13.7
 BADGE_IN = 3.0
 #: Room a wrapping frame keeps around what it wraps.
 WRAP_PAD = 8.0
+#: How near a wrapped frame a connector end still belongs to it (an arrowhead gap).
+CLEAR = 4.0
 EPS = 0.05
 
 
@@ -542,9 +544,9 @@ def arrange(sc: Scene, items: list[dict[str, Any]], icons: dict[str, Any]) -> Ar
             continue
         icon = icons[b.kind]
         x0, y0, x1, y1 = bbox(subtree(sc, b.wraps))
-        insert_space(sc, "x", x0, WRAP_PAD, warps)
+        insert_space(sc, "x", x0 - CLEAR, WRAP_PAD, warps)
         b.head = _head(icon, b.item, max(x1 - x0, _base(icon, b.item)[0]))
-        insert_space(sc, "y", y0, CHIP_H / 2 + b.head, warps)
+        insert_space(sc, "y", y0 - CLEAR, CHIP_H / 2 + b.head, warps)
         fx, fy = x0, y0 + CHIP_H / 2
         x0, y0, x1, y1 = bbox(subtree(sc, b.wraps))
         kw, _, _ = _body([k for k in b.kids], 99)
@@ -555,8 +557,8 @@ def arrange(sc: Scene, items: list[dict[str, Any]], icons: dict[str, Any]) -> Ar
         need_w = max(right - fx, _title_w(icon, b.item))
         b.min_w, b.min_h = q(need_w), q(bottom - fy)
         b.w, b.h = q(max(need_w, base_w)), q(max(bottom - fy, base_h))
-        insert_space(sc, "x", x1 + EPS * 2, fx + b.w - x1, warps)
-        insert_space(sc, "y", y1 + EPS * 2, fy + b.h - y1, warps)
+        insert_space(sc, "x", x1 + CLEAR, fx + b.w - x1, warps)
+        insert_space(sc, "y", y1 + CLEAR, fy + b.h - y1, warps)
         anchor = by_id[b.wraps[0]]
         anchors[b.id] = (anchor.id, q(anchor.x - fx), q(anchor.y - fy))
         for w in b.wraps:
