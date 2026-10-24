@@ -374,6 +374,12 @@ def place(scenes: list[Scene], placed: Iterable[dict[str, Any]]) -> None:
                 _under_collected(b, arranged)
             (frames if nodes[0].kind == "container" and free_tree else rest).extend(nodes)
             drawn.extend(nodes)
+        # Icons placed left of or above the generated layout (negative coordinates): the
+        # whole figure moves right / down so they are on it, `MARGIN` clear of its edge.
+        ox, oy = _origin(drawn)
+        if ox or oy:
+            _shift(sc, drawn, ox, oy)
+            tall = q(tall + oy)
         for n in drawn:
             right, bottom = n.x + n.w, n.y + n.h
             sc.width = q(min(MAX_EXTENT, max(sc.width, right + MARGIN)))
@@ -384,6 +390,31 @@ def place(scenes: list[Scene], placed: Iterable[dict[str, Any]]) -> None:
         sc.meta = {**sc.meta, "placed": NEST.meta(arranged)}
         if arranged.warps:  # the editor maps the figure's points back to stored ones
             sc.meta["warp"] = [list(w) for w in arranged.warps]
+        if ox or oy:  # ... after taking off this shift (figure = warped stored + origin)
+            sc.meta["origin"] = [ox, oy]
+
+
+def _origin(drawn: list[Node]) -> tuple[float, float]:
+    """How far the figure moves right and down so that placed icons drawn at negative
+    coordinates land `MARGIN` inside its top-left corner (0: none reach past it)."""
+    if not drawn:
+        return 0.0, 0.0
+    x0 = min(n.x for n in drawn)
+    y0 = min(n.y for n in drawn)
+    return (q(MARGIN - x0) if x0 < 0 else 0.0), (q(MARGIN - y0) if y0 < 0 else 0.0)
+
+
+def _shift(sc: Scene, drawn: list[Node], dx: float, dy: float) -> None:
+    """Move every node (generated and `drawn`), connector and connector label of `sc` by
+    (`dx`, `dy`), growing the figure by as much."""
+    for n in [*sc.nodes, *drawn]:
+        n.x, n.y = q(n.x + dx), q(n.y + dy)
+    for e in sc.edges:
+        e.points = [(q(x + dx), q(y + dy)) for x, y in e.points]
+        for lab in e.labels:
+            lab.x, lab.y = q(lab.x + dx), q(lab.y + dy)
+    sc.width = q(min(MAX_EXTENT, sc.width + dx))
+    sc.height = q(min(MAX_EXTENT, sc.height + dy))
 
 
 def _root_of(b: NEST.Box, arranged: NEST.Arranged) -> str:

@@ -350,8 +350,9 @@ export function asDiagramOps(v: unknown): DiagramOp[] {
     }
     if (op === 'place' || op === 'position') {
       if (!id.startsWith('user:') || id.length > 80) throw new ValidationError(`ops[${i}].id must start with user:`);
-      const x = num(o.x, `ops[${i}].x`, 0, DIAGRAM_COORD_MAX);
-      const y = num(o.y, `ops[${i}].y`, 0, DIAGRAM_COORD_MAX);
+      // Negative: left of / above the generated layout (the engine moves the figure).
+      const x = num(o.x, `ops[${i}].x`, -DIAGRAM_COORD_MAX, DIAGRAM_COORD_MAX);
+      const y = num(o.y, `ops[${i}].y`, -DIAGRAM_COORD_MAX, DIAGRAM_COORD_MAX);
       const size: { w?: number; h?: number } = {};
       if (o.w !== undefined && o.w !== null) size.w = num(o.w, `ops[${i}].w`, 4, DIAGRAM_SIZE_MAX);
       if (o.h !== undefined && o.h !== null) size.h = num(o.h, `ops[${i}].h`, 4, DIAGRAM_SIZE_MAX);

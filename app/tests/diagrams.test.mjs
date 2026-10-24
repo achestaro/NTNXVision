@@ -165,11 +165,13 @@ test('placed icons, their moves and text edits are checked', () => {
   ]);
   assert.deepEqual(place, { op: 'place', id: 'user:i1', icon: 'az', scene: 'flow-DC1', x: 10, y: 20.5, w: 200, label: 'Colo', sub: null });
   assert.deepEqual(move, { op: 'position', id: 'user:i1', x: 40, y: 60, h: 90 });
+  // Left of / above the generated layout: negative coordinates pass.
+  assert.deepEqual(asDiagramOps([{ op: 'position', id: 'user:i1', x: -120, y: -8.5 }])[0], { op: 'position', id: 'user:i1', x: -120, y: -8.5 });
   assert.deepEqual(text, { op: 'text', id: 'legend:2:label', line: 0, value: 'Allowed traffic' });
   assert.deepEqual(back, { op: 'text', id: 'flow:a->b#0', line: 1, value: null });
   const bad = [
     { op: 'place', id: 'i1', icon: 'az', scene: 's', x: 1, y: 1 },
-    { op: 'place', id: 'user:i1', icon: 'az', scene: 's', x: -1, y: 1 },
+    { op: 'place', id: 'user:i1', icon: 'az', scene: 's', x: -20001, y: 1 },
     { op: 'place', id: 'user:i1', icon: 'az', scene: 's', x: 1, y: 1, w: 99999 },
     { op: 'position', id: 'user:i1', x: 'a', y: 1 },
     { op: 'text', id: 'n', line: 1.5, value: 'x' },

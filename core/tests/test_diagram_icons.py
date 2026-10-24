@@ -159,7 +159,8 @@ def test_move_resize_rename_and_delete_a_placed_icon(env: Environment) -> None:
 
 def test_place_and_text_ops_are_checked() -> None:
     for bad in ({"op": "place", "id": "x", "icon": "az", "scene": "s", "x": 1, "y": 1},
-                {"op": "place", "id": "user:a", "icon": "az", "scene": "s", "x": -1, "y": 1},
+                {"op": "place", "id": "user:a", "icon": "az", "scene": "s", "x": -20001,
+                 "y": 1},
                 {"op": "place", "id": "user:a", "icon": "", "scene": "s", "x": 1, "y": 1},
                 {"op": "position", "id": "user:a", "x": 1, "y": 1, "w": 1},
                 {"op": "text", "id": "n", "line": -1, "value": "x"},
@@ -171,6 +172,9 @@ def test_place_and_text_ops_are_checked() -> None:
                          "x": 10.26, "y": 3, "label": "A — B", "junk": 1}])
     assert op == {"op": "place", "id": "user:a", "icon": "az", "scene": "s", "x": 10.5,
                   "y": 3, "label": "A , B"}
+    # Left of / above the generated layout: negative coordinates are kept.
+    [neg] = E.clean_ops([{"op": "position", "id": "user:a", "x": -120.24, "y": -8}])
+    assert (neg["x"], neg["y"]) == (-120, -8)
 
 
 # ─── text edits ────────────────────────────────────────────────────────

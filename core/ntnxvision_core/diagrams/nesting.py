@@ -583,8 +583,9 @@ def arrange(sc: Scene, items: list[dict[str, Any]], icons: dict[str, Any]) -> Ar
         else:
             # A free icon keeps its place relative to the layout around it: the bands
             # opened before it move it too (its stored place stays in the unopened one).
-            fx, fy = warp_point(warps, max(0.0, float(b.item.get("x") or 0)),
-                                max(0.0, float(b.item.get("y") or 0)))
+            # Left of or above the layout (negative), `icons.place` moves the figure.
+            fx, fy = warp_point(warps, float(b.item.get("x") or 0),
+                                float(b.item.get("y") or 0))
             layout_box(b, fx, fy, icons)
     for pid, kids in collected.items():
         node = by_id[pid]

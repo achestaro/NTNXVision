@@ -346,3 +346,69 @@ def test_hybrid_example_on_every_figure(env: Environment, type_id: str) -> None:
     sc = view.scenes[0]
     problems = [p for p in check_scene(sc) if "user:gcp" not in p]
     assert problems == []
+
+
+def test_icons_left_of_and_above_the_layout_move_the_figure(env: Environment, snap: Path
+                                                             ) -> None:
+    """An icon placed at negative coordinates (left of / above the generated layout):
+    the whole figure moves right and down so it is on it, its stored place unchanged, and
+    `meta.origin` says by how much; it survives a save and reaches the exports."""
+    sc0 = _scene0(env)
+    first = sc0.nodes[0]
+    ops = [_p(sc0, "user:left", "az", x=-300, y=-120, label="Planned zone"),
+           _p(sc0, "user:note", "note", x=-200, y=60),
+           {"op": "connect", "id": "user:c1", "a": "user:left", "b": "user:note"}]
+    view = _view(env, ops)
+    assert view.problems == []
+    sc = view.scenes[0]
+    assert check_scene(sc) == []
+    n = {x.id: x for x in sc.nodes}
+    ox, oy = sc.meta["origin"]
+    # Its top-left (the frame's chip sits on its top edge) MARGIN from the corner.
+    left = [x for x in sc.nodes if x.id.startswith("user:left")]
+    assert (min(x.x for x in left), min(x.y for x in left)) == (6.0, 6.0)
+    assert n["user:left"].x == 6.0 and ox == 306.0 and n["user:left"].y == -120 + oy
+    # Everything moved by the same amount: relative places are kept.
+    assert (n[first.id].x, n[first.id].y) == (first.x + ox, first.y + oy)
+    assert (n["user:note"].x, n["user:note"].y) == (-200 + ox, 60 + oy)
+    assert sc.width >= sc0.width + ox - 0.05 and sc.height >= sc0.height + oy - 0.05
+    assert all(x.x >= 0 and x.y >= 0 and x.x + x.w <= sc.width + 0.05 and
+               x.y + x.h <= sc.height + 0.05 for x in sc.nodes)
+    assert all(0 <= px <= sc.width and 0 <= py <= sc.height
+               for e in sc.edges for px, py in e.points)
+    # Stored as placed: the editor maps figure points back with the origin.
+    ST.save_result(snap, env, "conceptual", ops)
+    got = ST.get_result(snap, env, "conceptual")
+    placed = {p["id"]: p for p in got["model"]["payload"]["placed"]}
+    assert (placed["user:left"]["x"], placed["user:left"]["y"]) == (-300, -120)
+    assert got["scenes"][0]["meta"]["origin"] == [ox, oy]
+    svg = render_svg(sc)
+    assert b"Planned zone" in svg
+    assert render_png(sc, 72)[:8] == b"\x89PNG\r\n\x1a\n"
+    # Nothing left of / above the layout: no origin, the figure as before.
+    plain = _view(env, [_p(sc0, "user:r", "note", x=10, y=10)]).scenes[0]
+    assert "origin" not in plain.meta
+
+
+def test_nested_siblings_never_overlap(env: Environment) -> None:
+    """Children of one container are laid out in its slots: siblings never overlap,
+    whatever order or size they were added in."""
+    sc0 = _scene0(env)
+    ops = [_p(sc0, "user:reg", "region", y=sc0.height + 40),
+           _p(sc0, "user:aws", "cloud_aws", parent="user:reg"),
+           _p(sc0, "user:azure", "cloud_azure", parent="user:reg"),
+           _p(sc0, "user:vpc", "cloud_net", parent="user:aws"),
+           *[_p(sc0, f"user:k{i}", "nc2_cluster", parent="user:aws") for i in range(5)],
+           *[_p(sc0, f"user:b{i}", "bm_node", parent="user:k0") for i in range(4)]]
+    sc = _view(env, ops).scenes[0]
+    n = {x.id: x for x in sc.nodes}
+    by_parent: dict[str, list[Node]] = {}
+    for x in sc.nodes:
+        if x.id.startswith("user:") and ":" not in x.id[5:] and x.parent:
+            by_parent.setdefault(x.parent, []).append(x)
+    assert len(by_parent["user:aws"]) == 6 and len(by_parent["user:reg"]) == 2
+    for kids in by_parent.values():
+        for i, a in enumerate(kids):
+            assert _inside(n[a.parent], a)  # type: ignore[index]
+            for b in kids[i + 1:]:
+                assert not _overlap(a, b), (a.id, b.id)
