@@ -102,12 +102,25 @@ export function besideSpot(scene: DiagramScene, n: SceneNode, w: number, h: numb
 }
 
 /**
+ * How far the core moved the whole figure right and down (`scene.meta.origin`) so that
+ * icons placed left of or above the generated layout (negative coordinates) are on it.
+ */
+export function originOf(scene: DiagramScene | undefined): [number, number] {
+  const o = scene?.meta?.origin;
+  return Array.isArray(o) && typeof o[0] === 'number' && typeof o[1] === 'number' ? [o[0], o[1]] : [0, 0];
+}
+
+/**
  * A figure point back in stored coordinates: the core opens bands in the generated
  * layout to make room for nested icons (`scene.meta.warp`: [axis, at, width] in order)
  * and moves free icons with them, so a free icon's stored place is in the unopened
- * layout. A point inside a band maps to the band's start.
+ * layout. A point inside a band maps to the band's start. The figure's origin shift
+ * (`originOf`) comes off first; a point left of or above the layout stays negative.
  */
 export function unwarp(scene: DiagramScene | undefined, x: number, y: number): [number, number] {
+  const [ox, oy] = originOf(scene);
+  x -= ox;
+  y -= oy;
   const bands = scene?.meta?.warp;
   if (!Array.isArray(bands)) return [x, y];
   for (const band of [...(bands as [string, number, number][])].reverse()) {
@@ -115,7 +128,7 @@ export function unwarp(scene: DiagramScene | undefined, x: number, y: number): [
     if (axis === 'x') x = x >= at + d - 0.05 ? x - d : x >= at - 0.05 ? at : x;
     else y = y >= at + d - 0.05 ? y - d : y >= at - 0.05 ? at : y;
   }
-  return [Math.max(0, x), Math.max(0, y)];
+  return [x, y];
 }
 
 /** `id` and the placed icons nested in it (it never drops into one of those). */

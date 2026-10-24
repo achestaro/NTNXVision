@@ -1396,6 +1396,8 @@ try {
     await page.getByText('Take out').waitFor({ state: 'detached', timeout: 15_000 });
     // The region frame resized by its right edge: wider, its children still inside.
     await page.locator(`[data-el="${region}"]`).click({ position: { x: 30, y: 12 } });
+    // The handle well inside the canvas (the inspector may have covered the figure's right side).
+    await page.locator('[data-handle="resize-r"]').evaluate((h) => h.scrollIntoView({ block: 'center', inline: 'center' }));
     const edge = await page.locator('[data-handle="resize-r"]').boundingBox();
     const w0 = (await box(region)).width;
     await page.mouse.move(edge.x + edge.width / 2, edge.y + edge.height / 2);
@@ -1404,6 +1406,53 @@ try {
     await page.mouse.up();
     await page.waitForFunction(([id, w]) => document.querySelector(`[data-el="${id}"]`)?.getBoundingClientRect().width > w + 20, [region, w0], { timeout: 15_000 });
     if (!inside(await box(region), await box(chain[1]))) throw new Error('NC2 on AWS left the resized region frame');
+
+    // Left of and above the generated figure: the Direct Connect dragged out there; the
+    // figure grows that way and holds it.
+    await page.getByRole('button', { name: 'Close the inspector (clears the selection)' }).click();
+    await page.getByRole('button', { name: 'Fit to the canvas' }).click();
+    await page.waitForTimeout(150);
+    const sheet0 = await page.locator('.dg-sheet').boundingBox();
+    const dx0 = await box(dx);
+    await page.mouse.move(dx0.x + dx0.width / 2, dx0.y + dx0.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(sheet0.x - 70, sheet0.y - 30, { steps: 14 });
+    await page.mouse.up();
+    const leftOfAll = () =>
+      page.waitForFunction((id) => {
+        const r = document.querySelector(`[data-el="${id}"]`)?.getBoundingClientRect();
+        const others = [...document.querySelectorAll('.dg-sheet [data-el]')].filter((e) => e.getAttribute('data-el') !== id && !e.closest(`[data-el="${id}"]`));
+        return r && others.length && others.every((e) => {
+          const o = e.getBoundingClientRect();
+          return o.width === 0 || r.right <= o.left + 1 || r.bottom <= o.top + 1;
+        });
+      }, dx, { timeout: 15_000 });
+    await leftOfAll();
+    const dx1 = await box(dx);
+    const sheet1 = await page.locator('.dg-sheet').boundingBox();
+    if (dx1.x < sheet1.x - 1 || dx1.y < sheet1.y - 1) throw new Error('the figure does not hold the icon placed left of / above it');
+    // Zoomed in, a drag further out: the figure grows left and up, nothing else moves on screen.
+    await page.getByRole('button', { name: 'Zoom in' }).click();
+    await page.locator('.dg-desk').evaluate((d) => {
+      const s = d.querySelector('.dg-sheet').getBoundingClientRect();
+      const r = d.getBoundingClientRect();
+      d.scrollLeft += s.left - (r.left + 260);
+      d.scrollTop += s.top - (r.top + 200);
+    });
+    await page.waitForTimeout(150);
+    const site0 = await box(site);
+    const dx2 = await box(dx);
+    await page.mouse.move(dx2.x + dx2.width / 2, dx2.y + dx2.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(dx2.x + dx2.width / 2 - 120, dx2.y + dx2.height / 2 - 80, { steps: 10 });
+    await page.mouse.up();
+    await page.waitForFunction(([id, x]) => (document.querySelector(`[data-el="${id}"]`)?.getBoundingClientRect().x ?? x) < x - 60, [dx, dx2.x], { timeout: 15_000 });
+    await page.waitForTimeout(150);
+    const site1 = await box(site);
+    if (Math.abs(site1.x - site0.x) > 3 || Math.abs(site1.y - site0.y) > 3) throw new Error(`the figure jumped on screen: ${JSON.stringify([site0, site1])}`);
+    const dx3 = await box(dx);
+    if (Math.abs(dx3.x - (dx2.x - 120)) > 4 || Math.abs(dx3.y - (dx2.y - 80)) > 4) throw new Error(`the icon did not land where it was dropped: ${JSON.stringify([dx2, dx3])}`);
+    await page.getByRole('button', { name: 'Fit to the canvas' }).click();
   });
 
   await run('diagrams-edit-any-text', async () => {
@@ -1509,6 +1558,8 @@ try {
     await menu.getByRole('menuitem', { name: /^Remove/ }).waitFor();
     await page.keyboard.press('Escape');
     await menu.waitFor({ state: 'detached' });
+    // Closing gives the focus back to the element (next frame): only then move it on.
+    await page.waitForFunction(() => document.activeElement?.hasAttribute('data-el'));
     // A connector, from the keyboard (Shift+F10): arrowheads with previews.
     const conn = page.locator('[data-conn]').first();
     arrowConn = await conn.getAttribute('data-conn');

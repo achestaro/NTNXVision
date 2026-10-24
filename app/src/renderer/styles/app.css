@@ -2561,21 +2561,31 @@ h1 .imported-badge {
   min-width: 0;
   min-height: 0;
   overflow: auto;
-  /* Room under the figure for the floating zoom controls (the fit allows for it). */
-  padding: 16px 16px 56px;
+  /* Sized by the stage, never by the canvas inside it (its room around the figure is
+     half the desk each way: without this the two would grow each other). */
+  contain: size;
+  /* An open canvas, as in Figma and draw.io: it always has room to scroll into, so no
+     scrollbars over the figure's edge handles; the wheel / trackpad pans
+     (useWheelZoom), the zoom bar fits. */
+  scrollbar-width: none;
   display: flex;
-  /* Centred both ways while it fits; scrollable from its top-left corner when zoomed in. */
-  align-items: safe center;
-  justify-content: safe center;
-  background: #ffffff;
+  align-items: flex-start;
+  background-color: #ffffff;
+}
+/* The scrolling canvas: the figure with empty room on every side (DiagramsView sets the
+   padding to half the canvas each way), so icons can go left of and above the figure
+   too. DiagramsView scrolls it to centre the figure (fit, open). */
+.dg-room {
+  flex: none;
+  box-sizing: content-box;
+}
+.dg-desk::-webkit-scrollbar {
+  display: none;
 }
 .dg-sheet {
   position: relative;
-  /* Where it sat before the inspector opened (DiagramsView sets the shift). */
-  left: var(--dg-shift, 0px);
-  flex: none;
-  margin: auto;
-  background: #ffffff;
+  /* The desk's colour (and grid) shows through; the SVG draws the white sheet. */
+  background: transparent;
 }
 .dg-zoombar {
   position: absolute;
@@ -3232,7 +3242,7 @@ body.dg-expanded-open .toasts {
    keeps its print colours, so this stays the light theme's grey in the dark theme too). */
 .dg-stage.clear,
 .dg-stage.clear .dg-desk {
-  background: #eceef0;
+  background-color: #eceef0;
 }
 .dg-sheet.clear {
   background: transparent;
@@ -3242,24 +3252,17 @@ body.dg-expanded-open .toasts {
   color: var(--ink);
   background: var(--surface-hover);
 }
-/* Grid: hairlines and small dots in a pale neutral, under everything. */
-.dg-grid-dot {
-  fill: #b9c1ca;
+/* Grid: hairlines and small dots in a pale neutral, the desk's background under
+   everything (CanvasGrid.gridBackground), over the whole canvas. */
+.dg-desk {
+  --dg-grid-dot: #b9c1ca;
+  --dg-grid-minor: #e9ecf0;
+  --dg-grid-major: #dadfe5;
 }
-.dg-grid-minor {
-  stroke: #e9ecf0;
-}
-.dg-grid-major {
-  stroke: #dadfe5;
-}
-.dg-stage.clear .dg-grid-dot {
-  fill: #aab3bd;
-}
-.dg-stage.clear .dg-grid-minor {
-  stroke: #dfe3e8;
-}
-.dg-stage.clear .dg-grid-major {
-  stroke: #cfd5dc;
+.dg-stage.clear .dg-desk {
+  --dg-grid-dot: #aab3bd;
+  --dg-grid-minor: #dfe3e8;
+  --dg-grid-major: #cfd5dc;
 }
 /* The hint gives way first, so View and Legend stay on the toolbar's one row. */
 .dg-tools .dg-hint {

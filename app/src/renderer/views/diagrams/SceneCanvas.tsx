@@ -15,7 +15,6 @@ import { isMod } from '../../lib/keyboard';
 import { placedMeta, planDrop } from './nesting';
 import type { DropPlan, NestContext } from './nesting';
 import { edgeMarks, trimmedPoints } from './arrowheads';
-import { CanvasGrid } from './CanvasGrid';
 import type { CanvasBg, GridMode } from './CanvasOptions';
 
 const FONT = "'Figtree Variable', Figtree, Calibri, 'Segoe UI', Arial, sans-serif";
@@ -480,7 +479,8 @@ export function SceneCanvas(props: CanvasProps): JSX.Element {
         const dx = Math.round((ev.clientX - d.startX) / zoom);
         const dy = Math.round((ev.clientY - d.startY) / zoom);
         const plan = active && props.nest ? planDrop(props.nest, d.id, x, y) : null;
-        setDrag({ ...d, active, dx: Math.max(-n.x, dx), dy: Math.max(-n.y, dy), plan });
+        // Anywhere, left of and above the figure too (the core moves the figure).
+        setDrag({ ...d, active, dx, dy, plan });
       } else if (d.kind === 'resize') {
         // Right / bottom sides follow the pointer; left / top move the box's corner too.
         const right = d.x0 + d.w0;
@@ -492,11 +492,11 @@ export function SceneCanvas(props: CanvasProps): JSX.Element {
         if (d.sides.r) w = Math.max(d.minW, Math.round(x - d.x0));
         if (d.sides.b) h = Math.max(d.minH, Math.round(y - d.y0));
         if (d.sides.l) {
-          nx = Math.max(0, Math.min(Math.round(x), right - d.minW));
+          nx = Math.min(Math.round(x), right - d.minW);
           w = right - nx;
         }
         if (d.sides.t) {
-          ny = Math.max(0, Math.min(Math.round(y), bottom - d.minH));
+          ny = Math.min(Math.round(y), bottom - d.minH);
           h = bottom - ny;
         }
         setDrag({ ...d, x: nx, y: ny, w, h });
@@ -518,8 +518,8 @@ export function SceneCanvas(props: CanvasProps): JSX.Element {
         const n = byId.get(d.id);
         const plan = d.plan;
         if (n && d.active && plan && plan.mode !== 'move') {
-          const nx = Math.max(0, n.x + d.dx);
-          const ny = Math.max(0, n.y + d.dy);
+          const nx = n.x + d.dx;
+          const ny = n.y + d.dy;
           if (plan.mode === 'into') props.onNest?.(d.id, plan.parent, nx, ny);
           else if (plan.mode === 'out') props.onNest?.(d.id, null, nx, ny);
           else if (plan.mode === 'wrap') props.onWrap?.(d.id, plan.target, nx, ny);
@@ -528,9 +528,10 @@ export function SceneCanvas(props: CanvasProps): JSX.Element {
             props.onHint?.(`${outline.get(d.id)?.kind ?? 'This icon'} can’t go inside ${plan.label}, so it stays where you dropped it.`);
           }
         } else if (d.active && (d.dx || d.dy)) {
+          // Anywhere, left of and above the figure too (the core moves the figure).
           const moves = carried(d.id).map((id) => {
             const c = byId.get(id)!;
-            return { id, x: Math.max(0, c.x + d.dx), y: Math.max(0, c.y + d.dy) };
+            return { id, x: c.x + d.dx, y: c.y + d.dy };
           });
           props.onPlace?.(moves);
         }
@@ -724,7 +725,7 @@ export function SceneCanvas(props: CanvasProps): JSX.Element {
       props.onPlace?.(
         carried(id).map((cid) => {
           const c = byId.get(cid)!;
-          return { id: cid, x: Math.max(0, c.x + dx), y: Math.max(0, c.y + dy) };
+          return { id: cid, x: c.x + dx, y: c.y + dy };
         }),
       );
     } else if (ev.altKey && ['ArrowLeft', 'ArrowUp', 'ArrowRight', 'ArrowDown'].includes(ev.key)) {
@@ -939,8 +940,8 @@ export function SceneCanvas(props: CanvasProps): JSX.Element {
         }}
         onPointerMove={tool === 'connect' && fromNode ? (ev) => setHover(toScene(ev.clientX, ev.clientY)) : undefined}
       >
-        {props.background !== 'transparent' && <rect width={scene.width} height={scene.height} fill="#FFFFFF" />}
-        {props.grid && props.grid !== 'none' && <CanvasGrid mode={props.grid} width={scene.width} height={scene.height} zoom={zoom} />}
+        {/* The grid is the desk's (CanvasGrid): it fills the whole canvas, so no sheet over it. */}
+        {props.background !== 'transparent' && (!props.grid || props.grid === 'none') && <rect width={scene.width} height={scene.height} fill="#FFFFFF" />}
         {below.map(drawNode)}
         {scene.edges.map((e) => {
           const conn = connectors.get(e.id);
@@ -1192,7 +1193,7 @@ export function SceneCanvas(props: CanvasProps): JSX.Element {
         )}
       </svg>
       {tip && (
-        <div className={`dg-tip${tip.warn ? ' warn' : ''}`} role="status" style={{ left: Math.max(4, (tip.x - 60) * zoom), top: tip.y * zoom }}>
+        <div className={`dg-tip${tip.warn ? ' warn' : ''}`} role="status" style={{ left: (tip.x - 60) * zoom, top: tip.y * zoom }}>
           {tip.text}
         </div>
       )}
