@@ -942,8 +942,16 @@ export type DiagramArrow = 'none' | 'end' | 'start' | 'both';
 export const DIAGRAM_ARROWS: readonly DiagramArrow[] = ['none', 'end', 'start', 'both'];
 /** What an `edge` edit changes on a connector. */
 /** `route` (value 'auto') puts both sides back to Auto and the lane to 0 in one edit. */
-export type DiagramEdgeField = 'a' | 'b' | 'label' | 'a_side' | 'b_side' | 'bend' | 'arrow' | 'hidden' | 'route';
-export const DIAGRAM_EDGE_FIELDS: readonly DiagramEdgeField[] = ['a', 'b', 'label', 'a_side', 'b_side', 'bend', 'arrow', 'hidden', 'route'];
+/** `head_start` / `head_end` choose one end's arrowhead shape (an `arrow` edit afterwards puts plain arrows back). */
+export type DiagramEdgeField = 'a' | 'b' | 'label' | 'a_side' | 'b_side' | 'bend' | 'arrow' | 'hidden' | 'route' | 'head_start' | 'head_end';
+export const DIAGRAM_EDGE_FIELDS: readonly DiagramEdgeField[] = ['a', 'b', 'label', 'a_side', 'b_side', 'bend', 'arrow', 'hidden', 'route', 'head_start', 'head_end'];
+export type DiagramGrid = 'none' | 'dots' | 'lines';
+export const DIAGRAM_GRIDS: readonly DiagramGrid[] = ['none', 'dots', 'lines'];
+export type DiagramCanvasBg = 'white' | 'transparent';
+export const DIAGRAM_CANVAS_BGS: readonly DiagramCanvasBg[] = ['white', 'transparent'];
+/** An arrowhead shape at one end of a connector (core: diagrams/render/heads.py). */
+export type DiagramHead = 'none' | 'arrow' | 'open' | 'diamond' | 'circle';
+export const DIAGRAM_HEADS: readonly DiagramHead[] = ['none', 'arrow', 'open', 'diamond', 'circle'];
 /** Largest lane offset (points) a connector may carry (mirrors MAX_BEND). */
 export const MAX_DIAGRAM_BEND = 600;
 
@@ -1046,6 +1054,9 @@ export interface SceneEdge {
   arrow_end: boolean;
   labels: SceneEdgeLabel[];
   data: Record<string, string>;
+  /** Arrowhead shape where an author chose one (absent: a filled arrow when `arrow_*` is on). */
+  head_start?: DiagramHead;
+  head_end?: DiagramHead;
 }
 
 /** A laid-out diagram part, in points (1/72 in), origin top-left. */
@@ -1149,6 +1160,9 @@ export interface DiagramConnector {
   /** Why it is drawn differently: 'side' (Auto used), 'route' (not drawn), 'label' (label not drawn), 'parts' (ends in different parts). */
   issue: 'side' | 'route' | 'label' | 'parts' | null;
   arrow: DiagramArrow;
+  /** The arrowhead shape drawn at each end ('none': a plain end). Absent on connectors not drawn. */
+  head_start?: DiagramHead;
+  head_end?: DiagramHead;
   /** Scene indexes that draw it ([] = not drawn: its ends are in different parts). */
   parts: number[];
   edited: boolean;
@@ -1885,6 +1899,10 @@ export interface AppSettings {
   exportDiagrams?: boolean;
   /** The Diagrams page's Legend switch: draw the legend under each figure, in exports too. Unset = on. */
   diagramLegend?: boolean;
+  /** The Diagrams canvas grid (editor only, never exported). Unset = none. */
+  diagramGrid?: DiagramGrid;
+  /** The Diagrams canvas background: white, or transparent (the page's grey shows through). Editor only. Unset = white. */
+  diagramCanvas?: DiagramCanvasBg;
   /**
    * The default vCPU:pCPU target behind the cluster capacity figures ("vCPU Total"):
    * recorded on every cluster a new collection collects unless New collection sets a

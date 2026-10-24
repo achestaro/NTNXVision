@@ -24,6 +24,9 @@ import type {
 } from '../shared/ipc';
 import {
   DIAGRAM_ARROWS,
+  DIAGRAM_CANVAS_BGS,
+  DIAGRAM_GRIDS,
+  DIAGRAM_HEADS,
   DIAGRAM_EDGE_FIELDS,
   DIAGRAM_FILE_FORMATS,
   DIAGRAM_SIDES,
@@ -258,6 +261,8 @@ export function cleanSettings(v: unknown): AppSettings {
   if ('filePrefix' in r) out.filePrefix = cleared('filePrefix') ? undefined : str(r.filePrefix, 'filePrefix', 200);
   if ('exportDiagrams' in r) out.exportDiagrams = cleared('exportDiagrams') ? undefined : bool(r.exportDiagrams, 'exportDiagrams');
   if ('diagramLegend' in r) out.diagramLegend = cleared('diagramLegend') ? undefined : bool(r.diagramLegend, 'diagramLegend');
+  if ('diagramGrid' in r) out.diagramGrid = cleared('diagramGrid') ? undefined : oneOf(r.diagramGrid, 'diagramGrid', DIAGRAM_GRIDS);
+  if ('diagramCanvas' in r) out.diagramCanvas = cleared('diagramCanvas') ? undefined : oneOf(r.diagramCanvas, 'diagramCanvas', DIAGRAM_CANVAS_BGS);
   if ('vcpuRatio' in r) out.vcpuRatio = cleared('vcpuRatio') ? undefined : num(r.vcpuRatio, 'vcpuRatio', RATIO_MIN, RATIO_MAX);
   if ('startAtLogin' in r) out.startAtLogin = bool(r.startAtLogin, 'startAtLogin');
   // Not secret: the next test email's default recipient (Settings > Email).
@@ -357,6 +362,7 @@ export function asDiagramOps(v: unknown): DiagramOp[] {
       else if (field === 'label') value = o.value === null || o.value === undefined ? null : str(o.value, `ops[${i}].value`, MAX_DIAGRAM_TEXT);
       else if (field === 'a_side' || field === 'b_side') value = oneOf(o.value, `ops[${i}].value`, DIAGRAM_SIDES);
       else if (field === 'arrow') value = oneOf(o.value, `ops[${i}].value`, DIAGRAM_ARROWS);
+      else if (field === 'head_start' || field === 'head_end') value = oneOf(o.value, `ops[${i}].value`, DIAGRAM_HEADS);
       else if (field === 'bend') value = num(o.value, `ops[${i}].value`, -MAX_DIAGRAM_BEND, MAX_DIAGRAM_BEND);
       else if (field === 'route') value = oneOf(o.value, `ops[${i}].value`, ['auto'] as const);
       else value = bool(o.value, `ops[${i}].value`);

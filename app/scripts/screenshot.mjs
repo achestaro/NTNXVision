@@ -630,7 +630,53 @@ const SHOTS = [
     await rail(p, 'Diagrams');
     await p.locator('.dg-sheet svg').waitFor();
     await p.getByTestId('dg-legend').uncheck();
-    await p.locator('.dg-sheet svg text', { hasText: 'Cluster (Prism Element)' }).waitFor({ state: 'detached' });
+    await p.getByTestId('dg-legend-overlay').waitFor({ state: 'detached' });
+  }],
+  // Canvas chrome: the legend overlay stays bottom-left while zoomed in and scrolled; the
+  // View menu's grid and background; the right-click menus.
+  ['diagrams-legend-scrolled', { diagrams: 'edited' }, async (p) => {
+    await rail(p, 'Diagrams');
+    await p.locator('.dg-sheet svg').waitFor();
+    const zin = p.getByRole('button', { name: 'Zoom in' });
+    for (let i = 0; i < 4; i++) await zin.click();
+    await p.locator('.dg-desk').evaluate((d) => d.scrollTo(d.scrollWidth, d.scrollHeight / 2));
+    const lg = await p.getByTestId('dg-legend-overlay').boundingBox();
+    const stage = await p.locator('.dg-stage').boundingBox();
+    if (!lg || !stage || lg.x - stage.x > 16 || stage.y + stage.height - (lg.y + lg.height) > 16) throw new Error('the legend is not in the bottom-left corner');
+    await p.getByTestId('dg-legend-overlay').getByText('Cluster (Prism Element)').waitFor();
+  }],
+  ['diagrams-grid-dots', { diagrams: 'edited' }, async (p) => {
+    await rail(p, 'Diagrams');
+    await p.locator('.dg-sheet svg').waitFor();
+    await p.getByTestId('dg-view').click();
+    await p.getByRole('menuitemradio', { name: 'Dots' }).click();
+    await p.locator('[data-grid="dots"]').waitFor();
+  }],
+  ['diagrams-grid-lines-clear', { diagrams: 'edited' }, async (p) => {
+    await rail(p, 'Diagrams');
+    await p.locator('.dg-sheet svg').waitFor();
+    await p.getByTestId('dg-view').click();
+    await p.getByRole('menuitemradio', { name: 'Lines' }).click();
+    await p.getByRole('menuitemradio', { name: 'Transparent' }).click();
+    await p.locator('[data-grid="lines"]').waitFor();
+    await p.locator('.dg-stage.clear').waitFor();
+  }],
+  ['diagrams-context-element', { diagrams: 'edited' }, async (p) => {
+    await rail(p, 'Diagrams');
+    await p.locator('.dg-sheet svg').waitFor();
+    await p.locator('[data-el="user:backup-appliance"]').click({ button: 'right' });
+    await p.getByTestId('dg-context-menu').getByRole('menuitem', { name: /Remove/ }).waitFor();
+  }],
+  ['diagrams-context-connector', { diagrams: 'edited' }, async (p) => {
+    await rail(p, 'Diagrams');
+    await p.locator('.dg-sheet svg').waitFor();
+    await p.locator('[data-conn="user:backup-link"]').focus();
+    await p.keyboard.press('Shift+F10');
+    const menu = p.getByTestId('dg-context-menu');
+    await menu.getByRole('menuitemradio', { name: 'End: Diamond' }).click();
+    await p.locator('[data-conn="user:backup-link"]').focus();
+    await p.keyboard.press('Shift+F10');
+    await menu.getByRole('menuitemradio', { name: 'End: Diamond', checked: true }).waitFor();
   }],
   ['diagrams-zoomed', { diagrams: 'edited' }, async (p) => {
     await rail(p, 'Diagrams');

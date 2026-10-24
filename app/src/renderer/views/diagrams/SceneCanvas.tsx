@@ -10,6 +10,9 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { DiagramConnector, DiagramElement, DiagramScene, DiagramSide, SceneEdge, SceneNode, SceneStyle, SceneTextLine } from '@shared/ipc';
 import { isMod } from '../../lib/keyboard';
+import { edgeMarks, trimmedPoints } from './arrowheads';
+import { CanvasGrid } from './CanvasGrid';
+import type { CanvasBg, GridMode } from './CanvasOptions';
 
 const FONT = "'Figtree Variable', Figtree, Calibri, 'Segoe UI', Arial, sans-serif";
 /** Pointer travel (screen px) before a press becomes a drag. */
@@ -64,6 +67,13 @@ export interface CanvasProps {
   onConnectorLabel?(conn: DiagramConnector, value: string | null): void;
   /** Placed icons moved (several when a placed zone carries what is in it) or resized. */
   onPlace?(moves: { id: string; x: number; y: number; w?: number; h?: number }[]): void;
+  // ─ canvas view and context menu (CanvasOptions, ContextMenu) ─
+  /** Grid drawn under the figure (editor only, never exported). */
+  grid?: GridMode;
+  /** 'transparent': no white sheet, the stage's grey shows through. */
+  background?: CanvasBg;
+  /** Right-click (or the context-menu key / Shift+F10) on an element or a connector, at client (x, y). */
+  onContextMenu?(id: string, x: number, y: number): void;
 }
 
 type Pt = [number, number];
@@ -157,34 +167,10 @@ function lines(ls: SceneTextLine[], ox: number, oy: number, onEdit?: (i: number)
   );
 }
 
-function sign(v: number): number {
-  return v > 0 ? 1 : v < 0 ? -1 : 0;
-}
-
-function arrow(p0: [number, number], p1: [number, number], w: number): string {
-  const len = 4.2 + w;
-  const half = 2 + w * 0.6;
-  const dx = sign(p1[0] - p0[0]);
-  const dy = sign(p1[1] - p0[1]);
-  const bx = p1[0] - dx * len;
-  const by = p1[1] - dy * len;
-  return `${p1[0]},${p1[1]} ${bx - dy * half},${by + dx * half} ${bx + dy * half},${by - dx * half}`;
-}
-
-function trimmed(e: SceneEdge): [number, number][] {
-  const pts = e.points.map((p) => [p[0], p[1]] as [number, number]);
-  if (pts.length < 2) return pts;
-  const cut = 3 + e.style.stroke_w;
-  const pull = (a: [number, number], b: [number, number]): [number, number] => [b[0] - sign(b[0] - a[0]) * cut, b[1] - sign(b[1] - a[1]) * cut];
-  if (e.arrow_end) pts[pts.length - 1] = pull(pts[pts.length - 2], pts[pts.length - 1]);
-  if (e.arrow_start) pts[0] = pull(pts[1], pts[0]);
-  return pts;
-}
-
 function EdgeShape({ e }: { e: SceneEdge }): JSX.Element {
+  // Arrowhead shapes and the trimmed stroke: the exports' geometry (arrowheads.ts).
   const color = e.style.stroke ?? '#000000';
-  const pts = trimmed(e);
-  const n = e.points.length;
+  const pts = trimmedPoints(e);
   return (
     <g data-edge={e.id}>
       <polyline
@@ -195,8 +181,15 @@ function EdgeShape({ e }: { e: SceneEdge }): JSX.Element {
         strokeLinejoin="round"
         strokeDasharray={e.style.dash ? `${e.style.dash[0]} ${e.style.dash[1]}` : undefined}
       />
-      {e.arrow_end && n >= 2 && <polygon points={arrow(e.points[n - 2], e.points[n - 1], e.style.stroke_w)} fill={color} />}
-      {e.arrow_start && n >= 2 && <polygon points={arrow(e.points[1], e.points[0], e.style.stroke_w)} fill={color} />}
+      {edgeMarks(e).map((m, i) =>
+        m.shape === 'circle' ? (
+          <circle key={i} cx={m.c[0]} cy={m.c[1]} r={m.r} fill={color} />
+        ) : m.shape === 'polyline' ? (
+          <polyline key={i} points={m.points.map((p) => p.join(',')).join(' ')} fill="none" stroke={color} strokeWidth={e.style.stroke_w} strokeLinejoin="miter" />
+        ) : (
+          <polygon key={i} points={m.points.map((p) => p.join(',')).join(' ')} fill={color} />
+        ),
+      )}
     </g>
   );
 }
@@ -580,6 +573,7 @@ export function SceneCanvas(props: CanvasProps): JSX.Element {
   };
 
   const onPointerDown = (ev: React.PointerEvent, id: string) => {
+    if (rightPress(ev, id)) return;
     if (ev.button !== 0 || textEdit) return;
     ev.stopPropagation();
     if (tool === 'connect') {
@@ -615,10 +609,44 @@ export function SceneCanvas(props: CanvasProps): JSX.Element {
     return true;
   };
 
+  // ─ context menu: right-click, the context-menu key or Shift+F10 ─
+  const menuKeyAt = useRef(0);
+  /** The element a right button went down on: its contextmenu event may land elsewhere. */
+  const rightAt = useRef<{ id: string; t: number } | null>(null);
+  const rightPress = (ev: React.PointerEvent, id: string): boolean => {
+    if (ev.button !== 2 || !props.onContextMenu || tool !== 'select') return false;
+    // No focus move or deselect on the press: the menu opens on the element pressed.
+    ev.preventDefault();
+    ev.stopPropagation();
+    rightAt.current = { id, t: Date.now() };
+    return true;
+  };
+  const openMenu = (ev: React.MouseEvent, hit: string) => {
+    if (!props.onContextMenu || tool !== 'select' || textEdit) return;
+    ev.preventDefault();
+    ev.stopPropagation();
+    // The context-menu key also fires a contextmenu event: the keydown already opened it.
+    if (Date.now() - menuKeyAt.current < 300) return;
+    const pressed = rightAt.current && Date.now() - rightAt.current.t < 1500 ? rightAt.current.id : null;
+    rightAt.current = null;
+    const id = pressed ?? hit;
+    if (selected !== id) onSelect(id);
+    props.onContextMenu(id, ev.clientX, ev.clientY);
+  };
+  const menuKey = (ev: React.KeyboardEvent, id: string): boolean => {
+    if (!props.onContextMenu || !(ev.key === 'ContextMenu' || (ev.shiftKey && ev.key === 'F10'))) return false;
+    ev.preventDefault();
+    menuKeyAt.current = Date.now();
+    if (selected !== id) onSelect(id);
+    const r = (ev.currentTarget as Element).getBoundingClientRect();
+    props.onContextMenu(id, r.left + Math.min(r.width / 2, 24), r.top + Math.min(r.height, 24));
+    return true;
+  };
+
   const onKeyDown = (ev: React.KeyboardEvent, id: string) => {
     const el = outline.get(id);
     if (!el) return;
-    if (walk(ev)) return;
+    if (walk(ev) || menuKey(ev, id)) return;
     if (tool === 'connect' && (ev.key === 'Enter' || ev.key === ' ')) {
       ev.preventDefault();
       onPick(id);
@@ -667,7 +695,7 @@ export function SceneCanvas(props: CanvasProps): JSX.Element {
   };
 
   const onEdgeKey = (ev: React.KeyboardEvent, c: DiagramConnector) => {
-    if (walk(ev)) return;
+    if (walk(ev) || menuKey(ev, c.id)) return;
     if (ev.key === 'Delete' || ev.key === 'Backspace') {
       if (c.can_delete) {
         ev.preventDefault();
@@ -751,6 +779,7 @@ export function SceneCanvas(props: CanvasProps): JSX.Element {
         onPointerDown={(ev) => onPointerDown(ev, n.id)}
         onDoubleClick={() => tool === 'select' && startEdit(n.id)}
         onKeyDown={(ev) => onKeyDown(ev, n.id)}
+        onContextMenu={(ev) => openMenu(ev, n.id)}
         onFocus={() => tool === 'select' && selected !== n.id && !drag && onSelect(n.id)}
         style={{ cursor: tool === 'connect' ? 'crosshair' : el.free ? (freeDrag ? 'grabbing' : 'move') : el.can_reorder && n.kind === 'box' ? 'grab' : 'pointer', opacity: moving ? 0.35 : 1 }}
       >
@@ -830,7 +859,7 @@ export function SceneCanvas(props: CanvasProps): JSX.Element {
   })();
 
   return (
-    <div className={`dg-sheet${tool === 'connect' ? ' connecting' : ''}`} style={{ width: scene.width * zoom, height: scene.height * zoom }}>
+    <div className={`dg-sheet${tool === 'connect' ? ' connecting' : ''}${props.background === 'transparent' ? ' clear' : ''}`} style={{ width: scene.width * zoom, height: scene.height * zoom }}>
       <svg
         ref={svgRef}
         width={scene.width * zoom}
@@ -839,6 +868,7 @@ export function SceneCanvas(props: CanvasProps): JSX.Element {
         fontFamily={FONT}
         role="group"
         aria-label={scene.caption || scene.title}
+        onContextMenu={(ev) => (rightAt.current ? openMenu(ev, rightAt.current.id) : ev.preventDefault())}
         onPointerDown={() => {
           if (textEdit) return;
           if (tool === 'connect') onCancelTool();
@@ -846,7 +876,8 @@ export function SceneCanvas(props: CanvasProps): JSX.Element {
         }}
         onPointerMove={tool === 'connect' && fromNode ? (ev) => setHover(toScene(ev.clientX, ev.clientY)) : undefined}
       >
-        <rect width={scene.width} height={scene.height} fill="#FFFFFF" />
+        {props.background !== 'transparent' && <rect width={scene.width} height={scene.height} fill="#FFFFFF" />}
+        {props.grid && props.grid !== 'none' && <CanvasGrid mode={props.grid} width={scene.width} height={scene.height} zoom={zoom} />}
         {below.map(drawNode)}
         {scene.edges.map((e) => {
           const conn = connectors.get(e.id);
@@ -864,12 +895,14 @@ export function SceneCanvas(props: CanvasProps): JSX.Element {
               aria-pressed={selected === e.id}
               style={{ cursor: 'pointer', pointerEvents: tool === 'connect' ? 'none' : undefined }}
               onPointerDown={(ev) => {
+                if (rightPress(ev, own)) return;
                 if (ev.button !== 0 || tool === 'connect') return;
                 ev.stopPropagation();
                 onSelect(own);
               }}
               onFocus={() => selected !== own && !drag && onSelect(own)}
               onKeyDown={conn ? (ev) => onEdgeKey(ev, conn) : undefined}
+              onContextMenu={conn ? (ev) => openMenu(ev, e.id) : undefined}
             >
               <title>{label}</title>
               <polyline points={e.points.map((p) => p.join(',')).join(' ')} fill="none" stroke="transparent" strokeWidth={8} />
