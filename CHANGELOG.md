@@ -6,6 +6,17 @@ format older builds can't read. Windows shows the version as X.Y.Z.0 in Installe
 Every pull request that changes shipped code raises it with `node scripts/bump-version.mjs`
 and adds a section here (CI checks both).
 
+## 0.14.1 (2026-10-25)
+
+### Changed
+- Electron 45.0.0 (from 44.9.3), electron-builder 26.18.0, vite 8.3.5, playwright-core
+  1.64.1.
+- @electron/notarize 3.1.2: the macOS notarization hook imports it as an ES module and no
+  longer passes the removed `tool` option (notarytool is the only path).
+- Release workflow actions: setup-python 7.1.0, cache 6.1.0, attest-build-provenance 4.2.2,
+  action-gh-release 3.0.3.
+- Dependabot groups each ecosystem's weekly updates into one pull request.
+
 ## 0.14.0 (2026-10-24)
 
 ### Added

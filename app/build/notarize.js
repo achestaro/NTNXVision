@@ -35,10 +35,10 @@ exports.default = async function notarizeHook(context) {
     return;
   }
 
-  const { notarize } = require('@electron/notarize');
+  // @electron/notarize 3.x is ESM-only, so it is imported rather than required.
+  const { notarize } = await import('@electron/notarize');
   console.log(`  • notarizing ${appPath} (team ${APPLE_TEAM_ID}); this can take several minutes`);
   await notarize({
-    tool: 'notarytool',
     appPath,
     appleId: APPLE_ID,
     appleIdPassword: APPLE_APP_SPECIFIC_PASSWORD,
