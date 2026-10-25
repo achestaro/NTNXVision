@@ -152,7 +152,7 @@ jobs:
           cache: npm
           cache-dependency-path: app/package-lock.json
       # npm ci downloads the Electron binary (its install script); cache it.
-      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/Library/Caches/electron
           key: electron-e2e-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('app/package-lock.json') }}
@@ -360,7 +360,7 @@ jobs:
           cache-dependency-path: app/package-lock.json
 
       # electron-builder downloads Electron and (Windows) the WiX toolset; cache both.
-      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
             ~/AppData/Local/electron/Cache
