@@ -73,7 +73,7 @@ export function connectionSummary(test: TestState): {
 }
 
 /** The certificate a test presented: who it is for, who issued it, until when, and its SHA-256. */
-export function CertificateDetails({ certificate }: { certificate: NonNullable<TestConnectionResult['certificate']> }): JSX.Element {
+export function CertificateDetails({ certificate }: { certificate: NonNullable<TestConnectionResult['certificate']> }): React.JSX.Element {
   return (
     <dl className="grid-kv mono t12" style={{ marginTop: 8, color: 'var(--ink-2)' }}>
       <div className="kv">
@@ -110,7 +110,7 @@ export function TrustCallout({
   result: TestConnectionResult;
   host: string;
   onTrust?(fingerprint: string): void;
-}): JSX.Element {
+}): React.JSX.Element {
   const changed = result.status === 'cert_changed';
   const cert = result.certificate;
   return (
@@ -151,7 +151,7 @@ export function TestOutcome({
   /** Pin the certificate the test presented (trust on first use). */
   onTrust?(fingerprint: string): void;
   onRetry(): void;
-}): JSX.Element | null {
+}): React.JSX.Element | null {
   if (test.kind === 'error') {
     return (
       <Callout tone="error" title="The connection test didn’t complete." actions={<Button size="sm" onClick={onRetry}>Test again</Button>}>

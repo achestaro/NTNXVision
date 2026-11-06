@@ -96,7 +96,7 @@ function fromSnapshot(d: SnapshotDetail): RunResult {
 }
 
 /** Results of the run that just finished, or — with `snapshot` — of any saved snapshot. */
-export function ResultsView({ snapshot }: { snapshot?: string }): JSX.Element {
+export function ResultsView({ snapshot }: { snapshot?: string }): React.JSX.Element {
   const { lastResult } = useRun();
   const live = !!lastResult && (!snapshot || resultPath(lastResult) === snapshot);
   const detail = useAsync<SnapshotDetail>(() => (!live && snapshot ? window.ntnx.getSnapshot(snapshot) : undefined), [snapshot, live]);
@@ -132,7 +132,7 @@ function ResultsBody({
   live: boolean;
   /** Provenance of an imported snapshot, shown in the header. */
   imported?: SnapshotProvenance | null;
-}): JSX.Element {
+}): React.JSX.Element {
   const { navigate } = useRouter();
   const exportDialog = useExportDialog();
   const emailDialog = useEmailDialog();
@@ -353,7 +353,7 @@ function ResultsBody({
  * "<version> is within the supported range (…)" in the header strip. A long build string
  * truncates on its own so the verdict stays readable; the full text is in the tooltip.
  */
-function CompatNote({ compat }: { compat: CompatInfo }): JSX.Element {
+function CompatNote({ compat }: { compat: CompatInfo }): React.JSX.Element {
   const text = `${compat.version ?? 'This version'} is ${compat.supported ? 'within' : 'outside'} the supported range (${compat.range})`;
   return (
     <span className="phead-note" title={text} data-testid="results-compat">
@@ -386,7 +386,7 @@ function fallbackFigures(r: InventoryResult): Figure[] {
   ];
 }
 
-function ReportsPanel({ reports, dir, snapshotPath }: { reports: ReportFile[]; dir: string | null; snapshotPath: string | null }): JSX.Element {
+function ReportsPanel({ reports, dir, snapshotPath }: { reports: ReportFile[]; dir: string | null; snapshotPath: string | null }): React.JSX.Element {
   const toast = useToast();
   const exportDialog = useExportDialog();
   const missing = (['excel', 'word', 'pdf'] as ExportFormat[]).filter((f) => !reports.some((r) => r.format === f));
@@ -438,7 +438,7 @@ function ReportsPanel({ reports, dir, snapshotPath }: { reports: ReportFile[]; d
   );
 }
 
-function NotesTable({ areas, notesMap }: { areas: AreaProgress[]; notesMap: Record<string, string> | null }): JSX.Element {
+function NotesTable({ areas, notesMap }: { areas: AreaProgress[]; notesMap: Record<string, string> | null }): React.JSX.Element {
   if (notesMap) {
     const rows = Object.entries(notesMap).map(([k, v]) => ({ id: k, label: k, detail: v }));
     return (
@@ -482,7 +482,7 @@ function NotesTable({ areas, notesMap }: { areas: AreaProgress[]; notesMap: Reco
   );
 }
 
-function TargetsPanel({ targets }: { targets: MultiTargetResult[] }): JSX.Element {
+function TargetsPanel({ targets }: { targets: MultiTargetResult[] }): React.JSX.Element {
   const { navigate } = useRouter();
   return (
     <Panel aria-labelledby="targets">

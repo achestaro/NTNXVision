@@ -13,7 +13,7 @@ export function buildTags(info: AppInfo | null | undefined): string[] {
   return [info?.dev && 'dev', info?.demo && 'demo'].filter((t): t is string => !!t);
 }
 
-export function Rail({ appInfo, coreState }: { appInfo: AppInfo | null; coreState: 'starting' | 'ready' | 'error' }): JSX.Element {
+export function Rail({ appInfo, coreState }: { appInfo: AppInfo | null; coreState: 'starting' | 'ready' | 'error' }): React.JSX.Element {
   const { route, navigate } = useRouter();
   const item = (it: NavItem) => {
     const on = route.screen === it.screen || !!it.also?.includes(route.screen);

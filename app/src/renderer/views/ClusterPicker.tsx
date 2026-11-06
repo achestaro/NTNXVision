@@ -57,7 +57,7 @@ export function ClusterPicker({
   onRetry(): void;
   /** Show "Select at least one cluster" (after a start attempt, or once deselected). */
   showEmptyError: boolean;
-}): JSX.Element {
+}): React.JSX.Element {
   const isPe = mode === 'prism_element';
   const clusters = state.kind === 'ready' ? state.result.clusters : [];
   const single = clusters.length === 1;

@@ -3,7 +3,7 @@
 import React, { useEffect, useRef } from 'react';
 import { modKey } from '../lib/settings';
 
-export function ShortcutsPopover({ onClose }: { onClose(): void }): JSX.Element {
+export function ShortcutsPopover({ onClose }: { onClose(): void }): React.JSX.Element {
   const ref = useRef<HTMLDivElement>(null);
   const mod = modKey();
   useEffect(() => {

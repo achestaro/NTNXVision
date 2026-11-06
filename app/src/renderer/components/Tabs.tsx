@@ -21,7 +21,7 @@ export function Tabs<T extends string>({
   onChange(v: T): void;
   label: string;
   panelId?: string;
-}): JSX.Element {
+}): React.JSX.Element {
   const refs = useRef<(HTMLButtonElement | null)[]>([]);
   const onKey = (e: React.KeyboardEvent, i: number) => {
     let next = -1;
@@ -42,7 +42,9 @@ export function Tabs<T extends string>({
         return (
           <button
             key={t.id}
-            ref={(el) => (refs.current[i] = el)}
+            ref={(el) => {
+              refs.current[i] = el;
+            }}
             className={on ? 'tab on' : 'tab'}
             role="tab"
             type="button"

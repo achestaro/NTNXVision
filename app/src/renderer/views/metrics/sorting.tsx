@@ -37,7 +37,7 @@ export function useSortMemory(): SortStore {
   );
 }
 
-export function SortMemoryProvider({ store, children }: { store: SortStore; children: React.ReactNode }): JSX.Element {
+export function SortMemoryProvider({ store, children }: { store: SortStore; children: React.ReactNode }): React.JSX.Element {
   return <SortMemory.Provider value={store}>{children}</SortMemory.Provider>;
 }
 
@@ -68,7 +68,7 @@ type TableProps<T> = Omit<DataTableProps<T>, 'columns' | 'sort' | 'onSortChange'
 };
 
 /** DataTable whose columns with a `sortValue` sort on a header click. */
-export function SortableTable<T>({ sortId, columns, rows, ...rest }: TableProps<T>): JSX.Element {
+export function SortableTable<T>({ sortId, columns, rows, ...rest }: TableProps<T>): React.JSX.Element {
   const [sort, setSort] = useTableSort(sortId);
   const col = sort ? columns.find((c) => c.key === sort.key && c.sortValue) : undefined;
   // Cheap (tens of rows), so sorted on every render: a sort value may close over page state.

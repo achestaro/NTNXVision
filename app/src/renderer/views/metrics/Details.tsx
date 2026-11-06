@@ -34,7 +34,7 @@ export const DETAIL_TITLE: Record<Detail, string> = {
 
 // ─── alerts ────────────────────────────────────────────────────────────
 
-export function AlertsDetail({ v, listed }: { v: ScopeView; listed: number }): JSX.Element {
+export function AlertsDetail({ v, listed }: { v: ScopeView; listed: number }): React.JSX.Element {
   const total = v.health.criticalAlerts;
   return (
     <Section title="Unresolved critical alerts" note={total > v.alerts.length ? `Newest ${fmtCount(v.alerts.length)} of ${fmtCount(total)}` : `${fmtCount(total)}`}>
@@ -68,7 +68,7 @@ export function AlertsDetail({ v, listed }: { v: ScopeView; listed: number }): J
 
 const NODE_TONE = { ok: 'ok', warn: 'warn', error: 'error' } as const;
 
-export function NodesDetail({ v }: { v: ScopeView }): JSX.Element {
+export function NodesDetail({ v }: { v: ScopeView }): React.JSX.Element {
   return (
     <Section title="Nodes and CVMs" note={`${fmtCount(v.health.nodesOk)} of ${fmtCount(v.health.nodesTotal)} healthy`}>
       <div className="panel scroll-x">
@@ -131,7 +131,7 @@ const VM_LISTS: { key: MetricsTopKey; title: string }[] = [
   { key: 'latency', title: 'Latency' },
 ];
 
-export function VmsDetail({ v }: { v: ScopeView }): JSX.Element {
+export function VmsDetail({ v }: { v: ScopeView }): React.JSX.Element {
   return (
     <Section title="Top powered-on VMs" note="Five per list">
       <div className="mx-grid mx-grid-2">
@@ -156,7 +156,7 @@ export function VmsDetail({ v }: { v: ScopeView }): JSX.Element {
 
 // ─── network ───────────────────────────────────────────────────────────
 
-export function NetworkDetail({ v }: { v: ScopeView }): JSX.Element {
+export function NetworkDetail({ v }: { v: ScopeView }): React.JSX.Element {
   return (
     <Section title="Host NICs" note={`${fmtCount(v.network.nics.length)} NICs · receive ${rate(v.network.rx_kBps)} · transmit ${rate(v.network.tx_kBps)}`}>
       <div className="panel scroll-x">
@@ -235,7 +235,7 @@ export function RunwayDetail({
   range: number;
   /** All clusters: one row per cluster under the target's charts. */
   clusterRunways?: MetricsClusterTrends[];
-}): JSX.Element {
+}): React.JSX.Element {
   if (!scoped) {
     return (
       <div className="mx-card mx-placeholder" role="status">
@@ -314,7 +314,7 @@ function ResourceRunway({
   prism: number | null;
   /** All clusters: the cluster that reaches 80% before the target as a whole. */
   soonest: { name: string; runway: RunwayByRange[string][MetricsResource] } | null;
-}): JSX.Element {
+}): React.JSX.Element {
   const values = tr[`${resource}_pct` as 'cpu_pct'];
   const last = tr.t[tr.t.length - 1];
   const t80 = runway ? threshold(runway, 80) : undefined;
@@ -380,7 +380,7 @@ function ResourceRunway({
 }
 
 /** All clusters: the charts are the target's total, so name the cluster that fills first. */
-function SoonestLine({ name, runway }: { name: string; runway: RunwayByRange[string][MetricsResource] }): JSX.Element {
+function SoonestLine({ name, runway }: { name: string; runway: RunwayByRange[string][MetricsResource] }): React.JSX.Element {
   const th = threshold(runway, 80);
   const when = runwayWhen(runway, th);
   const tone = runwayTone(th);

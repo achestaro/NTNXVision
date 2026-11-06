@@ -57,7 +57,7 @@ function recipientsLabel(s: ScheduleDefinition): string {
   return all.length === 1 ? all[0] : `${all[0]} +${fmtCount(all.length - 1)}`;
 }
 
-function LastRun({ run }: { run: ScheduleRunRecord | null }): JSX.Element {
+function LastRun({ run }: { run: ScheduleRunRecord | null }): React.JSX.Element {
   if (!run) {
     return (
       <Status tone="idle" shape="outline">
@@ -89,7 +89,7 @@ function LastRun({ run }: { run: ScheduleRunRecord | null }): JSX.Element {
 const RUN_TONE = { ok: 'ok', warning: 'warn', running: 'live', failed: 'error' } as const;
 
 /** One history line: the outcome, its raw detail and the failure notice, if any. */
-function RunLine({ run }: { run: ScheduleRunRecord }): JSX.Element {
+function RunLine({ run }: { run: ScheduleRunRecord }): React.JSX.Element {
   return (
     <>
       <Status tone={RUN_TONE[run.status] ?? 'error'}>{run.status === 'warning' ? `Sent with warnings. ${run.message}` : run.message}</Status>
@@ -110,7 +110,7 @@ function RunLine({ run }: { run: ScheduleRunRecord }): JSX.Element {
   );
 }
 
-export function SchedulesView({ edit }: { edit?: string }): JSX.Element {
+export function SchedulesView({ edit }: { edit?: string }): React.JSX.Element {
   const { navigate } = useRouter();
   const toast = useToast();
   const [state, setState] = useState<SchedulesState | null>(null);
@@ -417,7 +417,7 @@ function ScheduleEditor({
   targets: SavedConnection[];
   onClose(): void;
   onSaved(saved: ScheduleInfo, all: ScheduleInfo[], created: boolean): void;
-}): JSX.Element {
+}): React.JSX.Element {
   const f0 = schedule?.frequency;
   const [name, setName] = useState(schedule?.name ?? '');
   const [targetIds, setTargetIds] = useState<string[]>(schedule?.targetIds.length ? schedule.targetIds : [targets[0]?.id ?? '']);

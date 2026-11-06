@@ -23,7 +23,7 @@ export function FilePrefixField({
   more?: number;
   className?: string;
   style?: React.CSSProperties;
-}): JSX.Element {
+}): React.JSX.Element {
   const clean = sanitizePrefix(value);
   const changed = value.trim() !== '' && clean !== value.trim();
   return (

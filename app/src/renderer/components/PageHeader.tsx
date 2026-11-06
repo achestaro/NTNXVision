@@ -11,7 +11,7 @@ export interface Crumb {
   onClick?: () => void;
 }
 
-function Crumbs({ crumbs }: { crumbs: Crumb[] }): JSX.Element {
+function Crumbs({ crumbs }: { crumbs: Crumb[] }): React.JSX.Element {
   return (
     <nav className="eyebrow crumbs" aria-label="Breadcrumb">
       <ol>
@@ -47,7 +47,7 @@ export function PageHeader({
   /** Mono facts line instead of a prose description. */
   facts?: React.ReactNode;
   actions?: React.ReactNode;
-}): JSX.Element {
+}): React.JSX.Element {
   return (
     <div className="ph">
       <div style={{ minWidth: 0 }}>

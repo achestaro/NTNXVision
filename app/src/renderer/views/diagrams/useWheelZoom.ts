@@ -13,7 +13,7 @@ const PER_PX = 0.006;
 const MAX_STEP_PX = 30;
 
 export function useWheelZoom(
-  deskRef: React.RefObject<HTMLElement>,
+  deskRef: React.RefObject<HTMLElement | null>,
   zoom: number,
   setZoom: (z: number) => void,
   min: number,

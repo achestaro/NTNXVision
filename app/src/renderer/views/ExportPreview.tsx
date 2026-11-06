@@ -19,7 +19,7 @@ function short(name: string, stem: string | undefined): string {
   return stem && name.startsWith(stem) && name.length > stem.length ? `…${name.slice(stem.length)}` : name;
 }
 
-function Tags({ tags }: { tags?: string[] }): JSX.Element | null {
+function Tags({ tags }: { tags?: string[] }): React.JSX.Element | null {
   if (!tags?.length) return null;
   return (
     <>
@@ -29,7 +29,7 @@ function Tags({ tags }: { tags?: string[] }): JSX.Element | null {
   );
 }
 
-function Row({ f, depth, hl, stem }: { f: ExportPreviewFile; depth: number; hl?: boolean; stem?: string }): JSX.Element {
+function Row({ f, depth, hl, stem }: { f: ExportPreviewFile; depth: number; hl?: boolean; stem?: string }): React.JSX.Element {
   const [open, setOpen] = useState(false);
   const kids = f.children ?? [];
   const name = (
@@ -73,7 +73,7 @@ const CARDS: { title: string; text: string }[] = [
   { title: 'PNG', text: '200 dpi, for slides and tools that cannot read SVG.' },
 ];
 
-export function ExportPreviewPanel({ preview, loading, error }: { preview: Preview | null; loading: boolean; error: string | null }): JSX.Element {
+export function ExportPreviewPanel({ preview, loading, error }: { preview: Preview | null; loading: boolean; error: string | null }): React.JSX.Element {
   const d = preview?.diagrams ?? null;
   const stem = preview?.stem;
   const head = d?.name ?? preview?.files[0]?.name ?? null;

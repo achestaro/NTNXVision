@@ -31,7 +31,7 @@ interface Item {
   run(): void;
 }
 
-export function CommandPalette({ onClose }: { onClose(): void }): JSX.Element {
+export function CommandPalette({ onClose }: { onClose(): void }): React.JSX.Element {
   const { navigate } = useRouter();
   const { resolvedTheme, update } = useSettings();
   const [q, setQ] = useState('');

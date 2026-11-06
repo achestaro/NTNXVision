@@ -12,9 +12,9 @@ const FOCUSABLE =
   'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
 export function useFocusTrap(
-  ref: React.RefObject<HTMLElement>,
+  ref: React.RefObject<HTMLElement | null>,
   active: boolean,
-  initialFocus?: React.RefObject<HTMLElement>,
+  initialFocus?: React.RefObject<HTMLElement | null>,
 ): void {
   useEffect(() => {
     if (!active) return;
@@ -55,7 +55,7 @@ export interface DialogProps {
   footer?: React.ReactNode;
   /** ⌘↵ handler (usually the confirm action). */
   onConfirm?: () => void;
-  initialFocus?: React.RefObject<HTMLElement>;
+  initialFocus?: React.RefObject<HTMLElement | null>;
   /** The subtitle is a mono facts line (default); false for prose with mono parts. */
   subtitleMono?: boolean;
 }
@@ -71,7 +71,7 @@ export function Dialog({
   onConfirm,
   initialFocus,
   subtitleMono = true,
-}: DialogProps): JSX.Element | null {
+}: DialogProps): React.JSX.Element | null {
   const ref = useRef<HTMLElement>(null);
   const titleId = useRef(`dlg-${Math.random().toString(36).slice(2, 8)}`).current;
   useFocusTrap(ref, open, initialFocus);
@@ -130,7 +130,7 @@ export function DialogFooter({
   hint?: React.ReactNode;
   /** The confirm button(s), right edge. */
   children: React.ReactNode;
-}): JSX.Element {
+}): React.JSX.Element {
   return (
     <div className="dialog-foot">
       <Button onClick={onCancel}>{cancelLabel}</Button>
@@ -165,7 +165,7 @@ export function ConfirmDialog({
   busy?: boolean;
   onConfirm(): void;
   children?: React.ReactNode;
-}): JSX.Element | null {
+}): React.JSX.Element | null {
   const cancelRef = useRef<HTMLButtonElement>(null);
   return (
     <Dialog
@@ -173,7 +173,7 @@ export function ConfirmDialog({
       onClose={onClose}
       title={title}
       onConfirm={busy ? undefined : onConfirm}
-      initialFocus={destructive ? (cancelRef as React.RefObject<HTMLElement>) : undefined}
+      initialFocus={destructive ? (cancelRef as React.RefObject<HTMLElement | null>) : undefined}
       footer={
         <div className="dialog-foot">
           <Button ref={cancelRef} onClick={onClose}>

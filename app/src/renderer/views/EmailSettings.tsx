@@ -43,7 +43,7 @@ function isLocalHost(h: string): boolean {
 }
 
 /** The Email (SMTP) panel. */
-export function EmailSettingsPanel(): JSX.Element {
+export function EmailSettingsPanel(): React.JSX.Element {
   const { appInfo, settings, update } = useSettings();
   const toast = useToast();
   const [saved, setSaved] = useState<SmtpSettingsInfo | null>(null);
@@ -459,7 +459,7 @@ export function EmailSettingsPanel(): JSX.Element {
 }
 
 /** Ok or failure callout for an email result. */
-export function EmailOutcome({ result, okTitle, extra }: { result: EmailResult; okTitle: string; extra?: React.ReactNode }): JSX.Element {
+export function EmailOutcome({ result, okTitle, extra }: { result: EmailResult; okTitle: string; extra?: React.ReactNode }): React.JSX.Element {
   if (result.ok && result.status === 'sent_with_warnings') {
     return (
       <Callout tone="warn" title={`${emailStatusTitle(result.status)}.`}>
@@ -523,7 +523,7 @@ function SwitchRow({
   checked: boolean;
   onChange(v: boolean): void;
   disabled?: boolean;
-}): JSX.Element {
+}): React.JSX.Element {
   return (
     <div style={{ display: 'flex', flexWrap: 'wrap', gap: 16, alignItems: 'center', padding: '12px 0', borderBottom: '1px solid var(--rule-2)' }}>
       <div style={{ flex: '1 1 260px', minWidth: 0 }}>
@@ -538,7 +538,7 @@ function SwitchRow({
 }
 
 /** Start at login, the tray behaviour, and a way to the Schedules page. */
-export function BackgroundSettingsPanel(): JSX.Element {
+export function BackgroundSettingsPanel(): React.JSX.Element {
   const { settings, update } = useSettings();
   const { navigate } = useRouter();
   const [supported, setSupported] = useState<boolean | null>(null);

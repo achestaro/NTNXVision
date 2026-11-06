@@ -39,7 +39,7 @@ export function ReportSectionList({
   /** Accessible name of the list. */
   label: string;
   testId?: string;
-}): JSX.Element {
+}): React.JSX.Element {
   const id = useId();
   const [dragging, setDragging] = useState<ReportSectionId | null>(null);
   const [over, setOver] = useState<ReportSectionId | null>(null);

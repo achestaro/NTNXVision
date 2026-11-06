@@ -113,7 +113,7 @@ function applyEvent(run: RunState, e: RunProgressEvent): RunState {
   return { ...run, phase: e.label };
 }
 
-export function RunProvider({ children }: { children: React.ReactNode }): JSX.Element {
+export function RunProvider({ children }: { children: React.ReactNode }): React.JSX.Element {
   const { route, navigate } = useRouter();
   const toast = useToast();
   const [run, setRun] = useState<RunState | null>(null);

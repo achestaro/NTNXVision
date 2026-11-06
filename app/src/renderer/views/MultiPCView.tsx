@@ -79,7 +79,7 @@ function failed(r: Row): boolean {
   return r.test.kind === 'error' || (r.test.kind === 'done' && !r.test.result.ok);
 }
 
-export function MultiPCView(): JSX.Element {
+export function MultiPCView(): React.JSX.Element {
   const { settings, appInfo, update, loaded } = useSettings();
   const { startMulti, isRunning } = useRun();
   const { navigate } = useRouter();
@@ -545,7 +545,7 @@ export function MultiPCView(): JSX.Element {
   );
 }
 
-function RowStatus({ row: r }: { row: Row }): JSX.Element {
+function RowStatus({ row: r }: { row: Row }): React.JSX.Element {
   if (r.test.kind === 'testing') return <Status tone="live">Testing…</Status>;
   // Failures name the reason only (the red glyph says it failed) so the row's kebab stays
   // in view; the full message is the tooltip and the callout below the table.

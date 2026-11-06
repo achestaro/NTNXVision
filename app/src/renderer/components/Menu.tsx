@@ -31,12 +31,12 @@ export interface MenuAnchor {
  * ChecklistMenu.
  */
 export function useAnchoredPopup(
-  ref: React.RefObject<HTMLElement>,
+  ref: React.RefObject<HTMLElement | null>,
   anchor: MenuAnchor,
   onClose: () => void,
   focusSelector: string,
   /** The button that opened the popup: a mousedown on it is left to its own toggle. */
-  trigger?: React.RefObject<HTMLElement>,
+  trigger?: React.RefObject<HTMLElement | null>,
 ): { left: number; top: number } {
   const [pos, setPos] = useState<{ left: number; top: number }>({ left: anchor.x, top: anchor.y });
 
@@ -84,8 +84,8 @@ export function MenuPopup({
   anchor: MenuAnchor;
   onClose(): void;
   label: string;
-  trigger?: React.RefObject<HTMLElement>;
-}): JSX.Element {
+  trigger?: React.RefObject<HTMLElement | null>;
+}): React.JSX.Element {
   const ref = useRef<HTMLDivElement>(null);
   const pos = useAnchoredPopup(ref, anchor, onClose, '[role="menuitem"]:not([disabled])', trigger);
 
@@ -150,7 +150,7 @@ export function KebabMenu({
   label: string;
   className?: string;
   size?: 'sm' | 'md';
-}): JSX.Element {
+}): React.JSX.Element {
   const btn = useRef<HTMLButtonElement>(null);
   const [anchor, setAnchor] = useState<MenuAnchor | null>(null);
   const open = () => {

@@ -55,7 +55,7 @@ function collectedByHost(snapshots: SnapshotInfo[]): Map<string, Collected> {
 
 const typeLabel = (m: ConnectionMode) => (m === 'prism_element' ? 'Prism Element' : 'Prism Central');
 
-export function TargetsView({ edit, returnTo }: { edit?: string; returnTo?: 'new' | 'multi' }): JSX.Element {
+export function TargetsView({ edit, returnTo }: { edit?: string; returnTo?: 'new' | 'multi' }): React.JSX.Element {
   const { navigate } = useRouter();
   const { settings, update } = useSettings();
   const toast = useToast();
@@ -455,7 +455,7 @@ export function TargetsView({ edit, returnTo }: { edit?: string; returnTo?: 'new
   );
 }
 
-function LastTest({ target: t, testing }: { target: SavedConnection; testing: boolean }): JSX.Element {
+function LastTest({ target: t, testing }: { target: SavedConnection; testing: boolean }): React.JSX.Element {
   if (testing) return <Loading label="Testing…" />;
   const r = t.lastTest;
   if (!r) {
@@ -497,7 +497,7 @@ function TargetEditor({
   stats: Collected | null;
   onClose(): void;
   onSaved(saved: SavedConnection, all: SavedConnection[], created: boolean): void;
-}): JSX.Element {
+}): React.JSX.Element {
   const [mode, setMode] = useState<ConnectionMode>(target?.mode ?? 'prism_central');
   const [name, setName] = useState(target?.name ?? '');
   const [host, setHost] = useState(target?.host ?? '');

@@ -142,7 +142,7 @@ export function partOf(line: string, full: string | null | undefined): boolean {
   return !!l && !!full && norm(full).includes(l);
 }
 
-function rectFor(st: SceneStyle, x: number, y: number, w: number, h: number, extra: React.SVGProps<SVGRectElement> = {}): JSX.Element {
+function rectFor(st: SceneStyle, x: number, y: number, w: number, h: number, extra: React.SVGProps<SVGRectElement> = {}): React.JSX.Element {
   return (
     <rect
       x={x}
@@ -159,7 +159,7 @@ function rectFor(st: SceneStyle, x: number, y: number, w: number, h: number, ext
   );
 }
 
-function lines(ls: SceneTextLine[], ox: number, oy: number, onEdit?: (i: number) => void, hide?: number | null): JSX.Element[] {
+function lines(ls: SceneTextLine[], ox: number, oy: number, onEdit?: (i: number) => void, hide?: number | null): React.JSX.Element[] {
   return ls.map((t, i) =>
     i === hide ? (
       <React.Fragment key={i} />
@@ -187,7 +187,7 @@ function lines(ls: SceneTextLine[], ox: number, oy: number, onEdit?: (i: number)
   );
 }
 
-function EdgeShape({ e }: { e: SceneEdge }): JSX.Element {
+function EdgeShape({ e }: { e: SceneEdge }): React.JSX.Element {
   // Arrowhead shapes and the trimmed stroke: the exports' geometry (arrowheads.ts).
   const color = e.style.stroke ?? '#000000';
   const pts = trimmedPoints(e);
@@ -264,7 +264,7 @@ export function laneSegment(points: [number, number][]): [Pt, Pt] | null {
   return best ?? (points.length >= 2 ? [points[0], points[1]] : null);
 }
 
-export function SceneCanvas(props: CanvasProps): JSX.Element {
+export function SceneCanvas(props: CanvasProps): React.JSX.Element {
   const { zoom, outline, connectors, selected, marked, editRequest, tool, connectFrom } = props;
   const { onSelect, onRename, onMove, onDelete, onPick, onStartConnect, onConnect, onReconnect, onSide, onBend, onCancelTool } = props;
   const legendOn = props.legend !== false;
@@ -801,7 +801,7 @@ export function SceneCanvas(props: CanvasProps): JSX.Element {
   };
   const resizing = drag?.kind === 'resize' ? drag : null;
 
-  const drawNode = (n: SceneNode): JSX.Element => {
+  const drawNode = (n: SceneNode): React.JSX.Element => {
     const elId = outline.has(n.id) ? n.id : null;
     const editOwner = textEdit ? (textEdit.kind === 'text' ? textEdit.key : textEdit.kind === 'conn' ? null : textEdit.id) : null;
     const hidden = editOwner === n.id && textEdit?.line ? n.lines.indexOf(textEdit.line) : null;

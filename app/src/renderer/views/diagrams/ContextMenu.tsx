@@ -14,7 +14,7 @@ import { HEAD_LABELS, headMark } from './arrowheads';
 const ITEMS = '[role^="menuitem"]:not([disabled])';
 
 /** Arrow / Home / End / Esc handling shared by the canvas menus. */
-export function menuKeys(ref: React.RefObject<HTMLElement>, onClose: () => void) {
+export function menuKeys(ref: React.RefObject<HTMLElement | null>, onClose: () => void) {
   return (e: React.KeyboardEvent) => {
     const els = Array.from(ref.current?.querySelectorAll<HTMLElement>(ITEMS) ?? []);
     const i = els.indexOf(document.activeElement as HTMLElement);
@@ -40,7 +40,7 @@ export function menuKeys(ref: React.RefObject<HTMLElement>, onClose: () => void)
  * zoom of the canvas. Unlike the app's kebab menus it ignores the page's own layout shifts
  * (the inspector opening beside the canvas as the right-click selects).
  */
-function usePointerPopup(ref: React.RefObject<HTMLElement>, at: { x: number; y: number }, onClose: () => void): { left: number; top: number } {
+function usePointerPopup(ref: React.RefObject<HTMLElement | null>, at: { x: number; y: number }, onClose: () => void): { left: number; top: number } {
   const [pos, setPos] = useState({ left: at.x, top: at.y });
   useLayoutEffect(() => {
     const el = ref.current;
@@ -70,7 +70,7 @@ function usePointerPopup(ref: React.RefObject<HTMLElement>, at: { x: number; y: 
 }
 
 /** A small line with `kind` at its end (`flip`: at its start), for the menu. */
-export function HeadPreview({ kind, flip = false, both = false }: { kind: DiagramHead; flip?: boolean; both?: boolean }): JSX.Element {
+export function HeadPreview({ kind, flip = false, both = false }: { kind: DiagramHead; flip?: boolean; both?: boolean }): React.JSX.Element {
   const w = 1.1;
   const y = 6;
   const a: [number, number] = [3, y];
@@ -111,7 +111,7 @@ export interface CanvasMenuProps {
   onHead(end: 'start' | 'end' | 'both', kind: DiagramHead): void;
 }
 
-export function CanvasMenu(props: CanvasMenuProps): JSX.Element {
+export function CanvasMenu(props: CanvasMenuProps): React.JSX.Element {
   const { el, conn, onClose } = props;
   const ref = useRef<HTMLDivElement>(null);
   const at = useMemo(() => ({ x: props.at.x, y: props.at.y }), [props.at.x, props.at.y]);

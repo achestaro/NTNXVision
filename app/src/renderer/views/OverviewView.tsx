@@ -30,7 +30,7 @@ import { NA, fmtAbs, fmtCount, fmtRel, targetLabel } from '../lib/format';
 import { useExportDialog } from './ExportDialog';
 import { ImportedBadge, useSnapshotTransfer } from './SnapshotTransfer';
 
-export function OverviewView(): JSX.Element {
+export function OverviewView(): React.JSX.Element {
   const { navigate } = useRouter();
   const { dataVersion } = useRun();
   const exportDialog = useExportDialog();
@@ -181,7 +181,7 @@ function listSentence(items: string[]): string {
   return `${head.charAt(0).toUpperCase()}${head.slice(1)} and ${rest[rest.length - 1]}`;
 }
 
-function RecentTable({ rows, latest, baseline }: { rows: SnapshotInfo[]; latest: SnapshotInfo; baseline: string | null }): JSX.Element {
+function RecentTable({ rows, latest, baseline }: { rows: SnapshotInfo[]; latest: SnapshotInfo; baseline: string | null }): React.JSX.Element {
   const { navigate } = useRouter();
   const exportDialog = useExportDialog();
   const open = (s: SnapshotInfo) => navigate({ screen: 'inventory', snapshot: s.path });
@@ -239,7 +239,7 @@ export function sourceLabel(s: SnapshotInfo): string {
   return s.source ?? NA;
 }
 
-function QuickAction({ mark, title, desc, onClick }: { mark: NutanixMarkName; title: string; desc: string; onClick(): void }): JSX.Element {
+function QuickAction({ mark, title, desc, onClick }: { mark: NutanixMarkName; title: string; desc: string; onClick(): void }): React.JSX.Element {
   return (
     <button type="button" className="qa" onClick={onClick}>
       <NutanixIcon name={mark} size={24} />
@@ -256,7 +256,7 @@ function SavedTargets({
   state,
 }: {
   state: ReturnType<typeof useAsync<SavedConnection[]>>;
-}): JSX.Element {
+}): React.JSX.Element {
   const { navigate } = useRouter();
   const { isRunning } = useRun();
   const toast = useToast();
@@ -348,7 +348,7 @@ function SavedTargets({
   );
 }
 
-function Coverage({ o }: { o: OverviewResult }): JSX.Element {
+function Coverage({ o }: { o: OverviewResult }): React.JSX.Element {
   const c = o.coverage!;
   const r = o.api_routing;
   const routed = r ? r.v4 + r.v3 + r.v2 : 0;

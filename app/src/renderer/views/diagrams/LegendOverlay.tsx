@@ -31,7 +31,7 @@ export function legendEntries(sc: DiagramScene): Entry[] {
   return out;
 }
 
-function Sample({ e }: { e: Entry }): JSX.Element {
+function Sample({ e }: { e: Entry }): React.JSX.Element {
   const st = e.style;
   // The exports' sample is 7.7 x 4.2 pt; drawn here at a fixed 12 x 7 px
   // (about 30% under the old legend at a typical fit).
@@ -65,7 +65,7 @@ function Sample({ e }: { e: Entry }): JSX.Element {
   );
 }
 
-export function LegendOverlay({ scene, onText }: { scene: DiagramScene; onText?(key: string, line: number, value: string | null): void }): JSX.Element | null {
+export function LegendOverlay({ scene, onText }: { scene: DiagramScene; onText?(key: string, line: number, value: string | null): void }): React.JSX.Element | null {
   const entries = useMemo(() => legendEntries(scene), [scene]);
   const [editing, setEditing] = useState<{ id: string; draft: string } | null>(null);
   if (!entries.length) return null;

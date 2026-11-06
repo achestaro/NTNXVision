@@ -17,7 +17,7 @@ export function NutanixIcon({
   size?: 16 | 20 | 24;
   className?: string;
   style?: React.CSSProperties;
-}): JSX.Element {
+}): React.JSX.Element {
   return (
     <span
       aria-hidden="true"

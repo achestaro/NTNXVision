@@ -31,7 +31,7 @@ export type Detail = 'alerts' | 'nodes' | 'vms' | 'network' | 'runway';
 
 // ─── building blocks ───────────────────────────────────────────────────
 
-export function Section({ title, note, right, children }: { title: string; note?: string; right?: React.ReactNode; children: React.ReactNode }): JSX.Element {
+export function Section({ title, note, right, children }: { title: string; note?: string; right?: React.ReactNode; children: React.ReactNode }): React.JSX.Element {
   const id = `mx-${title.toLowerCase().replace(/[^a-z]+/g, '-')}`;
   return (
     <section className="mx-section" aria-labelledby={id}>
@@ -59,7 +59,7 @@ export function Card({
   openLabel?: string;
   children: React.ReactNode;
   className?: string;
-}): JSX.Element {
+}): React.JSX.Element {
   const head = (
     <div className="mx-card-head">
       <span className="eyebrow">{title}</span>
@@ -82,7 +82,7 @@ export function Card({
   );
 }
 
-function Big({ children, unit }: { children: React.ReactNode; unit?: string }): JSX.Element {
+function Big({ children, unit }: { children: React.ReactNode; unit?: string }): React.JSX.Element {
   return (
     <div className="mx-big">
       {children}
@@ -91,7 +91,7 @@ function Big({ children, unit }: { children: React.ReactNode; unit?: string }): 
   );
 }
 
-function Line({ label, value }: { label: string; value: React.ReactNode }): JSX.Element {
+function Line({ label, value }: { label: string; value: React.ReactNode }): React.JSX.Element {
   return (
     <div className="mx-line">
       <span>{label}</span>
@@ -109,7 +109,7 @@ export function alertTitles(alerts: { title: string }[]): { title: string; count
 
 // ─── sections ──────────────────────────────────────────────────────────
 
-export function HealthSection({ v, onOpen, onScope }: { v: ScopeView; onOpen(d: Detail): void; onScope(uuid: string): void }): JSX.Element {
+export function HealthSection({ v, onOpen, onScope }: { v: ScopeView; onOpen(d: Detail): void; onScope(uuid: string): void }): React.JSX.Element {
   const h = HEALTH_LABEL[v.health.status];
   const firstAlerts = alertTitles(v.alerts).slice(0, 2);
   const badNodes = v.health.nodesTotal - v.health.nodesOk;
@@ -172,7 +172,7 @@ export function HealthSection({ v, onOpen, onScope }: { v: ScopeView; onOpen(d: 
   );
 }
 
-export function UtilizationSection({ v }: { v: ScopeView }): JSX.Element {
+export function UtilizationSection({ v }: { v: ScopeView }): React.JSX.Element {
   const u = v.utilization;
   const c = v.capacity;
   const memUsed = u.memory_pct !== null && c.memory_bytes ? (u.memory_pct / 100) * c.memory_bytes : null;
@@ -232,7 +232,7 @@ function RunwayCard({
   /** The all-clusters runway, said under a cluster's headline. */
   total?: Runway;
   onOpen(): void;
-}): JSX.Element {
+}): React.JSX.Element {
   const { runway } = head;
   const t80 = runway ? threshold(runway, 80) : undefined;
   const t100 = runway ? threshold(runway, 100) : undefined;
@@ -288,7 +288,7 @@ export function RunwaySection({
   onOpen(d: Detail): void;
   /** All clusters: each cluster's trends and runway, to lead with the one that reaches 80% first. */
   clusterRunways?: MetricsClusterTrends[];
-}): JSX.Element {
+}): React.JSX.Element {
   const picker = (
     <Segmented
       aria-label="Trend range"
@@ -351,7 +351,7 @@ export function soonestCluster(
   return { name: best.row.name, runway: best.r, trends: best.row.trends };
 }
 
-function TrendsPlaceholder({ state }: { state: PartState<MetricsTrendsResult> }): JSX.Element {
+function TrendsPlaceholder({ state }: { state: PartState<MetricsTrendsResult> }): React.JSX.Element {
   return (
     <div className="mx-card mx-placeholder" role="status">
       {state.error ? (
@@ -369,7 +369,7 @@ function TrendsPlaceholder({ state }: { state: PartState<MetricsTrendsResult> })
   );
 }
 
-function TrendsSection({ tr }: { tr: MetricsTrends }): JSX.Element {
+function TrendsSection({ tr }: { tr: MetricsTrends }): React.JSX.Element {
   const capacity = [
     { key: 'cpu', label: 'CPU', color: SERIES_COLOR.cpu, values: tr.cpu_pct },
     { key: 'memory', label: 'Memory', color: SERIES_COLOR.memory, values: tr.memory_pct },
@@ -427,7 +427,7 @@ function TrendsSection({ tr }: { tr: MetricsTrends }): JSX.Element {
   );
 }
 
-export function StorageSection({ v }: { v: ScopeView }): JSX.Element {
+export function StorageSection({ v }: { v: ScopeView }): React.JSX.Element {
   const c = v.capacity;
   const e = v.efficiency;
   // One basis in this card: usable space (after replication and the reserve). The
@@ -493,7 +493,7 @@ export function topRows(v: ScopeView, key: MetricsTopKey, withCluster: boolean) 
   });
 }
 
-export function WorkloadsSection({ v, onOpen }: { v: ScopeView; onOpen(d: Detail): void }): JSX.Element {
+export function WorkloadsSection({ v, onOpen }: { v: ScopeView; onOpen(d: Detail): void }): React.JSX.Element {
   const [tab, setTab] = useState<MetricsTopKey>('cpu');
   const pctScale = tab === 'cpu' || tab === 'memory' ? 100 : undefined;
   return (
@@ -539,7 +539,7 @@ export function WorkloadsSection({ v, onOpen }: { v: ScopeView; onOpen(d: Detail
   );
 }
 
-export function SourcesFooter({ sources, notes, collectedAt, cached }: { sources: { card: string; api: string }[]; notes: string[]; collectedAt: string; cached: boolean }): JSX.Element {
+export function SourcesFooter({ sources, notes, collectedAt, cached }: { sources: { card: string; api: string }[]; notes: string[]; collectedAt: string; cached: boolean }): React.JSX.Element {
   return (
     <details className="mx-sources">
       <summary>

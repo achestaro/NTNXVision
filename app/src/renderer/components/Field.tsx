@@ -16,10 +16,10 @@ export function Field({
   label: React.ReactNode;
   hint?: React.ReactNode;
   error?: string | null;
-  children: React.ReactElement;
+  children: React.ReactElement<React.HTMLAttributes<HTMLElement>>;
   className?: string;
   style?: React.CSSProperties;
-}): JSX.Element {
+}): React.JSX.Element {
   const describedBy = [hint && `${id}-hint`, error && `${id}-err`].filter(Boolean).join(' ') || undefined;
   const control = React.cloneElement(children, {
     id,

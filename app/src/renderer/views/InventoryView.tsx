@@ -72,7 +72,7 @@ export function InventoryView({
   filterText?: string;
   /** A deep link naming one object (⌘K): it opens selected, with its details. */
   objectId?: string;
-}): JSX.Element {
+}): React.JSX.Element {
   const { navigate } = useRouter();
   const { dataVersion } = useRun();
   const toast = useToast();
@@ -541,7 +541,7 @@ function rawCell(v: CellValue): string | number {
   return String(v);
 }
 
-function Categories({ list }: { list?: string[] }): JSX.Element | null {
+function Categories({ list }: { list?: string[] }): React.JSX.Element | null {
   if (!list?.length) return null;
   return (
     <div className="kv">
@@ -573,7 +573,7 @@ function DetailPanel({
   row: InventoryRow | null;
   columns: InventoryColumn[];
   onClose(): void;
-}): JSX.Element {
+}): React.JSX.Element {
   const toast = useToast();
   const d = state.data;
   const closeRef = useRef<HTMLButtonElement>(null);

@@ -5,7 +5,7 @@ import React from 'react';
 import type { Figure } from '@shared/ipc';
 import { NA, fmtCount } from '../lib/format';
 
-export function FigureStrip({ figures, label }: { figures: Figure[]; label: string }): JSX.Element {
+export function FigureStrip({ figures, label }: { figures: Figure[]; label: string }): React.JSX.Element {
   return (
     <section className="figs" aria-label={label}>
       {figures.map((f) => (
@@ -15,7 +15,7 @@ export function FigureStrip({ figures, label }: { figures: Figure[]; label: stri
   );
 }
 
-export function FigureCell({ figure: f }: { figure: Figure }): JSX.Element {
+export function FigureCell({ figure: f }: { figure: Figure }): React.JSX.Element {
   const value = typeof f.value === 'number' ? fmtCount(f.value) : f.value ?? NA;
   return (
     <div className="fig">

@@ -36,7 +36,7 @@ export function Callout({
   actions?: React.ReactNode;
   role?: 'note' | 'status' | 'alert';
   className?: string;
-}): JSX.Element {
+}): React.JSX.Element {
   const r = role ?? (tone === 'error' ? 'alert' : tone === 'ok' ? 'status' : 'note');
   return (
     <div className={['callout', tone !== 'neutral' && tone, className].filter(Boolean).join(' ')} role={r}>

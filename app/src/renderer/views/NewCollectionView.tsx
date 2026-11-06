@@ -62,7 +62,7 @@ export function NewCollectionView({
 }: {
   connectionId?: string;
   mode?: ConnectionMode;
-}): JSX.Element {
+}): React.JSX.Element {
   const { settings, appInfo, update } = useSettings();
   const { start, isRunning } = useRun();
   const { navigate } = useRouter();

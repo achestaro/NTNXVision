@@ -31,7 +31,7 @@ function resolve(theme: ThemeMode, systemDark: boolean): Resolved {
   return theme;
 }
 
-export function SettingsProvider({ children }: { children: React.ReactNode }): JSX.Element {
+export function SettingsProvider({ children }: { children: React.ReactNode }): React.JSX.Element {
   const [settings, setSettings] = useState<AppSettings>({});
   const [appInfo, setAppInfo] = useState<AppInfo | null>(null);
   const [loaded, setLoaded] = useState(false);

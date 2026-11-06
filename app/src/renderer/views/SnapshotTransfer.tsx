@@ -58,7 +58,7 @@ export function provenanceLine(p: SnapshotProvenance): string {
 }
 
 /** The small neutral badge next to an imported snapshot's name. */
-export function ImportedBadge({ provenance }: { provenance?: SnapshotProvenance | null }): JSX.Element | null {
+export function ImportedBadge({ provenance }: { provenance?: SnapshotProvenance | null }): React.JSX.Element | null {
   if (!provenance) return null;
   return (
     <Badge className="imported-badge" title={provenanceLine(provenance)}>
@@ -69,7 +69,7 @@ export function ImportedBadge({ provenance }: { provenance?: SnapshotProvenance 
 
 const isSnapFile = (p: string) => /\.ntnxsnap$/i.test(p);
 
-export function SnapshotTransferProvider({ children }: { children: React.ReactNode }): JSX.Element {
+export function SnapshotTransferProvider({ children }: { children: React.ReactNode }): React.JSX.Element {
   const toast = useToast();
   const [exporting, setExporting] = useState<{ snapshots: Pick<SnapshotInfo, 'path' | 'name'>[]; key: number } | null>(null);
   const [queue, setQueue] = useState<string[]>([]);
@@ -195,7 +195,7 @@ function ExportFileDialog({
 }: {
   snapshots: Pick<SnapshotInfo, 'path' | 'name'>[];
   onClose(): void;
-}): JSX.Element {
+}): React.JSX.Element {
   const { settings } = useSettings();
   const toast = useToast();
   const many = snapshots.length > 1;
@@ -324,7 +324,7 @@ function ImportPreviewDialog({
   remaining: number;
   onDone(): void;
   onCancelAll(): void;
-}): JSX.Element {
+}): React.JSX.Element {
   const { navigate } = useRouter();
   const { invalidate } = useRun();
   const toast = useToast();
@@ -402,7 +402,7 @@ function ImportPreviewDialog({
       title={entries.length > 1 ? `Import ${fmtCount(entries.length)} snapshots?` : 'Import snapshot?'}
       subtitle={`${preview?.file_name ?? basename(path)}${preview ? ` · ${fmtBytes(preview.size_bytes)}` : ''}${remaining ? ` · ${plural(remaining, 'more file')} after this` : ''}`}
       onConfirm={() => void (locked ? unlock() : doImport())}
-      initialFocus={locked ? (pwRef as React.RefObject<HTMLElement>) : undefined}
+      initialFocus={locked ? (pwRef as React.RefObject<HTMLElement | null>) : undefined}
       footer={
         <div className="dialog-foot">
           <Button onClick={remaining ? onDone : onCancelAll}>{remaining ? 'Skip this file' : 'Cancel'}</Button>
@@ -496,7 +496,7 @@ function ImportPreviewDialog({
   );
 }
 
-function EntryFacts({ entry, many }: { entry: SnapshotFileEntry; many: boolean }): JSX.Element {
+function EntryFacts({ entry, many }: { entry: SnapshotFileEntry; many: boolean }): React.JSX.Element {
   const s = entry.summary ?? {};
   const renamed = entry.import_name && entry.name && entry.import_name !== entry.name && !entry.conflict;
   return (

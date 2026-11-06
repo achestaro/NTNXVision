@@ -18,7 +18,7 @@ export function Illustration({
   size?: 96 | 160 | 200 | 240;
   /** Accessible name; omit when the empty-state title says it (the default). */
   label?: string;
-}): JSX.Element {
+}): React.JSX.Element {
   return (
     <div
       className="nx-illustration"

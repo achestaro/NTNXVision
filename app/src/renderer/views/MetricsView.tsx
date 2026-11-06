@@ -50,7 +50,7 @@ function lastTarget(): string | null {
   }
 }
 
-export function MetricsView({ target }: { target?: string }): JSX.Element {
+export function MetricsView({ target }: { target?: string }): React.JSX.Element {
   const { navigate } = useRouter();
   const targets = useAsync<SavedConnection[]>(() => window.ntnx.listConnections(), []);
   const pcs = useMemo(() => (targets.data ?? []).filter((t) => t.mode === 'prism_central'), [targets.data]);
@@ -123,7 +123,7 @@ function fmtIn(ms: number): string {
   return s < 60 ? `in ${s} s` : `in ${Math.ceil(s / 60)} min`;
 }
 
-function TargetMetrics({ target, picker, gone }: { target: SavedConnection; picker: React.ReactNode; gone: boolean }): JSX.Element {
+function TargetMetrics({ target, picker, gone }: { target: SavedConnection; picker: React.ReactNode; gone: boolean }): React.JSX.Element {
   const { navigate } = useRouter();
   const { settings, update, appInfo } = useSettings();
   const metrics = useMetrics(target.id);

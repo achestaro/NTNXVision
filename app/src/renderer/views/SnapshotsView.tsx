@@ -35,7 +35,7 @@ import { ImportedBadge, useSnapshotTransfer } from './SnapshotTransfer';
 type Filter = 'all' | SnapshotKind;
 const KIND_LABEL: Record<SnapshotKind, string> = { pc: 'PC', pe: 'PE', combined: 'Combined' };
 
-export function SnapshotsView(): JSX.Element {
+export function SnapshotsView(): React.JSX.Element {
   const { navigate } = useRouter();
   const { dataVersion, invalidate } = useRun();
   const exportDialog = useExportDialog();
@@ -377,7 +377,7 @@ export function SnapshotsView(): JSX.Element {
   );
 }
 
-function RenameDialog({ snapshot, onClose, onDone }: { snapshot: SnapshotInfo; onClose(): void; onDone(name: string): void }): JSX.Element {
+function RenameDialog({ snapshot, onClose, onDone }: { snapshot: SnapshotInfo; onClose(): void; onDone(name: string): void }): React.JSX.Element {
   const [name, setName] = useState(snapshot.name);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -404,7 +404,7 @@ function RenameDialog({ snapshot, onClose, onDone }: { snapshot: SnapshotInfo; o
       onClose={onClose}
       title={`Rename ${snapshot.name}`}
       onConfirm={() => void submit()}
-      initialFocus={inputRef as React.RefObject<HTMLElement>}
+      initialFocus={inputRef as React.RefObject<HTMLElement | null>}
       footer={
         <div className="dialog-foot">
           <Button onClick={onClose}>Cancel</Button>

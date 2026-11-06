@@ -30,7 +30,7 @@ export function useEmailDialog(): Ctx {
   return c;
 }
 
-export function EmailDialogProvider({ children }: { children: React.ReactNode }): JSX.Element {
+export function EmailDialogProvider({ children }: { children: React.ReactNode }): React.JSX.Element {
   const [state, setState] = useState<{ paths: string[]; opts: OpenOptions; key: number } | null>(null);
   const open = useCallback(
     (path: string | string[], opts: OpenOptions = {}) => setState({ paths: Array.isArray(path) ? path : [path], opts, key: Date.now() }),
@@ -68,7 +68,7 @@ function EmailDialog({
   snapshotPaths: string[];
   initialFormats?: ExportFormat[];
   onClose(): void;
-}): JSX.Element {
+}): React.JSX.Element {
   const many = snapshotPaths.length > 1;
   const { settings, appInfo } = useSettings();
   const { invalidate } = useRun();

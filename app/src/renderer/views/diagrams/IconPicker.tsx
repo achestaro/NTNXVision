@@ -38,7 +38,7 @@ interface Row {
   haystack: string;
 }
 
-function Swatch({ icon }: { icon: DiagramIcon | undefined }): JSX.Element {
+function Swatch({ icon }: { icon: DiagramIcon | undefined }): React.JSX.Element {
   const st: SceneStyle = icon?.style ?? { fill: '#FFFFFF', stroke: '#8E99A4', stroke_w: 0.75, dash: null, radius: 2 };
   const text = icon?.id === 'text';
   // A 28 x 18 tile: the element's box at about 2x its stroke, its chip when it has one.
@@ -79,7 +79,7 @@ export function IconPicker({
   onPick(choice: PickerChoice): void;
   /** The selection, when it is an element icons can go into: its name and what it holds. */
   into?: { label: string; accepts(iconId: string): boolean } | null;
-}): JSX.Element {
+}): React.JSX.Element {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
   const [active, setActive] = useState(0);

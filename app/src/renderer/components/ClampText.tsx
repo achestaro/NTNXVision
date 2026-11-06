@@ -14,7 +14,7 @@ export function ClampText({
   /** Lines shown while collapsed. */
   lines?: number;
   className?: string;
-}): JSX.Element {
+}): React.JSX.Element {
   const ref = useRef<HTMLDivElement>(null);
   const [open, setOpen] = useState(false);
   const [clamped, setClamped] = useState(false);

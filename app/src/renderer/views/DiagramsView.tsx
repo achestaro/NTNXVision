@@ -286,7 +286,7 @@ interface Selection {
   part: number;
 }
 
-export function DiagramsView({ snapshot: snapProp, type: typeProp, part: partProp }: { snapshot?: string; type?: string; part?: number }): JSX.Element {
+export function DiagramsView({ snapshot: snapProp, type: typeProp, part: partProp }: { snapshot?: string; type?: string; part?: number }): React.JSX.Element {
   const { navigate } = useRouter();
   const { dataVersion } = useRun();
   const toast = useToast();
@@ -1514,7 +1514,7 @@ function otherLines(el: DiagramElement, nodes: SceneNode[]): { key: string; line
   return out;
 }
 
-function TextLineField({ k, line, text, edited, onText }: { k: string; line: number; text: string; edited: boolean; onText(key: string, line: number, value: string | null): void }): JSX.Element {
+function TextLineField({ k, line, text, edited, onText }: { k: string; line: number; text: string; edited: boolean; onText(key: string, line: number, value: string | null): void }): React.JSX.Element {
   const [v, setV] = useState(text);
   const commit = () => {
     const t = v.replace(/\s+/g, ' ').trim();
@@ -1581,7 +1581,7 @@ function Inspector({
   onUnnest?(): void;
   onRelease?(): void;
   onWrapMore?(id: string): void;
-}): JSX.Element {
+}): React.JSX.Element {
   const [label, setLabel] = useState(el.label ?? '');
   const [sub, setSub] = useState(el.sublabel ?? '');
   const commitLabel = () => {
@@ -1763,7 +1763,7 @@ function ConnectorInspector({
   onArrow(v: DiagramArrow): void;
   onResetRoute(): void;
   onDelete(): void;
-}): JSX.Element {
+}): React.JSX.Element {
   const [label, setLabel] = useState(c.label ?? '');
   const user = c.origin === 'user';
   const commitLabel = () => {
@@ -1921,7 +1921,7 @@ function CarryDialog({
   target: { name: string; when: string };
   onClose(): void;
   onCarry(types: string[]): Promise<void>;
-}): JSX.Element {
+}): React.JSX.Element {
   const [chosen, setChosen] = useState<Set<string>>(() => new Set(offer.diagrams.filter((d) => d.applies > 0).map((d) => d.type)));
   const [busy, setBusy] = useState(false);
   const go = async () => {
@@ -1998,7 +1998,7 @@ function CarryDialog({
   );
 }
 
-function EmptyDiagram(): JSX.Element {
+function EmptyDiagram(): React.JSX.Element {
   return (
     <svg width="168" height="104" viewBox="0 0 168 104" aria-hidden="true">
       <rect x="1" y="1" width="166" height="102" rx="6" fill="none" stroke="var(--rule)" strokeDasharray="4 3" />
