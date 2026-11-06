@@ -887,9 +887,9 @@ OBJECT_STORES = TableSpec(
     lambda e: e.object_stores,
     (
         Col("name", "Name", _a("name"), label="Name", kind="name", search=True),
-        Col("cluster", "Cluster", _cluster, label="Cluster"),
+        Col("cluster", "Cluster", _cluster, label="Cluster", facet=True),
         Col("version", "Version", _a("deployment_version"), label="Version", kind="mono",
-            diff="version"),
+            facet=True, diff="version"),
         Col("workers", "Workers", _a("num_worker_nodes"), label="Workers", kind="number"),
         Col("capacity", "Capacity (GiB)", _a("total_capacity_bytes"), excel=gib,
             label="Capacity", kind="bytes", diff="capacity"),
@@ -898,7 +898,8 @@ OBJECT_STORES = TableSpec(
         Col("objects", "Objects", _a("object_count"), label="Objects", kind="number"),
         Col("endpoints", "Client IPs", lambda o, _x: joined(o.client_ips), label="Client IPs",
             kind="mono"),
-        Col("vip", "Storage VIP", _a("storage_vip"), kind="mono"),
+        Col("vip", "Storage VIP", _a("storage_vip"), label="Storage VIP", kind="mono"),
+        Col("domain", "Domain", _a("domain"), label="Domain", kind="mono"),
         Col("state", "State", _a("state"), label="State", kind="status",
             cell=state_cell(("COMPLETE", "READY", "OBJECT_STORE_AVAILABLE"))),
         Col("api", "API", _a("api_source")),
@@ -910,26 +911,35 @@ OBJECT_STORES = TableSpec(
 BUCKETS = TableSpec(
     "buckets", "Buckets", "Buckets", "Bucket", "buckets", lambda e: e.buckets,
     (
-        Col("name", "Name", _a("name"), label="Name", kind="name"),
-        Col("store", "Object Store", _a("object_store_name"), label="Object store"),
-        Col("cluster", "Cluster", _cluster, label="Cluster"),
-        Col("owner", "Owner", _a("owner"), label="Owner", facet=True),
-        Col("versioning", "Versioning", _a("versioning"), excel=yes_no, label="Versioning"),
-        Col("worm", "WORM", _a("worm_enabled"), excel=yes_no, label="WORM"),
-        Col("retention", "Retention (days)", _a("retention_days"), kind="number"),
-        Col("lifecycle", "Lifecycle", _a("lifecycle"), excel=yes_no, label="Lifecycle"),
-        Col("cors", "CORS", _a("cors"), excel=yes_no),
-        Col("website", "Static Website", _a("website"), excel=yes_no),
-        Col("nfs", "NFS", _a("nfs"), excel=yes_no),
-        Col("notifications", "Notifications", _a("notifications"), excel=yes_no),
-        Col("replication", "Replication", _a("replication")),
+        Col("name", "Name", _a("name"), label="Name", kind="name", search=True),
+        Col("store", "Object Store", _a("object_store_name"), label="Object store",
+            facet=True, search=True),
+        Col("cluster", "Cluster", _cluster, label="Cluster", facet=True),
+        Col("owner", "Owner", _a("owner"), label="Owner", facet=True, search=True,
+            diff="owner"),
+        Col("versioning", "Versioning", _a("versioning"), excel=yes_no, label="Versioning",
+            facet=True, diff="versioning"),
+        Col("worm", "WORM", _a("worm_enabled"), excel=yes_no, label="WORM / Object Lock",
+            facet=True, diff="WORM"),
+        Col("retention", "Retention (days)", _a("retention_days"), label="Retention (days)",
+            kind="number", diff="retention"),
+        Col("lifecycle", "Lifecycle", _a("lifecycle"), excel=yes_no, label="Lifecycle",
+            facet=True, diff="lifecycle"),
+        Col("cors", "CORS", _a("cors"), excel=yes_no, label="CORS", diff="CORS"),
+        Col("website", "Static Website", _a("website"), excel=yes_no, label="Static website",
+            diff="static website"),
+        Col("nfs", "NFS", _a("nfs"), excel=yes_no, label="NFS", facet=True, diff="NFS"),
+        Col("notifications", "Notifications", _a("notifications"), excel=yes_no,
+            label="Notifications", diff="notifications"),
+        Col("replication", "Replication", _a("replication"), label="Replication",
+            facet=True, diff="replication"),
         Col("objects", "Objects", _a("object_count"), label="Objects", kind="number"),
         Col("used", "Used (GiB)", _a("used_bytes"), excel=gib, label="Used", kind="bytes"),
         Col("api", "API", _a("api_source")),
     ),
     # A bucket name is unique within its object store only.
     id=lambda b: f"{b.object_store_name}/{b.name}", name=lambda b: b.name,
-    where=lambda b: b.cluster_name, note_keys=("objects",),
+    where=lambda b: b.cluster_name, note_keys=("objects",), group=SERVICES,
 )
 
 VOLUME_GROUPS = TableSpec(
@@ -1123,7 +1133,7 @@ NDB_TAGS = TableSpec(
 _K8S_NOTES = ("nkp", "kubernetes")
 
 KUBERNETES_CLUSTERS = TableSpec(
-    "kubernetes_clusters", "Kubernetes Clusters", "Kubernetes clusters (NKP)",
+    "kubernetes_clusters", "Kubernetes Clusters", "K8S Cluster (NKP)",
     "Kubernetes cluster", "clusters", lambda e: e.kubernetes_clusters,
     (
         Col("name", "Kubernetes Cluster", _a("name"), label="Kubernetes cluster", kind="name",
@@ -1168,7 +1178,7 @@ KUBERNETES_CLUSTERS = TableSpec(
 )
 
 KUBERNETES_NODES = TableSpec(
-    "kubernetes_nodes", "Kubernetes Nodes", "Kubernetes nodes (NKP)", "Kubernetes node",
+    "kubernetes_nodes", "Kubernetes Nodes", "K8S Nodes (NKP)", "Kubernetes node",
     "nodes", lambda e: e.kubernetes_nodes,
     (
         Col("name", "Name", _a("name"), label="Name", kind="name", search=True),
@@ -1299,7 +1309,7 @@ KUBERNETES_APPS = TableSpec(
 )
 
 KUBERNETES_WORKLOADS = TableSpec(
-    "kubernetes_workloads", "Kubernetes Workloads", "Kubernetes workloads", "Workload",
+    "kubernetes_workloads", "Kubernetes Workloads", "K8S Workloads (NKP)", "Workload",
     "workloads", lambda e: e.kubernetes_workloads,
     (
         Col("name", "Workload", _a("name"), label="Workload", kind="name", search=True),
@@ -1643,7 +1653,7 @@ INVENTORY_TYPES: list[str] = [
     "virtual_switches", "host_nics", "external_storages", "pc_vms",
     "images",
     "protection_policies", "recovery_plans", "security_policies", "vpcs",
-    "object_stores", "volume_groups", "file_servers", "databases",
+    "object_stores", "buckets", "volume_groups", "file_servers", "databases",
     "kubernetes_clusters", "kubernetes_nodes", "kubernetes_workloads",
     "users", "roles", "licenses", "lcm_entities", "alerts", "playbooks",
 ]

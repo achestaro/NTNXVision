@@ -121,9 +121,9 @@ def _gaps(plan: _Plan) -> list[float]:
 
 
 def _header_rows(s: MgmtSite, notes: list[str]) -> list[Row]:
-    rows = [Row(s.name, K.SIZE_SITE, True, K.INK, 2, 7.5),
-            Row(f"Management plane, {fmt.plural(s.registered, 'registered cluster')}",
-                K.SIZE_SMALL, False, K.INK_3, 2, gap_before=0.5)]
+    """The column header: the Prism Central's name only when there is no PC block to
+    carry it (the PC block names its PC and address), and pairings drawn elsewhere."""
+    rows = [] if s.pc is not None else [Row(s.name, K.SIZE_SITE, True, K.INK, 2, 7.5)]
     if notes:
         rows.append(Row(f"AZ pairing also with {fmt.join_names(notes)}", K.SIZE_SMALL,
                         False, K.IRIS, 2))
@@ -142,6 +142,9 @@ def _pc_rows(s: MgmtSite, drawn_hosts: bool) -> list[Row]:
     addr = f"VIP {pc.virtual_ip}" if pc.virtual_ip else (pc.ips[0] if len(pc.ips) == 1
                                                            else None)
     line = " · ".join(x for x in (sizing, addr) if x)
+    # The PC's name (the host it was collected from) unless it is the address shown.
+    if s.name and s.name not in (addr, pc.virtual_ip, *pc.ips):
+        rows.append(Row(s.name, K.SIZE_SMALL, True, K.WHITE, 2))
     if line:
         rows.append(Row(line, K.SIZE_SMALL, False, K.IRIS_TINT, 2))
     if pc.hosting and not drawn_hosts:

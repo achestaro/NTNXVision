@@ -41,7 +41,7 @@ import { useSettings, modKey } from '../lib/settings';
 import { useRun } from '../lib/run';
 import { useConfirmShortcut } from '../lib/keyboard';
 import { useRouter } from '../lib/router';
-import { NA, REPORT_EXT, errorMessage, fmtCount, fmtRatio, plural, reportFileName, sanitizeSnapshotName, snapshotNameIssue, targetLabel, tildify } from '../lib/format';
+import { NA, REPORT_EXT, errorMessage, fmtCount, fmtRatio, reportFileName, sanitizeSnapshotName, snapshotNameIssue, targetLabel, tildify } from '../lib/format';
 import { ClusterPicker, initialSelection } from './ClusterPicker';
 import type { ClusterListState } from './ClusterPicker';
 import { RatioOverrides, initialRatioText, ratioIssue, ratioOverrides } from './RatioOverrides';
@@ -127,10 +127,9 @@ export function NewCollectionView({
       .listConnections()
       .then((ps) => {
         setProfiles(ps);
-        const pick =
-          (connectionId ? ps.find((p) => p.id === connectionId) : undefined) ??
-          (initialMode ? ps.find((p) => p.mode === initialMode) : undefined) ??
-          ps[0];
+        // No target is picked by default (nothing is fetched or tested until the user picks
+        // one), except when arriving from "Collect" on a saved target, which names it.
+        const pick = connectionId ? ps.find((p) => p.id === connectionId) : undefined;
         if (pick) applyProfile(pick);
         // Arriving from "Collect" on a saved target: the name is all that is left to type.
         if (connectionId && pick) requestAnimationFrame(() => nameRef.current?.focus());
@@ -317,6 +316,13 @@ export function NewCollectionView({
   // The clusters being collected: a single listed cluster always is (PE mode, or a PC with one).
   const nkp = !isPe && profile ? (profile.kubernetes ?? []).filter((k) => k.hasToken) : [];
   const nkpOn = kubeOn && nkp.length > 0;
+  /** The extra services configured on the target, for the Connect step's Services row. */
+  const services: string[] = [];
+  if (profile && !isPe) {
+    if (profile.kubernetes?.length) services.push('NKP');
+    if (profile.ndbHost) services.push('NDB');
+    if (profile.vcenterHost) services.push('vCenter');
+  }
   const collectedClusters = clusters.length === 1 ? clusters : chosenClusters;
   const defaultRatio = settings.vcpuRatio ?? DEFAULT_VCPU_RATIO;
   const badRatios = collectedClusters.filter((c) => ratioIssue(ratioText[c.uuid]));
@@ -457,6 +463,9 @@ export function NewCollectionView({
                       setErrors((x) => ({ ...x, host: undefined }));
                     }}
                   >
+                    <option value="" disabled>
+                      Choose a target…
+                    </option>
                     {sorted.map((p) => (
                       <option key={p.id} value={p.id} title={`${p.host}:${p.port}`}>
                         {targetLabel(p)} · {p.mode === 'prism_element' ? 'Prism Element' : 'Prism Central'}
@@ -478,7 +487,7 @@ export function NewCollectionView({
                 <dl className="grid-kv" data-testid="target-details" style={{ display: 'grid', columnGap: 32, gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 300px), 1fr))' }}>
                   <div className="kv">
                     <dt>Type</dt>
-                    <dd className="strong">{isPe ? 'Prism Element · one cluster' : 'Prism Central · all clusters'}</dd>
+                    <dd className="strong">{isPe ? 'Prism Element · one cluster' : 'Prism Central'}</dd>
                   </div>
                   <div className="kv">
                     <dt>Address</dt>
@@ -508,8 +517,10 @@ export function NewCollectionView({
                   )}
                   {!isPe && (
                     <div className="kv">
-                      <dt>NKP</dt>
-                      <dd className={profile.kubernetes?.length ? undefined : 'dash'}>{profile.kubernetes?.length ? plural(profile.kubernetes.length, 'cluster') : NA}</dd>
+                      <dt>Services</dt>
+                      <dd className={services.length ? undefined : 'dash'} data-testid="target-services">
+                        {services.length ? services.join(', ') : NA}
+                      </dd>
                     </div>
                   )}
                   <div className="kv">
@@ -671,17 +682,6 @@ export function NewCollectionView({
             )}
             <div style={{ borderTop: '1px solid var(--rule-2)', padding: '12px 16px', display: 'flex', flexDirection: 'column', gap: 12 }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                <Switch checked={ndbOn && !isPe && !!ndbHost} onChange={setNdbOn} labelledBy="ndbLbl" disabled={isPe || !ndbHost} />
-                <div id="ndbLbl">
-                  <div style={{ fontWeight: 500 }}>Nutanix Database Service (NDB)</div>
-                  <div className="hint">
-                    {ndbHost
-                      ? `${ndbHost} as ${ndbUser}, from the target`
-                      : 'Add an NDB endpoint to this target on the Targets page to include it'}
-                  </div>
-                </div>
-              </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
                 <Switch checked={vcOn && !isPe && !!vcHost} onChange={setVcOn} labelledBy="vcLbl" disabled={isPe || !vcHost} />
                 <div id="vcLbl">
                   <div style={{ fontWeight: 500 }}>VMware vCenter (ESXi clusters)</div>
@@ -689,6 +689,17 @@ export function NewCollectionView({
                     {vcHost
                       ? `${vcHost} as ${vcUser}, from the target: disk datastores and port group switch types`
                       : 'Add the vCenter of your ESXi clusters to this target on the Targets page to include it'}
+                  </div>
+                </div>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                <Switch checked={ndbOn && !isPe && !!ndbHost} onChange={setNdbOn} labelledBy="ndbLbl" disabled={isPe || !ndbHost} />
+                <div id="ndbLbl">
+                  <div style={{ fontWeight: 500 }}>Nutanix Database Service (NDB)</div>
+                  <div className="hint">
+                    {ndbHost
+                      ? `${ndbHost} as ${ndbUser}, from the target`
+                      : 'Add an NDB endpoint to this target on the Targets page to include it'}
                   </div>
                 </div>
               </div>

@@ -41,6 +41,10 @@ def product_of(n: Node) -> str | None:
     placed = ICON_PRODUCT.get(n.data.get("icon", ""))
     if placed:
         return placed
+    # A product instance the layout names (an NKP cluster, an object store, NDB).
+    named = n.data.get("badge", "")
+    if named in PRODUCTS:
+        return named
     if n.id.endswith(":pc") and "prism_central" in n.data:
         return "prism"
     uuid = n.data.get("cluster_uuid")

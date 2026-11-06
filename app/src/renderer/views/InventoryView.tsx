@@ -43,8 +43,41 @@ import { useRouter } from '../lib/router';
 import { useRun } from '../lib/run';
 import { NA, errorMessage, fmtAbs, fmtBytes, fmtCount, fmtRatio } from '../lib/format';
 import { useSnapshotTransfer } from './SnapshotTransfer';
+import { productIcon } from './diagrams/productIcons';
 
 const PAGE = 25;
+
+/**
+ * Object types drawn with a Nutanix *product* icon (assets/product-icons) instead of an
+ * isometric mark: the isometric pack has no Kubernetes / NKP drawing, the product pack does.
+ */
+const OBJECT_TYPE_PRODUCT: Record<string, string> = {
+  kubernetes_clusters: 'nkp',
+  kubernetes_nodes: 'nkp',
+  kubernetes_workloads: 'nkp',
+};
+
+/** Mirrors the core's `inventory.VCENTER_ONLY_TYPES`. */
+const VCENTER_ONLY_TYPES = new Set(['port_groups']);
+
+/** The type's mark beside its label in the type list (decorative), or nothing. */
+function TypeMark({ type }: { type: string }): React.JSX.Element | null {
+  const mark = OBJECT_TYPE_MARK[type];
+  if (mark) return <NutanixIcon name={mark} size={20} />;
+  const icon = productIcon(OBJECT_TYPE_PRODUCT[type]);
+  if (!icon) return null;
+  return (
+    <span aria-hidden="true" data-product={OBJECT_TYPE_PRODUCT[type]} className="nx-mark" style={{ width: 20, height: 20 }}>
+      <svg viewBox={icon.box.join(' ')} focusable="false">
+        {icon.paths.map((p, i) => (
+          // The product ink (#131313) follows the theme's text colour so it stays visible
+          // in the dark theme; the purple accent stays as drawn.
+          <path key={i} fill={p.fill.toLowerCase() === '#131313' ? 'currentColor' : p.fill} d={p.d} />
+        ))}
+      </svg>
+    </span>
+  );
+}
 
 function isStatus(v: CellValue): v is StatusValue {
   return !!v && typeof v === 'object' && 'tone' in v;
@@ -130,6 +163,15 @@ export function InventoryView({
   // While a new type loads, the previous type's rows are still in `query.data`; never
   // pair their ids with the new type (the detail request would 404).
   const q = query.data && query.data.object_type === type ? query.data : undefined;
+  // vCenter-only types (ESXi port groups) are left out of a snapshot without vCenter data;
+  // switching to such a snapshot while on one goes back to Clusters. Other unlisted types
+  // stay reachable (a ⌘K deep link can name any type).
+  useEffect(() => {
+    if (q && VCENTER_ONLY_TYPES.has(type) && q.type_counts.length && !q.type_counts.some((t) => t.type === type)) {
+      setType('clusters');
+      setSelected(null);
+    }
+  }, [q, type]);
   const rows = q?.rows ?? [];
   const selectedId = selected;
   /** Open a row's details, or close them when that row is already open. */
@@ -342,7 +384,7 @@ export function InventoryView({
                   }}
                 >
                   <span className="ot-name">
-                    {OBJECT_TYPE_MARK[t.type] && <NutanixIcon name={OBJECT_TYPE_MARK[t.type]} size={20} />}
+                    <TypeMark type={t.type} />
                     <span>{t.label}</span>
                   </span>
                   <span className="ot-count">{t.count === null ? NA : fmtCount(t.count)}</span>

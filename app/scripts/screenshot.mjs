@@ -50,8 +50,11 @@ const stub = `window.__STUB_DIAGRAMS__ = ${await readFile(join(here, 'stub-diagr
 
 const rail = async (page, name) => {
   await page.getByRole('navigation', { name: 'Primary' }).getByRole('button', { name, exact: true }).click();
-  // New collection pre-fills the first saved target asynchronously.
-  if (name === 'New collection') await page.waitForFunction(() => document.querySelector('[data-testid="target-details"]'));
+  // New collection starts with no target picked: pick the first saved one (PC01).
+  if (name === 'New collection') {
+    await page.locator('#saved').selectOption('t-pc01');
+    await page.waitForFunction(() => document.querySelector('[data-testid="target-details"]'));
+  }
 };
 const settle = (page) => page.waitForTimeout(350);
 /** Inventory: no row selected and no details pane. */
@@ -891,11 +894,13 @@ const SHOTS = [
     await p.getByRole('dialog').getByText('Email isn’t set up.').waitFor();
   }, 1100],
   // ── Insights > Metrics ──
-  // No target chosen yet: the page opens the first saved Prism Central by itself.
-  ['metrics-auto', {}, async (p) => {
+  // No target chosen yet: the picker starts empty and nothing is read until one is picked.
+  ['metrics-no-target', {}, async (p) => {
     await rail(p, 'Metrics');
-    await p.getByRole('heading', { name: 'Health' }).waitFor();
-    if ((await p.getByRole('heading', { name: 'Choose a target' }).count()) > 0) throw new Error('the page asks to choose a target although targets exist');
+    await p.getByRole('heading', { name: 'Choose a target' }).waitFor();
+    if ((await p.getByRole('combobox', { name: 'Target' }).inputValue()) !== '') throw new Error('a target is selected by default');
+    if ((await p.evaluate(() => (window.__metricsCalls || []).length)) > 0) throw new Error('metrics were read before a target was picked');
+    if ((await p.getByRole('heading', { name: 'Health' }).count()) > 0) throw new Error('the dashboard opened without a target');
   }],
   ['metrics-empty', { noTargets: true }, async (p) => {
     await rail(p, 'Metrics');
@@ -1038,7 +1043,27 @@ const SHOTS = [
     await openMetrics(p);
     await p.getByRole('button', { name: 'All top VMs' }).click();
     await p.getByRole('heading', { level: 1, name: 'Top VMs' }).waitFor();
+    // Each list shows five and expands to ten.
+    const cpu = p.getByRole('table', { name: 'Top VMs by CPU' });
+    const rows = () => cpu.getByRole('row').count();
+    if ((await rows()) !== 6) throw new Error(`collapsed list should show 5 VMs, shows ${(await rows()) - 1}`);
+    const more = p.getByRole('button', { name: 'Show top 10' }).first();
+    await more.click();
+    if ((await rows()) !== 11) throw new Error(`expanded list should show 10 VMs, shows ${(await rows()) - 1}`);
+    if ((await p.getByRole('button', { name: 'Show top 5' }).first().getAttribute('aria-expanded')) !== 'true') throw new Error('aria-expanded not set');
   }, 1100],
+  // All clusters: the Network card has the totals and a row per cluster, Cluster first.
+  ['metrics-network-clusters', {}, async (p) => {
+    await openMetrics(p);
+    const t = p.getByRole('table', { name: 'Network per cluster' });
+    await t.scrollIntoViewIfNeeded();
+    const heads = await t.getByRole('columnheader').allTextContents();
+    if (heads[0] !== 'Cluster') throw new Error(`Cluster is not the first column: ${heads}`);
+    if ((await t.locator('tbody tr').count()) < 2) throw new Error('expected a row per cluster');
+    await p.getByRole('button', { name: 'All host NICs' }).click();
+    await p.getByRole('table', { name: 'Network per cluster' }).waitFor();
+    await p.getByRole('table', { name: 'Host NICs' }).waitFor();
+  }, 1300],
   ['metrics-network', {}, async (p) => {
     await openMetrics(p);
     await p.getByRole('group', { name: 'Clusters' }).getByRole('button', { name: 'AMS-EDGE-02' }).click();

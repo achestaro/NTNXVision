@@ -59,8 +59,8 @@ from ntnxvision_core.versions import pc_version
 
 #: Days of daily history fetched once; the page slices 30 / 60 / 90 from it.
 HISTORY_DAYS = max(RANGES)
-#: VMs per top list, per cluster.
-TOP_N = 5
+#: VMs per top list, per cluster (the page shows five, expandable to ten).
+TOP_N = 10
 #: Critical alerts listed (the count is exact whatever this is).
 ALERT_LIST = 50
 
@@ -734,6 +734,21 @@ def _total(clusters: list[dict[str, Any]]) -> dict[str, Any]:
         },
         "alerts": {"critical": sum(c["alerts"]["critical"] for c in clusters),
                    "warning": sum(c["alerts"]["warning"] for c in clusters)},
+        "network": _network_total([c["network"] for c in clusters]),
+    }
+
+
+def _network_total(nets: list[dict[str, Any]]) -> dict[str, Any]:
+    """Every cluster's network figures summed (None when no cluster reported one)."""
+    def total(key: str) -> Any:
+        vals = [n[key] for n in nets if n.get(key) is not None]
+        return sum(vals) if vals else None
+
+    return {
+        "rx_kBps": total("rx_kBps"), "tx_kBps": total("tx_kBps"),
+        "errors": total("errors"), "dropped": total("dropped"),
+        "nic_count": sum(len(n.get("nics") or []) for n in nets),
+        "links_up": sum(n.get("links_up") or 0 for n in nets),
     }
 
 

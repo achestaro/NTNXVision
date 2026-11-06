@@ -8,10 +8,14 @@ import type { MetricsResource, MetricsTopKey, Runway } from '@shared/ipc';
 import { Icon, Segmented, Status } from '../../components';
 import { NA, fmtCount, fmtRel } from '../../lib/format';
 import { BarList, Legend, MeterBar, Ring, SERIES_COLOR, Sparkline, TrendChart } from './charts';
+import { type SortColumn, SortableTable } from './sorting';
 import {
   HEALTH_LABEL,
   RESOURCES,
+  type NetClusterRow,
   type ScopeView,
+  TOP_MAX,
+  TOP_SHOWN,
   bytes,
   latency,
   latencyAxis,
@@ -480,8 +484,8 @@ const TOP_TABS: { value: MetricsTopKey; label: string }[] = [
 
 export const TOP_LABEL: Record<MetricsTopKey, string> = { cpu: 'CPU', memory: 'Memory', iops: 'IOPS', latency: 'Latency' };
 
-export function topRows(v: ScopeView, key: MetricsTopKey, withCluster: boolean) {
-  return v.top[key].map((vm) => {
+export function topRows(v: ScopeView, key: MetricsTopKey, withCluster: boolean, limit: number = TOP_MAX) {
+  return v.top[key].slice(0, limit).map((vm) => {
     const value = key === 'cpu' ? vm.cpu_pct : key === 'memory' ? vm.memory_pct : key === 'iops' ? vm.iops : vm.latency_usecs;
     return {
       key: vm.uuid,
@@ -505,7 +509,7 @@ export function WorkloadsSection({ v, onOpen }: { v: ScopeView; onOpen(d: Detail
             <Segmented<MetricsTopKey> aria-label="Top VMs by" value={tab} onChange={setTab} options={TOP_TABS} />
           </div>
           <BarList
-            rows={topRows(v, tab, v.clusterCount > 1)}
+            rows={topRows(v, tab, v.clusterCount > 1, TOP_SHOWN)}
             color={SERIES_COLOR[tab]}
             max={pctScale}
             sortId="dashboard.top"
@@ -517,25 +521,87 @@ export function WorkloadsSection({ v, onOpen }: { v: ScopeView; onOpen(d: Detail
             All top VMs
           </button>
         </div>
-        <Card title="Network" onOpen={() => onOpen('network')} openLabel="Network: open the NIC list">
-          <div className="mx-net">
-            <div>
-              <div className="mx-runway-label">Receive</div>
-              <div className="mx-net-num">{rate(v.network.rx_kBps)}</div>
-            </div>
-            <div>
-              <div className="mx-runway-label">Transmit</div>
-              <div className="mx-net-num">{rate(v.network.tx_kBps)}</div>
-            </div>
-          </div>
-          <Line label="Errors (last interval)" value={<span className={v.network.errors ? 'tone-warn' : undefined}>{fmtCount(v.network.errors)}</span>} />
-          <Line label="Dropped packets" value={<span className={v.network.dropped ? 'tone-warn' : undefined}>{fmtCount(v.network.dropped)}</span>} />
-          <p className="mx-sub">
-            {fmtCount(v.network.nics.length)} host NICs · {fmtCount(v.network.links_up)} links up
-          </p>
-        </Card>
+        <NetworkCard v={v} onOpen={() => onOpen('network')} />
       </div>
     </Section>
+  );
+}
+
+function warnCount(n: number | null): React.ReactNode {
+  return <span className={n ? 'tone-warn' : undefined}>{fmtCount(n)}</span>;
+}
+
+/** Network columns, shared by the dashboard card and the Network subpage. Cluster first. */
+export const NET_CLUSTER_COLUMNS: SortColumn<NetClusterRow>[] = [
+  { key: 'cluster', header: 'Cluster', className: 'nm', sortValue: (r) => r.cluster, render: (r) => r.cluster },
+  { key: 'rx', header: 'Receive', numeric: true, sortValue: (r) => r.rx_kBps, render: (r) => rate(r.rx_kBps) },
+  { key: 'tx', header: 'Transmit', numeric: true, sortValue: (r) => r.tx_kBps, render: (r) => rate(r.tx_kBps) },
+  { key: 'err', header: 'Errors', numeric: true, sortValue: (r) => r.errors, render: (r) => warnCount(r.errors) },
+  { key: 'drop', header: 'Dropped', numeric: true, sortValue: (r) => r.dropped, render: (r) => warnCount(r.dropped) },
+  {
+    key: 'links',
+    // Links up of host NICs: "32/32".
+    header: 'Links',
+    numeric: true,
+    sortValue: (r) => r.links_up,
+    render: (r) => (
+      <span title={`${fmtCount(r.links_up)} of ${fmtCount(r.nics)} host NICs have a link`}>
+        {fmtCount(r.links_up)}/{fmtCount(r.nics)}
+      </span>
+    ),
+  },
+];
+
+/**
+ * Receive, transmit, errors and drops for the scope. One cluster: its figures, and the whole
+ * card opens the NIC list. All clusters: the target's totals, then a row per cluster with the
+ * same figures; the NIC list opens from the link under it (the card holds sort buttons).
+ */
+function NetworkCard({ v, onOpen }: { v: ScopeView; onOpen(): void }): React.JSX.Element {
+  const n = v.network;
+  const perCluster = n.clusters.length > 1;
+  const body = (
+    <>
+      <div className="mx-net">
+        <div>
+          <div className="mx-runway-label">Receive{perCluster ? ' · all clusters' : ''}</div>
+          <div className="mx-net-num">{rate(n.rx_kBps)}</div>
+        </div>
+        <div>
+          <div className="mx-runway-label">Transmit{perCluster ? ' · all clusters' : ''}</div>
+          <div className="mx-net-num">{rate(n.tx_kBps)}</div>
+        </div>
+      </div>
+      <Line label="Errors (last interval)" value={warnCount(n.errors)} />
+      <Line label="Dropped packets" value={warnCount(n.dropped)} />
+      <p className="mx-sub">
+        {fmtCount(n.nics.length)} host NICs · {fmtCount(n.links_up)} links up
+      </p>
+    </>
+  );
+  if (!perCluster) {
+    return (
+      <Card title="Network" onOpen={onOpen} openLabel="Network: open the NIC list">
+        {body}
+      </Card>
+    );
+  }
+  return (
+    <Card title="Network">
+      {body}
+      <div className="mx-nettable">
+        <SortableTable<NetClusterRow>
+          sortId="dashboard.network"
+          ariaLabel="Network per cluster"
+          rows={n.clusters}
+          rowKey={(r) => r.uuid}
+          columns={NET_CLUSTER_COLUMNS}
+        />
+      </div>
+      <button type="button" className="textlink mx-more" onClick={onOpen}>
+        All host NICs
+      </button>
+    </Card>
   );
 }
 

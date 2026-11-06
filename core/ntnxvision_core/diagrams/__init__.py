@@ -231,6 +231,11 @@ from .netdesigns import TYPES as _NET_TYPES  # noqa: E402
 
 TYPES.update(_NET_TYPES)
 
+# Platform service figures (NKP, NDB, Objects, Files), registered from their own module.
+from .svcdesigns import TYPES as _SVC_TYPES  # noqa: E402
+
+TYPES.update(_SVC_TYPES)
+
 
 def model_envelope(type_id: str, model: Any) -> dict[str, Any]:
     """A model of any registered type in the common envelope."""

@@ -58,6 +58,11 @@ def test_now_part_cards(fresh: Any) -> None:
             assert all(r["cluster_uuid"] == c["uuid"] for r in rows)
         assert c["network"]["nics"] and c["network"]["rx_kBps"] is not None
     total = res["total"]
+    nets = [c["network"] for c in res["clusters"]]
+    assert total["network"]["rx_kBps"] == pytest.approx(sum(n["rx_kBps"] for n in nets))
+    assert total["network"]["tx_kBps"] == pytest.approx(sum(n["tx_kBps"] or 0 for n in nets))
+    assert total["network"]["nic_count"] == sum(len(n["nics"]) for n in nets)
+    assert total["network"]["links_up"] == sum(n["links_up"] for n in nets)
     used = sum(c["capacity"]["storage_used_bytes"] for c in res["clusters"])
     assert total["capacity"]["storage_used_bytes"] == used
     assert total["health"]["nodes_total"] == sum(len(c["nodes"]) for c in res["clusters"])
@@ -203,3 +208,22 @@ def test_node_health_from_pe() -> None:
     assert bad["status"] == "error" and bad["cvm_status"] == "error"
     maint = live._node("h1", row, {"state": "NORMAL", "host_in_maintenance_mode": True})
     assert maint["status"] == "warn"
+
+
+def test_top_lists_hold_ten(fresh: Any) -> None:
+    """Each top list carries up to `TOP_N` (10) VMs, so the page's lists can expand to ten."""
+    assert live.TOP_N >= 10
+    res = sc._m_metrics(None, {**PC01, "part": "now"})
+    assert any(len(c["top_vms"]["cpu"]) == live.TOP_N for c in res["clusters"])
+
+
+def test_network_total_sums_clusters() -> None:
+    nets = [
+        {"rx_kBps": 10.0, "tx_kBps": None, "errors": 1, "dropped": None,
+         "nics": [{}, {}], "links_up": 2},
+        {"rx_kBps": 5.0, "tx_kBps": None, "errors": None, "dropped": None,
+         "nics": [{}], "links_up": 0},
+    ]
+    assert live._network_total(nets) == {
+        "rx_kBps": 15.0, "tx_kBps": None, "errors": 1, "dropped": None,
+        "nic_count": 3, "links_up": 2}

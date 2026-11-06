@@ -138,13 +138,7 @@ export function ClusterPicker({
             </Checkbox>
           ))}
         </div>
-        {single && (
-          <p className="hint below">
-            {isPe
-              ? 'Prism Element mode collects this one cluster.'
-              : 'The only cluster registered to this Prism Central, so it is always collected.'}
-          </p>
-        )}
+        {single && isPe && <p className="hint below">Prism Element mode collects this one cluster.</p>}
         {!single && chosen === 0 && showEmptyError && (
           <div className="field-err" role="alert" data-testid="cluster-empty-error">
             Select at least one cluster to collect.

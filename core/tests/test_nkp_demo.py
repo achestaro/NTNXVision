@@ -24,12 +24,12 @@ AREAS = ["clusters", "vms", "nkp"]
 
 def test_area_catalogue() -> None:
     nkp = AREAS_BY_ID["nkp"]
-    assert nkp.label == "NKP clusters (Prism Central view)" and nkp.requires == ("vms",)
+    assert nkp.label == "NKP Clusters (Prism Central View)" and nkp.requires == ("vms",)
     assert nkp.default_on and nkp.group == "Platform services"
     ids = [a["id"] for a in catalogue()["areas"]]  # type: ignore[index]
     assert "nkp" in ids and "kubernetes" not in ids  # the API step is no checkbox
     kube = AREAS_BY_ID["kubernetes"]
-    assert kube.label == "NKP clusters (Kubernetes API)" and kube.legacy_api == "kubernetes"
+    assert kube.label == "NKP Clusters (Kubernetes API)" and kube.legacy_api == "kubernetes"
 
 
 def test_pc_view_only(demo: Any) -> None:
@@ -153,7 +153,8 @@ def test_report_chapter(nkp_env: Any) -> None:
     report = build_report(nkp_env, ExportOptions(), "x")
     ch = next(c for c in report.chapters if c.key == "kubernetes")
     assert ch.title == "Kubernetes (NKP)"
-    assert [s.title for s in ch.sections] == ["Clusters", "Nodes", "Namespaces", "Storage",
+    assert [s.title for s in ch.sections] == ["Kubernetes Platform Design", "Clusters",
+                                              "Nodes", "Namespaces", "Storage",
                                               "Applications", "Platform Apps"]
     for section in ch.sections:
         for block in section.blocks:

@@ -289,15 +289,41 @@ def _facts(spec: TableSpec, env: Environment, total: int) -> str:
     return " · ".join(parts)
 
 
+#: Object types only an ESXi / vCenter estate has: left out of the type list of a snapshot
+#: with none of them and no vCenter data, rather than listed with a count of 0.
+VCENTER_ONLY_TYPES = frozenset({"port_groups"})
+
+
+def has_vcenter_data(env: Environment) -> bool:
+    """Whether the snapshot holds any ESXi / vCenter data: an ESXi cluster, a cluster
+    registered to a vCenter, or a vCenter enrichment step (connected or not)."""
+    if any(c.vcenter_address or any("ESX" in (h or "").upper() for h in c.hypervisor_types)
+           for c in env.clusters):
+        return True
+    if any("ESX" in (h.hypervisor_type or "").upper() for h in env.hosts):
+        return True
+    return any(k == "vcenter" or k.endswith(": vcenter") for k in env.collection_notes)
+
+
 def type_counts(env: Environment) -> list[dict[str, Any]]:
-    """The left-hand object-type list: count per type, None when not collected."""
+    """The left-hand object-type list: count per type, None when not collected.
+
+    vCenter-only types (`VCENTER_ONLY_TYPES`) are left out when the snapshot has none of
+    them and no vCenter data at all.
+    """
     out = []
     selected = None
     if env.run and isinstance(env.run.get("areas"), list):
         selected = {a.get("id") for a in env.run["areas"]}
+    vcenter: bool | None = None
     for type_id in INVENTORY_TYPES:
         spec = SPECS[type_id]
         count: int | None = len(spec.items(env))
+        if type_id in VCENTER_ONLY_TYPES and not count:
+            if vcenter is None:
+                vcenter = has_vcenter_data(env)
+            if not vcenter:
+                continue
         if count == 0 and not _collected(env, spec, selected):
             count = None
         out.append({"type": type_id, "label": spec.label, "group": spec.group or "Other",

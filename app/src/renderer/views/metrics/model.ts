@@ -44,6 +44,22 @@ export interface NicRow {
   dropped: number | null;
 }
 
+/** One cluster's network figures (All clusters: a row per cluster on the Network card). */
+export interface NetClusterRow {
+  uuid: string;
+  cluster: string;
+  rx_kBps: number | null;
+  tx_kBps: number | null;
+  errors: number | null;
+  dropped: number | null;
+  nics: number;
+  links_up: number;
+}
+
+/** VMs a top list shows collapsed, and expanded (the core sends up to TOP_MAX per cluster). */
+export const TOP_SHOWN = 5;
+export const TOP_MAX = 10;
+
 export interface ScopeView {
   name: string;
   clusterCount: number;
@@ -63,7 +79,11 @@ export interface ScopeView {
   };
   alerts: MetricsAlert[];
   nodes: NodeRow[];
-  network: Omit<MetricsNetwork, 'nics'> & { nics: NicRow[] };
+  network: Omit<MetricsNetwork, 'nics'> & {
+    nics: NicRow[];
+    /** All clusters only: each cluster's figures, by name. */
+    clusters: NetClusterRow[];
+  };
   top: Record<MetricsTopKey, (MetricsVm & { cluster: string })[]>;
   prismRunway: MetricsClusterNow['prism_runway_days'];
   /** All clusters only: each cluster's health, worst first. */
@@ -97,6 +117,11 @@ function nicsOf(c: MetricsClusterNow): NicRow[] {
   }));
 }
 
+function netRowOf(c: MetricsClusterNow): NetClusterRow {
+  const n = c.network;
+  return { uuid: c.uuid, cluster: c.name, rx_kBps: n.rx_kBps, tx_kBps: n.tx_kBps, errors: n.errors, dropped: n.dropped, nics: n.nics.length, links_up: n.links_up };
+}
+
 function sumOrNull(values: (number | null | undefined)[]): number | null {
   const v = values.filter((x): x is number => typeof x === 'number');
   return v.length ? v.reduce((a, b) => a + b, 0) : null;
@@ -106,11 +131,11 @@ function topOf(clusters: MetricsClusterNow[]): ScopeView['top'] {
   const out = {} as ScopeView['top'];
   for (const key of Object.keys(TOP_FIELD) as MetricsTopKey[]) {
     const field = TOP_FIELD[key];
-    // Each cluster's top five; the top five of their union is the target's top five.
+    // Each cluster's top ten; the top ten of their union is the target's top ten.
     out[key] = clusters
       .flatMap((c) => (c.top_vms[key] ?? []).map((v) => ({ ...v, cluster: c.name })))
       .sort((a, b) => ((b[field] as number | null) ?? 0) - ((a[field] as number | null) ?? 0))
-      .slice(0, 5);
+      .slice(0, TOP_MAX);
   }
   return out;
 }
@@ -136,7 +161,7 @@ export function scopeView(now: MetricsNowResult, scope: Scope): ScopeView | null
       },
       alerts: now.alerts.critical.filter((a) => a.cluster_uuid === one.uuid),
       nodes: nodesOf(one),
-      network: { ...one.network, nics: nicsOf(one) },
+      network: { ...one.network, nics: nicsOf(one), clusters: [] },
       top: topOf([one]),
       prismRunway: one.prism_runway_days,
       clusters: [],
@@ -151,6 +176,14 @@ export function scopeView(now: MetricsNowResult, scope: Scope): ScopeView | null
   if (bad) reasons.push(`${fmtCount(bad)} of ${fmtCount(clusters.length)} clusters need attention now`);
   if (warn) reasons.push(`${fmtCount(warn)} with warnings`);
   const nets = clusters.map((c) => c.network);
+  // The core sums the clusters' network (total.network); older sidecars leave it to us.
+  const net = t.network ?? {
+    rx_kBps: sumOrNull(nets.map((n) => n.rx_kBps)),
+    tx_kBps: sumOrNull(nets.map((n) => n.tx_kBps)),
+    errors: sumOrNull(nets.map((n) => n.errors)),
+    dropped: sumOrNull(nets.map((n) => n.dropped)),
+    links_up: nets.reduce((a, n) => a + n.links_up, 0),
+  };
   return {
     name: 'All clusters',
     clusterCount: clusters.length,
@@ -175,12 +208,13 @@ export function scopeView(now: MetricsNowResult, scope: Scope): ScopeView | null
     alerts: now.alerts.critical,
     nodes: clusters.flatMap(nodesOf),
     network: {
-      rx_kBps: sumOrNull(nets.map((n) => n.rx_kBps)),
-      tx_kBps: sumOrNull(nets.map((n) => n.tx_kBps)),
-      errors: sumOrNull(nets.map((n) => n.errors)),
-      dropped: sumOrNull(nets.map((n) => n.dropped)),
-      links_up: nets.reduce((a, n) => a + n.links_up, 0),
+      rx_kBps: net.rx_kBps,
+      tx_kBps: net.tx_kBps,
+      errors: net.errors,
+      dropped: net.dropped,
+      links_up: net.links_up,
       nics: clusters.flatMap(nicsOf),
+      clusters: clusters.map(netRowOf),
     },
     top: topOf(clusters),
     prismRunway: null,

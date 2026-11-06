@@ -2539,6 +2539,7 @@ export interface MetricsClusterNow {
   prism_runway_days: { cpu: number | null; memory: number | null; storage: number | null; overall: number | null } | null;
   nodes: MetricsNode[];
   network: MetricsNetwork;
+  /** Up to ten VMs per list (the page shows five, expandable to ten). */
   top_vms: Record<MetricsTopKey, MetricsVm[]>;
 }
 
@@ -2551,6 +2552,18 @@ export interface MetricsTotalNow {
   efficiency: { saved_bytes: number | null };
   health: { critical: number; warning: number; ok: number; nodes_total: number; nodes_ok: number };
   alerts: { critical: number; warning: number };
+  /** Every cluster's network figures summed (absent from older sidecars). */
+  network?: MetricsNetworkTotal;
+}
+
+/** The target's network: the clusters' `MetricsNetwork` figures summed, NICs counted. */
+export interface MetricsNetworkTotal {
+  rx_kBps: number | null;
+  tx_kBps: number | null;
+  errors: number | null;
+  dropped: number | null;
+  nic_count: number;
+  links_up: number;
 }
 
 interface MetricsHead {

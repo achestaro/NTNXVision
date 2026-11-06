@@ -222,27 +222,27 @@
   // ── collection areas ──
   const AREAS = [
     ['clusters', 'Clusters', 'Infrastructure', true],
-    ['hosts', 'Hosts / nodes', 'Infrastructure', true],
-    ['storage', 'Storage containers', 'Infrastructure', true],
-    ['subnets', 'Subnets / networks', 'Infrastructure', true],
-    ['host_networking', 'Host networking (virtual switches, NICs)', 'Infrastructure', false],
-    ['vms', 'Virtual machines', 'Infrastructure', true],
+    ['hosts', 'Hosts / Nodes', 'Infrastructure', true],
+    ['storage', 'Storage Containers', 'Infrastructure', true],
+    ['subnets', 'Subnets / Networks', 'Infrastructure', true],
+    ['host_networking', 'Host Networking (Virtual Switches, NICs)', 'Infrastructure', false],
+    ['vms', 'Virtual Machines', 'Infrastructure', true],
     ['images', 'Images', 'Infrastructure', false],
-    ['templates', 'VM templates', 'Infrastructure', false],
+    ['templates', 'VM Templates', 'Infrastructure', false],
     ['ovas', 'OVAs', 'Infrastructure', false],
-    ['dr', 'Data protection / DR', 'Platform services', false],
-    ['flow', 'Flow network security', 'Platform services', false],
-    ['fvn', 'Flow virtual networking', 'Platform services', false],
+    ['dr', 'Data Protection / DR', 'Platform services', false],
+    ['flow', 'Flow Network Security', 'Platform services', false],
+    ['fvn', 'Flow Virtual Networking', 'Platform services', false],
     ['files', 'Nutanix Files', 'Platform services', false],
     ['objects', 'Nutanix Objects', 'Platform services', false],
-    ['vg', 'Volume groups', 'Platform services', false],
+    ['vg', 'Volume Groups', 'Platform services', false],
     ['lic', 'Licensing', 'Operations and governance', false],
-    ['alerts', 'Health alerts', 'Operations and governance', false],
-    ['iam', 'IAM (users, roles, projects)', 'Operations and governance', false],
-    ['lcm', 'LCM firmware and software', 'Operations and governance', false],
-    ['xplay', 'X-Play playbooks', 'Operations and governance', false],
-    ['ncm', 'NCM reports', 'Operations and governance', false],
-    ['pcconf', 'Prism Central configuration', 'Operations and governance', false],
+    ['alerts', 'Health Alerts', 'Operations and governance', false],
+    ['iam', 'IAM (Users, Roles, Projects)', 'Operations and governance', false],
+    ['lcm', 'LCM Firmware and Software', 'Operations and governance', false],
+    ['xplay', 'X-Play Playbooks', 'Operations and governance', false],
+    ['ncm', 'NCM Reports', 'Operations and governance', false],
+    ['pcconf', 'Prism Central Configuration', 'Operations and governance', false],
   ].map(([id, label, group, pe]) => ({ id, label, group, pe_supported: pe, default_on: true }));
 
   // Run order and mid-run state from Collecting.dc.html.
@@ -1239,15 +1239,16 @@
       uuid: `${c.uuid}-vm${i}`,
       name: `${c.name.toLowerCase().slice(0, 3)}-${VMS[i % VMS.length]}`,
       cluster_uuid: c.uuid,
-      cpu_pct: Math.round((88 - i * 13 - unit(c.uuid + i) * 6) * 100) / 100,
+      cpu_pct: Math.round((88 - i * 8 - unit(c.uuid + i) * 6) * 100) / 100,
       memory_pct: Math.round((91 - i * 9 - unit(c.uuid + 'm' + i) * 5) * 100) / 100,
       iops: Math.round(2400 / (i + 1) - unit(c.uuid + 'i' + i) * 50),
       latency_usecs: Math.round(5200 / (i + 1) + 300),
-      vcpus: [16, 8, 8, 4, 4][i],
-      memory_bytes: [64, 32, 48, 16, 16][i] * GB,
+      vcpus: [16, 8, 8, 4, 4, 8, 4, 2, 4, 2, 2, 2][i],
+      memory_bytes: [64, 32, 48, 16, 16, 32, 16, 8, 16, 8, 8, 4][i] * GB,
     });
     const top = (c) => {
-      const rows = [0, 1, 2, 3, 4].map((i) => vm(c, i));
+      // Ten per list, like the core's TOP_N (the page shows five, expandable to ten).
+      const rows = Array.from({ length: 10 }, (_, i) => vm(c, i));
       const by = (f) => [...rows].sort((a, b) => b[f] - a[f]);
       return { cpu: by('cpu_pct'), memory: by('memory_pct'), iops: by('iops'), latency: by('latency_usecs') };
     };
@@ -1336,6 +1337,11 @@
           efficiency: { saved_bytes: cl.reduce((a, c) => a + c.efficiency.saved_bytes, 0) },
           health: { critical: cl.filter((c) => c.health.status === 'critical').length, warning: 0, ok: cl.filter((c) => c.health.status === 'ok').length, nodes_total: cl.reduce((a, c) => a + c.nodes.length, 0), nodes_ok: cl.reduce((a, c) => a + c.nodes.length, 0) },
           alerts: { critical: alerts.length, warning: cl.reduce((a, c) => a + c.alerts.warning, 0) },
+          network: {
+            rx_kBps: cl.reduce((a, c) => a + c.network.rx_kBps, 0), tx_kBps: cl.reduce((a, c) => a + c.network.tx_kBps, 0),
+            errors: cl.reduce((a, c) => a + c.network.errors, 0), dropped: cl.reduce((a, c) => a + c.network.dropped, 0),
+            nic_count: cl.reduce((a, c) => a + c.network.nics.length, 0), links_up: cl.reduce((a, c) => a + c.network.links_up, 0),
+          },
         },
         alerts: { critical: alerts, critical_count: alerts.length + 1, warning_count: 15, listed: alerts.length },
         sources: [

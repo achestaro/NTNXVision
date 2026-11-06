@@ -533,7 +533,7 @@ try {
 
   await run('collecting', async () => {
     await startButton().click();
-    await page.getByText(/Virtual machines/).first().waitFor({ timeout: 30_000 });
+    await page.getByText(/Virtual Machines/).first().waitFor({ timeout: 30_000 });
   });
   await run('results', async () => {
     await heading('Collection complete', 180_000);
@@ -707,7 +707,7 @@ try {
     await startButton().click();
     await heading('Collection complete', 180_000);
     await page.getByTestId('results-scope').getByText('Scope: All 4 clusters').waitFor();
-    await page.getByText('vCenter enrichment (ESXi)').first().waitFor({ timeout: 15_000 });
+    await page.getByText('vCenter Enrichment (ESXi)').first().waitFor({ timeout: 15_000 });
   });
 
   await run('remembered-ratio', async () => {

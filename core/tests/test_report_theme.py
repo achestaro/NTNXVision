@@ -243,7 +243,7 @@ def test_excel_without_run_metadata_reads_ok_notes_as_collected(tmp_path: Path) 
     Collection Notes sheet as "Error" with the raw note text."""
     wb = load_workbook(ExcelExporter().export(_pc_env(), tmp_path / "old.xlsx"))
     notes = {r[0]: r for r in wb["Collection Notes"].iter_rows(values_only=True)}
-    assert notes["Virtual machines"][1] == "Collected with notes"
+    assert notes["Virtual Machines"][1] == "Collected with notes"
     assert notes["Nutanix Files"][1] == "Skipped"
 
     lic = wb["Licensing"]

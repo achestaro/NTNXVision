@@ -179,3 +179,18 @@ LINK_VPN = Style(fill=WHITE, stroke=INK_2, stroke_w=0.8, dash=(2.6, 1.9), radius
 TAG_LINK = Style(fill=INK_2, radius=1.9)
 #: The Controller VM badge inside a node.
 CVM = Style(fill=IRIS_TINT, stroke=IRIS, stroke_w=0.5, radius=1.5)
+
+# ─── platform services: NKP, NDB, Objects, Files (S1 to S4) ────────────
+#: A product instance on a cluster (NKP cluster, object store, file server, engine).
+SVC_BOX = Style(fill=WHITE, stroke=IRIS, stroke_w=0.7, radius=3.4)
+#: A member of it: a worker, a bucket, a share, a database.
+SVC_ITEM = Style(fill=WHITE, stroke=RULE, stroke_w=0.6, radius=1.9)
+#: A control plane node or an FSVM (the instance's own VMs, iris tint).
+SVC_CORE = Style(fill=IRIS_TINT, stroke=IRIS, stroke_w=0.5, radius=1.9)
+#: An endpoint clients reach (control plane VIP, load balancer, S3 endpoint).
+SVC_ENDPOINT = Style(fill=WHITE, stroke=INK_2, stroke_w=0.75, radius=4.0)
+#: A database clone, and the dashed line to the database it came from.
+SVC_CLONE = Style(fill=WHITE, stroke=IRIS, stroke_w=0.6, dash=(2.0, 1.6), radius=1.9)
+CLONE_LINK = Style(stroke=IRIS, stroke_w=0.6, dash=(2.0, 1.6))
+#: An endpoint to what it serves (the control plane VIP to the control plane).
+SERVES = Style(stroke=INK_2, stroke_w=0.7)

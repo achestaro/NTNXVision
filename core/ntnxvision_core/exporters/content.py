@@ -1393,6 +1393,7 @@ class _Builder:
     def storage_services(self) -> Chapter:
         env = self.env
         ch = Chapter("nus", "Unified Storage Services (NUS)", "platform_services")
+        self.design_sections(ch)  # Files Design, Objects Design (diagrams.svcdesigns)
         v4_shares = [s for s in env.file_shares if s.api_source == "v4"]
         ch.add("Files", make_table(
             ["File Server", "Cluster", "Version", "FSVMs", "Size (GiB)", "Used (GiB)", "Shares"],
@@ -1547,6 +1548,7 @@ class _Builder:
     def databases(self) -> Chapter:
         env = self.env
         ch = Chapter("ndb", "Database Services (NDB)", "platform_services")
+        self.design_sections(ch)  # Database Service Design (diagrams.svcdesigns)
         dbs = [d for d in env.databases if not d.clone]
         clones = [d for d in env.databases if d.clone]
         ch.add("Databases", make_table(
@@ -1603,6 +1605,7 @@ class _Builder:
         API adds when it was read. "Cluster" is the Nutanix cluster the nodes run on."""
         env = self.env
         ch = Chapter("kubernetes", "Kubernetes (NKP)", "platform_services")
+        self.design_sections(ch)  # Kubernetes Platform Design (diagrams.svcdesigns)
         clusters = env.kubernetes_clusters
         ch.add("Clusters", make_table(
             ["Kubernetes Cluster", "Cluster", "NKP", "Kubernetes", "API Endpoint",
@@ -1949,6 +1952,10 @@ def _disclose_tally(f: SceneFigure, tally: dict[str, int]) -> None:
         f.summary[idx] = bullet
 
 
+#: Chapter key -> its builder in `_ORDER`, where the two names differ.
+_CHAPTER_BUILDER = {"nus": "storage_services", "ndb": "databases"}
+
+
 def figure_scenes(env: Environment, opts: Any, type_id: str) -> list[Scene]:
     """The figures of one diagram type exactly as the report draws them (its section's
     budgets, parts per zone, cross references and edit marks), built from that
@@ -1963,13 +1970,14 @@ def figure_scenes(env: Environment, opts: Any, type_id: str) -> list[Scene]:
 
     b = _Builder(env, ExportOptions.coerce(opts))
     b.only_types = {type_id}
-    build: Callable[[], Chapter | None] | None = getattr(b, t.chapter, None)
+    builder = _CHAPTER_BUILDER.get(t.chapter, t.chapter)
+    build: Callable[[], Chapter | None] | None = getattr(b, builder, None)
     ch = build() if build is not None else None
     if ch is None:
         return []
     # Numbered where the default report puts it ("listed in Table 4-3" reads alike).
     avail = {a["id"]: a["available"] for a in report_sections.availability(env)}
-    before = _ORDER[:_ORDER.index(t.chapter)] if t.chapter in _ORDER else ()
+    before = _ORDER[:_ORDER.index(builder)] if builder in _ORDER else ()
     _number([ch], start=sum(1 for name in before if avail.get(name, True)))
     b.chapters = [ch]
     for finalize in b.finalizers:
