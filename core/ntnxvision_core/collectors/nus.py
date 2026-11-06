@@ -23,6 +23,7 @@ from ntnxvision_core.api import v4_client
 from ntnxvision_core.api.errors import NutanixApiError
 from ntnxvision_core.collectors.base import Collector
 from ntnxvision_core.models import (
+    Bucket,
     FileServer,
     FileShare,
     ObjectStore,
@@ -34,6 +35,16 @@ FILE_SERVERS_V4 = "files/v4.0/config/file-servers"
 FILE_SERVER_GROUP_ATTRS = ["name", "cluster_name", "afs_version", "nvm_uuid_list",
                            "last_used_size_bytes"]
 SHARE_TYPES = {"GENERAL": "Standard", "HOMES": "Distributed"}
+OBJECT_STORES_V4 = "objects/v4.0/config/object-stores"
+OSS_V3 = "/oss/api/nutanix/v3"
+OBJECT_STORE_GROUP_ATTRS = ["name", "cluster_name", "usage_bytes", "num_buckets", "num_objects",
+                            "client_access_network_ip_list"]
+OBJECT_STORE_OSS_ATTRS = ["state", "deployment_version", "num_msp_workers", "total_capacity_gib",
+                          "domain"]
+BUCKET_GROUP_ATTRS = ["name", "owner_name", "versioning", "worm", "retention_duration_days",
+                      "lifecycle", "cors", "website", "nfs", "bucket_notification_state",
+                      "inbound_replication_status", "outbound_replication_status",
+                      "object_count", "storage_usage_bytes"]
 
 
 def record_service(env: Any, name: str, status: str, count: int,
@@ -202,22 +213,98 @@ class FilesCollector(Collector):
 
 
 class ObjectsCollector(Collector):
+    """Object stores and their buckets.
+
+    Checked against Objects 5.3 on pc.7.5.1.6 (2026-11-06): the store list is v4
+    `objects/v4.0/config/object-stores` (no v3 list exists: Objects lives under ``/oss``);
+    usage, bucket and object counts come from Objects' groups entity `objectstore` (below v4
+    GA, the stores themselves too), and the
+    buckets from each store's own groups query (entity `bucket`) behind
+    ``objectstore_proxy/<uuid>``. Both groups queries are reads the transport guard admits.
+    """
+
     name = "objects"
     label = "Nutanix Objects"
 
     def collect(self, env: Any) -> None:
-        # Probed for the status only: 503 is "Objects not enabled" (see the module doc).
-        self.conn.v4_ready("objects")
-        try:
-            stores = self.conn.v3_list("objectstores")
-        except Exception:  # noqa: BLE001 — Objects not deployed
+        # Probed for the status too: 503 is "Objects not enabled" (see the module doc).
+        v4 = self.conn.v4_ready("objects")
+        stores = self._v4_stores(env) if v4 else None
+        if stores is None:
+            stores = self._oss_stores(env)
+        if stores is None:
+            stores = self._v3_stores(env)
+        if stores is None:
             status, reason, api = _service_status(self.conn, "objects", 0, "v3")
             record_service(env, "OBJECTS", status, 0, api)
             env.collection_notes[self.name] = (
                 "skipped: Nutanix Objects not deployed" if status == "NOT_DEPLOYED"
                 else _skip_note("Nutanix Objects", status, reason))
             return
+        self._usage(env)
+        for store in env.object_stores:
+            if store.state in ("COMPLETE", "OBJECT_STORE_AVAILABLE"):
+                self._buckets(env, store)
+        for store in env.object_stores:
+            found = [b for b in env.buckets if b.object_store_name == store.name]
+            if found or store.bucket_count is None:
+                store.bucket_count = len(found)
+        status, _reason, api = _service_status(self.conn, "objects", stores, "v4" if v4 else "v3")
+        record_service(env, "OBJECTS", status, stores, api)
+        env.collection_notes[self.name] = "ok"
 
+    def _v4_stores(self, env: Any) -> int | None:
+        try:
+            rows = self.conn.v4_list(OBJECT_STORES_V4)
+        except NutanixApiError:
+            return None
+        for row in rows:
+            env.object_stores.append(ObjectStore(
+                uuid=str(row.get("extId") or ""),
+                name=row.get("name"),
+                cluster_uuid=row.get("clusterExtId"),
+                deployment_version=row.get("deploymentVersion"),
+                num_worker_nodes=row.get("numWorkerNodes"),
+                total_capacity_bytes=_as_int(row.get("totalCapacityGiB"), scale=1024**3),
+                state=row.get("state"),
+                domain=row.get("domain"),
+                client_ips=[ip for ip in (_ip(x) for x in row.get("publicNetworkIps") or []) if ip],
+                storage_vip=_ip(row.get("storageNetworkVip")),
+                api_source="v4",
+            ))
+        return len(rows)
+
+    def _oss_stores(self, env: Any) -> int | None:
+        """Below v4 GA: the stores from Objects' own groups query (then usage is known)."""
+        try:
+            rows = self.conn.v3_groups("objectstore", [*OBJECT_STORE_GROUP_ATTRS,
+                                                       *OBJECT_STORE_OSS_ATTRS],
+                                       path=f"{OSS_V3}/groups",
+                                       multi_valued=("client_access_network_ip_list",))
+        except Exception:  # noqa: BLE001 — Objects not deployed / not served
+            return None
+        if not rows:
+            return None
+        for r in rows:
+            env.object_stores.append(ObjectStore(
+                uuid=str(r.get("entity_id") or ""),
+                name=r.get("name"),
+                cluster_name=r.get("cluster_name"),
+                deployment_version=r.get("deployment_version"),
+                num_worker_nodes=_as_int(r.get("num_msp_workers")),
+                total_capacity_bytes=_as_int(r.get("total_capacity_gib"), scale=1024**3),
+                state=r.get("state"),
+                domain=r.get("domain"),
+                api_source="objects",
+            ))
+        return len(rows)
+
+    def _v3_stores(self, env: Any) -> int | None:
+        """Older Prism Centrals: the v3 objectstores list, where one is served."""
+        try:
+            stores = self.conn.v3_list("objectstores")
+        except Exception:  # noqa: BLE001 — Objects not deployed
+            return None
         for entity in stores:
             spec = entity.get("spec", {})
             resources = spec.get("resources", {})
@@ -237,12 +324,55 @@ class ObjectsCollector(Collector):
                     api_source="v3",
                 )
             )
+        return len(stores)
 
+    def _usage(self, env: Any) -> None:
+        """Usage, cluster name and bucket / object counts per store (best effort)."""
+        try:
+            rows = self.conn.v3_groups("objectstore", OBJECT_STORE_GROUP_ATTRS,
+                                       path=f"{OSS_V3}/groups",
+                                       multi_valued=("client_access_network_ip_list",))
+        except Exception:  # noqa: BLE001 — enrichment only
+            return
+        by_id = {str(r.get("entity_id")): r for r in rows}
         for store in env.object_stores:
-            store.bucket_count = sum(1 for b in env.buckets if b.object_store_name == store.name)
-        status, _reason, api = _service_status(self.conn, "objects", len(stores), "v3")
-        record_service(env, "OBJECTS", status, len(stores), api)
-        env.collection_notes[self.name] = "ok"
+            g = by_id.get(store.uuid)
+            if not g:
+                continue
+            store.cluster_name = store.cluster_name or g.get("cluster_name")
+            store.used_bytes = store.used_bytes or _as_int(g.get("usage_bytes"))
+            store.bucket_count = _as_int(g.get("num_buckets"))
+            store.object_count = _as_int(g.get("num_objects"))
+            store.client_ips = store.client_ips or list(g.get("client_access_network_ip_list")
+                                                        or [])
+
+    def _buckets(self, env: Any, store: ObjectStore) -> None:
+        try:
+            rows = self.conn.v3_groups("bucket", BUCKET_GROUP_ATTRS,
+                                       path=f"{OSS_V3}/objectstore_proxy/{store.uuid}/groups")
+        except Exception:  # noqa: BLE001 — the store's own service may be down
+            return
+        for r in rows:
+            replication = [d for d, key in (("Outbound", "outbound_replication_status"),
+                                            ("Inbound", "inbound_replication_status"))
+                           if (r.get(key) or "None") != "None"]
+            env.buckets.append(Bucket(
+                name=r.get("name") or "",
+                object_store_name=store.name,
+                owner=r.get("owner_name"),
+                versioning=_enabled(r.get("versioning")),
+                worm_enabled=_enabled(r.get("worm")),
+                retention_days=_as_int(r.get("retention_duration_days")) or None,
+                lifecycle=_enabled(r.get("lifecycle")),
+                cors=_enabled(r.get("cors")),
+                website=_enabled(r.get("website")),
+                nfs=_enabled(r.get("nfs")),
+                notifications=_enabled(r.get("bucket_notification_state")),
+                replication=", ".join(replication) or None,
+                object_count=_as_int(r.get("object_count")),
+                used_bytes=_as_int(r.get("storage_usage_bytes")),
+                api_source="objects",
+            ))
 
 
 class VolumesCollector(Collector):
@@ -366,6 +496,22 @@ class VolumesCollector(Collector):
 
 
 # ─── helpers ───────────────────────────────────────────────────────────
+
+
+def _enabled(value: Any) -> bool | None:
+    """Objects' groups flags: "true" / "false", "Enabled" / "Disabled" (also "Suspended")."""
+    if value is None or value == "":
+        return None
+    return str(value).lower() in ("true", "enabled")
+
+
+def _ip(value: Any) -> str | None:
+    """A v4 `common.v1.config.IPAddress` as text."""
+    if not isinstance(value, dict):
+        return None
+    v4 = value.get("ipv4") or {}
+    v6 = value.get("ipv6") or {}
+    return v4.get("value") or v6.get("value") or None
 
 
 def _net_name(networks: list[dict[str, Any]]) -> str | None:

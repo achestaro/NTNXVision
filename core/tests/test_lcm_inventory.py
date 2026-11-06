@@ -62,6 +62,9 @@ def _by_name(env: Any) -> dict[str, LcmInventoryTarget]:
     ("HEAD", "https://pc.example.lab:9440/"),
     ("POST", "https://pc.example.lab:9440/api/nutanix/v3/vms/list"),
     ("POST", "https://pc.example.lab:9440/api/nutanix/v3/groups"),
+    ("POST", "https://pc.example.lab:9440/oss/api/nutanix/v3/groups"),
+    ("POST", "https://pc.example.lab:9440/oss/api/nutanix/v3/objectstore_proxy/"
+             "0f0e0d0c-0b0a-4908-8706-050403020100/groups"),
     ("POST", "https://vc.example.lab/api/session"),
     ("DELETE", "https://vc.example.lab/rest/com/vmware/cis/session"),
 ])
@@ -76,6 +79,13 @@ def test_guard_allows_reads(method: str, url: str) -> None:
     ("PATCH", "https://pc.example.lab:9440/api/nutanix/v3/vms/list"),
     ("POST", "https://pc.example.lab:9440/api/lifecycle/v4.0/operations/$actions/upgrade"),
     ("POST", "https://pc.example.lab:9440/api/nutanix/v3/vms/list/extra"),
+    # Objects: only its groups queries are reads; creating a bucket or store is not.
+    ("POST", "https://pc.example.lab:9440/oss/api/nutanix/v3/objectstores"),
+    ("POST", "https://pc.example.lab:9440/oss/api/nutanix/v3/objectstore_proxy/"
+             "0f0e0d0c-0b0a-4908-8706-050403020100/buckets"),
+    ("POST", "https://pc.example.lab:9440/oss/api/nutanix/v3/objectstore_proxy/"
+             "not-a-store/groups"),
+    ("PUT", "https://pc.example.lab:9440/oss/api/nutanix/v3/groups"),
     # Without the permit, the inventory is refused like any write.
     ("POST", f"https://pc.example.lab:9440{INVENTORY}"),
     ("POST", "https://pc.example.lab:9440/api/lifecycle/v4.0/operations/%24actions/inventory"),

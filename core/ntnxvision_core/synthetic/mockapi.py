@@ -272,6 +272,8 @@ class MockApi:
             return self._v3_list(est, m.group(1), body)
         if method == "POST" and path == "/api/nutanix/v3/groups":
             return self._v3_groups(est, body)
+        if method == "POST" and path.startswith("/oss/api/nutanix/v3/"):
+            return self._oss_groups(est, path, body)
         if method == "GET" and path.startswith("/api/") and re.search(r"/v4\.\d+/", path):
             return self._v4(target, est, path[len("/api/"):], query, headers)
         if method == "GET" and path == "/api/nutanix/v3/prism_central":
@@ -280,6 +282,23 @@ class MockApi:
         if method == "GET" and m:
             return self._v3_service(est, m.group(1))
         return _not_found_v3(path)
+
+    def _oss_groups(self, est: PcEstate, path: str, body: dict[str, Any]) -> Response:
+        """Nutanix Objects' groups queries: stores, and one store's buckets."""
+        attrs = [a.get("attribute") for a in body.get("group_member_attributes") or []]
+        rows: list[dict[str, Any]] | None = None
+        if path == "/oss/api/nutanix/v3/groups" and body.get("entity_type") == "objectstore":
+            rows = [r.object_store_group_row(o) for o in est.object_stores]
+        m = re.fullmatch(r"/oss/api/nutanix/v3/objectstore_proxy/([0-9a-f-]+)/groups", path)
+        if m and body.get("entity_type") == "bucket":
+            store = next((o for o in est.object_stores if o["uuid"] == m.group(1)), None)
+            if store is None:
+                return 404, {"message": f"Unknown object store {m.group(1)}"}, {}
+            rows = store["buckets"]
+        if rows is None:
+            return 404, {"message": f"Not found: {path}"}, {}
+        etype = str(body.get("entity_type"))
+        return 200, r.groups_response(etype, rows, [a for a in attrs if a], len(rows)), {}
 
     def _v3_service(self, est: PcEstate, service: str) -> Response:
         on = {p["name"]: p["enabled"] for p in est.products}
@@ -492,8 +511,7 @@ class MockApi:
             "prism/v4.0/config/categories": (est.categories, r.category_v4),
             "prism/v4.0/config/domain-managers": ([None], lambda _x: r.domain_manager_v4(est)),
             "files/v4.0/config/file-servers": (est.file_servers, r.file_server_v4),
-            "objects/v4.0/config/object-stores": (est.object_stores, lambda o: {
-                "extId": o["uuid"], "name": o["name"]}),
+            "objects/v4.0/config/object-stores": (est.object_stores, r.object_store_v4),
             "iam/v4.0/authn/users": (est.users, lambda u: r.user_v4(est, u)),
             "iam/v4.0/authn/directory-services": (
                 [x for x in est.directories if x["kind"] == "ldap"], r.directory_v4),

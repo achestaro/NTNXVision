@@ -470,7 +470,7 @@ def groups_response(
         for attr in attrs:
             # mh_vm / virtual_nic / virtual_disk rows arrive pre-flattened (mockapi),
             # keyed by attribute.
-            if entity_type in ("mh_vm", "virtual_nic", "virtual_disk"):
+            if entity_type in ("mh_vm", "virtual_nic", "virtual_disk", "objectstore", "bucket"):
                 value = row.get(attr)
             else:
                 getter = getters.get(attr)
@@ -1227,6 +1227,29 @@ def file_share_v3(sh: dict[str, Any]) -> dict[str, Any]:
 def file_server_v4(fs: dict[str, Any]) -> dict[str, Any]:
     return _v4("files.v4.config.FileServer", {"extId": fs["uuid"], "name": fs["name"],
                                                "version": fs["version"]})
+
+
+def object_store_v4(o: dict[str, Any]) -> dict[str, Any]:
+    ip = lambda v: {"ipv4": {"value": v, "prefixLength": 32}}  # noqa: E731
+    return _v4("objects.v4.config.ObjectStore", {
+        "extId": o["uuid"], "name": o["name"], "clusterExtId": o["cluster_uuid"],
+        "deploymentVersion": o["version"], "numWorkerNodes": o["workers"],
+        "totalCapacityGiB": o["capacity_gib"], "domain": o["domain"],
+        "state": "OBJECT_STORE_AVAILABLE" if o["state"] == "COMPLETE" else o["state"],
+        "publicNetworkIps": [ip(x) for x in o["client_ips"]],
+        "storageNetworkVip": ip(o["storage_vip"]),
+    })
+
+
+def object_store_group_row(o: dict[str, Any]) -> dict[str, Any]:
+    """An `objectstore` row of Objects' groups query (pre-flattened: attribute -> value)."""
+    return {"uuid": o["uuid"], "name": o["name"], "cluster_name": o["cluster_name"],
+            "state": o["state"], "deployment_version": o["version"],
+            "num_msp_workers": str(o["workers"]), "total_capacity_gib": str(o["capacity_gib"]),
+            "domain": o["domain"], "usage_bytes": str(o["used"]),
+            "num_buckets": str(len(o["buckets"])),
+            "num_objects": str(sum(int(b["object_count"]) for b in o["buckets"])),
+            "client_access_network_ip_list": o["client_ips"]}
 
 
 def object_store_v3(o: dict[str, Any]) -> dict[str, Any]:

@@ -82,7 +82,8 @@ Every PR that changes shipped code (paths in `scripts/check-version-bump.mjs`) b
 
 - Collectors are **read-only**: GET/list only, never create/update/delete. `api/transport.py`'s
   guard (`check_request`) enforces it on every session. Allowed: GET/HEAD, the v3 `list`/`groups`
-  POSTs, the vCenter session login/logout (path match on any host) and the two read-only LCM
+  POSTs, Nutanix Objects' two `groups` POSTs under `/oss` (stores; one store's buckets), the
+  vCenter session login/logout (path match on any host) and the two read-only LCM
   Genesis RPCs (`get_config`, `is_lcm_operation_in_progress`, body checked). Anything else is
   refused before it is sent.
 - The **one exception** is the opt-in LCM inventory, in one of two forms:

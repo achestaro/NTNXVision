@@ -1098,20 +1098,33 @@ class ObjectStore(SourcedObject):
     uuid: str
     name: str | None = None
     cluster_name: str | None = None
+    cluster_uuid: str | None = None  # v4 names the cluster by uuid only
     deployment_version: str | None = None
     num_worker_nodes: int | None = None
     total_capacity_bytes: int | None = None
     used_bytes: int | None = None
     bucket_count: int | None = None
+    object_count: int | None = None
     state: str | None = None
+    domain: str | None = None
+    client_ips: list[str] = Field(default_factory=list)  # S3 client access endpoints
+    storage_vip: str | None = None
     api_source: str = "v3"
 
 
 class Bucket(SourcedObject):
     name: str
     object_store_name: str | None = None
+    owner: str | None = None
     versioning: bool | None = None
     worm_enabled: bool | None = None
+    retention_days: int | None = None  # WORM / object lock retention
+    lifecycle: bool | None = None
+    cors: bool | None = None
+    website: bool | None = None
+    nfs: bool | None = None
+    notifications: bool | None = None
+    replication: str | None = None  # "Outbound", "Inbound", "Outbound, Inbound"
     object_count: int | None = None
     used_bytes: int | None = None
     api_source: str = "v3"

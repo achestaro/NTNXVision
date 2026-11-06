@@ -1232,11 +1232,33 @@ def _nus(est: PcEstate) -> None:
                 })
     if feats.objects:
         c = est.clusters[0]
-        est.object_stores.append({
+        store = {
             "uuid": uid(seed, "oss", "objects-01"), "name": "objects-01",
-            "cluster_name": c["name"], "version": "4.4", "workers": 3,
-            "capacity_gib": 102400, "used": int(102400 * GIB * 0.18), "state": "COMPLETE",
-        })
+            "cluster_name": c["name"], "cluster_uuid": c["uuid"], "version": "4.4",
+            "workers": 3, "capacity_gib": 102400, "used": int(102400 * GIB * 0.18),
+            "state": "COMPLETE", "client_ips": ["10.21.9.20", "10.21.9.21"],
+            "storage_vip": "10.21.9.11", "domain": "msp.cluster.local", "buckets": [],
+        }
+        # Buckets in the shapes Objects' groups query returns (flags as strings).
+        for name, owner, flags, objects, size in (
+                ("finance-reports", "svc-finance", {"versioning": "Enabled"}, 1840, 42 * GIB),
+                ("app-logs", "svc-platform", {"lifecycle": "true"}, 96210, 310 * GIB),
+                ("legal-hold", "svc-legal", {"versioning": "Enabled", "worm": "true",
+                                             "retention_duration_days": "2555"}, 512, 8 * GIB),
+                ("web-assets", "svc-web", {"website": "true", "cors": "true"}, 4200, 3 * GIB),
+                ("dr-copy", "svc-platform", {"versioning": "Enabled",
+                                             "outbound_replication_status": "Enabled"},
+                 22000, 640 * GIB),
+                ("nfs-share", "svc-hpc", {"nfs": "true"}, 120, GIB)):
+            store["buckets"].append({
+                "uuid": uid(seed, "bucket", name), "name": name, "owner_name": owner,
+                "versioning": "Disabled", "worm": "false", "retention_duration_days": "0",
+                "lifecycle": "false", "cors": "false", "website": "false", "nfs": "false",
+                "bucket_notification_state": "Disabled", "inbound_replication_status": "None",
+                "outbound_replication_status": "None", "object_count": str(objects),
+                "storage_usage_bytes": str(size), **flags,
+            })
+        est.object_stores.append(store)
     for c in est.clusters:
         for k in range(3 + c["nodes"] // 3):
             name = f"vg-{c['name'].lower()}-{k + 1:02d}"

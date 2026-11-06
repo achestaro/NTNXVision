@@ -1413,14 +1413,18 @@ class _Builder:
              for s in v4_shares],
             "File share settings", self.src(v4_shares)))
         ch.add("Objects", make_table(
-            ["Object Store", "Cluster", "Workers", "Capacity (GiB)", "Buckets", "State"],
-            [[o.name, self.cluster(o), o.num_worker_nodes, gib(o.total_capacity_bytes),
-              o.bucket_count, o.state] for o in env.object_stores],
+            ["Object Store", "Cluster", "Version", "Workers", "Capacity (GiB)", "Used (GiB)",
+             "Buckets", "Client IPs"],
+            [[o.name, self.cluster(o), o.deployment_version, o.num_worker_nodes,
+              gib(o.total_capacity_bytes), gib(o.used_bytes), o.bucket_count,
+              ", ".join(o.client_ips)] for o in env.object_stores],
             "Nutanix Objects stores", self.src(env.object_stores)),
             make_table(
-            ["Bucket", "Object Store", "Versioning", "WORM", "Objects", "Used (GiB)"],
-            [[b.name, b.object_store_name, yes_no(b.versioning), yes_no(b.worm_enabled),
-              b.object_count, gib(b.used_bytes)] for b in env.buckets],
+            ["Bucket", "Owner", "Versioning", "WORM", "Lifecycle", "Objects", "Used (GiB)"],
+            [[b.name, b.owner, yes_no(b.versioning),
+              f"Yes ({b.retention_days} d)" if b.worm_enabled and b.retention_days
+              else yes_no(b.worm_enabled), yes_no(b.lifecycle), b.object_count,
+              gib(b.used_bytes)] for b in env.buckets],
             "Buckets", self.src(env.buckets)))
         ch.add("Volumes", make_table(
             ["Volume Group", "Cluster", "Disks", "Capacity (GiB)", "Shared"],
