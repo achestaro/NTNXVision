@@ -27,6 +27,7 @@ from openpyxl.utils import get_column_letter
 from openpyxl.worksheet.hyperlink import Hyperlink
 from openpyxl.worksheet.worksheet import Worksheet
 
+from ntnxvision_core.exporters import products as P
 from ntnxvision_core.exporters import sections as report_sections
 from ntnxvision_core.exporters import tables as T
 from ntnxvision_core.exporters import theme as TH
@@ -59,6 +60,9 @@ _RIGHT = Alignment(horizontal="right", vertical="center", indent=1)
 _LEFT = Alignment(horizontal="left", vertical="center")
 _TOP_LEFT = Alignment(horizontal="left", vertical="top", wrap_text=True)
 _INDENT = Alignment(horizontal="left", vertical="center", indent=1)
+#: Product icon sizes (px): beside a sheet's header row, in the Overview products list.
+ICON_SHEET_PX = 20
+ICON_OVERVIEW_PX = 22
 _DATETIME = "yyyy-mm-dd hh:mm"
 _DATE = "yyyy-mm-dd"
 
@@ -81,7 +85,8 @@ _SPECS = (
     # Phase 2: NUS
     T.FILE_SERVERS, T.FILE_SHARES, T.OBJECT_STORES, T.BUCKETS, T.VOLUME_GROUPS,
     # Phase 2: NDB
-    T.DATABASES, T.DATABASE_SERVERS, T.TIME_MACHINES,
+    T.DATABASES, T.DATABASE_SERVERS, T.TIME_MACHINES, T.NDB_CLUSTERS, T.NDB_PROFILES,
+    T.NDB_SLAS, T.NDB_SNAPSHOTS, T.NDB_MAINTENANCE, T.NDB_TAGS,
     # Phase 2: IAM / automation
     T.USERS, T.ROLES, T.PROJECTS, T.PLAYBOOKS, T.NCM_REPORTS,
     # Licensing
@@ -164,13 +169,15 @@ class ExcelExporter:
         if spec is T.CAPACITY:
             return self._capacity_sheet(wb, env, headers, rows, ctx)
         return self._table(wb, spec.sheet, headers, rows,
-                           _sources(env, items) if spec.sources else None)
+                           _sources(env, items) if spec.sources else None,
+                           product=P.for_sheet(spec.type))
 
     def _capacity_sheet(self, wb: Workbook, env: Environment, headers: list[str],
                         rows: list[list[Any]], ctx: Ctx) -> str | None:
         """Per-cluster capacity inputs and results, with the formulas spelled out below."""
         title = self._table(wb, T.CAPACITY.sheet, headers, rows,
-                            _sources(env, env.clusters), wrap=("Notes",))
+                            _sources(env, env.clusters), wrap=("Notes",),
+                            product=P.for_sheet(T.CAPACITY.type))
         if title is None:
             return None
         ws = wb[title]
@@ -263,6 +270,21 @@ class ExcelExporter:
             cell.alignment = _LEFT
             ws.merge_cells(start_row=row, start_column=2, end_row=row, end_column=4)
             row += 1
+
+        if (products := P.in_estate(env)):
+            row = self._section(ws, row + 1, "Nutanix products")
+            for product, detail in products:
+                ws.row_dimensions[row].height = 21
+                _icon(ws, product, col=0, row=row - 1, px=ICON_OVERVIEW_PX - 4, dx=2, dy=4)
+                name = ws.cell(row=row, column=1, value=(
+                    product.name if product.short in product.name
+                    else f"{product.name} ({product.short})"))
+                name.font = Font(name=_FONT, size=10, bold=True, color=TH.INK)
+                name.alignment = Alignment(horizontal="left", vertical="center", indent=3)
+                cell = ws.cell(row=row, column=2, value=detail)
+                cell.font, cell.alignment = _BODY_FONT, _LEFT
+                ws.merge_cells(start_row=row, start_column=2, end_row=row, end_column=4)
+                row += 1
 
         row = self._section(ws, row + 1, "Collection")
         summary = (f"{fmt_count(cov['collected'] + cov['with_notes'])} of "
@@ -367,7 +389,7 @@ class ExcelExporter:
             ["PC VM(s)", ", ".join(cfg.pc_vm_names)],
             ["IP Address(es)", ", ".join(cfg.ip_addresses)],
         ]
-        self._table(wb, "Prism Central", headers, rows)
+        self._table(wb, "Prism Central", headers, rows, product=P.PRODUCTS["prism"])
 
     def _source_pcs_sheet(self, wb: Workbook, env: Environment) -> None:
         """One row per contributing Prism Central: the combined-run replacement for the
@@ -391,7 +413,7 @@ class ExcelExporter:
                 _gib(cfg.memory_bytes), cfg.ncc_version, ", ".join(cfg.ip_addresses),
                 counts.get("clusters"), counts.get("hosts"), counts.get("vms"),
             ])
-        self._table(wb, "Prism Centrals", headers, rows)
+        self._table(wb, "Prism Centrals", headers, rows, product=P.PRODUCTS["prism"])
 
     def _feature_usage_sheet(self, wb: Workbook, env: Environment) -> None:
         from ntnxvision_core.analysis import analyze_feature_usage
@@ -468,6 +490,7 @@ class ExcelExporter:
     def _table(
         self, wb: Workbook, title: str, headers: list[str], rows: list[list[Any]],
         sources: list[str] | None = None, wrap: tuple[str, ...] = (),
+        product: P.Product | None = None,
     ) -> str | None:
         """Write one sheet; returns its name, or None when there are no rows.
 
@@ -516,7 +539,32 @@ class ExcelExporter:
         if ws.sheet_properties.pageSetUpPr is not None:
             ws.sheet_properties.pageSetUpPr.fitToPage = True
         ws.print_title_rows = "1:1"
+        if product is not None:
+            # Beside the header row, right of the last column: the table is untouched.
+            _icon(ws, product, col=len(headers), row=0, px=ICON_SHEET_PX, dx=6, dy=3)
         return ws.title
+
+
+def _icon(ws: Worksheet, product: P.Product, col: int, row: int, px: int, dx: int = 0,
+          dy: int = 0) -> None:
+    """`product`'s icon floating over cell (`col`, `row`) (0-based), `dx` / `dy` px in
+    from its top-left corner: a picture, so no cell value or column changes."""
+    import io
+
+    from openpyxl.drawing.image import Image as XLImage
+    from openpyxl.drawing.spreadsheet_drawing import AnchorMarker, OneCellAnchor
+    from openpyxl.drawing.xdr import XDRPositiveSize2D
+    from openpyxl.utils.units import pixels_to_EMU
+
+    # Twice the drawn size keeps it sharp on high-DPI screens; openpyxl stores one copy
+    # per picture, so the master (256 px) would add ~8 KB to every sheet.
+    img = XLImage(io.BytesIO(P.png_at(product.id, 2 * px)))
+    img.width = img.height = px
+    img.anchor = OneCellAnchor(
+        _from=AnchorMarker(col=col, colOff=pixels_to_EMU(dx), row=row,
+                           rowOff=pixels_to_EMU(dy)),
+        ext=XDRPositiveSize2D(pixels_to_EMU(px), pixels_to_EMU(px)))
+    ws.add_image(img)
 
 
 def capacity_legend(targets: str) -> list[str]:

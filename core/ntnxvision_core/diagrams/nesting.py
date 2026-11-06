@@ -47,19 +47,23 @@ LINKS = ("directconnect", "expressroute", "interconnect", "vpn")
 #: Cloud-side services an NC2 reference architecture draws in a cloud or a region.
 CLOUD_SERVICES = ("cloud_net", "transit", "flow_gateway", "nc2_portal", "cloud_storage")
 _ON_PREM_NET = ("tor", "switch", "segment", "gateway", "external", "vpc")
+#: The Nutanix product cards (`icons.PRODUCT_ICONS`), placeable in any frame.
+PRODUCTS = ("product_prism", "product_nci", "product_ncm", "product_ndb", "product_nus",
+            "product_nc2", "product_nkp", "product_nai")
 
 #: Parent kind -> the kinds it may contain (icon ids; collected elements are classified
 #: into the same vocabulary by `collected_kind`). The one definition of the hierarchy.
 CHILDREN: dict[str, tuple[str, ...]] = {
     "datacenter": ("az", "remote", "pod", "pc", "cluster", "vcenter", "storage",
-                   *_ON_PREM_NET, "policy", *LINKS, "note"),
+                   *_ON_PREM_NET, "policy", *LINKS, *PRODUCTS, "note"),
     # Cloud region > NC2 on <cloud> > VPC / VNet (and the NC2 clusters, PODs, ...).
     "region": (*CLOUDS, *LINKS, "note"),
-    **{c: ("nc2_cluster", "pc", "pod", *CLOUD_SERVICES, *LINKS, "note") for c in CLOUDS},
+    **{c: ("nc2_cluster", "pc", "pod", *CLOUD_SERVICES, *LINKS, *PRODUCTS, "note")
+       for c in CLOUDS},
     "az": ("pod", "pc", "cluster", "vcenter", "storage", *_ON_PREM_NET, "policy", "plans",
-           "note"),
+           *PRODUCTS, "note"),
     "remote": ("pc", "cluster"),
-    "pod": ("pc", "cluster", "nc2_cluster", "vcenter", "storage"),
+    "pod": ("pc", "cluster", "nc2_cluster", "vcenter", "storage", *PRODUCTS),
     "cloud_net": ("nc2_cluster", "flow_gateway", "overlay", "segment"),
     "cluster": ("node", "bm_node", "container", "vcenter", "switch", "segment"),
     "nc2_cluster": ("bm_node", "node", "container", "switch", "segment"),
@@ -225,10 +229,17 @@ def text_rows(icon: Any, item: dict[str, Any], holder: bool) -> list[Row]:
     return rows
 
 
+#: Side of the product icon at the left of a placed product card, and the gap after it.
+PRODUCT_GLYPH, PRODUCT_GAP = 14.0, 4.0
+
+
 def lead(icon: Any) -> float:
-    """Room before the text of a row that starts with a chip (a VLAN segment)."""
+    """Room before the text of a row that starts with a chip (a VLAN segment) or a
+    product icon (a product card)."""
     from . import tokens as K
 
+    if icon.id in PRODUCTS:
+        return PRODUCT_GLYPH + PRODUCT_GAP
     return q(tx.width("VLAN", K.SIZE_CHIP, True) + 9 + 4) if icon.id == "segment" else 0.0
 
 

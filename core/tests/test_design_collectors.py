@@ -13,6 +13,7 @@ import pytest
 from ntnxvision_core.api.errors import NutanixApiError
 from ntnxvision_core.collectors.clusters import ClusterCollector
 from ntnxvision_core.collectors.dataprotection import DataProtectionCollector
+from ntnxvision_core.collectors.flow import FlowSecurityCollector
 from ntnxvision_core.collectors.hostnet import HostNetworkCollector
 from ntnxvision_core.collectors.hosts import HostCollector
 from ntnxvision_core.collectors.nus import FilesCollector, ObjectsCollector
@@ -730,6 +731,33 @@ def test_files_listed_only_by_v4_are_recorded() -> None:
     assert env.pc_config.services[0].status == "DEPLOYED"
 
 
+def test_files_v4_server_is_enriched_from_groups_and_reads_its_mount_targets() -> None:
+    """pc.7.5 has no v3 file server list and a bare v4 file server (extId and name)."""
+    share = {"extId": "mt-1", "name": "Home", "path": "/Home", "type": "HOMES",
+             "protocol": "SMB", "secondaryProtocol": ["NONE"], "maxSizeGB": 0,
+             "isCompressionEnabled": True, "isReadOnly": False,
+             "smbProperties": {"isAccessBasedEnumerationEnabled": True, "isCaEnabled": False}}
+    conn = FakeConn(
+        {"files/v4.0/config/file-servers": [{"extId": "fs-1", "name": "fs"}],
+         "files/v4.0/config/file-servers/fs-1/mount-targets": [
+             share, {**share, "extId": "mt-2", "name": "Apps", "type": "GENERAL",
+                     "maxSizeGB": 500, "secondaryProtocol": ["NFS"]}]},
+        groups={"file_server_service": [{
+            "entity_id": "fs-1", "cluster_name": "ahv-01", "afs_version": "5.3.0.3",
+            "nvm_uuid_list": ["a", "b", "c"], "last_used_size_bytes": "2048"}]})
+    env = Environment()
+    FilesCollector(conn).collect(env)  # type: ignore[arg-type]
+    fs = env.file_servers[0]
+    assert (fs.cluster_name, fs.version, fs.num_fsvm, fs.used_bytes, fs.share_count) == (
+        "ahv-01", "5.3.0.3", 3, 2048, 2)
+    home, apps = env.file_shares
+    assert (home.share_type, home.protocol, home.max_size_bytes, home.file_server_name) == (
+        "Distributed", "SMB", None, "fs")
+    assert home.access_based_enumeration and home.compression and not home.read_only
+    assert (apps.share_type, apps.protocol, apps.max_size_bytes) == (
+        "Standard", "SMB/NFS", 500 * 1024**3)
+
+
 def test_resolution_is_idempotent_and_names_remote_clusters_after_a_merge() -> None:
     env = Environment(clusters=[Cluster(uuid=CL_AHV, name="ahv-01")])
     DataProtectionCollector(_dp_conn()).collect(env)  # type: ignore[arg-type]
@@ -781,3 +809,20 @@ def test_scope_prunes_registered_clusters_but_keeps_paired_pcs() -> None:
     scope.prune(env)
     assert [r.remote_uuid for r in env.pc_registrations] == [CL_AHV, PC_REMOTE]
     assert env.external_storages == [] and env.storage_containers == []
+
+
+def test_flow_security_switched_off_is_a_skip_not_an_error() -> None:
+    """pc.7.5 without Flow Network Security: the v3 lists answer 500 kMicrosegDisabledError."""
+    off = NutanixApiError("HTTP 500: kMicrosegDisabledError: This operation is not allowed "
+                          "since Flow Network Security is not yet enabled.", status_code=500)
+    conn = FakeConn(ready=False, v3={k: off for k in (
+        "categories", "address_groups", "network_security_rules", "service_groups")})
+    env = Environment()
+    FlowSecurityCollector(conn).collect(env)  # type: ignore[arg-type]
+    assert env.collection_notes["flow_security"] == (
+        "skipped: Flow Network Security not enabled")
+    other = FakeConn(ready=False, v3={"network_security_rules": NutanixApiError(
+        "HTTP 500: boom", status_code=500), "categories": [], "address_groups": [],
+        "service_groups": []})
+    with pytest.raises(NutanixApiError):
+        FlowSecurityCollector(other).collect(Environment())  # type: ignore[arg-type]

@@ -1148,6 +1148,26 @@ try {
     await page.getByRole('listbox', { name: 'Icons' }).getByRole('option', { name, exact: true }).click();
   };
 
+  await run('diagrams-products', async () => {
+    // The catalog's "Nutanix products" group: eight product cards, each swatch drawing its own art.
+    await page.getByRole('toolbar', { name: 'Add to diagram' }).getByRole('button', { name: 'Add', exact: true }).click();
+    const search = page.getByRole('textbox', { name: 'Search icons' });
+    await search.fill('nutanix products');
+    await page.locator('.dg-ip-grp', { hasText: 'Nutanix products' }).waitFor({ timeout: 15_000 });
+    const list = page.getByRole('listbox', { name: 'Icons' });
+    await list.getByRole('option', { name: 'Nutanix Unified Storage (NUS)', exact: true }).waitFor();
+    const art = await list.locator('.dg-ip-row .dg-ip-swatch path').count();
+    if (!art) throw new Error('the product rows draw no icon art');
+    // Close the picker (the Add button toggles it) and clear the search for the next step.
+    await search.fill('');
+    const picker = page.getByRole('dialog', { name: 'Add to the diagram' });
+    await search.press('Escape');
+    if (await picker.isVisible()) {
+      await page.getByRole('toolbar', { name: 'Add to diagram' }).getByRole('button', { name: 'Add', exact: true }).click();
+    }
+    await picker.waitFor({ state: 'hidden', timeout: 10_000 });
+  });
+
   await run('diagrams-add', async () => {
     await el('site:').first().click({ position: { x: 30, y: 12 } });
     await addFromPicker('Storage array, in this layout');

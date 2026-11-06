@@ -25,6 +25,39 @@
 //             and unbroken tokens (URLs, build strings) to check that cards contain them
 (function () {
   const opt = Object.assign({ theme: 'light', accent: 'iris', run: 'hold', test: 'ok', clusters: 'ok', platform: 'darwin' }, window.__STUB__ || {});
+  // Nutanix product icons on the diagram fixtures (until stub-diagrams.json is regenerated
+  // by a core that draws them): the eight "Nutanix products" catalog icons for the Add
+  // picker, and a Prism glyph badging each zone's Prism Central box on the canvas.
+  (function addProducts(D) {
+    if (!D) return;
+    const PRODUCTS = [
+      ['prism', 'Nutanix Prism Central'],
+      ['nci', 'Nutanix Cloud Infrastructure (NCI)'],
+      ['ncm', 'Nutanix Cloud Manager (NCM)'],
+      ['ndb', 'Nutanix Database Service (NDB)'],
+      ['nus', 'Nutanix Unified Storage (NUS)'],
+      ['nc2', 'Nutanix Cloud Clusters (NC2)'],
+      ['nkp', 'Nutanix Kubernetes Platform (NKP)'],
+      ['nai', 'Nutanix Enterprise AI (NAI)'],
+    ];
+    const card = { fill: '#FFFFFF', stroke: '#C9D0D6', stroke_w: 0.7, dash: null, radius: 3.4 };
+    for (const state of ['generated', 'edited', 'stale', 'nested']) {
+      const d = D[state];
+      if (!d) continue;
+      if (Array.isArray(d.icons) && !d.icons.some((i) => i.product)) {
+        for (const [id, name] of PRODUCTS) {
+          d.icons.push({ id: `product_${id}`, label: name, group: 'Nutanix products', w: 150, h: 30, name, sub: '', keywords: `nutanix product ${id} ${name.toLowerCase()}`, hint: 'A product card with its icon.', container: false, style: card, chip: null, ink: '#0F1A24', children: [], product: id });
+        }
+      }
+      for (const sc of d.scenes || []) {
+        if (sc.nodes.some((n) => n.kind === 'glyph')) continue;
+        for (const n of [...sc.nodes]) {
+          if (n.kind !== 'box' || !/:pc$/.test(n.id)) continue;
+          sc.nodes.push({ id: `${n.id}:glyph`, kind: 'glyph', x: n.x + n.w - 16, y: n.y + 4, w: 12, h: 12, style: { fill: '#FFFFFF', stroke: null, stroke_w: 0.75, dash: null, radius: 1.6 }, lines: [], parent: n.id, data: { product: 'prism', name: 'Nutanix Prism Central' } });
+        }
+      }
+    }
+  })(window.__STUB_DIAGRAMS__);
   const GB = 1024 ** 3;
   const MB = 1024 ** 2;
   const year = new Date().getFullYear();

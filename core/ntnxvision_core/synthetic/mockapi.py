@@ -670,7 +670,10 @@ class MockApi:
             return 404, {"errorCode": "ERA-404", "message": f"Not found: {path}"}, {}
         what = path[len(prefix):].strip("/")
         tables = {"clusters": est.clusters, "dbservers": est.dbservers,
-                  "databases": est.databases, "tms": est.time_machines}
+                  "databases": est.databases, "tms": est.time_machines,
+                  "clones": est.clones, "profiles": est.profiles, "slas": est.slas,
+                  "snapshots": est.snapshots, "maintenance": est.maintenance,
+                  "tags": est.tags}
         if what == "about":
             return 200, {"version": est.version, "product": "Nutanix Database Service"}, {}
         if what not in tables:

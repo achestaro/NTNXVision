@@ -9,8 +9,10 @@ Files and Objects also record whether the service is deployed at all
 404 when the product is absent, and the v4 namespaces tell the remaining cases apart. A
 v4 ``files`` list that answers with no file server means Files is installed but not
 deployed; ``objects`` answering 503 (``endpoint ...:7301 failed`` on the lab PC) means
-Objects is not enabled. When v3 has no file server list but v4 lists file servers, those
-are recorded from v4 (name only: the v4 model carries nothing else).
+Objects is not enabled. When v3 has no file server list (pc.7.5 answers 404) but v4 lists
+file servers, those are recorded from v4: the v4 file server carries only its name, so the
+cluster, Files version, FSVM count and usage come from the groups entity
+`file_server_service`, and the shares from each server's v4 mount targets.
 """
 
 from __future__ import annotations
@@ -29,6 +31,9 @@ from ntnxvision_core.models import (
 )
 
 FILE_SERVERS_V4 = "files/v4.0/config/file-servers"
+FILE_SERVER_GROUP_ATTRS = ["name", "cluster_name", "afs_version", "nvm_uuid_list",
+                           "last_used_size_bytes"]
+SHARE_TYPES = {"GENERAL": "Standard", "HOMES": "Distributed"}
 
 
 def record_service(env: Any, name: str, status: str, count: int,
@@ -115,12 +120,62 @@ class FilesCollector(Collector):
             rows = self.conn.v4_list(FILE_SERVERS_V4)
         except NutanixApiError:
             return 0
+        # The v4 file server (list and detail) carries only extId and name; the groups
+        # entity `file_server_service` adds the cluster, Files version, FSVMs and usage.
+        extra = self._server_groups()
         for row in rows:
-            env.file_servers.append(FileServer(uuid=str(row.get("extId") or ""),
-                                               name=row.get("name"),
-                                               version=row.get("version") or None,
-                                               api_source="v4"))
+            uuid = str(row.get("extId") or "")
+            g = extra.get(uuid, {})
+            env.file_servers.append(FileServer(
+                uuid=uuid,
+                name=row.get("name"),
+                cluster_name=g.get("cluster_name"),
+                version=row.get("version") or g.get("afs_version"),
+                num_fsvm=len(g.get("nvm_uuid_list") or []) or None,
+                used_bytes=_as_int(g.get("last_used_size_bytes")),
+                api_source="v4",
+            ))
+            self._v4_shares(env, uuid, row.get("name"))
+        for fs in env.file_servers:
+            fs.share_count = sum(1 for s in env.file_shares if s.file_server_name == fs.name)
         return len(rows)
+
+    def _server_groups(self) -> dict[str, dict[str, Any]]:
+        try:
+            rows = self.conn.v3_groups("file_server_service", FILE_SERVER_GROUP_ATTRS,
+                                       multi_valued=("nvm_uuid_list",))
+        except Exception:  # noqa: BLE001 — enrichment only; the v4 rows still stand
+            return {}
+        return {str(r.get("entity_id")): r for r in rows}
+
+    def _v4_shares(self, env: Any, server_uuid: str, server_name: str | None) -> None:
+        """Shares (v4 "mount targets") of one file server."""
+        try:
+            rows = self.conn.v4_list(f"{FILE_SERVERS_V4}/{server_uuid}/mount-targets")
+        except NutanixApiError:
+            return
+        for row in rows:
+            smb = row.get("smbProperties") or {}
+            secondary = [p for p in row.get("secondaryProtocol") or [] if p and p != "NONE"]
+            env.file_shares.append(FileShare(
+                uuid=str(row.get("extId") or ""),
+                name=row.get("name"),
+                file_server_name=server_name,
+                # GENERAL is a standard share, HOMES a distributed (home-directory) one.
+                share_type=SHARE_TYPES.get(row.get("type") or "", row.get("type")),
+                # 0 GiB means no limit.
+                max_size_bytes=_as_int(row.get("maxSizeGB") or None, scale=1024**3),
+                protocol="/".join([row.get("protocol") or "", *secondary]).strip("/") or None,
+                path=row.get("path"),
+                description=row.get("description"),
+                compression=row.get("isCompressionEnabled"),
+                read_only=row.get("isReadOnly"),
+                previous_versions=row.get("isPreviousVersionEnabled"),
+                access_based_enumeration=smb.get("isAccessBasedEnumerationEnabled"),
+                continuous_availability=smb.get("isCaEnabled"),
+                smb3_encryption=smb.get("isSmb3EncryptionEnabled"),
+                api_source="v4",
+            ))
 
     def _shares(self, env: Any) -> None:
         for kind in ("mount_target", "shares"):

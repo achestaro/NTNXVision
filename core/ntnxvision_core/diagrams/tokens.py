@@ -41,6 +41,8 @@ SIZE_CHIP = 6.0
 SITE = Style(fill=SURFACE, stroke=RULE, stroke_w=0.75, radius=5.25)
 PC = Style(fill=IRIS, radius=3.75)
 CLUSTER = Style(fill=WHITE, stroke=IRIS, stroke_w=0.7, radius=3.4)
+#: A Nutanix product card (Diagrams editor): white, a quiet rule, its icon at the left.
+PRODUCT = Style(fill=WHITE, stroke=RULE_STRONG, stroke_w=0.7, radius=3.4)
 USER = Style(fill=WHITE, stroke=AMBER, stroke_w=0.75, dash=(1.2, 1.5), radius=3.4)
 #: A user-added availability zone (container) and a user note.
 USER_SITE = Style(fill=SURFACE, stroke=AMBER, stroke_w=0.75, dash=(1.2, 1.5), radius=5.25)

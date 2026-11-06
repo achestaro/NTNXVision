@@ -7,10 +7,15 @@ layout measured them.
 
 from __future__ import annotations
 
+import io
+
 from fpdf import FPDF
 
+from ntnxvision_core.exporters import products as P
 from ntnxvision_core.exporters import theme as T
 
+from ..badges import KIND as GLYPH
+from ..badges import art_box
 from ..scene import Edge, EdgeLabel, Node, Scene, Style, TextLine, draw_order
 from .heads import marks, trimmed
 
@@ -73,7 +78,18 @@ class _Pen:
     def node(self, n: Node) -> None:
         if n.kind != "label":
             self.shape(n.x, n.y, n.w, n.h, n.style)
+        if n.kind == GLYPH:
+            self.glyph(n)
         self.text(n.lines, n.x, n.y)
+
+    def glyph(self, n: Node) -> None:
+        """The product icon, as vector paths (fpdf2 imports the icon's SVG)."""
+        product = n.data.get("product", "")
+        if product not in P.PRODUCTS:
+            return
+        x, y, side = art_box(n)
+        self.pdf.image(io.BytesIO(P.svg_bytes(product)), x=self.X(x), y=self.Y(y),
+                       w=side * self.k, h=side * self.k)
 
     def edge(self, e: Edge) -> None:
         pdf, k, st = self.pdf, self.k, e.style

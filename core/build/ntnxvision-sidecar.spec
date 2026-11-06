@@ -45,6 +45,8 @@ datas = (
     + collect_data_files("openpyxl")
     # The OFL fonts the PDF report embeds, with their license texts.
     + collect_data_files("ntnxvision_core", includes=["exporters/fonts/*"])
+    # The Nutanix product icons the reports and diagrams draw (exporters/icons/README.md).
+    + collect_data_files("ntnxvision_core", includes=["exporters/icons/*"])
     # Licensing: every runtime dependency's *.dist-info (METADATA + its LICENSE/NOTICE
     # files), plus the project's LICENSE / NOTICE / THIRD_PARTY_NOTICES.md under legal/.
     + copy_metadata("ntnxvision-core", recursive=True)

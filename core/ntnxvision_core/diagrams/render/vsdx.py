@@ -31,7 +31,10 @@ import zipfile
 from dataclasses import dataclass
 from xml.sax.saxutils import escape, quoteattr
 
+from ntnxvision_core.exporters import products as P
+
 from .. import text as tx
+from ..badges import KIND as GLYPH
 from ..scene import LAYER, Edge, EdgeLabel, Node, Scene, Style, TextLine
 from . import heads
 
@@ -44,6 +47,7 @@ REL_PAGE = "http://schemas.microsoft.com/visio/2010/relationships/page"
 REL_WINDOWS = "http://schemas.microsoft.com/visio/2010/relationships/windows"
 REL_CORE = ("http://schemas.openxmlformats.org/package/2006/relationships/metadata/"
             "core-properties")
+REL_IMAGE = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/image"
 REL_APP = ("http://schemas.openxmlformats.org/officeDocument/2006/relationships/"
            "extended-properties")
 FONT = "Figtree"
@@ -178,6 +182,35 @@ def _shape_data(n: Node) -> str:
     return f"<Section N='Property'>{''.join(body)}</Section>"
 
 
+def _media_png(product: str, tile: bool) -> bytes:
+    """A product icon's picture for Visio: the icon PNG, on its white rounded tile when
+    the badge has one (a Foreign shape draws no fill of its own)."""
+    if not tile:
+        return P.png_bytes(product)
+    from PIL import Image, ImageDraw
+
+    with Image.open(io.BytesIO(P.png_bytes(product))) as im:
+        icon = im.convert("RGBA")
+    side = icon.width
+    pad = round(side * 0.1)
+    out = Image.new("RGBA", (side + 2 * pad, side + 2 * pad), (0, 0, 0, 0))
+    ImageDraw.Draw(out).rounded_rectangle([0, 0, out.width - 1, out.height - 1],
+                                          radius=round(out.width * 0.18),
+                                          fill=(255, 255, 255, 255))
+    out.alpha_composite(icon, (pad, pad))
+    buf = io.BytesIO()
+    out.save(buf, "PNG")
+    return buf.getvalue()
+
+
+def media_name(n: Node) -> str | None:
+    """The media file a glyph node's picture is stored as (None: not a product icon)."""
+    product = n.data.get("product", "")
+    if n.kind != GLYPH or product not in P.PRODUCTS:
+        return None
+    return f"{product}{'-tile' if n.style.fill else ''}.png"
+
+
 class _Page:
     """One scene as a Visio page: ids, group membership, shapes and glue records."""
 
@@ -191,6 +224,12 @@ class _Page:
         #: Every node with members is a Visio group (an AZ, a POD, a cluster card with
         #: its chips and strips), so moving it moves what it holds.
         self.parents = {n.parent for n in sc.nodes if n.parent in self.by_id}
+        #: Media file -> relationship id, for this page's product icons.
+        self.media: dict[str, str] = {}
+        for n in sc.nodes:
+            name = media_name(n)
+            if name and name not in self.media:
+                self.media[name] = f"rId{len(self.media) + 1}"
         self.members: dict[str | None, list[Node]] = {}
         for n in sc.nodes:
             self.members.setdefault(self.group_of(n), []).append(n)
@@ -202,9 +241,31 @@ class _Page:
     def _ordered(self, nodes: list[Node]) -> list[Node]:
         return sorted(nodes, key=lambda n: (LAYER.get(n.kind, 1), self.index[n.id]))
 
+    def picture(self, n: Node, name: str, ox: float, oy_bottom: float) -> str:
+        """A product icon as a Visio picture (a Foreign shape holding the PNG)."""
+        cx, cy = n.x + n.w / 2, n.y + n.h / 2
+        cells = "".join([
+            _c("PinX", _in(cx - ox), "PT"), _c("PinY", _in(oy_bottom - cy), "PT"),
+            _c("Width", _in(n.w), "PT"), _c("Height", _in(n.h), "PT"),
+            _c("LocPinX", _in(n.w / 2), "PT", "Width*0.5"),
+            _c("LocPinY", _in(n.h / 2), "PT", "Height*0.5"), _c("Angle", "0"),
+            _c("ImgOffsetX", "0", "PT"), _c("ImgOffsetY", "0", "PT"),
+            _c("ImgWidth", _in(n.w), "PT", "Width*1"),
+            _c("ImgHeight", _in(n.h), "PT", "Height*1"),
+            _c("FillPattern", "0"), _c("LinePattern", "0"),
+        ])
+        return (f"<Shape ID='{self.ids[n.id]}' NameU='Sheet.{self.ids[n.id]}' "
+                f"Name={quoteattr(n.id)} Type='Foreign' LineStyle='0' FillStyle='0' "
+                f"TextStyle='0'>{cells}{_shape_data(n)}{_rect_geom(True, True)}"
+                f"<ForeignData ForeignType='Bitmap' CompressionType='PNG'>"
+                f"<Rel r:id='{self.media[name]}'/></ForeignData></Shape>")
+
     def node(self, n: Node, ox: float, oy_bottom: float) -> str:
         """`n` positioned in its parent's coordinates: origin (`ox`, `oy_bottom`) is the
         parent's bottom-left corner in scene points (y down)."""
+        media = media_name(n)
+        if media is not None and n.id not in self.parents:
+            return self.picture(n, media, ox, oy_bottom)
         cx, cy = n.x + n.w / 2, n.y + n.h / 2
         text_only = n.kind == "label"
         group = n.id in self.parents
@@ -413,7 +474,8 @@ def render_vsdx(scenes: list[Scene], names: list[str] | None = None, title: str 
                   f"{XML_HEAD}<Types xmlns='http://schemas.openxmlformats.org/package/2006/"
                   "content-types'><Default Extension='rels' ContentType='application/"
                   "vnd.openxmlformats-package.relationships+xml'/><Default Extension='xml' "
-                  "ContentType='application/xml'/>"
+                  "ContentType='application/xml'/><Default Extension='png' "
+                  "ContentType='image/png'/>"
                   + "".join(f"<Override PartName='{p}' ContentType='{t}'/>" for p, t in overrides)
                   + "</Types>"))
     files.append(("_rels/.rels", f"{XML_HEAD}<Relationships xmlns='{NS_PKG_REL}'>"
@@ -481,8 +543,23 @@ def render_vsdx(scenes: list[Scene], names: list[str] | None = None, title: str 
                   + "".join(f"<Relationship Id='rId{i + 1}' Type='{REL_PAGE}' "
                             f"Target='page{i + 1}.xml'/>" for i in range(len(scenes)))
                   + "</Relationships>"))
+    media: dict[str, bytes] = {}
     for i, sc in enumerate(scenes):
-        files.append((f"visio/pages/page{i + 1}.xml", _Page(sc, font).xml()))
+        page = _Page(sc, font)
+        files.append((f"visio/pages/page{i + 1}.xml", page.xml()))
+        if page.media:
+            files.append((f"visio/pages/_rels/page{i + 1}.xml.rels",
+                          f"{XML_HEAD}<Relationships xmlns='{NS_PKG_REL}'>"
+                          + "".join(f"<Relationship Id='{rid}' Type='{REL_IMAGE}' "
+                                    f"Target='../media/{name}'/>"
+                                    for name, rid in page.media.items())
+                          + "</Relationships>"))
+            for name in page.media:
+                if name not in media:
+                    product, tile = name.removesuffix(".png").removesuffix("-tile"), \
+                        name.endswith("-tile.png")
+                    media[name] = _media_png(product, tile)
+    files += [(f"visio/media/{name}", data) for name, data in sorted(media.items())]
     first = scenes[0]
     files.append(("visio/windows.xml",
                   f"{XML_HEAD}<Windows ClientWidth='1600' ClientHeight='900' xmlns='{NS}' "

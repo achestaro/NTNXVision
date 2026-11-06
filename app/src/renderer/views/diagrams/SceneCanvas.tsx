@@ -16,6 +16,7 @@ import { clearDrop, nameOf, placedMeta, planDrop, subtreeOf } from './nesting';
 import type { DropPlan, NestContext } from './nesting';
 import { edgeMarks, trimmedPoints } from './arrowheads';
 import type { CanvasBg, GridMode } from './CanvasOptions';
+import { ProductArt, productIcon } from './productIcons';
 
 const FONT = "'Figtree Variable', Figtree, Calibri, 'Segoe UI', Arial, sans-serif";
 /** Pointer travel (screen px) before a press becomes a drag. */
@@ -24,7 +25,9 @@ const DRAG_START = 4;
 const LANE_STEP = 3;
 
 /** Paint layer per node kind (mirrors scene.draw_order). */
-const LAYER: Record<string, number> = { container: 0, box: 1, swatch: 1, label: 1, strip: 3, pill: 3, tag: 3 };
+const LAYER: Record<string, number> = { container: 0, box: 1, swatch: 1, label: 1, strip: 3, pill: 3, tag: 3, glyph: 3 };
+/** A product glyph's inset inside its white tile (points, each side). */
+const GLYPH_INSET = 0.9;
 
 export type CanvasTool = 'select' | 'connect';
 
@@ -187,6 +190,27 @@ function lines(ls: SceneTextLine[], ox: number, oy: number, onEdit?: (i: number)
   );
 }
 
+/**
+ * A product glyph (kind "glyph", data.product): decoration on the box it badges or the
+ * placed product icon it belongs to. Its white tile (style.fill) first, then the icon
+ * inset by GLYPH_INSET; with no fill the icon fills the node box. Never a hit target:
+ * pointer events pass through to its parent, which it moves with (`shift`).
+ */
+function GlyphShape({ n, shift }: { n: SceneNode; shift?: string }): React.JSX.Element {
+  const icon = productIcon(n.data?.product);
+  const tile = !!n.style.fill;
+  const inset = tile ? Math.min(GLYPH_INSET, n.w / 4) : 0;
+  const size = Math.max(0, Math.min(n.w, n.h) - 2 * inset);
+  const name = n.data?.name || n.data?.product || 'Nutanix product';
+  return (
+    <g data-glyph={n.data?.product ?? ''} transform={shift} pointerEvents="none" role="img" aria-label={name}>
+      <title>{name}</title>
+      {tile && rectFor(n.style, n.x, n.y, n.w, n.h)}
+      {icon && <ProductArt icon={icon} x={n.x + inset} y={n.y + inset} size={size} />}
+    </g>
+  );
+}
+
 function EdgeShape({ e }: { e: SceneEdge }): React.JSX.Element {
   // Arrowhead shapes and the trimmed stroke: the exports' geometry (arrowheads.ts).
   const color = e.style.stroke ?? '#000000';
@@ -331,7 +355,7 @@ export function SceneCanvas(props: CanvasProps): React.JSX.Element {
     (x: number, y: number, except?: string | null): string | null => {
       let best: SceneNode | null = null;
       for (const n of scene.nodes) {
-        if (!(outline.has(n.id) || endBox(n)) || n.id === except || !inside(n, x, y)) continue;
+        if (n.kind === 'glyph' || !(outline.has(n.id) || endBox(n)) || n.id === except || !inside(n, x, y)) continue;
         if (!best || n.w * n.h < best.w * best.h) best = n;
       }
       return best?.id ?? null;
@@ -813,6 +837,8 @@ export function SceneCanvas(props: CanvasProps): React.JSX.Element {
       </>
     );
     const shift = freeDrag && riding(n) ? `translate(${freeDrag.dx} ${freeDrag.dy})` : undefined;
+    // Decoration only: not selectable, draggable or a connector end; rides with its parent.
+    if (n.kind === 'glyph') return <GlyphShape key={n.id} n={n} shift={shift} />;
     if (!elId) {
       // A zone's Prism Central (an end box) is a connector end of its own.
       const own = tool === 'connect' && endBox(n) ? n.id : owner(n.id);
@@ -863,7 +889,7 @@ export function SceneCanvas(props: CanvasProps): React.JSX.Element {
   const draggedEl = moveDrag ? outline.get(moveDrag.id) : undefined;
   const pad = 2.5;
   const fromNode = connectFrom ? byId.get(connectFrom) ?? null : null;
-  const ports = sel && tool === 'select' && !drag && outline.has(sel.id) && sel.kind !== 'tag' ? (['top', 'right', 'bottom', 'left'] as const) : null;
+  const ports = sel && tool === 'select' && !drag && outline.has(sel.id) && sel.kind !== 'tag' && sel.kind !== 'glyph' ? (['top', 'right', 'bottom', 'left'] as const) : null;
   const selFree = sel && tool === 'select' && outline.get(sel.id)?.free && (!drag || drag.kind === 'resize') ? sel : null;
   // Handles: 8 px to see, 14 px to hit, at any zoom.
   const handle = 4 / zoom;

@@ -28,6 +28,7 @@ from fpdf.outline import OutlineSection
 from fpdf.prefs import ViewerPreferences
 
 from ntnxvision_core.diagrams.render.pdf import draw_scene
+from ntnxvision_core.exporters import products as P
 from ntnxvision_core.exporters import theme as T
 from ntnxvision_core.exporters.content import (
     Bullets,
@@ -36,6 +37,7 @@ from ntnxvision_core.exporters.content import (
     FigureRow,
     FigureStrip,
     Paragraph,
+    ProductStrip,
     Report,
     SceneFigure,
     Status,
@@ -58,6 +60,11 @@ PAD_X, PAD_Y = 1.7, 1.45
 BODY_PT, MONO_PT, HEAD_PT = 8.0, 7.4, 7.8
 LINE_H = 3.75
 MAX_LINES = 4
+
+# Product icons (mm): beside a chapter heading, in the products row, on the cover.
+ICON_HEAD = 8.0
+ICON_ROW = 10.0
+ICON_COVER = 9.0
 
 # Table of contents row heights (mm).
 TOC_H0, TOC_H1 = 7.4, 5.5
@@ -84,6 +91,11 @@ class _Pdf(FPDF):
         # Characters Figtree lacks (box drawing, check marks, rare symbols) come from
         # JetBrains Mono rather than rendering as missing-glyph boxes.
         self.set_fallback_fonts([MONO], exact_match=False)
+
+    def product_icon(self, product: P.Product, x: float, y: float, size: float) -> None:
+        """The product's icon (vector: fpdf2 draws the SVG's paths) in a `size` square."""
+        self.image(io.BytesIO(P.svg_bytes(product.id)), x=x, y=y, w=size, h=size,
+                   alt_text=product.name)
 
     # ─ running header / footer ─
     def header(self) -> None:
@@ -194,8 +206,9 @@ class PdfExporter:
         pdf.set_fill_color(*T.IRIS_RGB)
         pdf.rect(x, y, 22, 0.9, style="F")
 
-        # Report facts: a quiet two-column list.
-        y = max(y + 12, 122.0)
+        # The products the report covers, then the report facts: a quiet two-column list.
+        end = self._cover_products(pdf, cover.products, x, y + 7)
+        y = max(end + 6 if cover.products else y + 12, 122.0)
         label_w = 40.0
         for label, value in cover.meta:
             pdf.set_xy(x, y)
@@ -216,6 +229,26 @@ class PdfExporter:
         pdf.set_text_color(*T.INK_3_RGB)
         pdf.cell(0, 5, T.clean(cover.note))
         pdf.set_auto_page_break(True, margin=BOTTOM)
+
+    def _cover_products(self, pdf: _Pdf, products: list[P.Product], x: float, y: float
+                        ) -> float:
+        """The products the report covers: a quiet row of icons with their short names
+        under the title rule. Returns where the row ends."""
+        if not products:
+            return y
+        pdf.set_xy(x, y + (ICON_COVER - 5.2) / 2)
+        pdf.set_font(SANS, "", 8.8)
+        pdf.set_text_color(*T.INK_3_RGB)
+        pdf.cell(40.0, 5.2, "Products")
+        step = 22.0
+        for i, product in enumerate(products):
+            cx = x + 40.0 + i * step
+            pdf.product_icon(product, cx + (step - 4 - ICON_COVER) / 2, y, ICON_COVER)
+            pdf.set_xy(cx, y + ICON_COVER + 1.2)
+            pdf.set_font(SANS, "B", 7.6)
+            pdf.set_text_color(*T.INK_2_RGB)
+            pdf.cell(step - 4, 4, product.short, align="C")
+        return y + ICON_COVER + 5.2
 
     # ─── table of contents ─────────────────────────────────────────
 
@@ -290,12 +323,34 @@ class PdfExporter:
         else:
             pdf.add_page()
         pdf.start_section(T.clean(ch.heading), level=0)
+        y0 = pdf.get_y()
         self._marker_heading(pdf, ch.heading)
+        if ch.product is not None:
+            self._heading_product(pdf, ch, y0)
         pdf.ln(3)
         self._blocks(pdf, ch.blocks)
         for section in ch.sections:
             self._h2(pdf, section.heading, self._need(pdf, section.blocks[0]))
             self._blocks(pdf, section.blocks)
+
+    def _heading_product(self, pdf: _Pdf, ch: Chapter, y: float) -> None:
+        """The chapter's product, right-aligned on its heading row: its name in quiet
+        ink, then its icon. The name is left out when the heading leaves no room."""
+        product = ch.product
+        assert product is not None
+        right = pdf.w - pdf.r_margin
+        x_icon = right - ICON_HEAD
+        pdf.product_icon(product, x_icon, y + (10.4 - ICON_HEAD) / 2, ICON_HEAD)
+        pdf.set_font(SANS, "B", 18)
+        text_end = pdf.l_margin + 5 + pdf.get_string_width(T.clean(ch.heading))
+        pdf.set_font(SANS, "", 8.4)
+        label = product.name
+        w = pdf.get_string_width(label)
+        if text_end + 6 + w + 2.5 < x_icon:
+            pdf.set_text_color(*T.INK_3_RGB)
+            pdf.set_xy(x_icon - 2.5 - w, y)
+            pdf.cell(w, 10.4, label)
+        pdf.set_xy(pdf.l_margin, y + 10.4)
 
     def _need(self, pdf: _Pdf, blk: Any) -> float:
         """Height (mm) the first block under a heading needs on the same page, so the
@@ -343,6 +398,8 @@ class PdfExporter:
                 self._bullets(pdf, blk)
             elif isinstance(blk, FigureStrip):
                 self._strip(pdf, blk)
+            elif isinstance(blk, ProductStrip):
+                self._products(pdf, blk)
             elif isinstance(blk, Table):
                 self._table(pdf, blk)
             elif isinstance(blk, Figure):
@@ -386,6 +443,47 @@ class PdfExporter:
             pdf.multi_cell(width, 5.2, T.clean(item), align="L", new_x="LMARGIN", new_y="NEXT")
             pdf.ln(0.8)
         pdf.ln(2.2)
+
+    def _products(self, pdf: _Pdf, strip: ProductStrip) -> None:
+        """The estate's Nutanix products in one row: icon, product name, what it has."""
+        if not strip.items:
+            return
+        n = len(strip.items)
+        cell_w = min(pdf.epw / n, 62.0)
+        h = 16.0
+        if pdf.get_y() + 6 + h + 6 > pdf.page_break_trigger:
+            pdf.add_page()
+        pdf.set_font(SANS, "B", 10)
+        pdf.set_text_color(*T.INK_RGB)
+        pdf.cell(0, 6, T.clean(strip.title), align="L", new_x="LMARGIN", new_y="NEXT")
+        pdf.ln(0.8)
+        y0, x0 = pdf.get_y(), pdf.l_margin
+        for i, item in enumerate(strip.items):
+            x = x0 + i * cell_w
+            if i:
+                pdf.set_draw_color(*T.RULE_2_RGB)
+                pdf.set_line_width(0.2)
+                pdf.line(x - 2, y0 + 1.5, x - 2, y0 + h - 1.5)
+            pdf.product_icon(item.product, x, y0 + (h - ICON_ROW) / 2, ICON_ROW)
+            tx, tw = x + ICON_ROW + 2.5, cell_w - ICON_ROW - 5.5
+            pdf.set_font(SANS, "B", 8.6)
+            name = f"{item.product.name} ({item.product.short})" \
+                if item.product.short not in item.product.name else item.product.name
+            lines = cast(list[str], pdf.multi_cell(tw, 3.9, T.clean(name), dry_run=True,
+                                                   output="LINES"))[:2]
+            top = y0 + (h - 3.9 * len(lines) - 3.8) / 2
+            pdf.set_text_color(*T.INK_RGB)
+            for k, line in enumerate(lines):
+                pdf.set_xy(tx, top + 3.9 * k)
+                pdf.cell(tw, 3.9, line)
+            pdf.set_font(SANS, "", 7.8)
+            pdf.set_text_color(*T.INK_3_RGB)
+            pdf.set_xy(tx, top + 3.9 * len(lines) + 0.2)
+            detail = T.clean(item.detail)
+            while detail and pdf.get_string_width(detail) > tw:
+                detail = detail[:-2].rstrip() + "\u2026"
+            pdf.cell(tw, 3.6, detail)
+        pdf.set_xy(pdf.l_margin, y0 + h + 4)
 
     def _strip(self, pdf: _Pdf, strip: FigureStrip) -> None:
         """Headline figures in one ruled row: small label, light numeral, qualifier."""

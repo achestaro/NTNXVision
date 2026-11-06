@@ -849,6 +849,16 @@ FILE_SHARES = TableSpec(
         Col("max", "Max Size (GiB)", _a("max_size_bytes"), excel=gib, label="Max size",
             kind="bytes"),
         Col("used", "Used (GiB)", _a("used_bytes"), excel=gib),
+        Col("path", "Path", _a("path"), label="Path", kind="mono"),
+        Col("abe", "Access-Based Enumeration", _a("access_based_enumeration"), excel=yes_no,
+            label="ABE"),
+        Col("ca", "Continuous Availability", _a("continuous_availability"), excel=yes_no,
+            label="CA"),
+        Col("encryption", "SMB3 Encryption", _a("smb3_encryption"), excel=yes_no),
+        Col("compression", "Compression", _a("compression"), excel=yes_no),
+        Col("previous", "Previous Versions", _a("previous_versions"), excel=yes_no),
+        Col("read_only", "Read Only", _a("read_only"), excel=yes_no),
+        Col("description", "Description", _a("description")),
         Col("api", "API", _a("api_source")),
     ),
     id=lambda s: s.uuid, name=lambda s: s.name or s.uuid, note_keys=("files",),
@@ -915,13 +925,22 @@ DATABASES = TableSpec(
     (
         Col("name", "Name", _a("name"), label="Name", kind="name", search=True),
         Col("engine", "Engine", _a("db_engine"), label="Engine", facet=True),
+        Col("version", "Version", _a("engine_version"), label="Version", kind="mono",
+            diff="version"),
         Col("type", "Type", _a("db_type"), label="Type"),
         Col("status", "Status", _a("status"), label="Status", kind="status",
             cell=state_cell(("READY", "UP"))),
+        Col("cluster", "Cluster", _cluster, label="Cluster", facet=True),
         Col("server", "DB Server", _a("db_server_name"), label="DB server", search=True),
         Col("tm", "Time Machine", _a("time_machine_name")),
         Col("sla", "SLA", _a("sla_name"), label="SLA", facet=True, diff="SLA"),
-        Col("clone", "Clone", _a("clone"), excel=yes_no),
+        Col("size", "Size (GB)", _a("size_gb"), label="Size (GB)", kind="number", diff="size"),
+        Col("port", "Port", _a("listener_port"), kind="number"),
+        Col("params", "Parameter Profile", _a("parameter_profile")),
+        Col("clone", "Clone", _a("clone"), excel=yes_no, label="Clone"),
+        Col("parent", "Cloned From", _a("parent_time_machine")),
+        Col("tags", "Tags", lambda d, _x: joined(d.tags), label="Tags"),
+        Col("provisioned", "Provisioned", _a("provisioned")),
         Col("api", "API", _a("api_source")),
     ),
     id=lambda d: d.id, name=lambda d: d.name or d.id, note_keys=("ndb",), group=SERVICES,
@@ -933,11 +952,17 @@ DATABASE_SERVERS = TableSpec(
     (
         Col("name", "Name", _a("name"), label="Name", kind="name"),
         Col("engine", "Engine", _a("db_engine"), label="Engine"),
+        Col("version", "Version", _a("engine_version"), label="Version", kind="mono"),
         Col("ips", "IPs", lambda s, _x: joined(s.ip_addresses), label="IP", kind="mono"),
         Col("status", "Status", _a("status"), label="Status"),
         Col("cluster", "Cluster", _cluster),
         Col("cores", "Cores", _a("vm_cores"), label="Cores", kind="number"),
         Col("memory", "Memory (GB)", _a("memory_gb")),
+        Col("os", "OS", _a("os_type")),
+        Col("software", "Software Profile", _a("software_profile"), label="Software profile"),
+        Col("compute", "Compute Profile", _a("compute_profile"), label="Compute profile"),
+        Col("network", "Network Profile", _a("network_profile")),
+        Col("tags", "Tags", lambda s, _x: joined(s.tags)),
         Col("api", "API", _a("api_source")),
     ),
     id=lambda s: s.id, name=lambda s: s.name or s.id, note_keys=("ndb",),
@@ -949,13 +974,113 @@ TIME_MACHINES = TableSpec(
     (
         Col("name", "Name", _a("name"), label="Name", kind="name"),
         Col("database", "Database", _a("database_name"), label="Database"),
+        Col("engine", "Engine", _a("db_engine"), label="Engine"),
+        Col("cluster", "Cluster", _cluster),
         Col("sla", "SLA", _a("sla_name"), label="SLA"),
         Col("status", "Status", _a("status"), label="Status"),
         Col("schedule", "Schedule", _a("schedule"), label="Schedule"),
+        Col("scope", "Scope", _a("scope")),
+        Col("snapshots", "Snapshots", _a("snapshot_count"), label="Snapshots", kind="number"),
         Col("clones", "Clones", _a("clone_count"), label="Clones", kind="number"),
+        Col("tags", "Tags", lambda t, _x: joined(t.tags)),
         Col("api", "API", _a("api_source")),
     ),
     id=lambda t: t.id, name=lambda t: t.name or t.id, note_keys=("ndb",),
+)
+
+NDB_CLUSTERS = TableSpec(
+    "ndb_clusters", "NDB Clusters", "NDB clusters", "NDB cluster", "clusters",
+    lambda e: e.ndb_clusters,
+    (
+        Col("cluster", "Cluster", _a("name"), label="Cluster"),
+        Col("ips", "IPs", lambda c, _x: joined(c.ip_addresses), label="IP", kind="mono"),
+        Col("status", "Status", _a("status"), label="Status"),
+        Col("hypervisor", "Hypervisor", _a("hypervisor"), label="Hypervisor"),
+        Col("cloud", "Cloud", _a("cloud_type")),
+        Col("description", "Description", _a("description")),
+        Col("api", "API", _a("api_source")),
+    ),
+    id=lambda c: c.id, name=lambda c: c.name or c.id, note_keys=("ndb",), group=SERVICES,
+)
+
+NDB_PROFILES = TableSpec(
+    "ndb_profiles", "NDB Profiles", "NDB profiles", "NDB profile", "profiles",
+    lambda e: e.ndb_profiles,
+    (
+        Col("name", "Name", _a("name"), label="Name", kind="name", search=True),
+        Col("type", "Type", _a("profile_type"), label="Type", facet=True),
+        Col("engine", "Engine", _a("db_engine"), label="Engine", facet=True),
+        Col("details", "Details", _a("details"), label="Details"),
+        Col("topology", "Topology", _a("topology")),
+        Col("version", "Version", _a("version"), kind="mono"),
+        Col("system", "Built-in", _a("system"), excel=yes_no, label="Built-in"),
+        Col("status", "Status", _a("status"), label="Status"),
+        Col("api", "API", _a("api_source")),
+    ),
+    id=lambda p: p.id, name=lambda p: p.name or p.id, note_keys=("ndb",), group=SERVICES,
+)
+
+NDB_SLAS = TableSpec(
+    "ndb_slas", "NDB SLAs", "NDB SLAs", "NDB SLA", "SLAs", lambda e: e.ndb_slas,
+    (
+        Col("name", "Name", _a("name"), label="Name", kind="name"),
+        Col("continuous", "Continuous (days)", _a("continuous_days"), label="Continuous (days)",
+            kind="number"),
+        Col("daily", "Daily", _a("daily"), label="Daily", kind="number"),
+        Col("weekly", "Weekly", _a("weekly"), label="Weekly", kind="number"),
+        Col("monthly", "Monthly", _a("monthly"), label="Monthly", kind="number"),
+        Col("quarterly", "Quarterly", _a("quarterly"), kind="number"),
+        Col("yearly", "Yearly", _a("yearly"), kind="number"),
+        Col("pitr", "Point-in-Time Restore", _a("pitr"), excel=yes_no, label="PITR"),
+        Col("tms", "Time Machines", _a("time_machine_count"), label="Time machines",
+            kind="number"),
+        Col("system", "Built-in", _a("system"), excel=yes_no),
+        Col("api", "API", _a("api_source")),
+    ),
+    id=lambda s: s.id, name=lambda s: s.name or s.id, note_keys=("ndb",), group=SERVICES,
+)
+
+NDB_SNAPSHOTS = TableSpec(
+    "ndb_snapshots", "NDB Snapshots", "NDB snapshots", "NDB snapshot", "snapshots",
+    lambda e: e.ndb_snapshots,
+    (
+        Col("name", "Name", _a("name"), label="Name", kind="name"),
+        Col("tm", "Time Machine", _a("time_machine_name"), label="Time machine", search=True),
+        Col("type", "Type", _a("snapshot_type"), label="Type", facet=True),
+        Col("status", "Status", _a("status"), label="Status"),
+        Col("taken", "Taken", _a("taken"), label="Taken"),
+        Col("server", "DB Server", _a("db_server_name")),
+        Col("api", "API", _a("api_source")),
+    ),
+    id=lambda s: s.id, name=lambda s: s.name or s.id, note_keys=("ndb",), group=SERVICES,
+)
+
+NDB_MAINTENANCE = TableSpec(
+    "ndb_maintenance_windows", "NDB Maintenance", "NDB maintenance windows",
+    "Maintenance window", "windows", lambda e: e.ndb_maintenance_windows,
+    (
+        Col("name", "Name", _a("name"), label="Name", kind="name"),
+        Col("schedule", "Schedule", _a("schedule"), label="Schedule"),
+        Col("tasks", "Tasks", _a("tasks"), label="Tasks"),
+        Col("servers", "DB Servers", _a("db_server_count"), label="DB servers", kind="number"),
+        Col("next", "Next Run", _a("next_run"), label="Next run"),
+        Col("status", "Status", _a("status"), label="Status"),
+        Col("api", "API", _a("api_source")),
+    ),
+    id=lambda w: w.id, name=lambda w: w.name or w.id, note_keys=("ndb",), group=SERVICES,
+)
+
+NDB_TAGS = TableSpec(
+    "ndb_tags", "NDB Tags", "NDB tags", "NDB tag", "tags", lambda e: e.ndb_tags,
+    (
+        Col("name", "Name", _a("name"), label="Name", kind="name"),
+        Col("entity", "Applies To", _a("entity_type"), label="Applies to", facet=True),
+        Col("required", "Required", _a("required"), excel=yes_no, label="Required"),
+        Col("status", "Status", _a("status"), label="Status"),
+        Col("description", "Description", _a("description")),
+        Col("api", "API", _a("api_source")),
+    ),
+    id=lambda t: t.id, name=lambda t: t.name or t.id, note_keys=("ndb",), group=SERVICES,
 )
 
 USERS = TableSpec(
@@ -1210,7 +1335,8 @@ SPECS: dict[str, TableSpec] = {s.type: s for s in (
     PROTECTION_POLICIES, RECOVERY_PLANS, AVAILABILITY_ZONES, REMOTE_SITES, ALERTS, LCM,
     SECURITY_POLICIES, CATEGORIES, SERVICE_GROUPS, ADDRESS_GROUPS, VPCS, FLOATING_IPS,
     FILE_SERVERS, FILE_SHARES, OBJECT_STORES, BUCKETS, VOLUME_GROUPS, DATABASES,
-    DATABASE_SERVERS, TIME_MACHINES, USERS, ROLES, PROJECTS, PLAYBOOKS, NCM_REPORTS, LICENSES,
+    DATABASE_SERVERS, TIME_MACHINES, NDB_CLUSTERS, NDB_PROFILES, NDB_SLAS, NDB_SNAPSHOTS,
+    NDB_MAINTENANCE, NDB_TAGS, USERS, ROLES, PROJECTS, PLAYBOOKS, NCM_REPORTS, LICENSES,
 )}
 
 #: The Inventory screen's object-type list, in display order (groups as in the contract).

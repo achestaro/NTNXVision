@@ -1027,7 +1027,10 @@ export interface SceneTextLine {
 export interface SceneNode {
   /** The model element id for boxes and containers (cluster:<uuid>, site:<host>, user:…). */
   id: string;
-  /** container | box | strip | pill | tag | label | swatch */
+  /**
+   * container | box | strip | pill | tag | label | swatch | glyph. A glyph (a product
+   * icon, `data.product` / `data.name`, square, no lines) is decoration on its parent.
+   */
   kind: string;
   x: number;
   y: number;
@@ -1140,6 +1143,11 @@ export interface DiagramIcon {
   ink: string;
   /** The kinds it may hold (diagrams/nesting.py CHILDREN): icon ids. */
   children?: string[];
+  /**
+   * A Nutanix product icon (group "Nutanix products"): its product id (prism, nci, ncm,
+   * ndb, nus, nc2, nkp, nai), drawn from assets/product-icons. Absent from older cores.
+   */
+  product?: string | null;
 }
 
 /** Per placed icon on a scene (`scene.meta.placed`), from the nesting arrangement. */

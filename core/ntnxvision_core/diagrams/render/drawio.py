@@ -10,11 +10,15 @@ Segoe UI and Arial (`FONT`). Numbers print through `num`, so equal scenes give e
 
 from __future__ import annotations
 
+import base64
 import math
 import re
 from xml.sax.saxutils import escape, quoteattr
 
+from ntnxvision_core.exporters import products as P
+
 from .. import text as tx
+from ..badges import KIND as GLYPH
 from ..scene import LAYER, Edge, EdgeLabel, Node, Scene, TextLine, num
 from . import heads
 from .vsdx import page_names
@@ -57,7 +61,21 @@ def _text_style(lines: list[TextLine], w: float) -> list[str]:
             f"spacingTop={num(top)}", "spacingBottom=0", "spacing=0"]
 
 
+def _glyph_style(n: Node) -> str:
+    """A product icon: a draw.io image shape holding the icon's SVG (base64, without the
+    ";base64" marker, which would end the style key)."""
+    product = n.data.get("product", "")
+    data = base64.b64encode(P.svg_bytes(product)).decode() if product in P.PRODUCTS else ""
+    parts = ["shape=image", "html=1", "imageAspect=1", "aspect=fixed", "verticalAlign=top",
+             f"image=data:image/svg+xml,{data}"]
+    if n.style.fill:
+        parts += [f"imageBackground={n.style.fill}", "spacing=1"]
+    return ";".join(parts) + ";"
+
+
 def _node_style(n: Node, container: bool = False) -> str:
+    if n.kind == GLYPH:
+        return _glyph_style(n)
     st = n.style
     parts = ["html=1", "whiteSpace=nowrap", f"fontFamily={FONT}", *_text_style(n.lines, n.w)]
     if n.kind == "label":

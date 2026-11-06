@@ -604,6 +604,16 @@ const SHOTS = [
     await p.getByRole('textbox', { name: 'Search icons' }).fill('clu');
     await list.getByRole('option', { name: 'Cluster', exact: true }).waitFor();
   }],
+  // The Nutanix product icons: their own art on the swatch; the canvas shows a Prism glyph
+  // badging each zone's Prism Central box.
+  ['diagrams-add-products', { diagrams: 'edited' }, async (p) => {
+    await rail(p, 'Diagrams');
+    await p.locator('.dg-sheet svg [data-glyph="prism"]').first().waitFor();
+    await p.getByRole('button', { name: 'Add', exact: true }).click();
+    const list = p.getByRole('listbox', { name: 'Icons' });
+    await p.getByRole('textbox', { name: 'Search icons' }).fill('nutanix product');
+    await list.getByRole('option', { name: 'Nutanix Unified Storage (NUS)', exact: true }).waitFor();
+  }],
   // Nesting: a hybrid example (a datacenter around the collected zone, a cloud region
   // holding NC2 on AWS with its VPC, a cluster and bare-metal nodes, Direct Connect). A nested node selected: its
   // inspector says where it sits, its edge and corner handles resize it.

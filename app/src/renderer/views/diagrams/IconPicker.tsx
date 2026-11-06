@@ -7,6 +7,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { MagnifyingGlassIcon, PlusIcon } from '@phosphor-icons/react';
 import type { DiagramIcon, DiagramPaletteItem, SceneStyle } from '@shared/ipc';
+import { ProductArt, productIcon } from './productIcons';
 
 /** Palette ids (in-layout additions) -> the catalog icon whose swatch they show. */
 const PALETTE_ICON: Record<string, string> = {
@@ -41,6 +42,16 @@ interface Row {
 function Swatch({ icon }: { icon: DiagramIcon | undefined }): React.JSX.Element {
   const st: SceneStyle = icon?.style ?? { fill: '#FFFFFF', stroke: '#8E99A4', stroke_w: 0.75, dash: null, radius: 2 };
   const text = icon?.id === 'text';
+  // A product icon shows its own art on the swatch's white tile (dark ink stays visible
+  // in the dark theme), as the placed card draws it.
+  const art = productIcon(icon?.product);
+  if (art) {
+    return (
+      <svg className="dg-ip-swatch" width="28" height="18" viewBox="0 0 28 18" aria-hidden="true">
+        <ProductArt icon={art} x={6} y={1} size={16} />
+      </svg>
+    );
+  }
   // A 28 x 18 tile: the element's box at about 2x its stroke, its chip when it has one.
   return (
     <svg className="dg-ip-swatch" width="28" height="18" viewBox="0 0 28 18" aria-hidden="true">

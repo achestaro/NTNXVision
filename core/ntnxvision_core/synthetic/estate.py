@@ -432,6 +432,12 @@ class NdbEstate:
     dbservers: list[dict[str, Any]] = field(default_factory=list)
     databases: list[dict[str, Any]] = field(default_factory=list)
     time_machines: list[dict[str, Any]] = field(default_factory=list)
+    clones: list[dict[str, Any]] = field(default_factory=list)
+    profiles: list[dict[str, Any]] = field(default_factory=list)
+    slas: list[dict[str, Any]] = field(default_factory=list)
+    snapshots: list[dict[str, Any]] = field(default_factory=list)
+    maintenance: list[dict[str, Any]] = field(default_factory=list)
+    tags: list[dict[str, Any]] = field(default_factory=list)
 
 
 # ─── Prism Central estate ──────────────────────────────────────────────
@@ -1684,37 +1690,149 @@ def build_pe_estate(
 
 
 def build_ndb_estate(host: str, version: str = "2.5.6", *, seed: str | None = None) -> NdbEstate:
+    """An NDB estate in the shapes NDB 2.5 returns (checked against a live 2.5.1.1).
+
+    Servers carry the engine in `databaseType` (`type` is always `DBSERVER`) and their
+    profiles as id properties; databases name their server in `databaseNodes`; time
+    machines name their database by `databaseId`; clones live in their own list.
+    """
     seed = seed or host
     est = NdbEstate(host=host, version=version, seed=seed)
-    est.clusters = [{"id": uid(seed, "ndbcl", n), "name": n, "status": "UP"}
-                    for n in ("PHX-PROD-01", "PHX-PROD-02")]
-    engines = [("postgres_database", "pg"), ("oracle_database", "ora"),
-               ("sqlserver_database", "mssql"), ("mysql_database", "mysql")]
+    est.clusters = [{"id": uid(seed, "ndbcl", n), "name": n, "status": "UP",
+                     "ipAddresses": [f"10.21.0.{10 + i}"], "hypervisorType": "AHV",
+                     "hypervisorVersion": "10.0", "cloudType": "NTNX", "healthy": True,
+                     "description": f"{n} registered in NDB"}
+                    for i, n in enumerate(("PHX-PROD-01", "PHX-PROD-02"))]
+
+    def profile(name: str, kind: str, engine: str, props: dict[str, str], *,
+                system: bool = True, topology: str = "ALL") -> str:
+        pid = uid(seed, "ndbprof", name)
+        version_id = uid(seed, "ndbprofv", name)
+        est.profiles.append({
+            "id": pid, "name": name, "type": kind, "engineType": engine, "status": "READY",
+            "systemProfile": system, "topology": topology, "dbVersion": "ALL",
+            "latestVersion": "1.0", "latestVersionId": version_id,
+            "versions": [{"id": version_id, "name": f"{name} (1.0)", "version": "1.0",
+                          "status": "READY", "published": True,
+                          "properties": [{"name": k, "value": v} for k, v in props.items()]}],
+        })
+        return pid
+
+    engines = [("postgres_database", "pg", "15.4", "POSTGRES_15_OOB", 5432),
+               ("oracle_database", "ora", "19.0.0", "ORACLE_19C", 1521),
+               ("sqlserver_database", "mssql", "2022", "SQLSERVER_2022", 1433),
+               ("mysql_database", "mysql", "8.0", "MYSQL_8.0_OOB", 3306),
+               ("mariadb_database", "maria", "10.6", "MARIADB_10.6_OOB", 3306),
+               ("mongodb_database", "mongo", "6.0", "MONGODB_6.0_OOB", 27017)]
+    computes = [profile("DEFAULT_OOB_SMALL_COMPUTE", "Compute", "Generic",
+                        {"CPUS": "2", "CORE_PER_CPU": "1", "MEMORY_SIZE": "4"}),
+                profile("DEFAULT_OOB_COMPUTE", "Compute", "Generic",
+                        {"CPUS": "1", "CORE_PER_CPU": "4", "MEMORY_SIZE": "32"}),
+                profile("PROD_8C_64G", "Compute", "Generic",
+                        {"CPUS": "4", "CORE_PER_CPU": "2", "MEMORY_SIZE": "64"}, system=False)]
+    sw, net, par = {}, {}, {}
+    for engine, short, _ver, sw_name, _port in engines:
+        sw[engine] = profile(sw_name, "Software", engine, {"OOB_PROFILE": "true"},
+                             system=sw_name.endswith("_OOB"), topology="single")
+        net[engine] = profile(f"{short.upper()}_PROD_NETWORK", "Network", engine,
+                              {"VLAN_NAME": "db-vlan-120", "VLAN_TYPE": "Static"}, system=False)
+        par[engine] = profile(f"DEFAULT_{short.upper()}_PARAMS", "Database_Parameter", engine, {})
+
+    for name, cont, daily, weekly, monthly, quarterly, system in (
+            ("DEFAULT_OOB_GOLD_SLA", 30, 90, 16, 12, 35, True),
+            ("DEFAULT_OOB_SILVER_SLA", 14, 60, 12, 12, 0, True),
+            ("DEFAULT_OOB_BRONZE_SLA", 7, 30, 8, 6, 0, True),
+            ("FINANCE_7Y_SLA", 14, 90, 52, 24, 28, False)):
+        est.slas.append({"id": uid(seed, "sla", name), "name": name, "systemSla": system,
+                         "continuousRetention": cont, "dailyRetention": daily,
+                         "weeklyRetention": weekly, "monthlyRetention": monthly,
+                         "quarterlyRetention": quarterly, "yearlyRetention": 0,
+                         "pitrEnabled": cont > 0})
+    sla_by_name = {s["name"]: s for s in est.slas}
+
+    for tname, entity in (("env", "DATABASE"), ("app", "DATABASE"), ("owner", "TIME_MACHINE"),
+                          ("cost-center", "CLONE")):
+        est.tags.append({"id": uid(seed, "ndbtag", tname), "name": tname,
+                         "entityType": entity, "required": tname == "env",
+                         "status": "ENABLED", "description": f"{tname} tag"})
+    tag_ids = {t["name"]: t["id"] for t in est.tags}
+
+    def tags(**kv: str) -> list[dict[str, Any]]:
+        return [{"tagId": tag_ids[k.replace("_", "-")], "tagName": k.replace("_", "-"),
+                 "value": v} for k, v in kv.items()]
+
     for i in range(12):
-        engine, short = engines[i % len(engines)]
+        engine, short, ver, _sw, port = engines[i % len(engines)]
         cl = est.clusters[i % 2]
         srv = f"{short}-srv-{i + 1:02d}"
+        srv_id = uid(seed, "dbsrv", srv)
+        compute = computes[2] if i % 4 == 0 else computes[i % 2]
         est.dbservers.append({
-            "id": uid(seed, "dbsrv", srv), "name": srv, "type": engine,
+            "id": srv_id, "name": srv, "type": "DBSERVER", "databaseType": engine,
             "ipAddresses": [f"10.21.4.{40 + i}"], "status": "UP", "nxClusterId": cl["id"],
-            "properties": [{"name": "vm_cpu_count", "value": str(4 + 2 * (i % 3))},
-                           {"name": "vm_memory_gb", "value": str(16 * (1 + i % 3))},
-                           {"name": "application_type", "value": engine}],
+            "eraCreated": True, "description": f"{short} server {i + 1}",
+            "tags": [],
+            "properties": [{"name": k, "value": v} for k, v in {
+                "application_type": engine, "application_version": ver, "os_type": "linux",
+                "software_profile_id": sw[engine], "compute_profile_id": compute,
+                "network_profile_id": net[engine]}.items()],
         })
         db = f"{short}-db-{i + 1:02d}"
-        sla = ["GOLD", "SILVER", "BRONZE"][i % 3]
+        db_id = uid(seed, "db", db)
+        sla = sla_by_name[["DEFAULT_OOB_GOLD_SLA", "DEFAULT_OOB_SILVER_SLA",
+                           "DEFAULT_OOB_BRONZE_SLA", "FINANCE_7Y_SLA"][i % 4]]
         tm = f"{db}_TM"
+        tm_id = uid(seed, "tm", tm)
         est.databases.append({
-            "id": uid(seed, "db", db), "name": db, "type": engine,
-            "databaseClusterType": "HA" if i % 5 == 0 else None, "status": "READY",
-            "dbserverLogicalCluster": {"name": srv},
-            "timeMachine": {"name": tm, "sla": {"name": sla}},
-            "clone": i % 6 == 5, "dateCreated": iso(BASE_TIME - timedelta(days=30 * (i + 1))),
+            "id": db_id, "name": db, "type": engine,
+            "databaseClusterType": "HA" if i % 5 == 0 else None, "clustered": i % 5 == 0,
+            "status": "READY", "clone": False,
+            "databaseNodes": [{"dbserverId": srv_id, "dbserver": {"id": srv_id, "name": srv,
+                                                                   "nxClusterId": cl["id"]}}],
+            "timeMachineId": tm_id,
+            "timeMachine": {"id": tm_id, "name": tm, "sla": {"id": sla["id"], "name": sla["name"]}},
+            "tags": tags(env=["prod", "dev", "test"][i % 3], app=f"app{i % 4 + 1}"),
+            "properties": [{"name": k, "value": v} for k, v in {
+                "version": ver, "listener_port": str(port), "SIZE": str(50 * (1 + i % 4)),
+                "SIZE_UNIT": "GB", "db_parameter_profile_id": par[engine]}.items()],
+            "dateCreated": iso(BASE_TIME - timedelta(days=30 * (i + 1))),
         })
         est.time_machines.append({
-            "id": uid(seed, "tm", tm), "name": tm, "databaseName": db, "clustered": False,
-            "sla": {"name": sla}, "status": "READY",
-            "schedule": {"snapshotTimeOfDay": {"hours": 1 + i % 4, "minutes": 0}},
-            "clones": i % 3,
+            "id": tm_id, "name": tm, "databaseId": db_id, "type": engine, "clustered": False,
+            "sla": {"id": sla["id"], "name": sla["name"]}, "slaId": sla["id"],
+            "status": "READY", "scope": "LOCAL", "sourceNxClusters": [cl["id"]],
+            "tags": tags(owner="dba-team") if i % 3 == 0 else [],
+            "schedule": {"snapshotTimeOfDay": {"hours": 1 + i % 4, "minutes": 0},
+                         "continuousSchedule": {"enabled": sla["continuousRetention"] > 0,
+                                                "logBackupInterval": 30},
+                         "weeklySchedule": {"enabled": True, "dayOfWeek": "SUNDAY"},
+                         "monthlySchedule": {"enabled": True, "dayOfMonth": "1"}},
         })
+        for n in range(1 + i % 3):
+            kind = "MANUAL" if n == 0 and i % 4 == 1 else "DAILY_EXTRA"
+            est.snapshots.append({
+                "id": uid(seed, "ndbsnap", f"{tm}-{n}"),
+                "name": f"{db}-manual" if kind == "MANUAL" else "era_auto_snapshot",
+                "timeMachineId": tm_id, "type": kind, "status": "ACTIVE", "dbserverName": srv,
+                "snapshotTimeStamp": iso(BASE_TIME - timedelta(days=n)),
+            })
+        if i % 6 == 5:
+            clone = f"{db}-clone"
+            est.clones.append({
+                "id": uid(seed, "clone", clone), "name": clone, "type": engine, "clone": True,
+                "status": "READY", "parentTimeMachineId": tm_id,
+                "databaseNodes": est.databases[-1]["databaseNodes"],
+                "tags": tags(cost_center="qa"),
+                "properties": [{"name": "version", "value": ver}],
+                "dateCreated": iso(BASE_TIME - timedelta(days=2)),
+            })
+    pg = [s for s in est.dbservers if s["databaseType"] == "postgres_database"]
+    est.maintenance.append({
+        "id": uid(seed, "ndbmw", "sunday"), "name": "SUNDAY_PATCHING", "status": "ACTIVE",
+        "schedule": {"recurrence": "WEEKLY", "dayOfWeek": "SUNDAY", "startTime": "02:00:00",
+                     "duration": 3, "timeZone": "UTC"},
+        "nextRunTime": iso(BASE_TIME + timedelta(days=3)),
+        "entityTaskAssoc": [{"entityType": "ERA_DBSERVER", "entityId": s["id"], "taskType": t}
+                            for s in pg for t in ("OS_PATCHING", "DB_PATCHING")],
+    })
     return est

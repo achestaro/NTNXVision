@@ -33,8 +33,10 @@ from ntnxvision_core.diagrams.facts import short_name
 from ntnxvision_core.diagrams.layout.fit import fits_first
 from ntnxvision_core.diagrams.scene import Scene
 from ntnxvision_core.exporters import diagrams
+from ntnxvision_core.exporters import products as report_products
 from ntnxvision_core.exporters import sections as report_sections
 from ntnxvision_core.exporters.diagrams import Diagram
+from ntnxvision_core.exporters.products import Product
 from ntnxvision_core.exporters.sourcing import source_hosts, sources, with_sources
 from ntnxvision_core.exporters.tables import Ctx
 from ntnxvision_core.exporters.theme import (
@@ -257,7 +259,23 @@ class FigureStrip:
     items: list[StripItem]
 
 
-Block = Paragraph | Bullets | Table | Figure | SceneFigure | FigureRow | FigureStrip
+@dataclass
+class ProductItem:
+    product: Product
+    #: What the estate has of it ("4 clusters, 28 nodes").
+    detail: str
+
+
+@dataclass
+class ProductStrip:
+    """The Nutanix products the estate runs, each with its product icon, in one row."""
+
+    items: list[ProductItem]
+    title: str = "Nutanix products in this environment"
+
+
+Block = (Paragraph | Bullets | Table | Figure | SceneFigure | FigureRow | FigureStrip
+         | ProductStrip)
 
 
 @dataclass
@@ -280,6 +298,11 @@ class Chapter:
     sections: list[Section] = field(default_factory=list)
     appendix: bool = False
     number: str = ""
+
+    @property
+    def product(self) -> Product | None:
+        """The Nutanix product this chapter documents (its icon goes by the heading)."""
+        return report_products.for_section(self.key)
 
     @property
     def heading(self) -> str:
@@ -308,6 +331,8 @@ class Cover:
     subtitle: str
     meta: list[tuple[str, str]]
     note: str
+    #: The Nutanix products the estate runs (their icons go on the cover).
+    products: list[Product] = field(default_factory=list)
 
 
 @dataclass
@@ -649,6 +674,7 @@ class _Builder:
             subtitle=subtitle,
             meta=meta,
             note=f"Confidential. {provenance(env.lcm_inventory)}",
+            products=[p for p, _ in report_products.in_estate(env)],
         )
 
     # ─ chapters ─
@@ -693,6 +719,8 @@ class _Builder:
         strip = [StripItem(f["label"], fmt_count(f["value"]), f.get("qualifier"),
                            f.get("qualifier_tone")) for f in self.figures]
         ch.blocks.append(FigureStrip(strip[:6]))
+        if (products := report_products.in_estate(env)):
+            ch.blocks.append(ProductStrip([ProductItem(p, d) for p, d in products]))
         findings = Bullets(self.highlights(), intro="Key findings")
         ch.blocks.append(findings)
         if self.sunset:
@@ -1364,16 +1392,26 @@ class _Builder:
     def storage_services(self) -> Chapter:
         env = self.env
         ch = Chapter("nus", "Unified Storage Services (NUS)", "platform_services")
+        v4_shares = [s for s in env.file_shares if s.api_source == "v4"]
         ch.add("Files", make_table(
-            ["File Server", "Cluster", "Version", "FSVMs", "Size (GiB)", "Shares"],
-            [[f.name, self.cluster(f), f.version, f.num_fsvm, gib(f.size_bytes), f.share_count]
-             for f in env.file_servers],
+            ["File Server", "Cluster", "Version", "FSVMs", "Size (GiB)", "Used (GiB)", "Shares"],
+            [[f.name, self.cluster(f), f.version, f.num_fsvm, gib(f.size_bytes),
+              gib(f.used_bytes), f.share_count] for f in env.file_servers],
             "Nutanix Files servers", self.src(env.file_servers)),
             make_table(
             ["Share", "File Server", "Type", "Protocol", "Max Size (GiB)", "Used (GiB)"],
-            [[s.name, s.file_server_name, s.share_type, s.protocol, gib(s.max_size_bytes),
-              gib(s.used_bytes)] for s in env.file_shares],
-            "File shares", self.src(env.file_shares)))
+            # v4 reports no quota as 0 (stored as None): the share is unlimited.
+            [[s.name, s.file_server_name, s.share_type, s.protocol,
+              gib(s.max_size_bytes) if s.max_size_bytes or s.api_source != "v4"
+              else "Unlimited", gib(s.used_bytes)] for s in env.file_shares],
+            "File shares", self.src(env.file_shares)),
+            make_table(
+            ["Share", "ABE", "Continuous Availability", "SMB3 Encryption", "Compression",
+             "Previous Versions"],
+            [[s.name, yes_no(s.access_based_enumeration), yes_no(s.continuous_availability),
+              yes_no(s.smb3_encryption), yes_no(s.compression), yes_no(s.previous_versions)]
+             for s in v4_shares],
+            "File share settings", self.src(v4_shares)))
         ch.add("Objects", make_table(
             ["Object Store", "Cluster", "Workers", "Capacity (GiB)", "Buckets", "State"],
             [[o.name, self.cluster(o), o.num_worker_nodes, gib(o.total_capacity_bytes),
@@ -1503,21 +1541,55 @@ class _Builder:
     def databases(self) -> Chapter:
         env = self.env
         ch = Chapter("ndb", "Database Services (NDB)", "platform_services")
+        dbs = [d for d in env.databases if not d.clone]
+        clones = [d for d in env.databases if d.clone]
         ch.add("Databases", make_table(
-            ["Database", "Engine", "Type", "Status", "Time Machine", "SLA"],
-            [[d.name, d.db_engine, d.db_type, d.status, d.time_machine_name, d.sla_name]
-             for d in env.databases],
-            "NDB-managed databases", self.src(env.databases)))
+            ["Database", "Engine", "Version", "Cluster", "DB Server", "Size (GB)", "Status"],
+            [[d.name, d.db_engine, d.engine_version, self.cluster(d), d.db_server_name,
+              d.size_gb, d.status] for d in dbs],
+            "NDB-managed databases", self.src(dbs)),
+            make_table(
+            ["Clone", "Engine", "Cloned From", "DB Server", "Status", "Tags"],
+            [[d.name, d.db_engine, d.parent_time_machine, d.db_server_name, d.status,
+              ", ".join(d.tags)] for d in clones],
+            "Database clones", self.src(clones)))
         ch.add("Database Servers", make_table(
-            ["Server", "Engine", "Status", "Cluster", "Cores", "Memory (GB)"],
-            [[s.name, s.db_engine, s.status, self.cluster(s), s.vm_cores, s.memory_gb]
-             for s in env.database_servers],
+            ["Server", "Engine", "Cluster", "Cores", "Memory (GB)", "Software Profile",
+             "Status"],
+            [[s.name, s.db_engine, self.cluster(s), s.vm_cores, s.memory_gb,
+              s.software_profile, s.status] for s in env.database_servers],
             "Database servers", self.src(env.database_servers)))
         ch.add("Time Machines", make_table(
-            ["Time Machine", "Database", "SLA", "Status", "Schedule", "Clones"],
-            [[t.name, t.database_name, t.sla_name, t.status, t.schedule, t.clone_count]
-             for t in env.time_machines],
-            "Time machines", self.src(env.time_machines)))
+            ["Time Machine", "Database", "Cluster", "SLA", "Schedule", "Snapshots", "Clones"],
+            [[t.name, t.database_name, self.cluster(t), t.sla_name, t.schedule,
+              t.snapshot_count, t.clone_count] for t in env.time_machines],
+            "Time machines", self.src(env.time_machines)),
+            make_table(
+            ["SLA", "Continuous (days)", "Daily", "Weekly", "Monthly", "Quarterly",
+             "Time Machines"],
+            [[s.name, s.continuous_days, s.daily, s.weekly, s.monthly, s.quarterly,
+              s.time_machine_count] for s in env.ndb_slas],
+            "NDB SLAs (retention)", self.src(env.ndb_slas)))
+        ch.add("Profiles", make_table(
+            ["Profile", "Type", "Engine", "Details", "Built-in"],
+            [[p.name, (p.profile_type or "").replace("_", " "), p.db_engine, p.details,
+              yes_no(p.system)] for p in env.ndb_profiles],
+            "NDB profiles", self.src(env.ndb_profiles)))
+        ch.add("Operations", make_table(
+            ["Cluster", "IP", "Hypervisor", "Status"],
+            [[c.name, ", ".join(c.ip_addresses), c.hypervisor, c.status]
+             for c in env.ndb_clusters],
+            "Clusters registered in NDB", self.src(env.ndb_clusters)),
+            make_table(
+            ["Maintenance Window", "Schedule", "Tasks", "DB Servers", "Next Run"],
+            [[w.name, w.schedule, w.tasks, w.db_server_count, w.next_run]
+             for w in env.ndb_maintenance_windows],
+            "NDB maintenance windows", self.src(env.ndb_maintenance_windows)),
+            make_table(
+            ["Tag", "Applies To", "Required"],
+            [[t.name, (t.entity_type or "").replace("_", " ").title(), yes_no(t.required)]
+             for t in env.ndb_tags],
+            "NDB tags", self.src(env.ndb_tags)))
         return ch
 
     def identity(self) -> Chapter:
@@ -1881,6 +1953,7 @@ def _number(chapters: list[Chapter], start: int = 0) -> None:
 
 __all__ = [
     "Block", "Bullets", "Chapter", "Cover", "Figure", "FigureRow", "FigureStrip",
+    "ProductItem", "ProductStrip",
     "Paragraph", "Report", "SceneFigure", "Section", "Status", "StripItem", "Table",
     "build_report",
     "cell_text", "make_table", "update_flag", "versions",

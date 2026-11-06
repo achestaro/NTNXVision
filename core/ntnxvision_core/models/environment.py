@@ -1079,10 +1079,18 @@ class FileShare(SourcedObject):
     uuid: str
     name: str | None = None
     file_server_name: str | None = None
-    share_type: str | None = None  # SMB / NFS
+    share_type: str | None = None  # v3: SMB / NFS; v4: Standard / Distributed
     max_size_bytes: int | None = None
     used_bytes: int | None = None
     protocol: str | None = None
+    path: str | None = None
+    description: str | None = None
+    compression: bool | None = None
+    read_only: bool | None = None
+    previous_versions: bool | None = None
+    access_based_enumeration: bool | None = None
+    continuous_availability: bool | None = None
+    smb3_encryption: bool | None = None
     api_source: str = "v3"
 
 
@@ -1132,11 +1140,19 @@ class DatabaseServer(SourcedObject):
     id: str
     name: str | None = None
     db_engine: str | None = None
+    engine_version: str | None = None
     ip_addresses: list[str] = Field(default_factory=list)
     status: str | None = None
     cluster_name: str | None = None
     vm_cores: int | None = None
     memory_gb: float | None = None
+    os_type: str | None = None
+    software_profile: str | None = None
+    compute_profile: str | None = None
+    network_profile: str | None = None
+    ndb_created: bool | None = None
+    tags: list[str] = Field(default_factory=list)  # "name=value"
+    description: str | None = None
     api_source: str = "ndb"
 
 
@@ -1144,12 +1160,19 @@ class Database(SourcedObject):
     id: str
     name: str | None = None
     db_engine: str | None = None  # oracle / postgres / sqlserver / mysql / mongodb
+    engine_version: str | None = None
     db_type: str | None = None  # single / HA cluster
     status: str | None = None
+    cluster_name: str | None = None
     db_server_name: str | None = None
     time_machine_name: str | None = None
     sla_name: str | None = None
+    size_gb: float | None = None
+    listener_port: int | None = None
+    parameter_profile: str | None = None
     clone: bool = False
+    parent_time_machine: str | None = None  # clones: the time machine they came from
+    tags: list[str] = Field(default_factory=list)
     provisioned: str | None = None
     api_source: str = "ndb"
 
@@ -1158,10 +1181,92 @@ class TimeMachine(SourcedObject):
     id: str
     name: str | None = None
     database_name: str | None = None
+    db_engine: str | None = None
+    cluster_name: str | None = None
     sla_name: str | None = None
     status: str | None = None
     schedule: str | None = None
+    scope: str | None = None  # LOCAL / multi-cluster
+    snapshot_count: int | None = None
     clone_count: int | None = None
+    tags: list[str] = Field(default_factory=list)
+    api_source: str = "ndb"
+
+
+class NdbCluster(SourcedObject):
+    """A Nutanix cluster registered in NDB."""
+
+    id: str
+    name: str | None = None
+    ip_addresses: list[str] = Field(default_factory=list)
+    status: str | None = None
+    hypervisor: str | None = None  # "AHV 7.5.1"
+    cloud_type: str | None = None
+    description: str | None = None
+    api_source: str = "ndb"
+
+
+class NdbProfile(SourcedObject):
+    """Software, compute, network or database parameter profile."""
+
+    id: str
+    name: str | None = None
+    profile_type: str | None = None  # Software / Compute / Network / Database_Parameter / Storage
+    db_engine: str | None = None
+    topology: str | None = None
+    version: str | None = None
+    details: str | None = None  # compute: "2 vCPU x 1 core, 4 GB"; network: VLAN
+    system: bool | None = None  # built-in (OOB) rather than created by the customer
+    status: str | None = None
+    api_source: str = "ndb"
+
+
+class NdbSla(SourcedObject):
+    """Time machine retention policy (days for continuous / daily, counts for the rest)."""
+
+    id: str
+    name: str | None = None
+    continuous_days: int | None = None
+    daily: int | None = None
+    weekly: int | None = None
+    monthly: int | None = None
+    quarterly: int | None = None
+    yearly: int | None = None
+    pitr: bool | None = None
+    system: bool | None = None
+    time_machine_count: int | None = None
+    api_source: str = "ndb"
+
+
+class NdbSnapshot(SourcedObject):
+    id: str
+    name: str | None = None
+    time_machine_name: str | None = None
+    snapshot_type: str | None = None  # MANUAL / CONTINUOUS_EXTRA / DAILY_EXTRA ...
+    status: str | None = None
+    taken: str | None = None
+    db_server_name: str | None = None
+    api_source: str = "ndb"
+
+
+class NdbMaintenanceWindow(SourcedObject):
+    id: str
+    name: str | None = None
+    schedule: str | None = None  # "Weekly, Sunday 02:00 UTC, 2 h"
+    status: str | None = None
+    next_run: str | None = None
+    db_server_count: int | None = None
+    tasks: str | None = None  # "OS patching, DB patching"
+    api_source: str = "ndb"
+
+
+class NdbTag(SourcedObject):
+    id: str
+    name: str | None = None
+    entity_type: str | None = None  # DATABASE / TIME_MACHINE / CLONE / DATABASE_SERVER
+    required: bool | None = None
+    status: str | None = None
+    description: str | None = None
     api_source: str = "ndb"
 
 
@@ -1508,6 +1613,12 @@ class Environment(_Base):
     database_servers: list[DatabaseServer] = Field(default_factory=list)
     databases: list[Database] = Field(default_factory=list)
     time_machines: list[TimeMachine] = Field(default_factory=list)
+    ndb_clusters: list[NdbCluster] = Field(default_factory=list)
+    ndb_profiles: list[NdbProfile] = Field(default_factory=list)
+    ndb_slas: list[NdbSla] = Field(default_factory=list)
+    ndb_snapshots: list[NdbSnapshot] = Field(default_factory=list)
+    ndb_maintenance_windows: list[NdbMaintenanceWindow] = Field(default_factory=list)
+    ndb_tags: list[NdbTag] = Field(default_factory=list)
 
     # ─ Phase 2: IAM / X-Play / NCM ─
     users: list[User] = Field(default_factory=list)
@@ -1590,6 +1701,12 @@ class Environment(_Base):
             "database_servers": len(self.database_servers),
             "databases": len(self.databases),
             "time_machines": len(self.time_machines),
+            "ndb_clusters": len(self.ndb_clusters),
+            "ndb_profiles": len(self.ndb_profiles),
+            "ndb_slas": len(self.ndb_slas),
+            "ndb_snapshots": len(self.ndb_snapshots),
+            "ndb_maintenance_windows": len(self.ndb_maintenance_windows),
+            "ndb_tags": len(self.ndb_tags),
             "users": len(self.users),
             "roles": len(self.roles),
             "projects": len(self.projects),

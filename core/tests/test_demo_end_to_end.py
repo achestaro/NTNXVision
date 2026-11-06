@@ -49,7 +49,7 @@ def test_collect_snapshot_export_compare(demo: Any, tmp_path: Path) -> None:
     assert by_id["objects"]["api"] == "v3"  # v4 objects service down (503)
     assert by_id["clusters"]["api"] == "v4"
     assert by_id["ndb"]["status"] == "collected" and by_id["ndb"]["api"] == "era"
-    assert len(env.databases) == 12
+    assert len(env.databases) == 14  # 12 databases + 2 clones
     assert env.pc_config.pc_vm_names and env.system_vms
     # Cross references resolved across APIs (v4 VMs only carry uuids).
     vm = env.vms[0]
