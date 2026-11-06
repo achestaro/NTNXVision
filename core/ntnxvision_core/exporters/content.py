@@ -50,6 +50,7 @@ from ntnxvision_core.exporters.theme import (
     switch_label,
     tone_for,
 )
+from ntnxvision_core.inventory import fmt_bytes
 from ntnxvision_core.lcm_inventory import (
     provenance,
     report_rows,
@@ -522,7 +523,7 @@ def deployment(cfg: Any) -> str | None:
 
 _OUTCOME = {"collected": "Collected", "notes": "Collected with notes", "skipped": "Skipped",
             "failed": "Failed", "cancelled": "Cancelled"}
-_API_LABEL = {"v2": "v2.0", "era": "Era", "vcenter": "vCenter"}
+_API_LABEL = {"v2": "v2.0", "era": "Era", "vcenter": "vCenter", "kubernetes": "Kubernetes"}
 
 
 def run_areas(env: Environment) -> list[dict[str, Any]]:
@@ -1420,11 +1421,12 @@ class _Builder:
               ", ".join(o.client_ips)] for o in env.object_stores],
             "Nutanix Objects stores", self.src(env.object_stores)),
             make_table(
-            ["Bucket", "Owner", "Versioning", "WORM", "Lifecycle", "Objects", "Used (GiB)"],
-            [[b.name, b.owner, yes_no(b.versioning),
+            # Buckets are often far below a GiB: their size reads in its own unit.
+            ["Bucket", "Cluster", "Owner", "Versioning", "WORM", "Lifecycle", "Objects", "Used"],
+            [[b.name, self.cluster(b), b.owner, yes_no(b.versioning),
               f"Yes ({b.retention_days} d)" if b.worm_enabled and b.retention_days
               else yes_no(b.worm_enabled), yes_no(b.lifecycle), b.object_count,
-              gib(b.used_bytes)] for b in env.buckets],
+              fmt_bytes(b.used_bytes)] for b in env.buckets],
             "Buckets", self.src(env.buckets)))
         ch.add("Volumes", make_table(
             ["Volume Group", "Cluster", "Disks", "Capacity (GiB)", "Shared"],
@@ -1595,6 +1597,124 @@ class _Builder:
              for t in env.ndb_tags],
             "NDB tags", self.src(env.ndb_tags)))
         return ch
+
+    def kubernetes(self) -> Chapter:
+        """NKP clusters: what Prism Central sees of them, and what their own Kubernetes
+        API adds when it was read. "Cluster" is the Nutanix cluster the nodes run on."""
+        env = self.env
+        ch = Chapter("kubernetes", "Kubernetes (NKP)", "platform_services")
+        clusters = env.kubernetes_clusters
+        ch.add("Clusters", make_table(
+            ["Kubernetes Cluster", "Cluster", "NKP", "Kubernetes", "API Endpoint",
+             "Control Plane", "Workers", "vCPUs", "Memory (GiB)", "Source"],
+            [[k.name, self.kube_cluster(k), k.nkp_version, k.kubernetes_version,
+              k.control_plane_endpoint, k.control_plane_nodes, k.worker_nodes, k.total_vcpus,
+              gib(k.total_memory_bytes), _KUBE_SOURCE.get(k.api_source, k.api_source)]
+             for k in clusters],
+            "NKP clusters", self.src(clusters)),
+            make_table(
+            ["Kubernetes Cluster", "Cluster", "Management", "CNI", "Load Balancer",
+             "Pod CIDR", "Service CIDR", "License", "Deployed By"],
+            [[k.name, self.kube_cluster(k),
+              "" if k.management_cluster is None else yes_no(k.management_cluster), k.cni,
+              k.load_balancer, k.pod_cidr, k.service_cidr, k.license, k.deployed_by]
+             for k in clusters],
+            "NKP cluster configuration", self.src(clusters)))
+        nodes = env.kubernetes_nodes
+        ch.add("Nodes", make_table(
+            ["Node", "Cluster", "Kubernetes Cluster", "Role", "Pool", "IP", "vCPUs",
+             "Memory (GiB)", "Kubelet", "Status"],
+            [[n.name, self.kube_cluster(n), n.kubernetes_cluster, n.role, n.pool,
+              n.ip_address, n.vcpus, gib(n.memory_bytes), n.kubelet_version, n.status]
+             for n in nodes],
+            "Kubernetes nodes", self.src(nodes)),
+            make_table(
+            ["Node", "Cluster", "OS Image", "Kernel", "Container Runtime"],
+            [[n.name, self.kube_cluster(n), n.os_image, n.kernel, n.container_runtime]
+             for n in nodes if n.os_image or n.kernel or n.container_runtime],
+            "Node software", self.src([n for n in nodes
+                                       if n.os_image or n.kernel or n.container_runtime])))
+        spaces = env.kubernetes_namespaces
+        # User namespaces one by one; the platform's own (often 25+ on NKP) fold into
+        # one row per Kubernetes cluster. Excel and the Inventory keep every namespace.
+        user_ns = [n for n in spaces if not n.system]
+        ns_rows: list[list[Any]] = [
+            [n.name, self.kube_cluster(n), n.kubernetes_cluster, n.pods, n.deployments,
+             n.statefulsets, n.daemonsets, n.services, n.volume_claims] for n in user_ns]
+        ns_src: list[Any] = list(user_ns)
+        system_ns: dict[tuple[str | None, str], list[Any]] = {}
+        for n in spaces:
+            if n.system:
+                system_ns.setdefault((n.source_pc, n.kubernetes_cluster), []).append(n)
+        for (_pc, kname), group in system_ns.items():
+            ns_rows.append([
+                f"System namespaces ({len(group):,})", self.kube_cluster(group[0]), kname,
+                *(sum(getattr(n, f) for n in group) for f in (
+                    "pods", "deployments", "statefulsets", "daemonsets", "services",
+                    "volume_claims"))])
+            ns_src.append(group[0])
+        ch.add("Namespaces", make_table(
+            ["Namespace", "Cluster", "Kubernetes Cluster", "Pods", "Deployments",
+             "StatefulSets", "DaemonSets", "Services", "Volume Claims"],
+            ns_rows, "Namespaces (system namespaces summarised)", self.src(ns_src)))
+        ch.add("Storage", make_table(
+            ["Storage Class", "Cluster", "Kubernetes Cluster", "Provisioner",
+             "Storage Container", "Default", "Reclaim", "Binding"],
+            [[c.name, self.kube_cluster(c), c.kubernetes_cluster, c.provisioner,
+              c.storage_container, yes_no(c.default), c.reclaim_policy, c.binding_mode]
+             for c in env.kubernetes_storage_classes],
+            "Storage classes", self.src(env.kubernetes_storage_classes)),
+            make_table(
+            ["Volume", "Cluster", "Claim", "Storage Class", "Capacity", "Status"],
+            [[v.name, self.kube_cluster(v), v.claim, v.storage_class,
+              fmt_bytes(v.capacity_bytes), v.status] for v in env.kubernetes_volumes],
+            "Persistent volumes", self.src(env.kubernetes_volumes)),
+            make_table(
+            ["Service", "Cluster", "Kubernetes Cluster", "Namespace", "External IPs",
+             "Ports"],
+            [[v.name, self.kube_cluster(v), v.kubernetes_cluster, v.namespace,
+              ", ".join(v.external_ips), ", ".join(v.ports)]
+             for v in env.kubernetes_services],
+            "Load balancer services", self.src(env.kubernetes_services)))
+        apps = env.kubernetes_applications
+        user = [w for w in env.kubernetes_workloads if not w.system]
+        # Only user workloads: the platform's own are in the Excel workbook.
+        ch.add("Applications", make_table(
+            ["Application", "Cluster", "Kubernetes Cluster", "Namespace", "Kind",
+             "Workloads", "Ingress Hosts", "LB IPs", "Status"],
+            [[a.name, self.kube_cluster(a), a.kubernetes_cluster, a.namespace, a.kind,
+              ", ".join(a.workload_kinds), ", ".join(a.ingress_hosts),
+              ", ".join(a.addresses), a.status] for a in apps],
+            "User applications", self.src(apps)),
+            make_table(
+            ["Workload", "Cluster", "Namespace", "Kind", "Ready", "Helm Release", "Images",
+             "Status"],
+            [[w.name, self.kube_cluster(w), w.namespace, w.kind,
+              "" if w.replicas_desired is None
+              else f"{w.replicas_ready or 0}/{w.replicas_desired}",
+              w.helm_release, ", ".join(w.images), w.status] for w in user],
+            "User workloads", self.src(user)),
+            make_table(
+            ["Ingress", "Cluster", "Namespace", "Class", "Hosts", "Backends"],
+            [[i.name, self.kube_cluster(i), i.namespace, i.ingress_class, ", ".join(i.hosts),
+              ", ".join(i.backends)] for i in env.kubernetes_ingresses if not i.system],
+            "User ingresses",
+            self.src([i for i in env.kubernetes_ingresses if not i.system])))
+        ch.add("Platform Apps", make_table(
+            ["App", "Cluster", "Kubernetes Cluster", "Namespace", "Version", "Status",
+             "Kind"],
+            [[a.name, self.kube_cluster(a), a.kubernetes_cluster, a.namespace, a.version,
+              a.status, a.kind] for a in env.kubernetes_apps],
+            "Platform applications", self.src(env.kubernetes_apps)))
+        return ch
+
+    def kube_cluster(self, obj: Any) -> str | None:
+        """The Nutanix cluster of a Kubernetes object (its own, else its cluster's)."""
+        own = getattr(obj, "cluster_name", None)
+        if own:
+            return str(own)
+        return self.ctx.kube_home.get((getattr(obj, "source_pc", None),
+                                       getattr(obj, "kubernetes_cluster", "")))
 
     def identity(self) -> Chapter:
         env = self.env
@@ -1768,6 +1888,10 @@ def _fig(d: Diagram | None, caption: str) -> Figure | None:
     return Figure(d, caption) if d else None
 
 
+#: How a Kubernetes cluster's provenance reads in the reports.
+_KUBE_SOURCE = {"pc": "Prism Central", "kubernetes": "Kubernetes API",
+                "pc+kubernetes": "Prism Central + Kubernetes API"}
+
 #: Stands in for "(see Appendix A)" until numbering (`_Builder.executive_summary`).
 _APPENDIX_REF = "\x00appendix-ref\x00"
 
@@ -1775,8 +1899,8 @@ _APPENDIX_REF = "\x00appendix-ref\x00"
 _ORDER: tuple[str, ...] = (
     "executive_summary", "licensing", "assumptions", "prism_central", "logical_design",
     "physical_design", "workloads", "catalog", "storage_services", "networking",
-    "data_protection", "security", "databases", "identity", "automation", "health",
-    "lifecycle", "appendix",
+    "data_protection", "security", "databases", "kubernetes", "identity", "automation",
+    "health", "lifecycle", "appendix",
 )
 
 

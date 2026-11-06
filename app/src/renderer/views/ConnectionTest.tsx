@@ -106,10 +106,16 @@ export function TrustCallout({
   result,
   host,
   onTrust,
+  compareWith = 'the one Prism shows',
+  secret = 'the password',
 }: {
   result: TestConnectionResult;
   host: string;
   onTrust?(fingerprint: string): void;
+  /** Where the user can check the fingerprint ("the one Prism shows"). */
+  compareWith?: string;
+  /** What has not been sent yet ("the password"; an NKP endpoint sends a token). */
+  secret?: string;
 }): React.JSX.Element {
   const changed = result.status === 'cert_changed';
   const cert = result.certificate;
@@ -128,7 +134,7 @@ export function TrustCallout({
     >
       {changed
         ? 'It is not the certificate you trusted before. That can be a renewed certificate, or someone intercepting the connection. Only trust it if you expect the change.'
-        : 'TLS verification is off for this target, so the app pins the server certificate instead. Nothing, not even the password, has been sent yet. Compare the fingerprint with the one Prism shows, then trust it.'}
+        : `TLS verification is off for this target, so the app pins the server certificate instead. Nothing, not even ${secret}, has been sent yet. Compare the fingerprint with ${compareWith}, then trust it.`}
       {cert ? <CertificateDetails certificate={cert} /> : <div className="mono t12">{result.message}</div>}
     </Callout>
   );

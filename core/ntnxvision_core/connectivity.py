@@ -1,4 +1,5 @@
-"""Connection tests for Prism Central, Prism Element and NDB — read-only, no collection.
+"""Connection tests for Prism Central, Prism Element, NDB, vCenter and the Kubernetes API
+of an NKP cluster — read-only, no collection.
 
 Every outcome the user can act on is a *result*, not an error, classified as:
 
@@ -38,6 +39,7 @@ from ntnxvision_core.api.errors import (
     NutanixApiError,
     TlsVerificationFailed,
 )
+from ntnxvision_core.api.kube_client import KubeConnection, KubeCredentials
 from ntnxvision_core.api.ndb_client import NdbConnection, NdbCredentials
 from ntnxvision_core.api.vcenter_client import VcenterConnection, VcenterCredentials
 from ntnxvision_core.areas import AREAS, TYPICAL_SECONDS
@@ -60,15 +62,17 @@ _DEPLOYMENT_PROBES = {
 def test_connection(params: dict[str, Any]) -> dict[str, Any]:
     mode = str(params.get("mode") or "prism_central")
     host = str(params.get("host") or "").strip()
-    port = int(params.get("port") or (443 if mode in ("ndb", "vcenter") else 9440))
+    port = int(params.get("port") or (443 if mode in ("ndb", "vcenter") else
+                                      6443 if mode == "kubernetes" else 9440))
     username = str(params.get("username") or "")
-    password = str(params.get("password") or "")
+    # The Kubernetes API takes a bearer token where the others take a password.
+    password = str(params.get("token" if mode == "kubernetes" else "password") or "")
     insecure = bool(params.get("insecure"))
     pinned = transport.normalize_fingerprint(params.get("pinned_sha256"))
     base: dict[str, Any] = {
         "product": mode, "name": host,
         "supported_range": AOS_RANGE if mode == "prism_element" else
-        (None if mode in ("ndb", "vcenter") else PC_RANGE),
+        (None if mode in ("ndb", "vcenter", "kubernetes") else PC_RANGE),
         "typical_seconds": TYPICAL_SECONDS.get(mode, 60),
     }
     if not host:
@@ -79,8 +83,9 @@ def test_connection(params: dict[str, Any]) -> dict[str, Any]:
         return {**base, "status": "error", "ok": False, "message": str(exc)}
     base["name"] = host
     if not password:
+        what = "token" if mode == "kubernetes" else "password"
         return {**base, "status": "auth_failed", "ok": False,
-                "message": "No password. Type one, or save it to the keychain first"}
+                "message": f"No {what}. Type one, or save it to the keychain first"}
     if insecure and pinned is None:
         # Trust on first use: nothing is sent (least of all the password) to a server
         # whose certificate the user has not accepted. Describe it so they can decide.
@@ -98,6 +103,8 @@ def test_connection(params: dict[str, Any]) -> dict[str, Any]:
             return {**base, **_test_ndb(host, username, password, insecure, pinned)}
         if mode == "vcenter":
             return {**base, **_test_vcenter(host, port, username, password, insecure, pinned)}
+        if mode == "kubernetes":
+            return {**base, **_test_kubernetes(host, port, password, insecure, pinned)}
         return {**base, **_test_pc(host, port, username, password, insecure, pinned)}
     except CertificateChanged:
         cert = describe_certificate(host, port)
@@ -110,7 +117,9 @@ def test_connection(params: dict[str, Any]) -> dict[str, Any]:
                 "message": _tls_reason(exc, cert), "certificate": cert}
     except AuthenticationError:
         return {**base, "status": "auth_failed", "ok": False,
-                "message": "HTTP 401 Unauthorized: the credentials were rejected"}
+                "message": "HTTP 401 Unauthorized: the token was rejected"
+                if mode == "kubernetes" else
+                "HTTP 401 Unauthorized: the credentials were rejected"}
     except ConnectionFailed as exc:
         return {**base, "status": "unreachable", "ok": False, "message": _network_reason(exc)}
     except NutanixApiError as exc:
@@ -301,6 +310,29 @@ def _test_vcenter(host: str, port: int, username: str, password: str, insecure: 
             "message": f"Connected to vCenter{' ' + version if version else ''}",
             "detail": detail, "version": version, "version_supported": True,
             "hosts": hosts, "vms": vms,
+            "api": {"v4": 0, "v3": 0, "v2": 0, "not_deployed": 0}, "certificate": None}
+
+
+def _test_kubernetes(host: str, port: int, token: str, insecure: bool,
+                     pinned: str | None = None) -> dict[str, Any]:
+    """Read the API server's version and count its nodes (GETs only)."""
+    creds = KubeCredentials(host=host, token=token, port=port, verify_ssl=not insecure,
+                            pinned_sha256=pinned)
+    with KubeConnection(creds, timeout=TEST_TIMEOUT) as kube:
+        version = str(kube.version().get("gitVersion") or "") or None
+        nodes: int | None = None
+        with contextlib.suppress(NutanixApiError):
+            nodes = len(kube.list("/api/v1/nodes"))
+    detail = " · ".join(p for p in (
+        f"{fmt_count(nodes)} node{'s' if nodes != 1 else ''}" if nodes is not None else None,
+        "Kubernetes API",
+    ) if p)
+    counted = f" ({fmt_count(nodes)} node{'s' if nodes != 1 else ''})" if nodes is not None \
+        else ""
+    return {"status": "ok", "ok": True,
+            "message": f"Connected to Kubernetes{' ' + version if version else ''}{counted}",
+            "detail": detail, "version": version, "version_supported": True,
+            "nodes": nodes,
             "api": {"v4": 0, "v3": 0, "v2": 0, "not_deployed": 0}, "certificate": None}
 
 

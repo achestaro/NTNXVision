@@ -5,8 +5,18 @@
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { isPlainHost } from '@shared/host';
-import { MagnifyingGlassIcon, PlugIcon, PlusIcon } from '@phosphor-icons/react';
-import type { ConnectionMode, SavedConnection, SnapshotInfo, TargetField, TargetSaveRequest, TestConnectionResult } from '@shared/ipc';
+import { CopyIcon, MagnifyingGlassIcon, PlugIcon, PlusIcon, TrashIcon } from '@phosphor-icons/react';
+import { DEFAULT_KUBERNETES_PORT } from '@shared/ipc';
+import type {
+  ConnectionMode,
+  KubernetesEndpointSave,
+  SavedConnection,
+  SavedKubernetesEndpoint,
+  SnapshotInfo,
+  TargetField,
+  TargetSaveRequest,
+  TestConnectionResult,
+} from '@shared/ipc';
 import {
   Badge,
   Button,
@@ -103,7 +113,9 @@ export function TargetsView({ edit, returnTo }: { edit?: string; returnTo?: 'new
     const list = (targets ?? []).filter(
       (t) =>
         !text ||
-        [t.name, t.host, t.username, t.ndbHost ?? '', t.vcenterHost ?? '', typeLabel(t.mode)].some((v) => v.toLowerCase().includes(text)),
+        [t.name, t.host, t.username, t.ndbHost ?? '', t.vcenterHost ?? '', ...(t.kubernetes ?? []).flatMap((k) => [k.name, k.host]), typeLabel(t.mode)].some((v) =>
+          v.toLowerCase().includes(text),
+        ),
     );
     const val = (t: SavedConnection): string | number => {
       switch (sort.key) {
@@ -387,7 +399,7 @@ export function TargetsView({ edit, returnTo }: { edit?: string; returnTo?: 'new
                 className: 'mono',
                 style: { fontSize: 12 },
                 render: (t) => {
-                  const full = `${t.host}:${t.port}${t.ndbHost ? ` · NDB ${t.ndbHost}` : ''}${t.vcenterHost ? ` · vCenter ${t.vcenterHost}` : ''}${t.insecure ? (t.pinnedCert ? ' · TLS verification off, certificate pinned' : ' · TLS verification off, certificate not trusted yet') : ''}`;
+                  const full = `${t.host}:${t.port}${t.ndbHost ? ` · NDB ${t.ndbHost}` : ''}${t.vcenterHost ? ` · vCenter ${t.vcenterHost}` : ''}${t.kubernetes?.length ? ` · ${plural(t.kubernetes.length, 'NKP cluster')}` : ''}${t.insecure ? (t.pinnedCert ? ' · TLS verification off, certificate pinned' : ' · TLS verification off, certificate not trusted yet') : ''}`;
                   return (
                     <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8, maxWidth: '100%' }}>
                       <span className="clip t-addr" title={full}>
@@ -484,6 +496,55 @@ function LastTest({ target: t, testing }: { target: SavedConnection; testing: bo
 
 type Errors = Partial<Record<TargetField, string>>;
 
+type EndpointTest = { ok: boolean; message: string; result?: TestConnectionResult };
+
+/** One NKP cluster row of the editor (`key` is local; `id` is '' until saved). */
+interface KubeRow {
+  key: string;
+  id: string;
+  name: string;
+  host: string;
+  port: string;
+  token: string;
+  verify: boolean;
+  pin: string;
+  /** The saved endpoint this row edits (its token and TLS choice), if any. */
+  saved?: SavedKubernetesEndpoint;
+  test?: EndpointTest | null;
+  testing?: boolean;
+}
+
+let kubeKeySeq = 0;
+const kubeKey = () => `k${++kubeKeySeq}`;
+
+function kubeRows(t: SavedConnection | null): KubeRow[] {
+  return (t?.kubernetes ?? []).map((k) => ({
+    key: kubeKey(),
+    id: k.id,
+    name: k.name,
+    host: k.host,
+    port: String(k.port),
+    token: '',
+    verify: !k.insecure,
+    pin: k.pinnedCert ?? '',
+    saved: k,
+  }));
+}
+
+/** True when the row's saved token still applies: same host, port and TLS choice. */
+function kubeTokenApplies(r: KubeRow): boolean {
+  const s = r.saved;
+  return !!s?.hasToken && r.host.trim() === s.host && Number(r.port) === s.port && !r.verify === !!s.insecure;
+}
+
+/** Read-only access for NTNXVision: a ServiceAccount bound to a ClusterRole that can list and read, never secrets. */
+const NKP_SNIPPET = `kubectl create serviceaccount ntnxvision-reader -n kube-system
+kubectl create clusterrole ntnxvision-read --verb=get,list,watch \
+  --resource=nodes,namespaces,pods,services,deployments,statefulsets,daemonsets,persistentvolumes,persistentvolumeclaims,storageclasses
+kubectl create clusterrolebinding ntnxvision-read \
+  --clusterrole=ntnxvision-read --serviceaccount=kube-system:ntnxvision-reader
+kubectl create token ntnxvision-reader -n kube-system --duration=8760h`;
+
 /** Create / edit form. Also the target's detail view: last test, last collection, snapshots. */
 function TargetEditor({
   target,
@@ -523,6 +584,8 @@ function TargetEditor({
   const [vcTesting, setVcTesting] = useState(false);
   /** vCenter addresses Prism Central reports for its ESXi clusters (address → cluster names). */
   const [vcFound, setVcFound] = useState<{ address: string; clusters: string[] }[]>([]);
+  /** NKP clusters (Prism Central only): Kubernetes API endpoints read with a ServiceAccount token. */
+  const [kube, setKube] = useState<KubeRow[]>(() => kubeRows(target));
   const [errors, setErrors] = useState<Errors>({});
   const [saving, setSaving] = useState(false);
   const [test, setTest] = useState<TestState>({ kind: 'idle' });
@@ -547,6 +610,19 @@ function TargetEditor({
     if (!username.trim()) e.username = 'Enter a username.';
     if (!isPe && ndbHost.trim() && !isPlainHost(ndbHost.trim())) e.ndbHost = 'Enter a host name or IP address only.';
     if (!isPe && vcHost.trim() && !isPlainHost(vcHost.trim())) e.vcenterHost = 'Enter a host name or IP address only.';
+    if (!isPe) {
+      const seen = new Set<string>();
+      kube.forEach((k, i) => {
+        const key: `kubernetes:${number}` = `kubernetes:${i}`;
+        const h = k.host.trim();
+        const p = Number(k.port);
+        if (!h) e[key] = 'Enter the API endpoint host.';
+        else if (!isPlainHost(h)) e[key] = 'Enter a host name or IP address only.';
+        else if (!Number.isInteger(p) || p < 1 || p > 65535) e[key] = 'Port must be 1 to 65535.';
+        else if (seen.has(`${h.toLowerCase()}:${p}`)) e[key] = 'This NKP cluster is already listed.';
+        seen.add(`${h.toLowerCase()}:${p}`);
+      });
+    }
     return e;
   };
 
@@ -647,6 +723,45 @@ function TargetEditor({
     void testEndpoint(kind, fingerprint);
   };
 
+  const patchKube = (key: string, patch: Partial<KubeRow>) => setKube((rows) => rows.map((r) => (r.key === key ? { ...r, ...patch } : r)));
+
+  /** Test one NKP cluster's Kubernetes API (read-only); a certificate to trust is shown. */
+  const testKube = async (row: KubeRow, pinOverride?: string) => {
+    const h = row.host.trim();
+    const p = Number(row.port);
+    const i = kube.findIndex((r) => r.key === row.key);
+    if (!h || !isPlainHost(h) || !Number.isInteger(p) || p < 1 || p > 65535) {
+      setErrors((x) => ({ ...x, [`kubernetes:${i}`]: !h ? 'Enter the API endpoint host.' : !isPlainHost(h) ? 'Enter a host name or IP address only.' : 'Port must be 1 to 65535.' }));
+      return;
+    }
+    if (!row.token && !kubeTokenApplies(row)) {
+      patchKube(row.key, { test: { ok: false, message: 'Paste the ServiceAccount token to test it.' } });
+      return;
+    }
+    patchKube(row.key, { testing: true, test: null });
+    try {
+      const r = await window.ntnx.testConnection({
+        mode: 'kubernetes',
+        host: h,
+        port: p,
+        username: '',
+        password: row.token,
+        insecure: !row.verify,
+        targetId: target?.id,
+        kubernetesId: row.id || undefined,
+        pinnedCert: pinOverride ?? row.pin,
+      });
+      patchKube(row.key, { testing: false, test: { ok: r.ok, message: [r.message, r.detail].filter(Boolean).join(' · '), result: r } });
+    } catch (err) {
+      patchKube(row.key, { testing: false, test: { ok: false, message: errorMessage(err) } });
+    }
+  };
+
+  const trustKube = (row: KubeRow, fingerprint: string) => {
+    patchKube(row.key, { pin: fingerprint });
+    void testKube({ ...row, pin: fingerprint }, fingerprint);
+  };
+
   const save = async () => {
     if (saving) return;
     const e = check();
@@ -672,6 +787,19 @@ function TargetEditor({
       pinnedCert: verify ? '' : pin,
       ndbPinnedCert: isPe || ndbVerify ? '' : ndbPin,
       vcenterPinnedCert: isPe || vcVerify ? '' : vcPin,
+      kubernetes: isPe
+        ? []
+        : kube.map(
+            (k): KubernetesEndpointSave => ({
+              id: k.id,
+              name: k.name.trim(),
+              host: k.host.trim(),
+              port: Number(k.port),
+              insecure: !k.verify,
+              pinnedCert: k.verify ? '' : k.pin,
+              ...(k.token ? { token: k.token } : {}),
+            }),
+          ),
     };
     setSaving(true);
     try {
@@ -896,6 +1024,23 @@ function TargetEditor({
                 ) : (
                   <Callout className="span-all" tone={ndbTest.ok ? 'ok' : 'error'} title={ndbTest.message} />
                 ))}
+              <NkpClusters
+                rows={kube}
+                errors={errors}
+                onPatch={(key, patch) => {
+                  patchKube(key, { ...patch, test: null });
+                  const i = kube.findIndex((r) => r.key === key);
+                  if (i >= 0) clear(`kubernetes:${i}`);
+                }}
+                onAdd={() => setKube((rows) => [...rows, { key: kubeKey(), id: '', name: '', host: '', port: String(DEFAULT_KUBERNETES_PORT), token: '', verify: false, pin: '' }])}
+                onRemove={(key) => {
+                  setKube((rows) => rows.filter((r) => r.key !== key));
+                  // Errors are keyed by position: drop them all after a removal.
+                  setErrors((x) => Object.fromEntries(Object.entries(x).filter(([k]) => !k.startsWith('kubernetes:'))));
+                }}
+                onTest={(row) => void testKube(row)}
+                onTrust={trustKube}
+              />
               <div className="span-all eyebrow" style={{ borderTop: '1px solid var(--rule-2)', paddingTop: 12 }}>
                 VMware vCenter (optional, ESXi clusters)
               </div>
@@ -1023,5 +1168,145 @@ function TargetEditor({
         />
       </div>
     </Dialog>
+  );
+}
+
+/** Targets editor, Prism Central only: the NKP clusters read through their Kubernetes API. */
+function NkpClusters({
+  rows,
+  errors,
+  onPatch,
+  onAdd,
+  onRemove,
+  onTest,
+  onTrust,
+}: {
+  rows: KubeRow[];
+  errors: Errors;
+  onPatch(key: string, patch: Partial<KubeRow>): void;
+  onAdd(): void;
+  onRemove(key: string): void;
+  onTest(row: KubeRow): void;
+  onTrust(row: KubeRow, fingerprint: string): void;
+}): React.JSX.Element {
+  const toast = useToast();
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(NKP_SNIPPET);
+      toast.show({ tone: 'ok', title: 'Commands copied' });
+    } catch (e) {
+      toast.show({ tone: 'error', title: 'Couldn’t copy', detail: errorMessage(e) });
+    }
+  };
+  return (
+    <>
+      <div className="span-all eyebrow" style={{ borderTop: '1px solid var(--rule-2)', paddingTop: 12 }} id="t-nkp">
+        NKP clusters (optional)
+      </div>
+      <div className="span-all hint" style={{ marginTop: -8 }}>
+        Read-only. Each Nutanix Kubernetes Platform cluster is read through its Kubernetes API with a ServiceAccount token, alongside the Prism Central run.
+      </div>
+      <details className="span-all nkp-help" data-testid="nkp-help">
+        <summary>How to create a read-only token</summary>
+        <p className="t12">
+          Create a ServiceAccount bound to a read-only ClusterRole (no secrets) and paste its token. Run these with a cluster-admin kubeconfig; NTNXVision itself never
+          gets more than get, list and watch.
+        </p>
+        <pre className="mono">{NKP_SNIPPET}</pre>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+          <Button size="sm" icon={CopyIcon} onClick={() => void copy()}>
+            Copy commands
+          </Button>
+          <span className="t12 muted">A client-certificate kubeconfig is not supported: use a ServiceAccount token.</span>
+        </div>
+      </details>
+      {rows.map((r, i) => {
+        const err = errors[`kubernetes:${i}`];
+        const tokenApplies = kubeTokenApplies(r);
+        const tokenLost = !!r.saved?.hasToken && !tokenApplies && !r.token;
+        const label = r.name.trim() || r.host.trim() || `NKP cluster ${i + 1}`;
+        return (
+          <div key={r.key} className="span-all nkp-endpoint" role="group" aria-label={`NKP cluster ${label}`} data-testid="nkp-endpoint">
+            <div className="connect-grid">
+              <Field id={`t-k8s-name-${r.key}`} label="Name">
+                <input className="input" value={r.name} placeholder="e.g. nkp-prod" spellCheck={false} autoComplete="off" onChange={(e) => onPatch(r.key, { name: e.target.value })} />
+              </Field>
+              <Field id={`t-k8s-host-${r.key}`} label="API endpoint host" error={err}>
+                <input
+                  className="input mono"
+                  value={r.host}
+                  placeholder="nkp.example.com"
+                  spellCheck={false}
+                  autoCapitalize="off"
+                  onChange={(e) => onPatch(r.key, { host: e.target.value, pin: '' })}
+                />
+              </Field>
+              <Field id={`t-k8s-port-${r.key}`} label="Port">
+                <input className="input mono" inputMode="numeric" value={r.port} onChange={(e) => onPatch(r.key, { port: e.target.value.replace(/[^0-9]/g, ''), pin: '' })} />
+              </Field>
+              <Field
+                id={`t-k8s-token-${r.key}`}
+                label="ServiceAccount token"
+                className="span-all"
+                hint={
+                  tokenLost
+                    ? 'Token needed: the host, port or TLS setting changed, so the saved token will be removed. Paste it again.'
+                    : tokenApplies
+                      ? 'Saved in your keychain. Leave blank to keep it.'
+                      : 'Saved to your OS keychain, never to disk.'
+                }
+              >
+                <input
+                  className="input mono"
+                  type="password"
+                  value={r.token}
+                  autoComplete="off"
+                  placeholder={tokenApplies ? 'Saved in your keychain' : 'Bearer token'}
+                  onChange={(e) => onPatch(r.key, { token: e.target.value.trim() })}
+                />
+              </Field>
+              <div className="span-all" style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+                <Checkbox checked={r.verify} onChange={(v) => onPatch(r.key, { verify: v })}>
+                  Verify TLS certificate
+                </Checkbox>
+                <span className="t12 muted" style={{ flex: '1 1 200px' }}>
+                  Off by default: the NKP API uses the cluster&apos;s own CA, so its certificate is pinned instead.
+                </span>
+                <Button size="sm" icon={PlugIcon} onClick={() => onTest(r)} disabled={r.testing} aria-label={`Test ${label}`}>
+                  Test
+                </Button>
+                <Button size="sm" variant="ghost" icon={TrashIcon} onClick={() => onRemove(r.key)} aria-label={`Remove ${label}`}>
+                  Remove
+                </Button>
+              </div>
+              {r.testing && (
+                <div className="span-all">
+                  <Loading label={`Testing ${label}…`} />
+                </div>
+              )}
+              {r.test &&
+                (r.test.result && (r.test.result.status === 'trust_required' || r.test.result.status === 'cert_changed') ? (
+                  <div className="span-all">
+                    <TrustCallout
+                      result={r.test.result}
+                      host={r.host.trim()}
+                      onTrust={(fp) => onTrust(r, fp)}
+                      compareWith="the API server's own certificate (for example from openssl s_client -connect host:6443), not the kubeconfig's CA"
+                      secret="the token"
+                    />
+                  </div>
+                ) : (
+                  <Callout className="span-all nkp-result" tone={r.test.ok ? 'ok' : 'error'} title={r.test.message} />
+                ))}
+            </div>
+          </div>
+        );
+      })}
+      <div className="span-all">
+        <Button size="sm" icon={PlusIcon} onClick={onAdd}>
+          Add NKP cluster
+        </Button>
+      </div>
+    </>
   );
 }

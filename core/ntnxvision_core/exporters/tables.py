@@ -82,6 +82,9 @@ class Ctx:
             self.hosts_per_cluster[key] = self.hosts_per_cluster.get(key, 0) + 1
             if h.block_model and key not in self.model_per_cluster:
                 self.model_per_cluster[key] = h.block_model
+        # (source PC, Kubernetes cluster) → the Nutanix cluster its nodes run on.
+        self.kube_home: dict[tuple[str | None, str], str | None] = {
+            (k.source_pc, k.name): k.cluster_name for k in env.kubernetes_clusters}
         # "Key:Value" → protection policy name, for resolving a VM's policy.
         self.policy_by_category: dict[str, str] = {}
         for p in env.protection_policies:
@@ -234,6 +237,21 @@ def _a(name: str) -> Getter:
 
 def _cluster(o: Any, c: Ctx) -> str | None:
     return c.cluster_name(o)
+
+
+def _kube_cluster(o: Any, c: Ctx) -> str | None:
+    """The Nutanix cluster of a Kubernetes object: its own (nodes), else its Kubernetes
+    cluster's."""
+    own = getattr(o, "cluster_name", None)
+    if own:
+        return str(own)
+    return c.kube_home.get((getattr(o, "source_pc", None), o.kubernetes_cluster))
+
+
+def _kube_id(o: Any) -> str:
+    """Kubernetes objects are unique per cluster (and namespace, when namespaced)."""
+    ns = getattr(o, "namespace", None)
+    return "/".join(p for p in (o.kubernetes_cluster, ns, o.name) if p)
 
 
 def power_cell(raw: Any) -> dict[str, Any] | None:
@@ -894,6 +912,7 @@ BUCKETS = TableSpec(
     (
         Col("name", "Name", _a("name"), label="Name", kind="name"),
         Col("store", "Object Store", _a("object_store_name"), label="Object store"),
+        Col("cluster", "Cluster", _cluster, label="Cluster"),
         Col("owner", "Owner", _a("owner"), label="Owner", facet=True),
         Col("versioning", "Versioning", _a("versioning"), excel=yes_no, label="Versioning"),
         Col("worm", "WORM", _a("worm_enabled"), excel=yes_no, label="WORM"),
@@ -910,7 +929,7 @@ BUCKETS = TableSpec(
     ),
     # A bucket name is unique within its object store only.
     id=lambda b: f"{b.object_store_name}/{b.name}", name=lambda b: b.name,
-    note_keys=("objects",),
+    where=lambda b: b.cluster_name, note_keys=("objects",),
 )
 
 VOLUME_GROUPS = TableSpec(
@@ -1095,6 +1114,268 @@ NDB_TAGS = TableSpec(
         Col("api", "API", _a("api_source")),
     ),
     id=lambda t: t.id, name=lambda t: t.name or t.id, note_keys=("ndb",), group=SERVICES,
+)
+
+# ─── Kubernetes (NKP) ──────────────────────────────────────────────────
+# "Cluster" is the Nutanix cluster the nodes run on (the house rule); the Kubernetes
+# cluster has a column of its own.
+
+_K8S_NOTES = ("nkp", "kubernetes")
+
+KUBERNETES_CLUSTERS = TableSpec(
+    "kubernetes_clusters", "Kubernetes Clusters", "Kubernetes clusters (NKP)",
+    "Kubernetes cluster", "clusters", lambda e: e.kubernetes_clusters,
+    (
+        Col("name", "Kubernetes Cluster", _a("name"), label="Kubernetes cluster", kind="name",
+            search=True),
+        Col("cluster", "Cluster", _kube_cluster, label="Cluster", facet=True),
+        Col("nkp", "NKP Version", _a("nkp_version"), label="NKP", kind="mono", facet=True,
+            diff="NKP version"),
+        Col("k8s", "Kubernetes Version", _a("kubernetes_version"), label="Kubernetes",
+            kind="mono", facet=True, diff="Kubernetes version"),
+        Col("endpoint", "API Endpoint", _a("control_plane_endpoint"), label="API endpoint",
+            kind="mono", search=True),
+        Col("cp", "Control Plane Nodes", _a("control_plane_nodes"), label="Control plane",
+            kind="number", diff="control plane nodes"),
+        Col("workers", "Worker Nodes", _a("worker_nodes"), label="Workers", kind="number",
+            diff="worker nodes"),
+        Col("vcpus", "vCPUs", _a("total_vcpus"), label="vCPUs", kind="number"),
+        Col("memory", "Memory (GiB)", _a("total_memory_bytes"), excel=gib, label="Memory",
+            kind="bytes"),
+        Col("management", "Management Cluster", _a("management_cluster"),
+            excel=lambda v: "" if v is None else yes_no(v), label="Management",
+            kind="status", cell=lambda v: None if v is None else
+            {"tone": "live" if v else "idle", "label": "Yes" if v else "No"}),
+        Col("managed", "Managed Clusters", lambda k, _c: joined(k.managed_clusters)),
+        Col("cni", "CNI", _a("cni"), label="CNI", facet=True),
+        Col("storage_class", "Default Storage Class", _a("default_storage_class"),
+            label="Default storage class"),
+        Col("lb", "Load Balancer", _a("load_balancer"), label="Load balancer"),
+        Col("pod_cidr", "Pod CIDR", _a("pod_cidr"), kind="mono"),
+        Col("service_cidr", "Service CIDR", _a("service_cidr"), kind="mono"),
+        Col("namespaces", "Namespaces", _a("namespace_count"), label="Namespaces",
+            kind="number"),
+        Col("pods", "Pods", _a("pod_count"), label="Pods", kind="number"),
+        Col("workloads", "Workloads", _a("workload_count"), kind="number"),
+        Col("apps", "Platform Apps", _a("platform_apps"), kind="number"),
+        Col("license", "License", _a("license"), label="License", facet=True),
+        Col("status", "Status", _a("status"), label="Status"),
+        Col("deployed_by", "Deployed By", _a("deployed_by"), label="Deployed by"),
+        Col("api", "Source", _a("api_source"), label="Source", facet=True),
+    ),
+    id=lambda k: k.name, name=lambda k: k.name, where=lambda k: k.cluster_name,
+    note_keys=_K8S_NOTES, sources=True, group=SERVICES,
+)
+
+KUBERNETES_NODES = TableSpec(
+    "kubernetes_nodes", "Kubernetes Nodes", "Kubernetes nodes (NKP)", "Kubernetes node",
+    "nodes", lambda e: e.kubernetes_nodes,
+    (
+        Col("name", "Name", _a("name"), label="Name", kind="name", search=True),
+        Col("cluster", "Cluster", _kube_cluster, label="Cluster", facet=True),
+        Col("k8s_cluster", "Kubernetes Cluster", _a("kubernetes_cluster"),
+            label="Kubernetes cluster", facet=True),
+        Col("role", "Role", _a("role"), label="Role", facet=True, diff="role"),
+        Col("pool", "Pool", _a("pool"), label="Pool", facet=True),
+        Col("ip", "IP Address", _a("ip_address"), label="IP", kind="mono", search=True),
+        Col("vcpus", "vCPUs", _a("vcpus"), label="vCPUs", kind="number", diff="vCPUs"),
+        Col("memory", "Memory (GiB)", _a("memory_bytes"), excel=gib, label="Memory",
+            kind="bytes", diff="memory"),
+        Col("kubelet", "Kubelet", _a("kubelet_version"), label="Kubelet", kind="mono",
+            diff="kubelet"),
+        Col("os", "OS Image", _a("os_image"), label="OS"),
+        Col("kernel", "Kernel", _a("kernel"), kind="mono"),
+        Col("runtime", "Container Runtime", _a("container_runtime")),
+        Col("status", "Status", _a("status"), label="Status", kind="status",
+            cell=state_cell(("READY", "POWERED ON"))),
+        Col("vm_uuid", "VM UUID", _a("vm_uuid")),
+        Col("api", "Source", _a("api_source"), label="Source", facet=True),
+    ),
+    id=_kube_id, name=lambda n: n.name, where=lambda n: n.cluster_name,
+    note_keys=_K8S_NOTES, sources=True, group=SERVICES,
+)
+
+KUBERNETES_NAMESPACES = TableSpec(
+    "kubernetes_namespaces", "Kubernetes Namespaces", "Kubernetes namespaces",
+    "Namespace", "namespaces", lambda e: e.kubernetes_namespaces,
+    (
+        Col("name", "Namespace", _a("name"), label="Namespace", kind="name", search=True),
+        Col("cluster", "Cluster", _kube_cluster, label="Cluster", facet=True),
+        Col("k8s_cluster", "Kubernetes Cluster", _a("kubernetes_cluster"),
+            label="Kubernetes cluster", facet=True),
+        Col("status", "Status", _a("status"), label="Status"),
+        Col("pods", "Pods", _a("pods"), label="Pods", kind="number"),
+        Col("deployments", "Deployments", _a("deployments"), label="Deployments",
+            kind="number"),
+        Col("statefulsets", "StatefulSets", _a("statefulsets"), label="StatefulSets",
+            kind="number"),
+        Col("daemonsets", "DaemonSets", _a("daemonsets"), label="DaemonSets", kind="number"),
+        Col("services", "Services", _a("services"), label="Services", kind="number"),
+        Col("pvcs", "Volume Claims", _a("volume_claims"), label="Volume claims",
+            kind="number"),
+        Col("system", "System", _a("system"), excel=yes_no, label="System",
+            kind="status", cell=bool_cell("System", "User")),
+    ),
+    id=_kube_id, name=lambda n: n.name, note_keys=("kubernetes",), sources=True,
+    group=SERVICES,
+)
+
+KUBERNETES_STORAGE_CLASSES = TableSpec(
+    "kubernetes_storage_classes", "Kubernetes Storage Classes", "Kubernetes storage classes",
+    "Storage class", "storage classes", lambda e: e.kubernetes_storage_classes,
+    (
+        Col("name", "Storage Class", _a("name"), label="Storage class", kind="name",
+            search=True),
+        Col("cluster", "Cluster", _kube_cluster, label="Cluster", facet=True),
+        Col("k8s_cluster", "Kubernetes Cluster", _a("kubernetes_cluster"),
+            label="Kubernetes cluster", facet=True),
+        Col("provisioner", "Provisioner", _a("provisioner"), label="Provisioner", facet=True),
+        Col("container", "Storage Container", _a("storage_container"),
+            label="Storage container", search=True),
+        Col("default", "Default", _a("default"), excel=yes_no, label="Default"),
+        Col("reclaim", "Reclaim Policy", _a("reclaim_policy"), label="Reclaim"),
+        Col("binding", "Binding Mode", _a("binding_mode"), label="Binding"),
+        Col("expansion", "Expansion", _a("expansion"),
+            excel=lambda v: "" if v is None else yes_no(v), label="Expansion"),
+    ),
+    id=_kube_id, name=lambda s: s.name, note_keys=("kubernetes",), sources=True,
+    group=SERVICES,
+)
+
+KUBERNETES_VOLUMES = TableSpec(
+    "kubernetes_volumes", "Kubernetes Volumes", "Kubernetes persistent volumes",
+    "Persistent volume", "volumes", lambda e: e.kubernetes_volumes,
+    (
+        Col("name", "Volume", _a("name"), label="Volume", kind="name", search=True),
+        Col("cluster", "Cluster", _kube_cluster, label="Cluster", facet=True),
+        Col("k8s_cluster", "Kubernetes Cluster", _a("kubernetes_cluster"),
+            label="Kubernetes cluster", facet=True),
+        Col("claim", "Claim", _a("claim"), label="Claim", search=True),
+        Col("storage_class", "Storage Class", _a("storage_class"), label="Storage class",
+            facet=True),
+        Col("capacity", "Capacity (GiB)", _a("capacity_bytes"), excel=gib, label="Capacity",
+            kind="bytes", diff="capacity"),
+        Col("status", "Status", _a("status"), label="Status", facet=True),
+        Col("reclaim", "Reclaim Policy", _a("reclaim_policy"), label="Reclaim"),
+        Col("access", "Access Modes", lambda v, _c: joined(v.access_modes)),
+    ),
+    id=_kube_id, name=lambda v: v.name, note_keys=("kubernetes",), sources=True,
+    group=SERVICES,
+)
+
+KUBERNETES_SERVICES = TableSpec(
+    "kubernetes_services", "Kubernetes LB Services", "Kubernetes load balancer services",
+    "Load balancer service", "services", lambda e: e.kubernetes_services,
+    (
+        Col("name", "Service", _a("name"), label="Service", kind="name", search=True),
+        Col("cluster", "Cluster", _kube_cluster, label="Cluster", facet=True),
+        Col("k8s_cluster", "Kubernetes Cluster", _a("kubernetes_cluster"),
+            label="Kubernetes cluster", facet=True),
+        Col("namespace", "Namespace", _a("namespace"), label="Namespace", facet=True),
+        Col("ips", "External IPs", lambda v, _c: joined(v.external_ips), label="External IPs",
+            kind="mono", search=True),
+        Col("ports", "Ports", lambda v, _c: joined(v.ports), label="Ports"),
+    ),
+    id=_kube_id, name=lambda v: v.name, note_keys=("kubernetes",), sources=True,
+    group=SERVICES,
+)
+
+KUBERNETES_APPS = TableSpec(
+    "kubernetes_apps", "Kubernetes Platform Apps", "Kubernetes platform apps",
+    "Platform app", "apps", lambda e: e.kubernetes_apps,
+    (
+        Col("name", "App", _a("name"), label="App", kind="name", search=True),
+        Col("cluster", "Cluster", _kube_cluster, label="Cluster", facet=True),
+        Col("k8s_cluster", "Kubernetes Cluster", _a("kubernetes_cluster"),
+            label="Kubernetes cluster", facet=True),
+        Col("namespace", "Namespace", _a("namespace"), label="Namespace", facet=True),
+        Col("version", "Version", _a("version"), label="Version", kind="mono",
+            diff="version"),
+        Col("status", "Status", _a("status"), label="Status", facet=True),
+        Col("kind", "Kind", _a("kind"), label="Kind", facet=True),
+    ),
+    id=_kube_id, name=lambda a: a.name, note_keys=("kubernetes",), sources=True,
+    group=SERVICES,
+)
+
+KUBERNETES_WORKLOADS = TableSpec(
+    "kubernetes_workloads", "Kubernetes Workloads", "Kubernetes workloads", "Workload",
+    "workloads", lambda e: e.kubernetes_workloads,
+    (
+        Col("name", "Workload", _a("name"), label="Workload", kind="name", search=True),
+        Col("cluster", "Cluster", _kube_cluster, label="Cluster", facet=True),
+        Col("k8s_cluster", "Kubernetes Cluster", _a("kubernetes_cluster"),
+            label="Kubernetes cluster", facet=True),
+        Col("namespace", "Namespace", _a("namespace"), label="Namespace", facet=True,
+            search=True),
+        Col("kind", "Kind", _a("kind"), label="Kind", facet=True),
+        Col("desired", "Desired", _a("replicas_desired"), label="Desired", kind="number",
+            diff="desired replicas"),
+        Col("ready", "Ready", _a("replicas_ready"), label="Ready", kind="number"),
+        Col("status", "Status", _a("status"), label="Status", kind="status",
+            cell=state_cell(("READY", "SCHEDULED", "SCALED TO ZERO")), diff="status"),
+        Col("release", "Helm Release", _a("helm_release"), label="Helm release",
+            facet=True, search=True),
+        Col("chart", "Helm Chart", _a("helm_chart")),
+        Col("app", "App", _a("app_name"), label="App", search=True),
+        Col("version", "App Version", _a("app_version"), label="Version", kind="mono",
+            diff="version"),
+        Col("images", "Images", lambda w, _c: joined(w.images), label="Images",
+            search=True, diff="images"),
+        Col("owner", "Platform App", _a("owner_app"), label="Platform app", facet=True),
+        Col("schedule", "Schedule", _a("schedule"), kind="mono"),
+        Col("system", "System", _a("system"), excel=yes_no, label="System",
+            kind="status", cell=bool_cell("System", "User")),
+    ),
+    id=lambda w: f"{w.kubernetes_cluster}/{w.namespace}/{w.kind}/{w.name}",
+    name=lambda w: w.name, note_keys=("kubernetes",), sources=True, group=SERVICES,
+)
+
+KUBERNETES_INGRESSES = TableSpec(
+    "kubernetes_ingresses", "Kubernetes Ingresses", "Kubernetes ingresses", "Ingress",
+    "ingresses", lambda e: e.kubernetes_ingresses,
+    (
+        Col("name", "Ingress", _a("name"), label="Ingress", kind="name", search=True),
+        Col("cluster", "Cluster", _kube_cluster, label="Cluster", facet=True),
+        Col("k8s_cluster", "Kubernetes Cluster", _a("kubernetes_cluster"),
+            label="Kubernetes cluster", facet=True),
+        Col("namespace", "Namespace", _a("namespace"), label="Namespace", facet=True),
+        Col("class", "Class", _a("ingress_class"), label="Class", facet=True),
+        Col("hosts", "Hosts", lambda i, _c: joined(i.hosts), label="Hosts", search=True),
+        Col("backends", "Backends", lambda i, _c: joined(i.backends), label="Backends"),
+        Col("addresses", "Addresses", lambda i, _c: joined(i.addresses), label="Addresses",
+            kind="mono"),
+        Col("release", "Helm Release", _a("helm_release")),
+        Col("system", "System", _a("system"), excel=yes_no, label="System"),
+    ),
+    id=_kube_id, name=lambda i: i.name, note_keys=("kubernetes",), sources=True,
+    group=SERVICES,
+)
+
+KUBERNETES_APPLICATIONS = TableSpec(
+    "kubernetes_applications", "Kubernetes Applications", "Kubernetes applications",
+    "Application", "applications", lambda e: e.kubernetes_applications,
+    (
+        Col("name", "Application", _a("name"), label="Application", kind="name",
+            search=True),
+        Col("cluster", "Cluster", _kube_cluster, label="Cluster", facet=True),
+        Col("k8s_cluster", "Kubernetes Cluster", _a("kubernetes_cluster"),
+            label="Kubernetes cluster", facet=True),
+        Col("namespace", "Namespace", _a("namespace"), label="Namespace", facet=True),
+        Col("kind", "Kind", _a("kind"), label="Kind", facet=True),
+        Col("chart", "Helm Chart", _a("helm_chart"), label="Chart"),
+        Col("workloads", "Workloads", _a("workloads"), label="Workloads", kind="number"),
+        Col("kinds", "Workload Kinds", lambda a, _c: joined(a.workload_kinds)),
+        Col("images", "Images", lambda a, _c: joined(a.images), label="Images", search=True),
+        Col("hosts", "Ingress Hosts", lambda a, _c: joined(a.ingress_hosts),
+            label="Ingress hosts", search=True),
+        Col("addresses", "Load Balancer IPs", lambda a, _c: joined(a.addresses),
+            label="LB IPs", kind="mono"),
+        Col("status", "Status", _a("status"), label="Status", kind="status",
+            cell=state_cell(("READY",))),
+    ),
+    id=_kube_id, name=lambda a: a.name, note_keys=("kubernetes",), sources=True,
+    group=SERVICES,
 )
 
 USERS = TableSpec(
@@ -1350,7 +1631,10 @@ SPECS: dict[str, TableSpec] = {s.type: s for s in (
     SECURITY_POLICIES, CATEGORIES, SERVICE_GROUPS, ADDRESS_GROUPS, VPCS, FLOATING_IPS,
     FILE_SERVERS, FILE_SHARES, OBJECT_STORES, BUCKETS, VOLUME_GROUPS, DATABASES,
     DATABASE_SERVERS, TIME_MACHINES, NDB_CLUSTERS, NDB_PROFILES, NDB_SLAS, NDB_SNAPSHOTS,
-    NDB_MAINTENANCE, NDB_TAGS, USERS, ROLES, PROJECTS, PLAYBOOKS, NCM_REPORTS, LICENSES,
+    NDB_MAINTENANCE, NDB_TAGS, KUBERNETES_CLUSTERS, KUBERNETES_NODES, KUBERNETES_NAMESPACES,
+    KUBERNETES_STORAGE_CLASSES, KUBERNETES_VOLUMES, KUBERNETES_SERVICES, KUBERNETES_APPS,
+    KUBERNETES_WORKLOADS, KUBERNETES_INGRESSES, KUBERNETES_APPLICATIONS,
+    USERS, ROLES, PROJECTS, PLAYBOOKS, NCM_REPORTS, LICENSES,
 )}
 
 #: The Inventory screen's object-type list, in display order (groups as in the contract).
@@ -1360,6 +1644,7 @@ INVENTORY_TYPES: list[str] = [
     "images",
     "protection_policies", "recovery_plans", "security_policies", "vpcs",
     "object_stores", "volume_groups", "file_servers", "databases",
+    "kubernetes_clusters", "kubernetes_nodes", "kubernetes_workloads",
     "users", "roles", "licenses", "lcm_entities", "alerts", "playbooks",
 ]
 

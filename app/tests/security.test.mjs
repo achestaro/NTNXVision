@@ -55,6 +55,26 @@ test('request shape checks', () => {
   assert.doesNotThrow(() => req.asCollectionRequest({ ...testReq, name: 'n', formats: [], lcmInventory: true }));
   throwsValidation(() => req.asMultiCollectionRequest({ targets: [], formats: [], combine: false, lcmInventory: 'true' }));
   assert.doesNotThrow(() => req.asMultiCollectionRequest({ targets: [], formats: [], combine: false, lcmInventory: false }));
+  // NKP clusters: a long ServiceAccount token is accepted for a Kubernetes test only.
+  const token = 'x'.repeat(4000);
+  assert.doesNotThrow(() => req.asTestRequest({ ...testReq, mode: 'kubernetes', port: 6443, username: '', password: token, kubernetesId: 'k1' }));
+  throwsValidation(() => req.asTestRequest({ ...testReq, password: token }));
+  throwsValidation(() => req.asTestRequest({ ...testReq, mode: 'kubernetes', password: 'x'.repeat(20000) }));
+  throwsValidation(() => req.asTestRequest({ ...testReq, mode: 'kubernetes', host: 'https://nkp.example.lab' }));
+  throwsValidation(() => req.asCollectionRequest({ ...testReq, name: 'n', formats: [], kubernetes: 'yes' }));
+  assert.doesNotThrow(() => req.asCollectionRequest({ ...testReq, name: 'n', formats: [], kubernetes: true }));
+  throwsValidation(() => req.asMultiCollectionRequest({ targets: [{ ...testReq, name: 'n', kubernetes: [] }], formats: [], combine: false }));
+  const save = { id: '', mode: 'prism_central', name: 'n', host: 'h', port: 9440, username: 'u', insecure: false, password: '' };
+  const ep = { id: '', name: 'nkp', host: 'nkp.example.lab', port: 6443, insecure: true };
+  assert.doesNotThrow(() => req.asTargetSaveRequest({ ...save, kubernetes: [{ ...ep, token }, { ...ep, id: 'k1', removeToken: true }] }));
+  throwsValidation(() => req.asTargetSaveRequest({ ...save, kubernetes: 'x' }));
+  throwsValidation(() => req.asTargetSaveRequest({ ...save, kubernetes: [{ ...ep, port: '6443' }] }));
+  throwsValidation(() => req.asTargetSaveRequest({ ...save, kubernetes: [{ ...ep, insecure: 'no' }] }));
+  throwsValidation(() => req.asTargetSaveRequest({ ...save, kubernetes: [{ ...ep, token: 5 }] }));
+  throwsValidation(() => req.asTargetSaveRequest({ ...save, kubernetes: Array.from({ length: 33 }, () => ep) }));
+  assert.doesNotThrow(() => req.asTrustCertificateRequest({ targetId: 't', endpoint: 'kubernetes:k-1', fingerprint: 'f' }));
+  throwsValidation(() => req.asTrustCertificateRequest({ targetId: 't', endpoint: 'kubernetes:', fingerprint: 'f' }));
+  throwsValidation(() => req.asTrustCertificateRequest({ targetId: 't', endpoint: 'k8s:x', fingerprint: 'f' }));
   throwsValidation(() => req.asExportRequest({ snapshotPath: 5, formats: [] }));
   throwsValidation(() => req.asCompareExportRequest({ baseline: 'a', current: 'b', format: 'docx' }));
 });

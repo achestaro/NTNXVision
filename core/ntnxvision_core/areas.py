@@ -33,6 +33,7 @@ from ntnxvision_core.collectors import (
     LcmCollector,
     LicenseCollector,
     NcmCollector,
+    NkpCollector,
     ObjectsCollector,
     OvaCollector,
     PrismCentralConfigCollector,
@@ -95,6 +96,9 @@ AREAS: tuple[Area, ...] = (
          v4_area="subnets", legacy_api="v2", requires=("hosts",)),
     Area("vms", "Virtual machines", INFRA, VmCollector, "vms", ("vms", "system_vms"),
          pe_supported=True, v4_area="vms"),
+    # Derived from the VMs (their KubernetesClusterName category) plus Self-Service apps.
+    Area("nkp", "NKP clusters (Prism Central view)", PLATFORM, NkpCollector, "nkp",
+         ("kubernetes_clusters", "kubernetes_nodes"), v4_area=None, requires=("vms",)),
     Area("licenses", "Licensing", OPS, LicenseCollector, "licenses", ("licenses",),
          v4_area="licensing"),
     Area("data_protection", "Data protection / DR", PLATFORM, DataProtectionCollector,
@@ -144,7 +148,18 @@ NDB_AREA = Area("ndb", "NDB databases", PLATFORM, None, "ndb",
 VCENTER_AREA = Area("vcenter", "vCenter enrichment (ESXi)", INFRA, None, "vcenter", (),
                     legacy_api="vcenter")
 
-AREAS_BY_ID: dict[str, Area] = {a.id: a for a in (*AREAS, NDB_AREA, VCENTER_AREA)}
+#: The NKP clusters' own Kubernetes API runs only when Kubernetes endpoints are given;
+#: like NDB it is not a checkbox.
+KUBERNETES_AREA = Area("kubernetes", "NKP clusters (Kubernetes API)", PLATFORM, None,
+                       "kubernetes",
+                       ("kubernetes_clusters", "kubernetes_nodes", "kubernetes_namespaces",
+                        "kubernetes_storage_classes", "kubernetes_volumes",
+                        "kubernetes_services", "kubernetes_apps", "kubernetes_workloads",
+                        "kubernetes_ingresses", "kubernetes_applications"),
+                       legacy_api="kubernetes")
+
+AREAS_BY_ID: dict[str, Area] = {a.id: a for a in (*AREAS, NDB_AREA, VCENTER_AREA,
+                                                  KUBERNETES_AREA)}
 
 #: Prism Element (v2.0) mode labels, keyed by area id.
 PE_LABELS = {

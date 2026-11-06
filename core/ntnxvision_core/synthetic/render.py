@@ -720,6 +720,9 @@ def vm_v4_ahv(vm: dict[str, Any]) -> dict[str, Any]:
         if n["ip"]:
             network["ipv4Config"] = {"shouldAssignIp": True,
                                      "ipAddress": {"value": n["ip"], "prefixLength": 32}}
+        if n.get("extra_ips"):
+            network["ipv4Info"] = {"learnedIpAddresses": [{"value": ip}
+                                                          for ip in n["extra_ips"]]}
         nics.append({"extId": n["uuid"],
                      "backingInfo": {"macAddress": n["mac"], "isConnected": n["connected"],
                                      "model": "VIRTIO"},
@@ -810,8 +813,10 @@ def vm_v3(est: PcEstate | PeEstate, vm: dict[str, Any], intent_uuid: str | None 
         subnet = subnets.get(n["subnet_uuid"] or "")
         nic: dict[str, Any] = {"uuid": n["uuid"], "mac_address": n["mac"],
                                "nic_type": "NORMAL_NIC", "is_connected": n["connected"],
-                               "ip_endpoint_list": [{"ip": n["ip"], "type": "ASSIGNED"}]
-                               if n["ip"] else []}
+                               "ip_endpoint_list": ([{"ip": n["ip"], "type": "ASSIGNED"}]
+                                                    if n["ip"] else [])
+                               + [{"ip": ip, "type": "LEARNED"}
+                                  for ip in n.get("extra_ips") or []]}
         if subnet:
             nic["subnet_reference"] = ref("subnet", subnet["uuid"], subnet["name"])
         nic_list.append(nic)

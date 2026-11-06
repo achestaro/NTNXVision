@@ -1925,6 +1925,50 @@ try {
     }
   });
 
+  // ── NKP clusters: a Kubernetes API endpoint on a Prism Central target (core mock: nkp01.demo.local) ──
+  await run('targets-nkp', async () => {
+    await rail('Targets');
+    await targetRow('Tiny').getByRole('button', { name: 'Tiny', exact: true }).click();
+    const dialog = page.getByRole('dialog');
+    await dialog.getByRole('heading', { name: 'Edit Tiny' }).waitFor();
+    await dialog.getByRole('button', { name: 'Add NKP cluster' }).click();
+    const ep = dialog.getByTestId('nkp-endpoint').last();
+    await ep.getByLabel('Name').fill('nkp01');
+    await ep.getByLabel('API endpoint host').fill('nkp01.demo.local');
+    if ((await ep.getByLabel('Port').inputValue()) !== '6443') throw new Error('the Kubernetes API port does not default to 6443');
+    if (await ep.getByRole('checkbox', { name: 'Verify TLS certificate' }).isChecked()) throw new Error('TLS verification is on by default for an NKP cluster');
+    await ep.getByLabel('ServiceAccount token').fill('demo');
+    // TLS verification off: the first test only shows the certificate to trust.
+    await ep.getByRole('button', { name: 'Test nkp01' }).click();
+    await ep.getByText('Trust the certificate of nkp01.demo.local?').waitFor({ timeout: 30_000 });
+    await targetsShot('e2e-target-nkp-trust');
+    await ep.getByRole('button', { name: 'Trust this certificate' }).click();
+    const outcome = ep.locator('.nkp-result');
+    await outcome.waitFor({ timeout: 30_000 });
+    if ((await outcome.getAttribute('role')) !== 'status') throw new Error(`NKP test failed: ${await outcome.innerText()}`);
+    await targetsShot('e2e-target-nkp-ok');
+    await dialog.getByRole('button', { name: 'Save changes' }).click();
+    await dialog.waitFor({ state: 'detached', timeout: 15_000 });
+    // Saved: the token is in the keychain (the editor says so, and never shows it).
+    await targetRow('Tiny').getByRole('button', { name: 'Tiny', exact: true }).click();
+    const saved = page.getByRole('dialog').getByTestId('nkp-endpoint').first();
+    await saved.getByText('Saved in your keychain. Leave blank to keep it.').waitFor();
+    if ((await saved.getByLabel('ServiceAccount token').inputValue()) !== '') throw new Error('the saved token came back to the renderer');
+    await page.getByRole('dialog').getByRole('button', { name: 'Cancel' }).click();
+  });
+
+  await run('nkp-collection', async () => {
+    await fillTarget('Tiny', '', 'tiny-nkp');
+    const nkpSwitch = page.getByRole('switch', { name: /Include NKP clusters \(1\)/ });
+    await nkpSwitch.waitFor({ timeout: 15_000 });
+    if ((await nkpSwitch.getAttribute('aria-checked')) !== 'true') throw new Error('Include NKP clusters is not on for a target with a token');
+    await startButton().click();
+    await heading('Collection complete', 180_000);
+    // The NKP detail is in the snapshot: Inventory lists a Kubernetes object type.
+    await rail('Inventory');
+    await page.getByRole('navigation', { name: 'Object types' }).getByText(/Kubernetes|NKP/).first().waitFor({ timeout: 15_000 });
+  });
+
   await run('targets-delete', async () => {
     await rail('Targets');
     await page.getByRole('button', { name: 'Actions for PC03' }).click();

@@ -342,6 +342,8 @@ def api_routing(env: Any, areas: list[dict[str, Any]],
         elif api == "vcenter":
             add(source, label, "vcenter", "ESXi details from the VMware vCenter REST API",
                 _SUNSET_OK)
+        elif api == "kubernetes":
+            add(source, label, "kubernetes", "NKP clusters' own Kubernetes API", _SUNSET_OK)
         elif area is not None and area.v4_area:
             verdict = negotiated.get(area.v4_area, "")
             if "not GA" in verdict:
@@ -364,7 +366,7 @@ def api_routing(env: Any, areas: list[dict[str, Any]],
             for sub_label, reason in area.legacy_only:
                 add(source, sub_label, "v3", reason, _SUNSET_STOPS)
 
-    order = {"v4": 0, "era": 1, "vcenter": 2, "v3": 3, "v2": 4}
+    order = {"v4": 0, "era": 1, "vcenter": 2, "kubernetes": 3, "v3": 4, "v2": 5}
     host_order = {h: i for i, h in enumerate(sources)}
     rows = []
     for (source, api, reason), labels in sorted(

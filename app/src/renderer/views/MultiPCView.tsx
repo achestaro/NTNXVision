@@ -48,6 +48,8 @@ interface Row {
   ndbUser?: string;
   vcenterHost?: string;
   vcenterUser?: string;
+  /** NKP clusters of the target with a token in the keychain (collected with it). */
+  nkp: number;
   hasPassword: boolean;
   /** Per-cluster vCPU:pCPU targets remembered from New collection (applied by the main process). */
   customRatios: number;
@@ -68,6 +70,7 @@ function fromConnection(c: SavedConnection): Row {
     ndbUser: c.ndbUser,
     vcenterHost: c.vcenterHost,
     vcenterUser: c.vcenterUser,
+    nkp: (c.kubernetes ?? []).filter((k) => k.hasToken).length,
     hasPassword: c.hasPassword,
     customRatios: Object.keys(c.vcpuRatioOverrides ?? {}).length,
     password: '',
@@ -218,6 +221,8 @@ export function MultiPCView(): React.JSX.Element {
           ndb: r.ndbHost ? { host: r.ndbHost, username: r.ndbUser ?? 'admin', password: '' } : undefined,
           // Likewise the vCenter of the target's ESXi clusters, when it has one.
           vcenter: r.vcenterHost ? { host: r.vcenterHost, username: r.vcenterUser ?? '', password: '' } : undefined,
+          // And its NKP clusters (endpoints and tokens from the saved target).
+          kubernetes: r.nkp > 0 ? true : undefined,
         })),
         formats,
         exportDir: dir || undefined,
@@ -351,6 +356,13 @@ export function MultiPCView(): React.JSX.Element {
                     className: (r) => (r.ndbHost ? 'mono' : 'dash'),
                     style: { fontSize: 12 },
                     render: (r) => r.ndbHost || NA,
+                  },
+                  {
+                    key: 'nkp',
+                    header: 'NKP',
+                    width: 56,
+                    className: (r) => (r.nkp ? undefined : 'dash'),
+                    render: (r) => (r.nkp ? fmtCount(r.nkp) : NA),
                   },
                   { key: 'conn', header: 'Connection', render: (r) => <RowStatus row={r} /> },
                 ]}

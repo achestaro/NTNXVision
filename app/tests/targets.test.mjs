@@ -622,3 +622,147 @@ test('R4-03: toggling only TLS verification moves the password; any other change
   assert.equal(sec.map.size, 0);
   assert.notEqual(passwordAccount({ id: 'x', mode: 'prism_central', host: 'a', port: 1, username: 'u', insecure: true }), passwordAccount({ id: 'x', mode: 'prism_central', host: 'a', port: 1, username: 'u', insecure: false }));
 });
+
+// ─── NKP clusters: Kubernetes API endpoints with a ServiceAccount token ───
+
+const { kubernetesAccount, endpointHash } = require('../dist/main/targets.js');
+
+const nkp = (over = {}) => ({ id: '', name: 'nkp-prod', host: 'nkp.example.com', port: 6443, insecure: true, ...over });
+
+test('NKP: save stores each token under target:<id>:k8s:<endpointId>:<hash(host, port, insecure)>, never in the file', async () => {
+  const sec = fakeSecrets();
+  const io = fakeIO();
+  const store = new TargetStore(io, sec, { newId: ids() });
+  const r = await store.save({ ...base, password: 'pw', kubernetes: [nkp({ token: 'tok-1' }), nkp({ name: '', host: 'nkp2.example.com', port: 16443, insecure: false, token: 'tok-2' })] });
+  assert.equal(r.ok, true);
+  const t = store.get('id-1');
+  assert.equal(t.kubernetes.length, 2);
+  const [a, b] = t.kubernetes;
+  assert.equal(a.id, 'id-2');
+  assert.equal(kubernetesAccount('id-1', a), `target:id-1:k8s:id-2:${endpointHash('nkp.example.com', 6443, true)}`);
+  assert.equal(sec.map.get(kubernetesAccount('id-1', a)), 'tok-1');
+  assert.equal(sec.map.get(kubernetesAccount('id-1', b)), 'tok-2');
+  assert.equal(b.port, 16443);
+  // No token in the file or in what the renderer sees.
+  assert.equal(JSON.stringify(io.file).includes('tok-'), false);
+  const saved = r.targets[0];
+  assert.equal(JSON.stringify(r).includes('tok-'), false);
+  assert.deepEqual(saved.kubernetes.map((k) => k.hasToken), [true, true]);
+  assert.equal('token' in saved.kubernetes[0], false);
+  assert.equal(await store.kubernetesToken('id-1', a.id), 'tok-1');
+});
+
+test('NKP: an unchanged endpoint keeps its token; a changed host, port or TLS flag drops the old account', async () => {
+  const sec = fakeSecrets();
+  const store = new TargetStore(fakeIO(), sec, { newId: ids() });
+  await store.save({ ...base, password: 'pw', kubernetes: [nkp({ token: 'tok' })] });
+  const k = store.get('id-1').kubernetes[0];
+  const first = kubernetesAccount('id-1', k);
+  // Rename only, no token: kept.
+  await store.save({ ...base, id: 'id-1', kubernetes: [{ ...k, name: 'renamed' }] });
+  assert.equal(sec.map.get(first), 'tok');
+  assert.equal(store.get('id-1').kubernetes[0].name, 'renamed');
+  // No kubernetes field at all: the saved list stays as it is.
+  await store.save({ ...base, id: 'id-1', name: 'PC01 renamed' });
+  assert.equal(store.get('id-1').kubernetes.length, 1);
+  assert.equal(sec.map.get(first), 'tok');
+  for (const change of [{ host: 'other.example.com' }, { port: 7443 }, { insecure: false }]) {
+    await store.save({ ...base, id: 'id-1', kubernetes: [{ ...k, token: 'tok' }] });
+    const before = kubernetesAccount('id-1', store.get('id-1').kubernetes[0]);
+    assert.equal(sec.map.get(before), 'tok');
+    await store.save({ ...base, id: 'id-1', kubernetes: [{ ...k, ...change }] });
+    const after = store.get('id-1').kubernetes[0];
+    assert.equal(after.id, k.id, 'the endpoint keeps its id');
+    assert.equal(sec.map.has(before), false, `old account dropped after ${JSON.stringify(change)}`);
+    assert.equal(sec.map.has(kubernetesAccount('id-1', after)), false);
+    assert.equal((await store.listWithStatus())[0].kubernetes[0].hasToken, false);
+  }
+  // A changed endpoint with a fresh token stores it under the new account only.
+  await store.save({ ...base, id: 'id-1', kubernetes: [{ ...k, host: 'moved.example.com', token: 'tok2' }] });
+  const moved = store.get('id-1').kubernetes[0];
+  assert.equal(sec.map.get(kubernetesAccount('id-1', moved)), 'tok2');
+  assert.equal([...sec.map.keys()].filter((a) => a.includes(':k8s:')).length, 1);
+});
+
+test('NKP: removeToken, removing an endpoint, Prism Element and deleting the target drop the tokens', async () => {
+  const sec = fakeSecrets();
+  const store = new TargetStore(fakeIO(), sec, { newId: ids() });
+  await store.save({ ...base, password: 'pw', kubernetes: [nkp({ token: 'a' }), nkp({ host: 'b.example.com', token: 'b' })] });
+  const [ka, kb] = store.get('id-1').kubernetes;
+  await store.save({ ...base, id: 'id-1', kubernetes: [{ ...ka, removeToken: true }, kb] });
+  assert.equal(sec.map.has(kubernetesAccount('id-1', ka)), false);
+  assert.equal(sec.map.get(kubernetesAccount('id-1', kb)), 'b');
+  // Left out of the list: the endpoint and its token are gone.
+  await store.save({ ...base, id: 'id-1', kubernetes: [ka] });
+  assert.equal(sec.map.has(kubernetesAccount('id-1', kb)), false);
+  assert.deepEqual(store.get('id-1').kubernetes.map((k) => k.id), [ka.id]);
+  await store.save({ ...base, id: 'id-1', kubernetes: [{ ...ka, token: 'a2' }] });
+  // A Prism Element has no NKP clusters.
+  const pe = await store.save({ ...base, id: 'id-1', mode: 'prism_element', kubernetes: [{ ...ka, token: 'a3' }] });
+  assert.equal(pe.target.kubernetes, undefined);
+  assert.equal([...sec.map.keys()].some((a) => a.includes(':k8s:')), false);
+  // Deleting the target drops every token it owns.
+  await store.save({ ...base, id: 'id-1', kubernetes: [nkp({ token: 'c' })] });
+  assert.equal([...sec.map.keys()].some((a) => a.includes(':k8s:')), true);
+  await store.delete('id-1');
+  assert.equal(sec.map.size, 0);
+});
+
+test('NKP: validate refuses a bad host or port and duplicates, per entry', () => {
+  const e = validate({ ...base, kubernetes: [nkp({ host: 'https://x' }), nkp({ port: 0 }), nkp(), nkp()] }, []);
+  assert.ok(e['kubernetes:0']);
+  assert.ok(e['kubernetes:1']);
+  assert.equal(e['kubernetes:2'], undefined);
+  assert.match(e['kubernetes:3'], /already listed/);
+  assert.deepEqual(validate({ ...base, kubernetes: [nkp(), nkp({ host: '198.51.100.7' })] }, []), {});
+});
+
+test('NKP: trust pins one endpoint by id, only with TLS verification off; save keeps the pin while the address is unchanged', async () => {
+  const store = new TargetStore(fakeIO(), fakeSecrets(), { newId: ids() });
+  await store.save({ ...base, password: 'pw', kubernetes: [nkp({ token: 't' }), nkp({ host: 'strict.example.com', insecure: false, token: 't' })] });
+  const [ka, kb] = store.get('id-1').kubernetes;
+  assert.equal(store.trust('id-1', `kubernetes:${ka.id}`, FP1), true);
+  assert.equal(store.trust('id-1', `kubernetes:${kb.id}`, FP1), false); // verification on
+  assert.equal(store.trust('id-1', 'kubernetes:nope', FP1), false);
+  assert.equal(store.trust('id-1', `kubernetes:${ka.id}`, 'garbage'), false);
+  const t = store.get('id-1');
+  assert.equal(t.kubernetes[0].pinnedCert, FP1);
+  assert.equal(savedPin(t, { mode: 'kubernetes', host: 'nkp.example.com', port: 6443 }), FP1);
+  assert.equal((await store.listWithStatus())[0].kubernetes[0].pinnedCert, FP1);
+  // pinnedCert absent: kept for the same address; a new address drops it; a fresh one is taken.
+  await store.save({ ...base, id: 'id-1', kubernetes: [{ ...ka, pinnedCert: undefined, name: 'x' }, kb] });
+  assert.equal(store.get('id-1').kubernetes[0].pinnedCert, FP1);
+  await store.save({ ...base, id: 'id-1', kubernetes: [{ ...ka, pinnedCert: undefined, host: 'new.example.com' }, kb] });
+  assert.equal(store.get('id-1').kubernetes[0].pinnedCert, undefined);
+  await store.save({ ...base, id: 'id-1', kubernetes: [{ ...ka, host: 'new.example.com', pinnedCert: FP2 }, kb] });
+  assert.equal(store.get('id-1').kubernetes[0].pinnedCert, FP2);
+});
+
+test('NKP: kubernetesRequests (runs and schedules) sends only endpoints with a token, the pin only when insecure', async () => {
+  const sec = fakeSecrets();
+  const store = new TargetStore(fakeIO(), sec, { newId: ids() });
+  await store.save({
+    ...base,
+    password: 'pw',
+    kubernetes: [nkp({ token: 'tok-a', pinnedCert: FP1 }), nkp({ name: '', host: 'notoken.example.com' }), nkp({ name: '', host: 'strict.example.com', insecure: false, pinnedCert: FP2, token: 'tok-c' })],
+  });
+  assert.deepEqual(await store.kubernetesRequests('id-1'), [
+    { name: 'nkp-prod', host: 'nkp.example.com', port: 6443, token: 'tok-a', insecure: true, pinned_sha256: FP1 },
+    { name: 'strict.example.com', host: 'strict.example.com', port: 6443, token: 'tok-c', insecure: false },
+  ]);
+  // A locked keychain leaves the endpoint out rather than failing the run.
+  sec.failGet = true;
+  assert.deepEqual(await store.kubernetesRequests('id-1'), []);
+  sec.failGet = false;
+  assert.deepEqual(await store.kubernetesRequests('nope'), []);
+});
+
+test('NKP: a tampered targets.json releases no token', async () => {
+  const k = { id: 'k1', name: 'n', host: 'nkp.example.com', port: 6443, insecure: false };
+  const file = { version: 2, targets: [{ id: 'a', mode: 'prism_central', host: 'pc', name: 'a', port: 9440, username: 'admin', insecure: false, kubernetes: [k] }] };
+  const sec = fakeSecrets({ [kubernetesAccount('a', k)]: 'tok' });
+  const store = new TargetStore(tamperedIO(file), sec, { newId: ids() });
+  assert.equal(await store.kubernetesToken('a', 'k1'), null);
+  assert.deepEqual(await store.kubernetesRequests('a'), []);
+  assert.equal((await store.listWithStatus())[0].kubernetes[0].hasToken, false);
+});

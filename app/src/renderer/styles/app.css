@@ -2228,6 +2228,34 @@ dl {
 .connect-pw {
   grid-column: 2 / -1;
 }
+/* Targets editor: one NKP cluster (Kubernetes API endpoint), and the read-only token help. */
+.nkp-endpoint {
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-lg);
+  padding: 12px;
+}
+.nkp-help > summary {
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--ink-2);
+}
+.nkp-help[open] {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.nkp-help pre {
+  margin: 0;
+  padding: 8px 10px;
+  font-size: 11px;
+  line-height: 1.5;
+  white-space: pre;
+  overflow-x: auto;
+  background: var(--surface-hover);
+  border: 1px solid var(--rule-2);
+  border-radius: var(--radius-md);
+  user-select: text;
+}
 @media (max-width: 760px) {
   .connect-grid {
     grid-template-columns: minmax(0, 1fr);

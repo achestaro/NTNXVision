@@ -1115,6 +1115,7 @@ class ObjectStore(SourcedObject):
 class Bucket(SourcedObject):
     name: str
     object_store_name: str | None = None
+    cluster_name: str | None = None  # its object store's cluster
     owner: str | None = None
     versioning: bool | None = None
     worm_enabled: bool | None = None
@@ -1281,6 +1282,185 @@ class NdbTag(SourcedObject):
     status: str | None = None
     description: str | None = None
     api_source: str = "ndb"
+
+
+# ─── Kubernetes (NKP) ─────────────────────────────────────────────────
+
+
+class KubernetesCluster(SourcedObject):
+    """An NKP (or other) Kubernetes cluster.
+
+    Prism Central sees an NKP cluster through its node VMs (category
+    ``KubernetesClusterName``) and, when deployed from the Marketplace, its Self-Service
+    app; the cluster's own API (optional, `kube_client`) adds the in-cluster detail.
+    ``api_source`` is "pc", "kubernetes" or "pc+kubernetes".
+    """
+
+    name: str
+    cluster_name: str | None = None  # the Nutanix cluster its nodes run on
+    nkp_version: str | None = None
+    kubernetes_version: str | None = None
+    control_plane_endpoint: str | None = None
+    control_plane_nodes: int | None = None
+    worker_nodes: int | None = None
+    total_vcpus: int | None = None
+    total_memory_bytes: int | None = None
+    management_cluster: bool | None = None  # runs Kommander / manages other clusters
+    managed_clusters: list[str] = Field(default_factory=list)  # Cluster API clusters it runs
+    cni: str | None = None
+    default_storage_class: str | None = None
+    load_balancer: str | None = None  # "MetalLB 10.0.0.1-10.0.0.9"
+    pod_cidr: str | None = None
+    service_cidr: str | None = None
+    namespace_count: int | None = None
+    pod_count: int | None = None
+    workload_count: int | None = None  # deployments + statefulsets + daemonsets
+    platform_apps: int | None = None
+    license: str | None = None  # "NKP Starter" (Kommander License)
+    #: Cluster API phase ("Provisioned"), else the Self-Service app state ("running").
+    status: str | None = None
+    deployed_by: str | None = None  # "Marketplace (Self-Service)" when an app record exists
+    api_source: str = "pc"
+
+
+class KubernetesNode(SourcedObject):
+    kubernetes_cluster: str
+    name: str
+    role: str | None = None  # control-plane / worker
+    pool: str | None = None  # NKP machine deployment ("md-0")
+    cluster_name: str | None = None  # Nutanix cluster of its VM
+    ip_address: str | None = None
+    vcpus: int | None = None
+    memory_bytes: int | None = None
+    kubelet_version: str | None = None
+    os_image: str | None = None
+    kernel: str | None = None
+    container_runtime: str | None = None
+    status: str | None = None  # Ready / NotReady, or the VM power state from PC
+    #: The Prism Central VM behind the node (Kubernetes ``providerID nutanix://<uuid>``).
+    vm_uuid: str | None = None
+    api_source: str = "pc"
+
+
+class KubernetesNamespace(SourcedObject):
+    kubernetes_cluster: str
+    name: str
+    status: str | None = None
+    pods: int = 0
+    deployments: int = 0
+    statefulsets: int = 0
+    daemonsets: int = 0
+    services: int = 0
+    volume_claims: int = 0
+    #: Platform plumbing (kube-*, kommander*, *-system, ...), not a user namespace.
+    system: bool = False
+    api_source: str = "kubernetes"
+
+
+class KubernetesStorageClass(SourcedObject):
+    kubernetes_cluster: str
+    name: str
+    provisioner: str | None = None
+    default: bool = False
+    reclaim_policy: str | None = None
+    binding_mode: str | None = None
+    expansion: bool | None = None
+    storage_container: str | None = None  # Nutanix CSI parameter
+    api_source: str = "kubernetes"
+
+
+class KubernetesVolume(SourcedObject):
+    """A persistent volume (and the claim bound to it)."""
+
+    kubernetes_cluster: str
+    name: str
+    capacity_bytes: int | None = None
+    storage_class: str | None = None
+    claim: str | None = None  # "namespace/name"
+    status: str | None = None
+    reclaim_policy: str | None = None
+    access_modes: list[str] = Field(default_factory=list)
+    api_source: str = "kubernetes"
+
+
+class KubernetesService(SourcedObject):
+    """A LoadBalancer service (what the cluster exposes on the network)."""
+
+    kubernetes_cluster: str
+    namespace: str
+    name: str
+    external_ips: list[str] = Field(default_factory=list)
+    ports: list[str] = Field(default_factory=list)  # "443/TCP"
+    api_source: str = "kubernetes"
+
+
+class KubernetesWorkload(SourcedObject):
+    """A Deployment, StatefulSet, DaemonSet or CronJob, and what it runs."""
+
+    kubernetes_cluster: str
+    namespace: str
+    name: str
+    kind: str  # Deployment / StatefulSet / DaemonSet / CronJob
+    replicas_desired: int | None = None  # DaemonSet: nodes scheduled; CronJob: None
+    replicas_ready: int | None = None
+    images: list[str] = Field(default_factory=list)
+    #: The Helm release (``meta.helm.sh/release-name``, else ``app.kubernetes.io/instance``
+    #: when ``app.kubernetes.io/managed-by`` is Helm).
+    helm_release: str | None = None
+    helm_chart: str | None = None  # ``helm.sh/chart`` ("prometheus-29.44.0")
+    app_name: str | None = None  # ``app.kubernetes.io/name``
+    app_version: str | None = None  # ``app.kubernetes.io/version``
+    #: The NKP (Kommander) platform app it belongs to, when its release or namespace ties
+    #: it to an AppDeployment.
+    owner_app: str | None = None
+    schedule: str | None = None  # CronJob
+    #: Platform plumbing (Kubernetes, NKP, Nutanix CSI, MetalLB, ...), not a user app.
+    system: bool = False
+    status: str | None = None  # Ready / Not ready / Scaled to zero / Scheduled / Suspended
+    api_source: str = "kubernetes"
+
+
+class KubernetesIngress(SourcedObject):
+    kubernetes_cluster: str
+    namespace: str
+    name: str
+    ingress_class: str | None = None
+    hosts: list[str] = Field(default_factory=list)
+    #: "host/path -> service:port" per rule.
+    backends: list[str] = Field(default_factory=list)
+    addresses: list[str] = Field(default_factory=list)
+    helm_release: str | None = None
+    system: bool = False
+    api_source: str = "kubernetes"
+
+
+class KubernetesApplication(SourcedObject):
+    """A user application: a Helm release, else a namespace, with what makes it up."""
+
+    kubernetes_cluster: str
+    namespace: str
+    name: str  # the Helm release, or the namespace
+    kind: str  # "Helm release" / "Namespace"
+    helm_chart: str | None = None
+    workloads: int = 0
+    workload_kinds: list[str] = Field(default_factory=list)  # "11 Deployments"
+    images: list[str] = Field(default_factory=list)
+    ingress_hosts: list[str] = Field(default_factory=list)
+    addresses: list[str] = Field(default_factory=list)  # LoadBalancer / ingress IPs
+    status: str | None = None  # Ready when every workload is
+    api_source: str = "kubernetes"
+
+
+class KubernetesApp(SourcedObject):
+    """A platform application (an NKP Kommander app, else a Flux Helm release)."""
+
+    kubernetes_cluster: str
+    namespace: str | None = None
+    name: str
+    version: str | None = None
+    status: str | None = None
+    kind: str | None = None  # AppDeployment / HelmRelease
+    api_source: str = "kubernetes"
 
 
 # ─── IAM ───────────────────────────────────────────────────────────────
@@ -1632,6 +1812,16 @@ class Environment(_Base):
     ndb_snapshots: list[NdbSnapshot] = Field(default_factory=list)
     ndb_maintenance_windows: list[NdbMaintenanceWindow] = Field(default_factory=list)
     ndb_tags: list[NdbTag] = Field(default_factory=list)
+    kubernetes_clusters: list[KubernetesCluster] = Field(default_factory=list)
+    kubernetes_nodes: list[KubernetesNode] = Field(default_factory=list)
+    kubernetes_namespaces: list[KubernetesNamespace] = Field(default_factory=list)
+    kubernetes_storage_classes: list[KubernetesStorageClass] = Field(default_factory=list)
+    kubernetes_volumes: list[KubernetesVolume] = Field(default_factory=list)
+    kubernetes_services: list[KubernetesService] = Field(default_factory=list)
+    kubernetes_apps: list[KubernetesApp] = Field(default_factory=list)
+    kubernetes_workloads: list[KubernetesWorkload] = Field(default_factory=list)
+    kubernetes_ingresses: list[KubernetesIngress] = Field(default_factory=list)
+    kubernetes_applications: list[KubernetesApplication] = Field(default_factory=list)
 
     # ─ Phase 2: IAM / X-Play / NCM ─
     users: list[User] = Field(default_factory=list)
@@ -1720,6 +1910,16 @@ class Environment(_Base):
             "ndb_snapshots": len(self.ndb_snapshots),
             "ndb_maintenance_windows": len(self.ndb_maintenance_windows),
             "ndb_tags": len(self.ndb_tags),
+            "kubernetes_clusters": len(self.kubernetes_clusters),
+            "kubernetes_nodes": len(self.kubernetes_nodes),
+            "kubernetes_namespaces": len(self.kubernetes_namespaces),
+            "kubernetes_storage_classes": len(self.kubernetes_storage_classes),
+            "kubernetes_volumes": len(self.kubernetes_volumes),
+            "kubernetes_services": len(self.kubernetes_services),
+            "kubernetes_apps": len(self.kubernetes_apps),
+            "kubernetes_workloads": len(self.kubernetes_workloads),
+            "kubernetes_ingresses": len(self.kubernetes_ingresses),
+            "kubernetes_applications": len(self.kubernetes_applications),
             "users": len(self.users),
             "roles": len(self.roles),
             "projects": len(self.projects),

@@ -182,6 +182,9 @@ class Features:
     #: pc-dr); a tuple replaces it. Paired demo PCs use `az_peers` / `extra_policies`.
     azs: tuple[AzSpec, ...] | None = None
     policies: tuple[PolicySpec, ...] | None = None
+    #: NKP clusters deployed from the Marketplace: their node VMs (category
+    #: ``KubernetesClusterName``) and Self-Service apps (`synthetic.kube`).
+    nkp: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -397,6 +400,8 @@ class PcEstate:
     pc_vms: list[dict[str, Any]] = field(default_factory=list)
     products: list[dict[str, Any]] = field(default_factory=list)
     registrations: list[dict[str, Any]] = field(default_factory=list)
+    #: Self-Service (Calm) app records: NKP clusters and their bastion VMs.
+    nkp_apps: list[dict[str, Any]] = field(default_factory=list)
 
     @property
     def v4_ga(self) -> bool:
@@ -474,6 +479,11 @@ def build_pc_estate(
     _catalog(est)
     _categories(est)
     _vms(est, specs)
+    if est.features.nkp:
+        from ntnxvision_core.synthetic.kube import add_nkp_vms
+
+        for nkp_cluster in est.features.nkp:
+            add_nkp_vms(est, nkp_cluster)
     _compute_shapes(est)
     _system_vms(est)
     _data_protection(est)

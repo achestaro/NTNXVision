@@ -41,7 +41,7 @@ import { useSettings, modKey } from '../lib/settings';
 import { useRun } from '../lib/run';
 import { useConfirmShortcut } from '../lib/keyboard';
 import { useRouter } from '../lib/router';
-import { NA, REPORT_EXT, errorMessage, fmtCount, fmtRatio, reportFileName, sanitizeSnapshotName, snapshotNameIssue, targetLabel, tildify } from '../lib/format';
+import { NA, REPORT_EXT, errorMessage, fmtCount, fmtRatio, plural, reportFileName, sanitizeSnapshotName, snapshotNameIssue, targetLabel, tildify } from '../lib/format';
 import { ClusterPicker, initialSelection } from './ClusterPicker';
 import type { ClusterListState } from './ClusterPicker';
 import { RatioOverrides, initialRatioText, ratioIssue, ratioOverrides } from './RatioOverrides';
@@ -87,6 +87,8 @@ export function NewCollectionView({
   const [vcOn, setVcOn] = useState(false);
   const [vcHost, setVcHost] = useState('');
   const [vcUser, setVcUser] = useState('');
+  /** NKP clusters of the target that have a token in the keychain (only those are collected). */
+  const [kubeOn, setKubeOn] = useState(false);
   // Off by default and per run: never remembered, reset when the target changes.
   const [lcmInv, setLcmInv] = useState(false);
   useEffect(() => setLcmInv(false), [selected]);
@@ -156,6 +158,7 @@ export function NewCollectionView({
     setVcOn(!!p.vcenterHost);
     setVcHost(p.vcenterHost ?? '');
     setVcUser(p.vcenterUser ?? '');
+    setKubeOn((p.kubernetes ?? []).some((k) => k.hasToken));
     setTest({ kind: 'idle' });
     resetClusters();
     setErrors({});
@@ -312,6 +315,8 @@ export function NewCollectionView({
   const clusters = clusterState.kind === 'ready' ? clusterState.result.clusters : [];
   const chosenClusters = clusters.filter((c) => clusterSel.has(c.uuid));
   // The clusters being collected: a single listed cluster always is (PE mode, or a PC with one).
+  const nkp = !isPe && profile ? (profile.kubernetes ?? []).filter((k) => k.hasToken) : [];
+  const nkpOn = kubeOn && nkp.length > 0;
   const collectedClusters = clusters.length === 1 ? clusters : chosenClusters;
   const defaultRatio = settings.vcpuRatio ?? DEFAULT_VCPU_RATIO;
   const badRatios = collectedClusters.filter((c) => ratioIssue(ratioText[c.uuid]));
@@ -325,6 +330,7 @@ export function NewCollectionView({
   if (profile && !verifyTls && !profile.pinnedCert) blockers.push('Test the connection in step 1 and trust the certificate.');
   if (profile && !isPe && ndbOn && profile.ndbInsecure && !profile.ndbPinnedCert) blockers.push('Trust the NDB certificate: edit the target on the Targets page and test NDB.');
   if (profile && !isPe && vcOn && profile.vcenterInsecure && !profile.vcenterPinnedCert) blockers.push('Trust the vCenter certificate: edit the target on the Targets page and test vCenter.');
+  if (nkpOn && nkp.some((k) => k.insecure && !k.pinnedCert)) blockers.push('Trust the NKP cluster certificates: edit the target on the Targets page and test each NKP cluster.');
   if (badRatios.length) blockers.push('Fix the vCPU:pCPU target per cluster in step 2.');
   const canStart = !isRunning && blockers.length === 0;
 
@@ -359,6 +365,8 @@ export function NewCollectionView({
         ndb: !isPe && ndbOn && ndbHost ? { host: ndbHost, username: ndbUser, password: '' } : undefined,
         // So do the vCenter's details and password (ESXi enrichment).
         vcenter: !isPe && vcOn && vcHost ? { host: vcHost, username: vcUser, password: '' } : undefined,
+        // The NKP endpoints and tokens come from the saved target (main process).
+        kubernetes: nkpOn ? true : undefined,
         lcmInventory: lcmOn,
       });
       if (prefix !== (settings.filePrefix ?? '')) void update({ filePrefix: prefix });
@@ -496,6 +504,12 @@ export function NewCollectionView({
                     <div className="kv">
                       <dt>vCenter</dt>
                       <dd className={vcHost ? 'mono' : 'dash'}>{vcHost || NA}</dd>
+                    </div>
+                  )}
+                  {!isPe && (
+                    <div className="kv">
+                      <dt>NKP</dt>
+                      <dd className={profile.kubernetes?.length ? undefined : 'dash'}>{profile.kubernetes?.length ? plural(profile.kubernetes.length, 'cluster') : NA}</dd>
                     </div>
                   )}
                   <div className="kv">
@@ -675,6 +689,19 @@ export function NewCollectionView({
                     {vcHost
                       ? `${vcHost} as ${vcUser}, from the target: disk datastores and port group switch types`
                       : 'Add the vCenter of your ESXi clusters to this target on the Targets page to include it'}
+                  </div>
+                </div>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                <Switch checked={nkpOn} onChange={setKubeOn} labelledBy="nkpLbl" disabled={!nkp.length} />
+                <div id="nkpLbl">
+                  <div style={{ fontWeight: 500 }}>Include NKP clusters{nkp.length ? ` (${nkp.length})` : ''}</div>
+                  <div className="hint">
+                    {nkp.length
+                      ? `${nkp.map((k) => k.name || k.host).join(', ')}, from the target: Kubernetes nodes, namespaces and workloads (read-only)`
+                      : isPe
+                        ? 'Prism Central only'
+                        : 'Add an NKP cluster with its ServiceAccount token to this target on the Targets page to include it'}
                   </div>
                 </div>
               </div>

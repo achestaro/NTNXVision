@@ -45,7 +45,7 @@ import * as store from './store';
 import { shouldMigrateSecrets } from './integrity';
 import { storeKind } from './secrets';
 import { registerLegalHandlers } from './legal';
-import { cleanOverrides, endpointTls, matchesTarget, ndbAccount, passwordAccount, remapIds, savedPin, vcenterAccount } from './targets';
+import { cleanOverrides, endpointTls, kubernetesAccount, matchesTarget, ndbAccount, passwordAccount, remapIds, savedPin, vcenterAccount } from './targets';
 import { Scheduler } from './scheduler';
 import {
   appPageUrl,
@@ -404,10 +404,17 @@ async function endpointPassword(req: {
   password: string;
   mode: string;
   insecure: boolean;
+  kubernetesId?: string;
 }): Promise<string> {
   if (req.password) return req.password;
   const t = store.targets.get(req.targetId);
   if (!t) return '';
+  if (req.mode === 'kubernetes') {
+    // An NKP cluster's token: only to that endpoint exactly as saved (host, port, TLS flag).
+    const k = t.kubernetes?.find((x) => x.id === req.kubernetesId);
+    const same = !!k && k.host === req.host.trim() && k.port === req.port && req.insecure === !!k.insecure;
+    return same ? ((await store.targets.kubernetesToken(t.id, k.id)) ?? '') : '';
+  }
   const host = req.host.trim();
   const user = req.username.trim();
   // A target's NDB or vCenter endpoint has its own keychain entry. A saved password is
@@ -435,6 +442,7 @@ async function targetConnection(
   typed: string,
   ndb: NdbRequest | undefined,
   vcenter?: VcenterRequest | undefined,
+  kubernetes?: boolean,
 ) {
   const t = store.targets.get(targetId);
   if (!t) {
@@ -468,7 +476,20 @@ async function targetConnection(
           pinned_sha256: tls.vcenter.pinnedCert,
         }
       : undefined;
-  return { mode: t.mode, host: t.host, username: t.username, port: t.port, insecure: t.insecure, pinnedCert: tls.primary.pinnedCert, password, ndb: withNdb, vcenter: withVcenter };
+  // NKP clusters: the target's saved endpoints that have a token, switched on per run.
+  const withKubernetes = t.mode === 'prism_central' && kubernetes === true ? await store.targets.kubernetesRequests(t.id) : [];
+  return {
+    mode: t.mode,
+    host: t.host,
+    username: t.username,
+    port: t.port,
+    insecure: t.insecure,
+    pinnedCert: tls.primary.pinnedCert,
+    password,
+    ndb: withNdb,
+    vcenter: withVcenter,
+    kubernetesEndpoints: withKubernetes.length ? withKubernetes : undefined,
+  };
 }
 
 // ─── IPC handlers: sidecar relays ──────────────────────────────────────
@@ -507,10 +528,14 @@ function diagramLegend(): boolean {
 }
 
 /** The certificate pin for a test or listing: the request's own, else the saved target's for that endpoint. */
-function requestPin(req: { targetId?: string; mode?: string; host: string; port: number; insecure: boolean; pinnedCert?: string }): string | undefined {
+function requestPin(req: { targetId?: string; mode?: string; host: string; port: number; insecure: boolean; pinnedCert?: string; kubernetesId?: string }): string | undefined {
   if (!req.insecure) return undefined;
   if (req.pinnedCert !== undefined) return req.pinnedCert || undefined;
   const t = store.targets.get(req.targetId);
+  if (t && req.mode === 'kubernetes') {
+    const k = t.kubernetes?.find((x) => x.id === req.kubernetesId);
+    return k && k.host === req.host.trim() && k.port === req.port ? k.pinnedCert : undefined;
+  }
   return t ? savedPin(t, { mode: req.mode ?? 'prism_central', host: req.host, port: req.port }) : undefined;
 }
 
@@ -518,6 +543,17 @@ ipc.handle(IPC.testConnection, async (_e, raw: TestConnectionRequest) => {
   const req = asTestRequest(raw);
   assertDemoHost(req.host);
   const password = await endpointPassword(req);
+  if (req.mode === 'kubernetes') {
+    // An NKP cluster's Kubernetes API, read with a ServiceAccount token (no username).
+    return sidecar.call<TestConnectionResult>('test_connection', {
+      mode: 'kubernetes',
+      host: req.host.trim(),
+      port: req.port,
+      token: password,
+      insecure: req.insecure,
+      pinned_sha256: requestPin(req),
+    });
+  }
   const result = await sidecar.call<TestConnectionResult>('test_connection', {
     mode: req.mode,
     host: req.host,
@@ -554,7 +590,7 @@ ipc.handle(IPC.startCollection, async (_e, raw: CollectionRequest) => {
   let req = asCollectionRequest(raw);
   const exportDir = exportDirFor(req.exportDir);
   const runId = randomUUID();
-  const { password, ...conn } = await targetConnection(req.targetId, req.password, req.ndb, req.vcenter);
+  const { password, ...conn } = await targetConnection(req.targetId, req.password, req.ndb, req.vcenter, req.kubernetes);
   assertDemoHost(conn.host);
   req = { ...req, ...conn, exportDir };
   // The cluster selection is remembered per saved target (uuids only, never credentials).
@@ -582,6 +618,7 @@ ipc.handle(IPC.startCollection, async (_e, raw: CollectionRequest) => {
     file_prefix: filePrefix(req.filePrefix),
     ndb: req.mode === 'prism_central' ? req.ndb : undefined,
     vcenter: req.mode === 'prism_central' ? req.vcenter : undefined,
+    kubernetes: req.mode === 'prism_central' ? conn.kubernetesEndpoints : undefined,
     vcpu_ratio: vcpuRatio(),
     vcpu_ratio_overrides: overrides,
     section_order: sectionOrder(),
@@ -608,7 +645,7 @@ ipc.handle(IPC.startMultiCollection, async (_e, raw: MultiCollectionRequest) => 
   const runId = randomUUID();
   // Each target's saved details and password (a typed one-run password wins).
   const resolved = await Promise.all(
-    req.targets.map(async (t) => ({ ...t, ...(await targetConnection(t.targetId, t.password, t.ndb, t.vcenter)) })),
+    req.targets.map(async (t) => ({ ...t, ...(await targetConnection(t.targetId, t.password, t.ndb, t.vcenter, t.kubernetes)) })),
   );
   resolved.forEach((t) => assertDemoHost(t.host));
   beginManualRun();
@@ -624,6 +661,7 @@ ipc.handle(IPC.startMultiCollection, async (_e, raw: MultiCollectionRequest) => 
       name: t.name,
       ndb: t.ndb,
       vcenter: t.vcenter,
+      kubernetes: t.kubernetesEndpoints,
       // The per-cluster targets remembered on the saved target (set in New collection).
       vcpu_ratio_overrides: store.targets.get(t.targetId)?.vcpuRatioOverrides,
     })),
@@ -1126,6 +1164,7 @@ async function seedDemo(): Promise<void> {
     await secrets.setSecret(passwordAccount(p), DEMO_PASSWORD);
     if (p.ndbHost && isDemoHost(p.ndbHost)) await secrets.setSecret(ndbAccount(p), DEMO_PASSWORD);
     if (p.vcenterHost && isDemoHost(p.vcenterHost)) await secrets.setSecret(vcenterAccount(p), DEMO_PASSWORD);
+    for (const k of p.kubernetes ?? []) if (isDemoHost(k.host)) await secrets.setSecret(kubernetesAccount(p.id, k), DEMO_PASSWORD);
   }
   try {
     await sidecar.call('demo_seed', { export_dir: store.getSettings().exportDir });

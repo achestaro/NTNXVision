@@ -19,6 +19,9 @@ exercises a different path through the app:
 ``legacy-pc.demo.local``    pc.2023.4 — outside the supported range (warn, may proceed).
 ``pe01.demo.local``         Prism Element, AOS 7.0, 6 hosts / 212 VMs (v2.0 API).
 ``ndb.demo.local``          NDB (Era API) with 12 database servers.
+``nkp01.demo.local``        The Kubernetes API (port 6443) of pc01's NKP cluster
+                            ``nkp-prod-01`` (1 control plane, 3 workers on PHX-PROD-02),
+                            deployed from the Marketplace. Any bearer token but ``wrong``.
 ``selfsigned.demo.local``   A tiny PC presenting a self-signed certificate.
 ``tiny.demo.local``         The ``tiny`` profile (1 cluster, 40 VMs).
 ``down.demo.local``         Never resolves — the unreachable case.
@@ -58,6 +61,7 @@ from ntnxvision_core.synthetic.estate import (
     build_pc_estate,
     build_pe_estate,
 )
+from ntnxvision_core.synthetic.kube import NKP_CLUSTER_INDEX, build_kube_estate
 from ntnxvision_core.synthetic.mockapi import Target
 
 DEMO_DOMAIN = ".demo.local"
@@ -66,6 +70,9 @@ DEMO_DOMAIN = ".demo.local"
 #: never reaches a real host); the mock vCenter answers there and at vcenter.demo.local.
 VCENTER_ADDRESS = "198.51.100.20"
 VCENTER_HOST = "vcenter.demo.local"
+#: pc01's NKP cluster, and the demo host its Kubernetes API answers at.
+NKP_CLUSTER = "nkp-prod-01"
+NKP_HOST = "nkp01.demo.local"
 
 
 def _pc(host: str, profile: str, version: str, features: Features | None = None,
@@ -85,6 +92,8 @@ def demo_targets() -> dict[str, Target]:
             # second cluster (joined) and an AOS/AHV upgrade on the third (skipped).
             lcm_running=((1, "inventory"), (2, "upgrade")),
             vcenter_address=VCENTER_ADDRESS,
+            # An NKP cluster from the Marketplace (its API answers at nkp01.demo.local).
+            nkp=(NKP_CLUSTER,),
             # Paired with pc02; a Metro (Sync) policy inside the AZ and a NearSync one
             # to pc02's SEA-PROD-01.
             az_peers=("pc02.demo.local",),
@@ -111,6 +120,10 @@ def demo_targets() -> dict[str, Target]:
                                                    epoch=epoch)),
         Target(host="ndb.demo.local", kind="ndb",
                build=lambda _epoch: build_ndb_estate("ndb.demo.local")),
+        Target(host=NKP_HOST, kind="kubernetes",
+               build=lambda _epoch: build_kube_estate(
+                   NKP_HOST, "pc01.demo.local", NKP_CLUSTER,
+                   PROFILES["medium"][NKP_CLUSTER_INDEX].name)),
         Target(host="down.demo.local", kind="pc", build=lambda _e: None, reachable=False),
     ]
     for i in (1, 2, 3):

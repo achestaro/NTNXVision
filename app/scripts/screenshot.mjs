@@ -140,6 +140,22 @@ const SHOTS = [
     await p.getByRole('dialog').getByRole('button', { name: 'Test connection' }).click();
     await p.getByRole('dialog').getByText('Connected to Prism Central').waitFor();
   }, 1100],
+  // The NKP clusters section: a saved endpoint, the read-only token help, and a new one
+  // whose test asks to trust the Kubernetes API certificate.
+  ['targets-edit-nkp', {}, async (p) => {
+    await rail(p, 'Targets');
+    await p.getByRole('button', { name: 'PC01 Production', exact: true }).click();
+    const dlg = p.getByRole('dialog');
+    await dlg.getByText('How to create a read-only token').click();
+    await dlg.getByRole('button', { name: 'Add NKP cluster' }).click();
+    const added = dlg.getByTestId('nkp-endpoint').last();
+    await added.getByLabel('Name').fill('nkp-dev');
+    await added.getByLabel('API endpoint host').fill('nkp-dev.example.com');
+    await added.getByLabel('ServiceAccount token').fill('eyJhbGciOiJSUzI1NiJ9.stub');
+    await added.getByRole('button', { name: 'Test nkp-dev' }).click();
+    await added.getByText('Trust the certificate of nkp-dev.example.com?').waitFor();
+    await added.getByRole('button', { name: 'Trust this certificate' }).scrollIntoViewIfNeeded();
+  }, 1100, 1300],
   // Test connection outcomes in the Targets editor and as a row-test toast: rejected
   // credentials, untrusted certificate, unreachable (failed) and an unsupported version (warning).
   ...['auth_failed', 'untrusted_cert', 'unreachable', 'version_unsupported'].map((t) => [

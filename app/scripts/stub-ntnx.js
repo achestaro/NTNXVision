@@ -117,7 +117,7 @@
   let connections = opt.empty || opt.noTargets
     ? []
     : [
-        { id: 't-pc01', mode: 'prism_central', host: 'pc01.example.com', username: 'admin', port: 9440, insecure: false, name: 'PC01 Production', ndbHost: 'ndb01.example.com', ndbUser: 'admin', vcpuRatioOverrides: { 'c-phx-prod-01': 6 }, hasPassword: true, ndbHasPassword: true, lastTest: tested('ok', true, 'Connected to Prism Central pc.2024.3', 'pc.2024.3', at(10, 15, 9, 40)) },
+        { id: 't-pc01', mode: 'prism_central', host: 'pc01.example.com', username: 'admin', port: 9440, insecure: false, name: 'PC01 Production', ndbHost: 'ndb01.example.com', ndbUser: 'admin', kubernetes: [{ id: 'k-nkp-prod', name: 'nkp-prod', host: 'nkp-prod.example.com', port: 6443, insecure: true, pinnedCert: '7C:21:9E:04:B3:58:AF:6D:12:E9:40:C7:8B:35:D2:61:FA:0E:93:4C:27:B8:5D:A1:6E:03:C9:72:4F:E6:18:B5', hasToken: true }], vcpuRatioOverrides: { 'c-phx-prod-01': 6 }, hasPassword: true, ndbHasPassword: true, lastTest: tested('ok', true, 'Connected to Prism Central pc.2024.3', 'pc.2024.3', at(10, 15, 9, 40)) },
         { id: 't-pc02', mode: 'prism_central', host: 'pc02.example.com', username: 'admin', port: 9440, insecure: false, name: 'PC02 DR site', hasPassword: true, lastTest: tested('ok', true, 'Connected to Prism Central pc.7.3', 'pc.7.3', at(10, 14, 17, 10)) },
         { id: 't-pc03', mode: 'prism_central', host: 'pc03.example.com', username: 'svc-inventory', port: 9440, insecure: false, name: 'PC03 Labs', hasPassword: false, lastTest: tested('auth_failed', false, 'HTTP 401 Unauthorized', null, at(10, 12, 11, 5)) },
         { id: 't-phx', mode: 'prism_element', host: 'phx-dr-01.example.com', username: 'admin', port: 9440, insecure: false, name: 'phx-dr-01', hasPassword: true, lastTest: null },
@@ -635,6 +635,25 @@
       }),
     testRaw: (req) => {
       const host = req.host;
+      if (req.mode === 'kubernetes') {
+        // An NKP cluster: trust on first use (its API uses the cluster's own CA), then ok.
+        const saved = req.targetId && connections.find((c) => c.id === req.targetId);
+        const ep = saved && (saved.kubernetes || []).find((k) => k.id === req.kubernetesId);
+        const trusted = !req.insecure || (req.pinnedCert !== undefined ? !!req.pinnedCert : !!(ep && ep.pinnedCert));
+        const kbase = { product: 'kubernetes', name: host };
+        if (!trusted)
+          return delay(
+            {
+              ...kbase,
+              status: 'trust_required',
+              ok: false,
+              message: 'This server certificate has not been trusted yet',
+              certificate: { subject: 'CN=kube-apiserver', issuer: 'CN=kubernetes', self_signed: false, fingerprint_sha256: '7C:21:9E:04:B3:58:AF:6D:12:E9:40:C7:8B:35:D2:61:FA:0E:93:4C:27:B8:5D:A1:6E:03:C9:72:4F:E6:18:B5', not_after: '2027-06-14T00:00:00Z' },
+            },
+            300,
+          );
+        return delay({ ...kbase, status: 'ok', ok: true, version: 'v1.31.4', message: 'Connected to Kubernetes v1.31.4 (NKP 2.14)', detail: '6 nodes · 14 namespaces · read-only access' }, 300);
+      }
       const scenario = host.startsWith('pc03') && !req.password ? 'auth_failed' : opt.test;
       const base = { product: req.mode, name: host, supported_range: 'pc.2024.1 to pc.7.5.1.6', typical_seconds: req.mode === 'prism_element' ? 60 : 240 };
       if (scenario === 'auth_failed') return delay({ ...base, status: 'auth_failed', ok: false, message: 'HTTP 401 Unauthorized' }, 300);
@@ -956,10 +975,21 @@
       if (Object.keys(errors).length) return delay({ ok: false, errors, targets: connections.slice() });
       const id = req.id || 't-' + Math.random().toString(36).slice(2, 10);
       const prev = connections.find((c) => c.id === id);
-      const { password, ndbPassword, ...rest } = req;
+      const { password, ndbPassword, kubernetes: kubeIn, ...rest } = req;
+      // Like the main process: the request's list replaces the saved one, tokens never come back.
+      const prevKube = (prev && prev.kubernetes) || [];
+      const kubernetes = req.mode === 'prism_element' ? [] : Array.isArray(kubeIn)
+        ? kubeIn.map((k) => {
+            const old = prevKube.find((p) => p.id === k.id);
+            const same = old && old.host === k.host && old.port === k.port && !!old.insecure === !!k.insecure;
+            const { token, removeToken, ...ep } = k;
+            return { ...ep, id: k.id || 'k-' + Math.random().toString(36).slice(2, 10), pinnedCert: k.insecure ? k.pinnedCert || (same ? old.pinnedCert : undefined) : undefined, hasToken: !removeToken && (!!token || !!(same && old.hasToken)) };
+          })
+        : prevKube;
       const target = {
         ...rest,
         id,
+        kubernetes: kubernetes.length ? kubernetes : undefined,
         ndbHost: req.ndbHost || undefined,
         hasPassword: !!password || (prev ? prev.hasPassword : false),
         ndbHasPassword: !!req.ndbHost && (!!ndbPassword || (prev ? !!prev.ndbHasPassword : false)),
@@ -969,6 +999,11 @@
       return delay(() => ({ ok: true, target, targets: connections.slice() }));
     },
     trustCertificate: (req) => {
+      if (req.endpoint.startsWith('kubernetes:')) {
+        const kid = req.endpoint.slice('kubernetes:'.length);
+        connections = connections.map((c) => (c.id === req.targetId ? { ...c, kubernetes: (c.kubernetes || []).map((k) => (k.id === kid ? { ...k, pinnedCert: req.fingerprint } : k)) } : c));
+        return delay(() => connections.slice());
+      }
       connections = connections.map((c) => (c.id === req.targetId ? { ...c, [req.endpoint === 'ndb' ? 'ndbPinnedCert' : req.endpoint === 'vcenter' ? 'vcenterPinnedCert' : 'pinnedCert']: req.fingerprint } : c));
       return delay(() => connections.slice());
     },

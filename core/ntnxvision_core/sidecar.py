@@ -52,6 +52,7 @@ from ntnxvision_core import areas as area_catalogue
 from ntnxvision_core.api import PrismCredentials
 from ntnxvision_core.api.element_client import ElementCredentials
 from ntnxvision_core.api.errors import NutanixApiError
+from ntnxvision_core.api.kube_client import KubeCredentials
 from ntnxvision_core.api.ndb_client import NdbCredentials
 from ntnxvision_core.api.transport import require_pin
 from ntnxvision_core.api.vcenter_client import VcenterCredentials
@@ -644,6 +645,27 @@ def _ndb_from(block: dict[str, Any] | None, insecure: bool) -> NdbCredentials | 
     return None
 
 
+def _kube_from(blocks: Any, insecure: bool) -> list[KubeCredentials] | None:
+    """The optional Kubernetes API endpoints of a target (NKP clusters):
+    ``[{"name", "host", "port", "token", "insecure", "pinned_sha256"}]``. Each one's own
+    `insecure` flag wins (an API server's certificate is signed by the cluster's own CA);
+    with verification off its certificate must be pinned. Entries without a host or a
+    token are ignored; None when there is none."""
+    if not isinstance(blocks, list):
+        return None
+    out: list[KubeCredentials] = []
+    for block in blocks:
+        if not isinstance(block, dict) or not block.get("host") or not block.get("token"):
+            continue
+        skip = bool(block.get("insecure", insecure))
+        out.append(KubeCredentials(
+            host=str(block["host"]), token=str(block["token"]),
+            port=int(block.get("port") or 6443), name=block.get("name") or None,
+            verify_ssl=not skip,
+            pinned_sha256=require_pin(str(block["host"]), skip, block.get("pinned_sha256"))))
+    return out or None
+
+
 def _vcenter_from(block: dict[str, Any] | None, insecure: bool) -> VcenterCredentials | None:
     """The optional vCenter of a target (ESXi enrichment); its own `insecure` flag wins,
     since a vCenter's certificate is often self-signed where the PC's is not."""
@@ -740,6 +762,7 @@ def _m_inventory(req_id: Any, params: dict[str, Any]) -> dict[str, Any]:
                              host=creds.host, name=name, formats=params.get("formats") or [])
         env = collect_environment(creds, ndb_creds=_ndb_from(params.get("ndb"), insecure),
                                   vcenter_creds=_vcenter_from(params.get("vcenter"), insecure),
+                                  kube_creds=_kube_from(params.get("kubernetes"), insecure),
                                   areas=params.get("areas"), cancel=handle.token,
                                   tracker=tracker, clusters=_clusters_param(params),
                                   lcm_inventory=lcm)
@@ -847,6 +870,7 @@ def _multi(handle: RunHandle, targets: list[dict[str, Any]], params: dict[str, A
             )
             env = collect_environment(creds, ndb_creds=_ndb_from(t.get("ndb"), insecure),
                                       vcenter_creds=_vcenter_from(t.get("vcenter"), insecure),
+                                      kube_creds=_kube_from(t.get("kubernetes"), insecure),
                                       areas=params.get("areas"), cancel=handle.token,
                                       tracker=tracker, clusters=_clusters_param(t),
                                       lcm_inventory=params.get("_lcm"))

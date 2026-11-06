@@ -64,6 +64,54 @@ export interface VcenterRequest {
   insecure?: boolean;
 }
 
+/** The default port of a Kubernetes API server (NKP clusters). */
+export const DEFAULT_KUBERNETES_PORT = 6443;
+
+/**
+ * An NKP (Nutanix Kubernetes Platform) cluster of a Prism Central target: its Kubernetes
+ * API endpoint, read with a ServiceAccount bearer token. The token lives only in the OS
+ * keychain (`target:<id>:k8s:<endpointId>:<hash of host, port, TLS flag>`), never here.
+ */
+export interface KubernetesEndpoint {
+  /** Stable id within the target (unchanged by edits to the name or address). */
+  id: string;
+  /** Display name; empty = the host. */
+  name: string;
+  host: string;
+  /** Default 6443. */
+  port: number;
+  /** Skip TLS verification (the NKP API uses the cluster's own CA); the certificate is pinned instead. */
+  insecure: boolean;
+  /** The SHA-256 fingerprint (AA:BB:...) trusted while `insecure` is on. */
+  pinnedCert?: string;
+}
+
+/** A Kubernetes endpoint as listed to the renderer: whether its token is saved, never the token. */
+export interface SavedKubernetesEndpoint extends KubernetesEndpoint {
+  hasToken: boolean;
+}
+
+/**
+ * One Kubernetes endpoint in a save request. `id` empty = a new endpoint. `token` empty or
+ * absent = keep the saved token (only while host, port and TLS flag are unchanged);
+ * `removeToken` drops it. `pinnedCert` absent = keep the saved pin (same endpoint); '' = none.
+ */
+export interface KubernetesEndpointSave {
+  id: string;
+  name: string;
+  host: string;
+  port: number;
+  insecure: boolean;
+  pinnedCert?: string;
+  token?: string;
+  removeToken?: boolean;
+}
+
+/** The longest ServiceAccount token accepted over IPC (JWTs are typically 1 to 2 KB). */
+export const MAX_KUBERNETES_TOKEN = 16384;
+/** The most NKP clusters one target may list. */
+export const MAX_KUBERNETES_ENDPOINTS = 32;
+
 /**
  * A saved target (Targets page). Passwords are NEVER stored here: they live in the OS
  * keychain under the target's stable id (see app/src/main/targets.ts).
@@ -96,6 +144,8 @@ export interface ConnectionProfile {
   ndbInsecure?: boolean;
   ndbPinnedCert?: string;
   vcenterPinnedCert?: string;
+  /** Prism Central only: NKP clusters read through their Kubernetes API (tokens in the keychain). */
+  kubernetes?: KubernetesEndpoint[];
   /**
    * Prism Central only: the cluster selection of the last collection from this target,
    * by cluster uuid, so the next one preselects it. `known` is every cluster listed at
@@ -134,13 +184,15 @@ export interface TargetTestInfo {
 }
 
 /** A saved target as listed to the renderer, with its keychain status. */
-export interface SavedConnection extends ConnectionProfile {
+export interface SavedConnection extends Omit<ConnectionProfile, 'kubernetes'> {
   /** True when the OS keychain holds a password for this target. */
   hasPassword: boolean;
   /** True when the OS keychain holds this target's NDB password. */
   ndbHasPassword?: boolean;
   /** True when the OS keychain holds this target's vCenter password. */
   vcenterHasPassword?: boolean;
+  /** Prism Central only: the NKP clusters, each with whether its token is in the keychain. */
+  kubernetes?: SavedKubernetesEndpoint[];
   lastTest?: TargetTestInfo | null;
   /** Set (to the warning text) while targets.json fails its integrity check: no passwords are released. */
   tamperedMessage?: string;
@@ -181,9 +233,15 @@ export interface TargetSaveRequest {
   pinnedCert?: string;
   ndbPinnedCert?: string;
   vcenterPinnedCert?: string;
+  /**
+   * Prism Central only: the whole list of NKP clusters. Absent = keep the saved list as it
+   * is; [] = remove every endpoint and its token. Endpoints left out are removed.
+   */
+  kubernetes?: KubernetesEndpointSave[];
 }
 
-export type TargetField = 'name' | 'host' | 'port' | 'username' | 'ndbHost' | 'vcenterHost' | 'form';
+/** `kubernetes:<index>` = that entry of TargetSaveRequest.kubernetes (its host or port). */
+export type TargetField = 'name' | 'host' | 'port' | 'username' | 'ndbHost' | 'vcenterHost' | 'form' | `kubernetes:${number}`;
 
 export interface TargetSaveResult {
   ok: boolean;
@@ -196,9 +254,11 @@ export interface TargetSaveResult {
 export interface TestConnectionRequest {
   /**
    * 'ndb' tests an NDB (Era) endpoint, 'vcenter' a VMware vCenter; port is ignored for
-   * both (they listen on 443).
+   * both (they listen on 443). 'kubernetes' tests an NKP cluster's Kubernetes API: the
+   * port is used, username is ignored and `password` carries the ServiceAccount token
+   * (empty = the saved token of `kubernetesId`, with the address and TLS flag unchanged).
    */
-  mode: ConnectionMode | 'ndb' | 'vcenter';
+  mode: ConnectionMode | 'ndb' | 'vcenter' | 'kubernetes';
   host: string;
   port: number;
   username: string;
@@ -215,10 +275,12 @@ export interface TestConnectionRequest {
    * target's own for this endpoint; '' = none (the test then asks the user to trust it).
    */
   pinnedCert?: string;
+  /** mode 'kubernetes': the saved endpoint of `targetId` being tested (its token and pin). */
+  kubernetesId?: string;
 }
 
-/** Which endpoint of a saved target a certificate belongs to. */
-export type TrustEndpoint = 'primary' | 'ndb' | 'vcenter';
+/** Which endpoint of a saved target a certificate belongs to (`kubernetes:<endpointId>` for an NKP cluster). */
+export type TrustEndpoint = 'primary' | 'ndb' | 'vcenter' | `kubernetes:${string}`;
 
 /** Trust the certificate a connection test showed, for one endpoint of a saved target. */
 export interface TrustCertificateRequest {
@@ -259,7 +321,7 @@ export interface TestConnectionResult {
   message: string;
   /** Mono detail line, e.g. "4 clusters · v4 for 14 areas, v3 for 5 · within supported range". */
   detail?: string | null;
-  product?: ConnectionMode | 'ndb' | 'vcenter' | null;
+  product?: ConnectionMode | 'ndb' | 'vcenter' | 'kubernetes' | null;
   /** Display name of what answered — cluster name for PE, PC host otherwise. */
   name?: string | null;
   version?: string | null;
@@ -457,6 +519,11 @@ export interface CollectionRequest {
   /** Optional vCenter enrichment of the ESXi clusters (password from the keychain). */
   vcenter?: VcenterRequest;
   /**
+   * Prism Central: true = also read the target's NKP clusters (every saved endpoint with a
+   * token in the keychain; the main process sends them). Off unless exactly true.
+   */
+  kubernetes?: boolean;
+  /**
    * Prism Central with the LCM area selected: start an LCM inventory on Prism Central and
    * each selected cluster before collecting LCM (the one non-read action; upgrades
    * nothing). Off unless exactly true; never remembered or inherited.
@@ -476,6 +543,8 @@ export interface MultiCollectionTarget {
   name: string;
   ndb?: NdbRequest;
   vcenter?: VcenterRequest;
+  /** True = also read this target's NKP clusters (see CollectionRequest.kubernetes). */
+  kubernetes?: boolean;
   /**
    * Ignored: the main process applies the per-cluster vCPU:pCPU targets remembered on
    * the saved target (set in New collection); other clusters use the global setting.
@@ -1421,6 +1490,7 @@ export type ReportSectionId =
   | 'data_protection'
   | 'security'
   | 'ndb'
+  | 'kubernetes'
   | 'identity'
   | 'automation'
   | 'health'

@@ -359,6 +359,7 @@ class ObjectsCollector(Collector):
             env.buckets.append(Bucket(
                 name=r.get("name") or "",
                 object_store_name=store.name,
+                cluster_name=store.cluster_name,
                 owner=r.get("owner_name"),
                 versioning=_enabled(r.get("versioning")),
                 worm_enabled=_enabled(r.get("worm")),

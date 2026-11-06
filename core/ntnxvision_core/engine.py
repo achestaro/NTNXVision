@@ -17,14 +17,16 @@ from typing import Any
 from ntnxvision_core.api import PrismConnection, PrismCredentials
 from ntnxvision_core.api.element_client import ElementConnection, ElementCredentials
 from ntnxvision_core.api.errors import NutanixApiError
+from ntnxvision_core.api.kube_client import KubeConnection, KubeCredentials
 from ntnxvision_core.api.ndb_client import NdbConnection, NdbCredentials
 from ntnxvision_core.api.vcenter_client import VcenterConnection, VcenterCredentials
-from ntnxvision_core.areas import AREAS, NDB_AREA, VCENTER_AREA, Area
+from ntnxvision_core.areas import AREAS, KUBERNETES_AREA, NDB_AREA, VCENTER_AREA, Area
 from ntnxvision_core.areas import select as select_areas
 from ntnxvision_core.cancel import CancelToken, RunCancelled
 from ntnxvision_core.collectors.base import Collector
 from ntnxvision_core.collectors.element import ELEMENT_STEPS
 from ntnxvision_core.collectors.ndb import collect_ndb
+from ntnxvision_core.collectors.nkp import collect_kubernetes
 from ntnxvision_core.collectors.vcenter import enrich_from_vcenter
 from ntnxvision_core.compat import check_aos, check_prism_central
 from ntnxvision_core.designdata import resolve_design_data
@@ -66,6 +68,7 @@ def collect_environment(
     clusters: list[str] | None = None,
     vcenter_creds: VcenterCredentials | None = None,
     lcm_inventory: InventoryOptions | None = None,
+    kube_creds: list[KubeCredentials] | None = None,
 ) -> Environment:
     """Connect to Prism Central and run the selected collectors into an Environment.
 
@@ -85,6 +88,10 @@ def collect_environment(
     plane after the Prism Central collectors. If `vcenter_creds` is provided, a vCenter
     step then fills what Nutanix cannot say about the ESXi clusters in scope
     (`collectors.vcenter`); its failure is isolated like any collector's.
+
+    `kube_creds` (the Kubernetes API of NKP clusters, optional like NDB) adds a step after
+    NDB that reads each cluster's own API and merges it with the PC view of the ``nkp``
+    area (`collectors.nkp`). One endpoint that fails never stops the others.
 
     `lcm_inventory` (off unless given, and only with the LCM area selected) first asks
     LCM on Prism Central and the selected clusters to refresh its inventory, in the
@@ -113,6 +120,7 @@ def collect_environment(
     )
 
     planned = [*run_areas, *([NDB_AREA] if ndb_creds else []),
+               *([KUBERNETES_AREA] if kube_creds else []),
                *([VCENTER_AREA] if vcenter_creds else [])]
     total = len(planned)
 
@@ -172,6 +180,15 @@ def collect_environment(
                 tracker.cancel_pending()
             raise RunCancelled("Run cancelled")
         _collect_ndb_step(ndb_creds, env, progress, len(run_areas), total, tracker, cancel)
+
+    if kube_creds:
+        if cancel is not None and cancel.cancelled:
+            if tracker is not None:
+                tracker.cancel_pending()
+            raise RunCancelled("Run cancelled")
+        _collect_kubernetes_step(kube_creds, env, progress,
+                                 len(run_areas) + (1 if ndb_creds else 0), total, tracker,
+                                 cancel)
 
     if vcenter_creds:
         if cancel is not None and cancel.cancelled:
@@ -509,6 +526,45 @@ def _collect_ndb_step(
     try:
         _run_area(env, NDB_AREA, idx, total, work, progress, tracker, {},
                   "NDB (Databases)", "ndb", api_override="era")
+    except RunCancelled:
+        if tracker is not None:
+            tracker.cancel_pending()
+        raise
+
+
+def _collect_kubernetes_step(
+    kube_creds: list[KubeCredentials],
+    env: Environment,
+    progress: ProgressFn | None,
+    idx: int,
+    total: int,
+    tracker: RunTracker | None = None,
+    cancel: CancelToken | None = None,
+) -> None:
+    """Every Kubernetes endpoint, as one area: each endpoint's failure is a note, and the
+    area fails only when none could be read."""
+    def work() -> None:
+        done: list[str] = []
+        failed: list[str] = []
+        for creds in kube_creds:
+            if cancel is not None:
+                cancel.check()
+            try:
+                with KubeConnection(creds, cancel=cancel) as kube:
+                    done.append(collect_kubernetes(kube, env))
+            except RunCancelled:
+                raise
+            except Exception as exc:  # noqa: BLE001 — one endpoint never stops the others
+                failed.append(f"{creds.name or creds.host}: {exc}")
+        if not done:
+            raise NutanixApiError("; ".join(failed) or "no Kubernetes endpoint")
+        notes = [d for d in done if "(" in d] + failed
+        env.collection_notes["kubernetes"] = f"ok: {'; '.join(notes)}" if notes else "ok"
+
+    try:
+        _run_area(env, KUBERNETES_AREA, idx, total, work, progress, tracker, {},
+                  "NKP clusters (Kubernetes API)", "kubernetes",
+                  api_override="kubernetes")
     except RunCancelled:
         if tracker is not None:
             tracker.cancel_pending()

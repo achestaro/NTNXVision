@@ -59,7 +59,7 @@ class Target:
     """Something answering at a demo hostname."""
 
     host: str
-    kind: str  # "pc" | "pe" | "ndb" | "vcenter"
+    kind: str  # "pc" | "pe" | "ndb" | "vcenter" | "kubernetes"
     build: Callable[[int], Any]
     epoch: int = 0
     #: "ca" = served with the demo-CA-signed cert; "self" = a self-signed cert.
@@ -208,6 +208,10 @@ class MockApi:
                                       authorization, headers or {})
             except _HttpError as exc:
                 return exc.status, exc.body, exc.headers
+        if target.kind == "kubernetes":
+            from ntnxvision_core.synthetic.kube import handle_kube
+
+            return handle_kube(target.estate(), method, path, query, authorization)
         if not _authorized(authorization):
             return 401, {"api_version": "3.1", "code": 401, "state": "ERROR",
                          "message_list": [{"message": "Authentication required.",
@@ -267,6 +271,12 @@ class MockApi:
         if method == "GET" and query.get("proxyClusterUuid") and \
                 path.startswith("/PrismGateway/services/rest/v2.0/"):
             return self._pe_proxy(est, path, query)
+        m = re.fullmatch(r"/api/nutanix/v3/apps/([0-9a-f-]+)", path)
+        if method == "GET" and m:
+            app = next((a for a in est.nkp_apps if a["metadata"]["uuid"] == m.group(1)), None)
+            if app is None:
+                return _not_found_v3(path)
+            return 200, app, {}
         m = re.fullmatch(r"/api/nutanix/v3/(.+)/list", path)
         if method == "POST" and m:
             return self._v3_list(est, m.group(1), body)
@@ -392,6 +402,8 @@ class MockApi:
             "action_rules": (f.xplay, est.playbooks, r.playbook_v3),
             "report_configs": (f.ncm, est.report_configs, r.report_config_v3),
             "report_instances": (f.ncm, est.report_configs, r.report_instance_v3),
+            # Self-Service apps: summaries, the variables are in each app's own record.
+            "apps": (True, est.nkp_apps, _app_list_entry),
         }
         entry = table.get(kind)
         if entry is None or not entry[0]:
@@ -700,6 +712,12 @@ class MockApi:
 
 
 # ─── helpers ───────────────────────────────────────────────────────────
+
+
+def _app_list_entry(app: dict[str, Any]) -> dict[str, Any]:
+    from ntnxvision_core.synthetic.kube import app_list_entry
+
+    return app_list_entry(app)
 
 
 class _HttpError(Exception):

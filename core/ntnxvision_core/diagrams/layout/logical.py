@@ -141,6 +141,10 @@ def _card(c: LCluster, x: float, y: float, w: float, parent: str, compact: bool 
             cy += 10.5
         for lab, pw in pills:
             pw = min(pw, inner)
+            # Below the title the pills wrap onto further rows rather than overflow the card.
+            if not inline and px > x + 5 and px + pw > x + w - 5:
+                px, py = x + 5, py + 10.5
+                cy += 10.5
             kids.append(box(f"{c.id}:svc:{lab}", "pill", px, py, pw,
                             [Row(lab, K.SIZE_SMALL, True, K.IRIS)], K.PILL, pad_x=3, pad_y=0,
                             h=8.5, valign="middle", parent=c.id))

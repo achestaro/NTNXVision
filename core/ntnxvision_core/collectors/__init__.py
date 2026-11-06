@@ -28,6 +28,7 @@ from ntnxvision_core.collectors.iam import IamCollector
 from ntnxvision_core.collectors.lcm import LcmCollector
 from ntnxvision_core.collectors.licenses import LicenseCollector
 from ntnxvision_core.collectors.ncm import NcmCollector
+from ntnxvision_core.collectors.nkp import NkpCollector
 from ntnxvision_core.collectors.nus import (
     FilesCollector,
     ObjectsCollector,
@@ -47,6 +48,7 @@ PHASE1_COLLECTORS: list[type[Collector]] = [
     SubnetCollector,
     HostNetworkCollector,
     VmCollector,
+    NkpCollector,
     LicenseCollector,
 ]
 
@@ -92,6 +94,7 @@ __all__ = [
     "IamCollector",
     "XPlayCollector",
     "NcmCollector",
+    "NkpCollector",
     "LcmCollector",
     "PHASE1_COLLECTORS",
     "PHASE2_COLLECTORS",

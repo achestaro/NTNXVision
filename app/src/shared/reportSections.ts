@@ -32,6 +32,7 @@ export const REPORT_SECTION_CATALOG: readonly ReportSectionInfo[] = [
   { id: 'data_protection', label: 'Data Protection & Disaster Recovery' },
   { id: 'security', label: 'Security Posture (Flow)' },
   { id: 'ndb', label: 'Database Services (NDB)' },
+  { id: 'kubernetes', label: 'Kubernetes (NKP)' },
   { id: 'identity', label: 'Identity & Access Management' },
   { id: 'automation', label: 'Automation & Reporting (NCM)' },
   { id: 'health', label: 'Health & Alerts' },

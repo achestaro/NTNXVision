@@ -68,6 +68,7 @@ SECTION_PRODUCT: dict[str, str] = {
     "data_protection": "nci",
     "security": "nci",
     "ndb": "ndb",
+    "kubernetes": "nkp",
     "identity": "prism",
     "automation": "ncm",
     "health": "prism",
@@ -123,6 +124,11 @@ def in_estate(env: Any) -> list[tuple[Product, str]]:
         out.append((PRODUCTS["ndb"], plural(len(env.databases), "database")
                     if env.databases else plural(len(env.database_servers),
                                                  "database server")))
+    kube = getattr(env, "kubernetes_clusters", None) or []
+    if kube:
+        nodes = _n(getattr(env, "kubernetes_nodes", None))
+        out.append((PRODUCTS["nkp"], f"{plural(len(kube), 'cluster')}, "
+                                     f"{plural(nodes, 'node')}"))
     if env.playbooks or env.ncm_reports:
         parts = []
         if env.playbooks:

@@ -5,7 +5,8 @@
 // Identity: every target has a stable id (a UUID) that never changes when the target is
 // renamed or its address, port or username is edited. Its keychain entries are keyed by
 // that id plus a short hash of the endpoint the secret is for ("target:<id>:<h>",
-// "target:<id>:ndb:<h>", "target:<id>:vcenter:<h>"), so editing a file can never redirect a
+// "target:<id>:ndb:<h>", "target:<id>:vcenter:<h>", and one per NKP cluster
+// "target:<id>:k8s:<endpointId>:<h>"), so editing a file can never redirect a
 // saved password to another server: a changed host simply finds nothing (R3-01). Entries
 // written before the hash existed ("target:<id>" and so on) are copied to the hashed
 // account once at startup (`migrateSecrets`). Targets saved before this scheme had the id "host:port:username" and
@@ -14,13 +15,16 @@
 // own entry, then removes the old shared entry once nothing still needs it.
 //
 // Passwords never touch the JSON file and never go back to the renderer: it only learns
-// hasPassword / ndbHasPassword / vcenterHasPassword.
+// hasPassword / ndbHasPassword / vcenterHasPassword and, per NKP cluster, hasToken.
 
 import type {
   ClusterSelection,
   ConnectionMode,
   ConnectionProfile,
+  KubernetesEndpoint,
+  KubernetesEndpointSave,
   SavedConnection,
+  SavedKubernetesEndpoint,
   TargetField,
   TargetSaveRequest,
   TargetSaveResult,
@@ -29,7 +33,7 @@ import type {
   TrustEndpoint,
   VcpuRatioOverrides,
 } from '../shared/ipc';
-import { MAX_CLUSTER_RATIO, MIN_CLUSTER_RATIO } from '../shared/ipc';
+import { DEFAULT_KUBERNETES_PORT, MAX_CLUSTER_RATIO, MAX_KUBERNETES_ENDPOINTS, MIN_CLUSTER_RATIO } from '../shared/ipc';
 import { createHash } from 'node:crypto';
 import { isPlainHost } from './validate';
 
@@ -85,6 +89,9 @@ export const passwordAccount = (t: PrimaryFields): string =>
 export const ndbAccount = (t: NdbFields): string => `target:${t.id}:ndb:${endpointHash(t.ndbHost, t.ndbUser, !!t.ndbInsecure)}`;
 /** The optional vCenter of a Prism Central target (ESXi enrichment). */
 export const vcenterAccount = (t: VcenterFields): string => `target:${t.id}:vcenter:${endpointHash(t.vcenterHost, t.vcenterUser, !!t.vcenterInsecure)}`;
+/** One NKP cluster's ServiceAccount token: bound to that endpoint's host, port and TLS flag. */
+export const kubernetesAccount = (targetId: string, k: Pick<KubernetesEndpoint, 'id' | 'host' | 'port' | 'insecure'>): string =>
+  `target:${targetId}:k8s:${k.id}:${endpointHash(k.host, k.port, !!k.insecure)}`;
 /** The unbound accounts earlier builds used: read only by the one-time migration. */
 export const oldPasswordAccount = (id: string): string => `target:${id}`;
 export const oldNdbAccount = (id: string): string => `target:${id}:ndb`;
@@ -92,7 +99,18 @@ export const oldVcenterAccount = (id: string): string => `target:${id}:vcenter`;
 /** Every account a target may own (current and old layouts), for deletion. */
 const ownedAccounts = (t: StoredTarget): string[] => [
   passwordAccount(t), ndbAccount(t), vcenterAccount(t), oldPasswordAccount(t.id), oldNdbAccount(t.id), oldVcenterAccount(t.id),
+  ...(t.kubernetes ?? []).map((k) => kubernetesAccount(t.id, k)),
 ];
+
+/** What a run sends the sidecar for one NKP cluster (the token from the keychain). */
+export interface KubernetesSidecarEndpoint {
+  name: string;
+  host: string;
+  port: number;
+  token: string;
+  insecure: boolean;
+  pinned_sha256?: string;
+}
 /** The keychain account used before targets had stable ids. */
 export const legacyAccount = (host: string, username: string): string => `${username}@${host}`;
 
@@ -146,6 +164,7 @@ export function savedPin(t: StoredTarget, req: { mode: string; host: string; por
   const host = req.host.trim();
   if (req.mode === 'ndb') return t.ndbHost === host ? t.ndbPinnedCert : undefined;
   if (req.mode === 'vcenter') return t.vcenterHost === host ? t.vcenterPinnedCert : undefined;
+  if (req.mode === 'kubernetes') return t.kubernetes?.find((k) => k.host === host && k.port === req.port)?.pinnedCert;
   return t.mode === req.mode && t.host === host && t.port === req.port ? t.pinnedCert : undefined;
 }
 
@@ -291,6 +310,19 @@ export function validate(req: TargetSaveRequest, existing: StoredTarget[]): Part
   if (req.mode === 'prism_central' && vcenterHost && !isPlainHost(vcenterHost)) {
     e.vcenterHost = 'Enter a host name or IP address only.';
   }
+  if (req.mode === 'prism_central' && Array.isArray(req.kubernetes)) {
+    if (req.kubernetes.length > MAX_KUBERNETES_ENDPOINTS) e.form = `At most ${MAX_KUBERNETES_ENDPOINTS} NKP clusters per target.`;
+    const seen = new Set<string>();
+    req.kubernetes.forEach((k, i) => {
+      const kHost = str(k?.host).trim();
+      const key: `kubernetes:${number}` = `kubernetes:${i}`;
+      if (!kHost) e[key] = 'Enter the API endpoint host.';
+      else if (!isPlainHost(kHost)) e[key] = 'Enter a host name or IP address only.';
+      else if (!Number.isInteger(k.port) || k.port < 1 || k.port > 65535) e[key] = 'Port must be 1 to 65535.';
+      else if (seen.has(`${kHost.toLowerCase()}:${k.port}`)) e[key] = 'This NKP cluster is already listed.';
+      seen.add(`${kHost.toLowerCase()}:${k.port}`);
+    });
+  }
   if (!MODES.includes(req.mode)) e.form = 'Choose Prism Central or Prism Element.';
   return e;
 }
@@ -392,6 +424,29 @@ export class TargetStore {
     return t && t.vcenterHost && !this.isTampered ? this.secrets.get(vcenterAccount(t)) : null;
   }
 
+  /** One NKP cluster's saved token, or null. */
+  async kubernetesToken(id: string, endpointId: string): Promise<string | null> {
+    const t = this.data().targets.find((x) => x.id === id);
+    const k = t?.mode === 'prism_central' ? t.kubernetes?.find((x) => x.id === endpointId) : undefined;
+    return t && k && !this.isTampered ? this.secrets.get(kubernetesAccount(t.id, k)) : null;
+  }
+
+  /**
+   * The NKP clusters a run sends the sidecar: only endpoints whose token is in the keychain,
+   * each with the pin when TLS verification is off. Empty for a Prism Element or a tampered file.
+   */
+  async kubernetesRequests(id: string): Promise<KubernetesSidecarEndpoint[]> {
+    const t = this.data().targets.find((x) => x.id === id);
+    if (!t || t.mode !== 'prism_central' || this.isTampered) return [];
+    const out: KubernetesSidecarEndpoint[] = [];
+    for (const k of t.kubernetes ?? []) {
+      const token = await this.secrets.get(kubernetesAccount(t.id, k)).catch(() => null);
+      if (!token) continue;
+      out.push({ name: k.name || k.host, host: k.host, port: k.port, token, insecure: !!k.insecure, ...(k.insecure && k.pinnedCert ? { pinned_sha256: k.pinnedCert } : {}) });
+    }
+    return out;
+  }
+
   /** The targets as the renderer sees them: no secrets, only whether they are saved. */
   async listWithStatus(): Promise<SavedConnection[]> {
     return Promise.all(this.data().targets.map((t) => this.toSaved(t)));
@@ -417,6 +472,21 @@ export class TargetStore {
       ...(t.ndbHost ? { ndbHost: t.ndbHost, ndbUser: t.ndbUser, ndbInsecure: !!t.ndbInsecure, ...(t.ndbPinnedCert ? { ndbPinnedCert: t.ndbPinnedCert } : {}) } : {}),
       ...(t.vcenterHost
         ? { vcenterHost: t.vcenterHost, vcenterUser: t.vcenterUser, vcenterInsecure: !!t.vcenterInsecure, ...(t.vcenterPinnedCert ? { vcenterPinnedCert: t.vcenterPinnedCert } : {}) }
+        : {}),
+      ...(t.mode === 'prism_central' && t.kubernetes?.length
+        ? {
+            kubernetes: await Promise.all(
+              t.kubernetes.map(async (k): Promise<SavedKubernetesEndpoint> => ({
+                id: k.id,
+                name: k.name,
+                host: k.host,
+                port: k.port,
+                insecure: !!k.insecure,
+                ...(k.insecure && k.pinnedCert ? { pinnedCert: k.pinnedCert } : {}),
+                hasToken: await has(() => this.kubernetesToken(t.id, k.id)),
+              })),
+            ),
+          }
         : {}),
       ...(t.clusterSelection ? { clusterSelection: t.clusterSelection } : {}),
       ...(t.vcpuRatioOverrides ? { vcpuRatioOverrides: { ...t.vcpuRatioOverrides } } : {}),
@@ -461,6 +531,27 @@ export class TargetStore {
     const vcenterUser = str(req.vcenterUser).trim() || 'administrator@vsphere.local';
     const ndbPinnedCert = ndbHost ? nextPin(req.ndbPinnedCert, prev?.ndbPinnedCert, ndbInsecure, !tampered && prev?.ndbHost === ndbHost && (prev?.ndbUser ?? 'admin') === ndbUser) : undefined;
     const vcenterPinnedCert = vcenterHost ? nextPin(req.vcenterPinnedCert, prev?.vcenterPinnedCert, !!req.vcenterInsecure, !tampered && prev?.vcenterHost === vcenterHost && (prev?.vcenterUser ?? '') === vcenterUser) : undefined;
+    // NKP clusters: the request's list replaces the saved one (absent = keep it as saved).
+    const prevKube = prev?.mode === 'prism_central' ? prev.kubernetes ?? [] : [];
+    const kubeIn: KubernetesEndpointSave[] | undefined = !isPc ? [] : Array.isArray(req.kubernetes) ? req.kubernetes : undefined;
+    const kubePlan = (kubeIn ?? prevKube.map((k) => ({ ...k }))).map((k) => {
+      const old = k.id ? prevKube.find((p) => p.id === k.id) : undefined;
+      const kHost = str(k.host).trim();
+      const insecure = !!k.insecure;
+      const same = !tampered && !!old && old.host === kHost && old.port === k.port;
+      const endpoint: KubernetesEndpoint = {
+        id: old?.id ?? this.newId(),
+        name: str(k.name).trim(),
+        host: kHost,
+        port: Number.isInteger(k.port) ? k.port : DEFAULT_KUBERNETES_PORT,
+        insecure,
+      };
+      const pin = nextPin(kubeIn ? k.pinnedCert : old?.pinnedCert, old?.pinnedCert, insecure, same);
+      if (pin) endpoint.pinnedCert = pin;
+      const token = kubeIn ? str((k as KubernetesEndpointSave).token) : '';
+      const removeToken = kubeIn ? (k as KubernetesEndpointSave).removeToken === true : false;
+      return { endpoint, old, token, removeToken };
+    });
     const next: StoredTarget = {
       id,
       mode: req.mode,
@@ -476,6 +567,7 @@ export class TargetStore {
         ? { vcenterHost, vcenterUser, vcenterInsecure: !!req.vcenterInsecure }
         : {}),
       ...(vcenterPinnedCert ? { vcenterPinnedCert } : {}),
+      ...(kubePlan.length ? { kubernetes: kubePlan.map((k) => k.endpoint) } : {}),
       ...(clusterSelection ? { clusterSelection } : {}),
       ...(vcpuRatioOverrides ? { vcpuRatioOverrides } : {}),
       createdAt: prev?.createdAt ?? now,
@@ -522,6 +614,23 @@ export class TargetStore {
         await this.secrets.set(vcenterAccount(next), req.vcenterPassword);
         await this.dropAccounts([prevVc, oldVcenterAccount(id)], vcenterAccount(next));
       } else if (prev && (!vcenterHost ? prev.vcenterHost : vcenterChanged)) await this.dropAccounts([prevVc, oldVcenterAccount(id)]);
+      // Each NKP token follows its endpoint: a changed host, port or TLS flag (or a file that
+      // can't be trusted) drops it unless a new token came with the request.
+      for (const k of kubePlan) {
+        const account = kubernetesAccount(id, k.endpoint);
+        const prevAcct = k.old ? kubernetesAccount(id, k.old) : null;
+        if (k.token) {
+          await this.secrets.set(account, k.token);
+          await this.dropAccounts([prevAcct], account);
+        } else if (k.removeToken || tampered) {
+          await this.dropAccounts([prevAcct, account]);
+        } else if (prevAcct && prevAcct !== account) {
+          await this.dropAccounts([prevAcct]);
+        }
+      }
+      // Endpoints no longer listed lose their token.
+      const kept = new Set(kubePlan.map((k) => k.endpoint.id));
+      if (prev) await this.dropAccounts((prev.kubernetes ?? []).filter((k) => !kept.has(k.id)).map((k) => kubernetesAccount(id, k)));
     } catch (err) {
       return {
         ok: false,
@@ -624,7 +733,11 @@ export class TargetStore {
     if (endpoint === 'primary' && t.insecure) t.pinnedCert = fp;
     else if (endpoint === 'ndb' && t.ndbHost && t.ndbInsecure) t.ndbPinnedCert = fp;
     else if (endpoint === 'vcenter' && t.vcenterHost && t.vcenterInsecure) t.vcenterPinnedCert = fp;
-    else return false;
+    else if (endpoint.startsWith('kubernetes:') && t.mode === 'prism_central') {
+      const k = t.kubernetes?.find((x) => x.id === endpoint.slice('kubernetes:'.length));
+      if (!k || !k.insecure) return false;
+      k.pinnedCert = fp;
+    } else return false;
     this.persist();
     return true;
   }
