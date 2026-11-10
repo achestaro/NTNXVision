@@ -595,6 +595,8 @@ class LicenseInfo(SourcedObject):
     category: str | None = None
     expiry: str | None = None
     quantity: int | None = None
+    #: What `quantity` counts (CORES, TIB, VMS…) when the API says.
+    unit: str | None = None
     compliance: str | None = None
 
 
@@ -1067,22 +1069,60 @@ class FileServer(SourcedObject):
     cluster_name: str | None = None
     version: str | None = None
     num_fsvm: int | None = None
+    cluster_uuid: str | None = None
+    #: Files names the networks from the FSVMs' side: internal = the storage network (to
+    #: the CVMs), external = the client network (SMB / NFS clients).
     internal_network: str | None = None
     external_network: str | None = None
+    storage_vip: str | None = None  # the internal (storage) network's virtual IP
+    dns_domain: str | None = None
+    dns_servers: list[str] = Field(default_factory=list)
+    ntp_servers: list[str] = Field(default_factory=list)
+    fsvm_vcpus: int | None = None  # per FSVM
+    fsvm_memory_bytes: int | None = None  # per FSVM
     size_bytes: int | None = None
     used_bytes: int | None = None
+    file_count: int | None = None
     share_count: int | None = None
     api_source: str = "v3"
+
+
+class FileServerVm(SourcedObject):
+    """One file server VM (FSVM) of a Nutanix Files file server."""
+
+    uuid: str  # the FSVM's VM uuid
+    name: str | None = None
+    cluster_name: str | None = None
+    cluster_uuid: str | None = None
+    file_server_name: str | None = None
+    file_server_uuid: str | None = None
+    client_ips: list[str] = Field(default_factory=list)  # external (client) network
+    storage_ips: list[str] = Field(default_factory=list)  # internal (storage) network
+    num_vcpus: int | None = None
+    memory_bytes: int | None = None
+    host_name: str | None = None
+    power_state: str | None = None
+    version: str | None = None  # the file server's Files version
+    api_source: str = "v4"
 
 
 class FileShare(SourcedObject):
     uuid: str
     name: str | None = None
     file_server_name: str | None = None
-    share_type: str | None = None  # SMB / NFS
+    share_type: str | None = None  # v3: SMB / NFS; v4: Standard / Distributed
     max_size_bytes: int | None = None
     used_bytes: int | None = None
+    file_count: int | None = None
     protocol: str | None = None
+    path: str | None = None
+    description: str | None = None
+    compression: bool | None = None
+    read_only: bool | None = None
+    previous_versions: bool | None = None
+    access_based_enumeration: bool | None = None
+    continuous_availability: bool | None = None
+    smb3_encryption: bool | None = None
     api_source: str = "v3"
 
 
@@ -1090,20 +1130,34 @@ class ObjectStore(SourcedObject):
     uuid: str
     name: str | None = None
     cluster_name: str | None = None
+    cluster_uuid: str | None = None  # v4 names the cluster by uuid only
     deployment_version: str | None = None
     num_worker_nodes: int | None = None
     total_capacity_bytes: int | None = None
     used_bytes: int | None = None
     bucket_count: int | None = None
+    object_count: int | None = None
     state: str | None = None
+    domain: str | None = None
+    client_ips: list[str] = Field(default_factory=list)  # S3 client access endpoints
+    storage_vip: str | None = None
     api_source: str = "v3"
 
 
 class Bucket(SourcedObject):
     name: str
     object_store_name: str | None = None
+    cluster_name: str | None = None  # its object store's cluster
+    owner: str | None = None
     versioning: bool | None = None
     worm_enabled: bool | None = None
+    retention_days: int | None = None  # WORM / object lock retention
+    lifecycle: bool | None = None
+    cors: bool | None = None
+    website: bool | None = None
+    nfs: bool | None = None
+    notifications: bool | None = None
+    replication: str | None = None  # "Outbound", "Inbound", "Outbound, Inbound"
     object_count: int | None = None
     used_bytes: int | None = None
     api_source: str = "v3"
@@ -1128,15 +1182,51 @@ class VolumeGroup(SourcedObject):
 # ─── NDB — Nutanix Database Service ────────────────────────────────────
 
 
+class NdbAppliance(SourcedObject):
+    """The NDB control plane itself: the NDB server VM(s) the Era API runs on.
+
+    From ``downloads/versions`` (the "ERA Server" component), ``ha``, ``config/era-server``
+    and ``config/about-era``; any of them may be missing on an older NDB.
+    """
+
+    id: str
+    name: str | None = None  # the NDB server VM's name
+    host: str | None = None  # the address NTNXVision connected to
+    version: str | None = None  # "2.5.1.1"
+    build: str | None = None  # build id (a commit hash)
+    build_date: str | None = None
+    cluster_name: str | None = None  # the Nutanix cluster the NDB server VM runs on
+    ip_addresses: list[str] = Field(default_factory=list)
+    ha_enabled: bool | None = None
+    ha_status: str | None = None  # NDB service HA status as reported ("invalid" when off)
+    cluster_ip: str | None = None  # the HA virtual IP
+    server_vms: list[str] = Field(default_factory=list)  # NDB server VM hostnames
+    registered_clusters: int | None = None
+    multi_cluster: bool | None = None
+    timezone: str | None = None
+    dns_servers: list[str] = Field(default_factory=list)
+    ntp_servers: list[str] = Field(default_factory=list)
+    smtp_server: str | None = None  # "host:port" (no SMTP credentials are kept)
+    api_source: str = "ndb"
+
+
 class DatabaseServer(SourcedObject):
     id: str
     name: str | None = None
     db_engine: str | None = None
+    engine_version: str | None = None
     ip_addresses: list[str] = Field(default_factory=list)
     status: str | None = None
     cluster_name: str | None = None
     vm_cores: int | None = None
     memory_gb: float | None = None
+    os_type: str | None = None
+    software_profile: str | None = None
+    compute_profile: str | None = None
+    network_profile: str | None = None
+    ndb_created: bool | None = None
+    tags: list[str] = Field(default_factory=list)  # "name=value"
+    description: str | None = None
     api_source: str = "ndb"
 
 
@@ -1144,12 +1234,19 @@ class Database(SourcedObject):
     id: str
     name: str | None = None
     db_engine: str | None = None  # oracle / postgres / sqlserver / mysql / mongodb
+    engine_version: str | None = None
     db_type: str | None = None  # single / HA cluster
     status: str | None = None
+    cluster_name: str | None = None
     db_server_name: str | None = None
     time_machine_name: str | None = None
     sla_name: str | None = None
+    size_gb: float | None = None
+    listener_port: int | None = None
+    parameter_profile: str | None = None
     clone: bool = False
+    parent_time_machine: str | None = None  # clones: the time machine they came from
+    tags: list[str] = Field(default_factory=list)
     provisioned: str | None = None
     api_source: str = "ndb"
 
@@ -1158,11 +1255,272 @@ class TimeMachine(SourcedObject):
     id: str
     name: str | None = None
     database_name: str | None = None
+    db_engine: str | None = None
+    cluster_name: str | None = None
     sla_name: str | None = None
     status: str | None = None
     schedule: str | None = None
+    scope: str | None = None  # LOCAL / multi-cluster
+    snapshot_count: int | None = None
     clone_count: int | None = None
+    tags: list[str] = Field(default_factory=list)
     api_source: str = "ndb"
+
+
+class NdbCluster(SourcedObject):
+    """A Nutanix cluster registered in NDB."""
+
+    id: str
+    name: str | None = None
+    ip_addresses: list[str] = Field(default_factory=list)
+    status: str | None = None
+    hypervisor: str | None = None  # "AHV 7.5.1"
+    cloud_type: str | None = None
+    description: str | None = None
+    api_source: str = "ndb"
+
+
+class NdbProfile(SourcedObject):
+    """Software, compute, network or database parameter profile."""
+
+    id: str
+    name: str | None = None
+    profile_type: str | None = None  # Software / Compute / Network / Database_Parameter / Storage
+    db_engine: str | None = None
+    topology: str | None = None
+    version: str | None = None
+    details: str | None = None  # compute: "2 vCPU x 1 core, 4 GB"; network: VLAN
+    system: bool | None = None  # built-in (OOB) rather than created by the customer
+    status: str | None = None
+    api_source: str = "ndb"
+
+
+class NdbSla(SourcedObject):
+    """Time machine retention policy (days for continuous / daily, counts for the rest)."""
+
+    id: str
+    name: str | None = None
+    continuous_days: int | None = None
+    daily: int | None = None
+    weekly: int | None = None
+    monthly: int | None = None
+    quarterly: int | None = None
+    yearly: int | None = None
+    pitr: bool | None = None
+    system: bool | None = None
+    time_machine_count: int | None = None
+    api_source: str = "ndb"
+
+
+class NdbSnapshot(SourcedObject):
+    id: str
+    name: str | None = None
+    time_machine_name: str | None = None
+    snapshot_type: str | None = None  # MANUAL / CONTINUOUS_EXTRA / DAILY_EXTRA ...
+    status: str | None = None
+    taken: str | None = None
+    db_server_name: str | None = None
+    api_source: str = "ndb"
+
+
+class NdbMaintenanceWindow(SourcedObject):
+    id: str
+    name: str | None = None
+    schedule: str | None = None  # "Weekly, Sunday 02:00 UTC, 2 h"
+    status: str | None = None
+    next_run: str | None = None
+    db_server_count: int | None = None
+    tasks: str | None = None  # "OS patching, DB patching"
+    api_source: str = "ndb"
+
+
+class NdbTag(SourcedObject):
+    id: str
+    name: str | None = None
+    entity_type: str | None = None  # DATABASE / TIME_MACHINE / CLONE / DATABASE_SERVER
+    required: bool | None = None
+    status: str | None = None
+    description: str | None = None
+    api_source: str = "ndb"
+
+
+# ─── Kubernetes (NKP) ─────────────────────────────────────────────────
+
+
+class KubernetesCluster(SourcedObject):
+    """An NKP (or other) Kubernetes cluster.
+
+    Prism Central sees an NKP cluster through its node VMs (category
+    ``KubernetesClusterName``) and, when deployed from the Marketplace, its Self-Service
+    app; the cluster's own API (optional, `kube_client`) adds the in-cluster detail.
+    ``api_source`` is "pc", "kubernetes" or "pc+kubernetes".
+    """
+
+    name: str
+    cluster_name: str | None = None  # the Nutanix cluster its nodes run on
+    nkp_version: str | None = None
+    kubernetes_version: str | None = None
+    control_plane_endpoint: str | None = None
+    control_plane_nodes: int | None = None
+    worker_nodes: int | None = None
+    total_vcpus: int | None = None
+    total_memory_bytes: int | None = None
+    management_cluster: bool | None = None  # runs Kommander / manages other clusters
+    managed_clusters: list[str] = Field(default_factory=list)  # Cluster API clusters it runs
+    cni: str | None = None
+    default_storage_class: str | None = None
+    load_balancer: str | None = None  # "MetalLB 10.0.0.1-10.0.0.9"
+    pod_cidr: str | None = None
+    service_cidr: str | None = None
+    namespace_count: int | None = None
+    pod_count: int | None = None
+    workload_count: int | None = None  # deployments + statefulsets + daemonsets
+    platform_apps: int | None = None
+    license: str | None = None  # "NKP Starter" (Kommander License)
+    #: Cluster API phase ("Provisioned"), else the Self-Service app state ("running").
+    status: str | None = None
+    deployed_by: str | None = None  # "Marketplace (Self-Service)" when an app record exists
+    api_source: str = "pc"
+
+
+class KubernetesNode(SourcedObject):
+    kubernetes_cluster: str
+    name: str
+    role: str | None = None  # control-plane / worker
+    pool: str | None = None  # NKP machine deployment ("md-0")
+    cluster_name: str | None = None  # Nutanix cluster of its VM
+    ip_address: str | None = None
+    vcpus: int | None = None
+    memory_bytes: int | None = None
+    kubelet_version: str | None = None
+    os_image: str | None = None
+    kernel: str | None = None
+    container_runtime: str | None = None
+    status: str | None = None  # Ready / NotReady, or the VM power state from PC
+    #: The Prism Central VM behind the node (Kubernetes ``providerID nutanix://<uuid>``).
+    vm_uuid: str | None = None
+    api_source: str = "pc"
+
+
+class KubernetesNamespace(SourcedObject):
+    kubernetes_cluster: str
+    name: str
+    status: str | None = None
+    pods: int = 0
+    deployments: int = 0
+    statefulsets: int = 0
+    daemonsets: int = 0
+    services: int = 0
+    volume_claims: int = 0
+    #: Platform plumbing (kube-*, kommander*, *-system, ...), not a user namespace.
+    system: bool = False
+    api_source: str = "kubernetes"
+
+
+class KubernetesStorageClass(SourcedObject):
+    kubernetes_cluster: str
+    name: str
+    provisioner: str | None = None
+    default: bool = False
+    reclaim_policy: str | None = None
+    binding_mode: str | None = None
+    expansion: bool | None = None
+    storage_container: str | None = None  # Nutanix CSI parameter
+    api_source: str = "kubernetes"
+
+
+class KubernetesVolume(SourcedObject):
+    """A persistent volume (and the claim bound to it)."""
+
+    kubernetes_cluster: str
+    name: str
+    capacity_bytes: int | None = None
+    storage_class: str | None = None
+    claim: str | None = None  # "namespace/name"
+    status: str | None = None
+    reclaim_policy: str | None = None
+    access_modes: list[str] = Field(default_factory=list)
+    api_source: str = "kubernetes"
+
+
+class KubernetesService(SourcedObject):
+    """A LoadBalancer service (what the cluster exposes on the network)."""
+
+    kubernetes_cluster: str
+    namespace: str
+    name: str
+    external_ips: list[str] = Field(default_factory=list)
+    ports: list[str] = Field(default_factory=list)  # "443/TCP"
+    api_source: str = "kubernetes"
+
+
+class KubernetesWorkload(SourcedObject):
+    """A Deployment, StatefulSet, DaemonSet or CronJob, and what it runs."""
+
+    kubernetes_cluster: str
+    namespace: str
+    name: str
+    kind: str  # Deployment / StatefulSet / DaemonSet / CronJob
+    replicas_desired: int | None = None  # DaemonSet: nodes scheduled; CronJob: None
+    replicas_ready: int | None = None
+    images: list[str] = Field(default_factory=list)
+    #: The Helm release (``meta.helm.sh/release-name``, else ``app.kubernetes.io/instance``
+    #: when ``app.kubernetes.io/managed-by`` is Helm).
+    helm_release: str | None = None
+    helm_chart: str | None = None  # ``helm.sh/chart`` ("prometheus-29.44.0")
+    app_name: str | None = None  # ``app.kubernetes.io/name``
+    app_version: str | None = None  # ``app.kubernetes.io/version``
+    #: The NKP (Kommander) platform app it belongs to, when its release or namespace ties
+    #: it to an AppDeployment.
+    owner_app: str | None = None
+    schedule: str | None = None  # CronJob
+    #: Platform plumbing (Kubernetes, NKP, Nutanix CSI, MetalLB, ...), not a user app.
+    system: bool = False
+    status: str | None = None  # Ready / Not ready / Scaled to zero / Scheduled / Suspended
+    api_source: str = "kubernetes"
+
+
+class KubernetesIngress(SourcedObject):
+    kubernetes_cluster: str
+    namespace: str
+    name: str
+    ingress_class: str | None = None
+    hosts: list[str] = Field(default_factory=list)
+    #: "host/path -> service:port" per rule.
+    backends: list[str] = Field(default_factory=list)
+    addresses: list[str] = Field(default_factory=list)
+    helm_release: str | None = None
+    system: bool = False
+    api_source: str = "kubernetes"
+
+
+class KubernetesApplication(SourcedObject):
+    """A user application: a Helm release, else a namespace, with what makes it up."""
+
+    kubernetes_cluster: str
+    namespace: str
+    name: str  # the Helm release, or the namespace
+    kind: str  # "Helm release" / "Namespace"
+    helm_chart: str | None = None
+    workloads: int = 0
+    workload_kinds: list[str] = Field(default_factory=list)  # "11 Deployments"
+    images: list[str] = Field(default_factory=list)
+    ingress_hosts: list[str] = Field(default_factory=list)
+    addresses: list[str] = Field(default_factory=list)  # LoadBalancer / ingress IPs
+    status: str | None = None  # Ready when every workload is
+    api_source: str = "kubernetes"
+
+
+class KubernetesApp(SourcedObject):
+    """A platform application (an NKP Kommander app, else a Flux Helm release)."""
+
+    kubernetes_cluster: str
+    namespace: str | None = None
+    name: str
+    version: str | None = None
+    status: str | None = None
+    kind: str | None = None  # AppDeployment / HelmRelease
+    api_source: str = "kubernetes"
 
 
 # ─── IAM ───────────────────────────────────────────────────────────────
@@ -1499,15 +1857,33 @@ class Environment(_Base):
 
     # ─ Phase 2: NUS (Files / Objects / Volumes) ─
     file_servers: list[FileServer] = Field(default_factory=list)
+    file_server_vms: list[FileServerVm] = Field(default_factory=list)
     file_shares: list[FileShare] = Field(default_factory=list)
     object_stores: list[ObjectStore] = Field(default_factory=list)
     buckets: list[Bucket] = Field(default_factory=list)
     volume_groups: list[VolumeGroup] = Field(default_factory=list)
 
     # ─ Phase 2: NDB ─
+    ndb_appliances: list[NdbAppliance] = Field(default_factory=list)
     database_servers: list[DatabaseServer] = Field(default_factory=list)
     databases: list[Database] = Field(default_factory=list)
     time_machines: list[TimeMachine] = Field(default_factory=list)
+    ndb_clusters: list[NdbCluster] = Field(default_factory=list)
+    ndb_profiles: list[NdbProfile] = Field(default_factory=list)
+    ndb_slas: list[NdbSla] = Field(default_factory=list)
+    ndb_snapshots: list[NdbSnapshot] = Field(default_factory=list)
+    ndb_maintenance_windows: list[NdbMaintenanceWindow] = Field(default_factory=list)
+    ndb_tags: list[NdbTag] = Field(default_factory=list)
+    kubernetes_clusters: list[KubernetesCluster] = Field(default_factory=list)
+    kubernetes_nodes: list[KubernetesNode] = Field(default_factory=list)
+    kubernetes_namespaces: list[KubernetesNamespace] = Field(default_factory=list)
+    kubernetes_storage_classes: list[KubernetesStorageClass] = Field(default_factory=list)
+    kubernetes_volumes: list[KubernetesVolume] = Field(default_factory=list)
+    kubernetes_services: list[KubernetesService] = Field(default_factory=list)
+    kubernetes_apps: list[KubernetesApp] = Field(default_factory=list)
+    kubernetes_workloads: list[KubernetesWorkload] = Field(default_factory=list)
+    kubernetes_ingresses: list[KubernetesIngress] = Field(default_factory=list)
+    kubernetes_applications: list[KubernetesApplication] = Field(default_factory=list)
 
     # ─ Phase 2: IAM / X-Play / NCM ─
     users: list[User] = Field(default_factory=list)
@@ -1583,13 +1959,31 @@ class Environment(_Base):
             "address_groups": len(self.address_groups),
             "vpcs": len(self.vpcs),
             "file_servers": len(self.file_servers),
+            "file_server_vms": len(self.file_server_vms),
             "file_shares": len(self.file_shares),
             "object_stores": len(self.object_stores),
             "buckets": len(self.buckets),
             "volume_groups": len(self.volume_groups),
+            "ndb_appliances": len(self.ndb_appliances),
             "database_servers": len(self.database_servers),
             "databases": len(self.databases),
             "time_machines": len(self.time_machines),
+            "ndb_clusters": len(self.ndb_clusters),
+            "ndb_profiles": len(self.ndb_profiles),
+            "ndb_slas": len(self.ndb_slas),
+            "ndb_snapshots": len(self.ndb_snapshots),
+            "ndb_maintenance_windows": len(self.ndb_maintenance_windows),
+            "ndb_tags": len(self.ndb_tags),
+            "kubernetes_clusters": len(self.kubernetes_clusters),
+            "kubernetes_nodes": len(self.kubernetes_nodes),
+            "kubernetes_namespaces": len(self.kubernetes_namespaces),
+            "kubernetes_storage_classes": len(self.kubernetes_storage_classes),
+            "kubernetes_volumes": len(self.kubernetes_volumes),
+            "kubernetes_services": len(self.kubernetes_services),
+            "kubernetes_apps": len(self.kubernetes_apps),
+            "kubernetes_workloads": len(self.kubernetes_workloads),
+            "kubernetes_ingresses": len(self.kubernetes_ingresses),
+            "kubernetes_applications": len(self.kubernetes_applications),
             "users": len(self.users),
             "roles": len(self.roles),
             "projects": len(self.projects),

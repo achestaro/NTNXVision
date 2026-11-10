@@ -18,7 +18,7 @@ export function Icon({
   active?: boolean;
   className?: string;
   style?: React.CSSProperties;
-}): JSX.Element {
+}): React.JSX.Element {
   return (
     <Glyph
       size={size}

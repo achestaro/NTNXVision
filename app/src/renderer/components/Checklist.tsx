@@ -28,7 +28,7 @@ export function SelectAllLink({
   disabled?: boolean;
   /** For the accessible name, e.g. "sections" → "Select all sections". */
   noun?: string;
-}): JSX.Element {
+}): React.JSX.Element {
   const all = total > 0 && selected >= total;
   const clear = all && !!onClear;
   const text = clear ? 'Clear all' : 'Select all';
@@ -57,7 +57,7 @@ export function ChecklistHeader({
   variant?: 'eyebrow' | 'lbl';
   /** Right side: usually a SelectAllLink, optionally a count. */
   children?: React.ReactNode;
-}): JSX.Element {
+}): React.JSX.Element {
   return (
     <div className="chk-head">
       <span id={id} className={variant}>
@@ -95,7 +95,7 @@ export function ChecklistMenu({
   onToggle(key: string, checked: boolean): void;
   onSelectAll(): void;
   onClose(): void;
-}): JSX.Element {
+}): React.JSX.Element {
   const ref = useRef<HTMLDivElement>(null);
   const pos = useAnchoredPopup(ref, anchor, onClose, 'input:not([disabled])');
   const headId = useRef(`chk-${Math.random().toString(36).slice(2, 8)}`).current;

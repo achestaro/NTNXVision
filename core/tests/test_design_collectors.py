@@ -13,6 +13,7 @@ import pytest
 from ntnxvision_core.api.errors import NutanixApiError
 from ntnxvision_core.collectors.clusters import ClusterCollector
 from ntnxvision_core.collectors.dataprotection import DataProtectionCollector
+from ntnxvision_core.collectors.flow import FlowSecurityCollector
 from ntnxvision_core.collectors.hostnet import HostNetworkCollector
 from ntnxvision_core.collectors.hosts import HostCollector
 from ntnxvision_core.collectors.nus import FilesCollector, ObjectsCollector
@@ -730,6 +731,33 @@ def test_files_listed_only_by_v4_are_recorded() -> None:
     assert env.pc_config.services[0].status == "DEPLOYED"
 
 
+def test_files_v4_server_is_enriched_from_groups_and_reads_its_mount_targets() -> None:
+    """pc.7.5 has no v3 file server list and a bare v4 file server (extId and name)."""
+    share = {"extId": "mt-1", "name": "Home", "path": "/Home", "type": "HOMES",
+             "protocol": "SMB", "secondaryProtocol": ["NONE"], "maxSizeGB": 0,
+             "isCompressionEnabled": True, "isReadOnly": False,
+             "smbProperties": {"isAccessBasedEnumerationEnabled": True, "isCaEnabled": False}}
+    conn = FakeConn(
+        {"files/v4.0/config/file-servers": [{"extId": "fs-1", "name": "fs"}],
+         "files/v4.0/config/file-servers/fs-1/mount-targets": [
+             share, {**share, "extId": "mt-2", "name": "Apps", "type": "GENERAL",
+                     "maxSizeGB": 500, "secondaryProtocol": ["NFS"]}]},
+        groups={"file_server_service": [{
+            "entity_id": "fs-1", "cluster_name": "ahv-01", "afs_version": "5.3.0.3",
+            "nvm_uuid_list": ["a", "b", "c"], "last_used_size_bytes": "2048"}]})
+    env = Environment()
+    FilesCollector(conn).collect(env)  # type: ignore[arg-type]
+    fs = env.file_servers[0]
+    assert (fs.cluster_name, fs.version, fs.num_fsvm, fs.used_bytes, fs.share_count) == (
+        "ahv-01", "5.3.0.3", 3, 2048, 2)
+    home, apps = env.file_shares
+    assert (home.share_type, home.protocol, home.max_size_bytes, home.file_server_name) == (
+        "Distributed", "SMB", None, "fs")
+    assert home.access_based_enumeration and home.compression and not home.read_only
+    assert (apps.share_type, apps.protocol, apps.max_size_bytes) == (
+        "Standard", "SMB/NFS", 500 * 1024**3)
+
+
 def test_resolution_is_idempotent_and_names_remote_clusters_after_a_merge() -> None:
     env = Environment(clusters=[Cluster(uuid=CL_AHV, name="ahv-01")])
     DataProtectionCollector(_dp_conn()).collect(env)  # type: ignore[arg-type]
@@ -781,3 +809,69 @@ def test_scope_prunes_registered_clusters_but_keeps_paired_pcs() -> None:
     scope.prune(env)
     assert [r.remote_uuid for r in env.pc_registrations] == [CL_AHV, PC_REMOTE]
     assert env.external_storages == [] and env.storage_containers == []
+
+
+def test_flow_security_switched_off_is_a_skip_not_an_error() -> None:
+    """pc.7.5 without Flow Network Security: the v3 lists answer 500 kMicrosegDisabledError."""
+    off = NutanixApiError("HTTP 500: kMicrosegDisabledError: This operation is not allowed "
+                          "since Flow Network Security is not yet enabled.", status_code=500)
+    conn = FakeConn(ready=False, v3={k: off for k in (
+        "categories", "address_groups", "network_security_rules", "service_groups")})
+    env = Environment()
+    FlowSecurityCollector(conn).collect(env)  # type: ignore[arg-type]
+    assert env.collection_notes["flow_security"] == (
+        "skipped: Flow Network Security not enabled")
+    other = FakeConn(ready=False, v3={"network_security_rules": NutanixApiError(
+        "HTTP 500: boom", status_code=500), "categories": [], "address_groups": [],
+        "service_groups": []})
+    with pytest.raises(NutanixApiError):
+        FlowSecurityCollector(other).collect(Environment())  # type: ignore[arg-type]
+
+
+def _store_v4() -> dict[str, Any]:
+    ip = lambda v: {"ipv4": {"value": v, "prefixLength": 32}}  # noqa: E731
+    return {"extId": "oss-1", "name": "objects-a", "clusterExtId": CL_AHV,
+            "deploymentVersion": "5.3", "numWorkerNodes": 1, "totalCapacityGiB": 1024,
+            "state": "OBJECT_STORE_AVAILABLE", "domain": "msp.cluster.local",
+            "publicNetworkIps": [ip("192.0.2.42"), ip("192.0.2.43")],
+            "storageNetworkVip": ip("192.0.2.41")}
+
+
+def test_objects_v4_stores_with_usage_and_buckets_from_the_objects_groups() -> None:
+    """Objects 5.3: v4 lists stores; usage and buckets come from Objects' groups queries."""
+    conn = FakeConn({"objects/v4.0/config/object-stores": [_store_v4()]}, groups={
+        "objectstore": [{"entity_id": "oss-1", "cluster_name": "ahv-01",
+                         "usage_bytes": "72384595", "num_buckets": "2", "num_objects": "40"}],
+        "bucket": [
+            {"name": "records", "owner_name": "user@example.lab", "versioning": "Enabled",
+             "worm": "true", "retention_duration_days": "1", "lifecycle": "false",
+             "object_count": "1", "storage_usage_bytes": "24",
+             "outbound_replication_status": "None"},
+            {"name": "logs", "owner_name": "admin", "versioning": "Disabled", "worm": "false",
+             "lifecycle": "true", "cors": "true", "outbound_replication_status": "Enabled"}]})
+    env = Environment()
+    ObjectsCollector(conn).collect(env)  # type: ignore[arg-type]
+    store = env.object_stores[0]
+    assert (store.cluster_name, store.deployment_version, store.used_bytes,
+            store.bucket_count, store.object_count) == ("ahv-01", "5.3", 72384595, 2, 40)
+    assert store.client_ips == ["192.0.2.42", "192.0.2.43"] and store.storage_vip == "192.0.2.41"
+    records, logs = env.buckets
+    assert (records.owner, records.versioning, records.worm_enabled, records.retention_days) == (
+        "user@example.lab", True, True, 1)
+    assert (logs.versioning, logs.lifecycle, logs.cors, logs.replication) == (
+        False, True, True, "Outbound")
+    assert env.pc_config.services[0].status == "DEPLOYED"
+    assert env.collection_notes["objects"] == "ok"
+
+
+def test_objects_below_v4_ga_reads_the_stores_from_the_objects_groups() -> None:
+    conn = FakeConn(ready=False, groups={
+        "objectstore": [{"entity_id": "oss-1", "name": "objects-a", "cluster_name": "ahv-01",
+                         "state": "COMPLETE", "deployment_version": "4.4",
+                         "num_msp_workers": "3", "total_capacity_gib": "2048"}],
+        "bucket": []})
+    env = Environment()
+    ObjectsCollector(conn).collect(env)  # type: ignore[arg-type]
+    store = env.object_stores[0]
+    assert (store.name, store.num_worker_nodes, store.total_capacity_bytes, store.bucket_count) == (
+        "objects-a", 3, 2048 * 1024**3, 0)

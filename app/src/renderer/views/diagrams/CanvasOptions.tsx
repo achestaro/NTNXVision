@@ -25,12 +25,12 @@ const BGS: { value: CanvasBg; label: string }[] = [
 function Popup({ anchor, onClose, trigger, grid, background, onGrid, onBackground }: {
   anchor: { x: number; y: number; alignRight: boolean };
   onClose(): void;
-  trigger: React.RefObject<HTMLButtonElement>;
+  trigger: React.RefObject<HTMLButtonElement | null>;
   grid: GridMode;
   background: CanvasBg;
   onGrid(v: GridMode): void;
   onBackground(v: CanvasBg): void;
-}): JSX.Element {
+}): React.JSX.Element {
   const ref = useRef<HTMLDivElement>(null);
   const pos = useAnchoredPopup(ref, anchor, onClose, '[aria-checked="true"]', trigger);
   const radio = <T extends string>(value: T, label: string, current: T, set: (v: T) => void) => (
@@ -70,7 +70,7 @@ function Popup({ anchor, onClose, trigger, grid, background, onGrid, onBackgroun
   );
 }
 
-export function CanvasOptions(props: { grid: GridMode; background: CanvasBg; onGrid(v: GridMode): void; onBackground(v: CanvasBg): void; disabled?: boolean }): JSX.Element {
+export function CanvasOptions(props: { grid: GridMode; background: CanvasBg; onGrid(v: GridMode): void; onBackground(v: CanvasBg): void; disabled?: boolean }): React.JSX.Element {
   const btn = useRef<HTMLButtonElement>(null);
   const [open, setOpen] = useState<{ x: number; y: number } | null>(null);
   const anchor = useMemo(() => (open ? { x: open.x, y: open.y, alignRight: true } : null), [open]);

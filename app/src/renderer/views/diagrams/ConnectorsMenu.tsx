@@ -17,7 +17,7 @@ export function ConnectorsMenu({
   removed: DiagramConnector[];
   onSelect(id: string): void;
   onRestore(c: DiagramConnector): void;
-}): JSX.Element {
+}): React.JSX.Element {
   const [open, setOpen] = useState(false);
   const wrap = useRef<HTMLDivElement>(null);
   const btn = useRef<HTMLButtonElement>(null);

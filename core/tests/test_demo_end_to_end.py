@@ -49,7 +49,7 @@ def test_collect_snapshot_export_compare(demo: Any, tmp_path: Path) -> None:
     assert by_id["objects"]["api"] == "v3"  # v4 objects service down (503)
     assert by_id["clusters"]["api"] == "v4"
     assert by_id["ndb"]["status"] == "collected" and by_id["ndb"]["api"] == "era"
-    assert len(env.databases) == 12
+    assert len(env.databases) == 14  # 12 databases + 2 clones
     assert env.pc_config.pc_vm_names and env.system_vms
     # Cross references resolved across APIs (v4 VMs only carry uuids).
     vm = env.vms[0]
@@ -64,7 +64,13 @@ def test_collect_snapshot_export_compare(demo: Any, tmp_path: Path) -> None:
     out = tmp_path / "out"
     xlsx, detail = export_environment(loaded, "excel", out, "week1", with_detail=True)
     assert detail and detail.endswith("sheets")
-    assert "VMs" in load_workbook(xlsx).sheetnames
+    wb = load_workbook(xlsx)
+    assert "VMs" in wb.sheetnames
+    # NDB: the appliance sheet leads the NDB sheets, Cluster first.
+    assert wb.sheetnames.index("NDB Appliance") < wb.sheetnames.index("Databases")
+    ws = wb["NDB Appliance"]
+    headers = [c.value for c in ws[1]]
+    assert headers[0] == "Cluster" and "NDB Version" in headers
     pdf = export_environment(loaded, "pdf", out, "week1",
                              options={"prepared_for": "Acme", "author": "Tester"})
     assert pdf.read_bytes().startswith(b"%PDF")
@@ -73,6 +79,9 @@ def test_collect_snapshot_export_compare(demo: Any, tmp_path: Path) -> None:
     doc = Document(str(docx))
     assert doc.core_properties.author == "Tester"
     assert any("Acme Corp" in p.text for p in doc.paragraphs)
+    # The NDB chapter opens with the appliance.
+    assert any(t.rows[0].cells[0].text == "Cluster"
+               and "NDB Server" in [c.text for c in t.rows[0].cells] for t in doc.tables)
 
     # A week later: the same Prism Central has drifted.
     demo_mode.advance("pc01.demo.local")

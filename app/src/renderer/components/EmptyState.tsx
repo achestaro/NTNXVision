@@ -25,7 +25,7 @@ export function EmptyState({
   illustration: IllustrationName;
   /** Panel-sized: smaller illustration and padding, centred in the panel's height. */
   compact?: boolean;
-}): JSX.Element {
+}): React.JSX.Element {
   return (
     <div className={compact ? 'empty-page compact' : 'empty-page'}>
       <Illustration name={illustration} size={compact ? 96 : 160} />
@@ -41,12 +41,12 @@ export function EmptyState({
   );
 }
 
-export function InlineEmpty({ children }: { children: React.ReactNode }): JSX.Element {
+export function InlineEmpty({ children }: { children: React.ReactNode }): React.JSX.Element {
   return <div className="empty-inline">{children}</div>;
 }
 
 /** Single spinner (static under reduced motion) with "Loading…" text. */
-export function Loading({ label = 'Loading…' }: { label?: string }): JSX.Element {
+export function Loading({ label = 'Loading…' }: { label?: string }): React.JSX.Element {
   return (
     <span className="loading" role="status">
       <Icon icon={CircleNotchIcon} size={16} className="spin" />
@@ -55,7 +55,7 @@ export function Loading({ label = 'Loading…' }: { label?: string }): JSX.Eleme
   );
 }
 
-export function LoadingPage({ label }: { label?: string }): JSX.Element {
+export function LoadingPage({ label }: { label?: string }): React.JSX.Element {
   return (
     <div className="empty-page" style={{ padding: '64px 16px' }}>
       <Loading label={label} />
@@ -74,7 +74,7 @@ export function ErrorState({
   onRetry?: () => void;
   /** Full-page errors only (the view shows nothing else): one tier-3 illustration above. */
   illustration?: IllustrationName;
-}): JSX.Element {
+}): React.JSX.Element {
   const callout = (
     <Callout
       tone="error"

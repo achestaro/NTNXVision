@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "ntnxvision-core"
-version = "0.14.1"
+version = "0.15.0"
 description = "Inventory & documentation core for Nutanix Prism Central (NTNXVision)"
 readme = "README.md"
 # Cap the upper bound: brand-new Python releases (e.g. 3.14) often lack prebuilt wheels
@@ -78,7 +78,8 @@ include = ["ntnxvision_core*"]
 # The PDF report embeds these OFL fonts (Figtree, Montserrat Light, JetBrains Mono); each
 # ships next to its license text.
 [tool.setuptools.package-data]
-"ntnxvision_core.exporters" = ["fonts/*.ttf", "fonts/OFL-*.txt"]
+"ntnxvision_core.exporters" = ["fonts/*.ttf", "fonts/OFL-*.txt", "icons/*.svg", "icons/*.png",
+                               "icons/README.md"]
 
 [tool.ruff]
 line-length = 100

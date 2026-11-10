@@ -57,7 +57,7 @@ export function ClusterPicker({
   onRetry(): void;
   /** Show "Select at least one cluster" (after a start attempt, or once deselected). */
   showEmptyError: boolean;
-}): JSX.Element {
+}): React.JSX.Element {
   const isPe = mode === 'prism_element';
   const clusters = state.kind === 'ready' ? state.result.clusters : [];
   const single = clusters.length === 1;
@@ -138,13 +138,7 @@ export function ClusterPicker({
             </Checkbox>
           ))}
         </div>
-        {single && (
-          <p className="hint below">
-            {isPe
-              ? 'Prism Element mode collects this one cluster.'
-              : 'The only cluster registered to this Prism Central, so it is always collected.'}
-          </p>
-        )}
+        {single && isPe && <p className="hint below">Prism Element mode collects this one cluster.</p>}
         {!single && chosen === 0 && showEmptyError && (
           <div className="field-err" role="alert" data-testid="cluster-empty-error">
             Select at least one cluster to collect.

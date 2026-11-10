@@ -47,7 +47,7 @@ export async function runSmoke(sidecar: SidecarClient, checkRenderer: () => Prom
     const mod = require('@napi-rs/keyring') as KeyringModule;
     report.keyring = 'ok';
     // A real write, then a read through a new entry (as after a restart): @napi-rs/keyring
-    // 1.3.0 to 2.1.1 stored empty credentials on Windows and only the writing entry saw
+    // 1.3.0 to 2.1.2 store empty credentials on Windows and only the writing entry saw
     // the value. Required on Windows; on macOS a CI keychain may refuse, so it is reported only.
     report.keyringRoundTrip = keychainRoundTrip(mod);
     if (process.platform === 'win32' && report.keyringRoundTrip !== 'ok') ok = false;

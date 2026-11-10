@@ -31,7 +31,7 @@ interface ToastCtx {
 
 const Ctx = createContext<ToastCtx | null>(null);
 
-export function ToastProvider({ children }: { children: React.ReactNode }): JSX.Element {
+export function ToastProvider({ children }: { children: React.ReactNode }): React.JSX.Element {
   const [items, setItems] = useState<ToastItem[]>([]);
   const timers = useRef(new Map<number, number>());
   const nextId = useRef(1);

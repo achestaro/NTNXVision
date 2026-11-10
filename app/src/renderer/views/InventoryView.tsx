@@ -43,8 +43,68 @@ import { useRouter } from '../lib/router';
 import { useRun } from '../lib/run';
 import { NA, errorMessage, fmtAbs, fmtBytes, fmtCount, fmtRatio } from '../lib/format';
 import { useSnapshotTransfer } from './SnapshotTransfer';
+import { productIcon } from './diagrams/productIcons';
 
 const PAGE = 25;
+
+/**
+ * Object types drawn with a Nutanix *product* icon (assets/product-icons) instead of an
+ * isometric mark: the isometric pack has no Kubernetes / NKP drawing, the product pack does.
+ * The Database Services (NDB) types all wear the NDB product icon. A product icon here wins
+ * over an isometric mark for the same type.
+ */
+const OBJECT_TYPE_PRODUCT: Record<string, string> = {
+  file_server_vms: 'nus',
+  kubernetes_clusters: 'nkp',
+  kubernetes_nodes: 'nkp',
+  kubernetes_workloads: 'nkp',
+  ndb_appliance: 'ndb',
+  databases: 'ndb',
+  database_servers: 'ndb',
+  time_machines: 'ndb',
+  ndb_snapshots: 'ndb',
+  ndb_clusters: 'ndb',
+  ndb_profiles: 'ndb',
+  ndb_slas: 'ndb',
+  ndb_maintenance_windows: 'ndb',
+  ndb_tags: 'ndb',
+};
+
+/**
+ * Types left out of a snapshot's type list when it has none of their data: mirrors the
+ * core's `inventory.VCENTER_ONLY_TYPES` and `inventory.NDB_DETAIL_TYPES`.
+ */
+const HIDDEN_WHEN_ABSENT = new Set([
+  'port_groups',
+  'ndb_appliance',
+  'database_servers',
+  'time_machines',
+  'ndb_snapshots',
+  'ndb_clusters',
+  'ndb_profiles',
+  'ndb_slas',
+  'ndb_maintenance_windows',
+  'ndb_tags',
+]);
+
+/** The type's mark beside its label in the type list (decorative), or nothing. */
+function TypeMark({ type }: { type: string }): React.JSX.Element | null {
+  const icon = productIcon(OBJECT_TYPE_PRODUCT[type]);
+  const mark = OBJECT_TYPE_MARK[type];
+  if (!icon && mark) return <NutanixIcon name={mark} size={20} />;
+  if (!icon) return null;
+  return (
+    <span aria-hidden="true" data-product={OBJECT_TYPE_PRODUCT[type]} className="nx-mark" style={{ width: 20, height: 20 }}>
+      <svg viewBox={icon.box.join(' ')} focusable="false">
+        {icon.paths.map((p, i) => (
+          // The product ink (#131313) follows the theme's text colour so it stays visible
+          // in the dark theme; the purple accent stays as drawn.
+          <path key={i} fill={p.fill.toLowerCase() === '#131313' ? 'currentColor' : p.fill} d={p.d} />
+        ))}
+      </svg>
+    </span>
+  );
+}
 
 function isStatus(v: CellValue): v is StatusValue {
   return !!v && typeof v === 'object' && 'tone' in v;
@@ -72,7 +132,7 @@ export function InventoryView({
   filterText?: string;
   /** A deep link naming one object (⌘K): it opens selected, with its details. */
   objectId?: string;
-}): JSX.Element {
+}): React.JSX.Element {
   const { navigate } = useRouter();
   const { dataVersion } = useRun();
   const toast = useToast();
@@ -130,6 +190,16 @@ export function InventoryView({
   // While a new type loads, the previous type's rows are still in `query.data`; never
   // pair their ids with the new type (the detail request would 404).
   const q = query.data && query.data.object_type === type ? query.data : undefined;
+  // vCenter-only types (ESXi port groups) and the NDB types beside Databases are left out of
+  // a snapshot without that data;
+  // switching to such a snapshot while on one goes back to Clusters. Other unlisted types
+  // stay reachable (a ⌘K deep link can name any type).
+  useEffect(() => {
+    if (q && HIDDEN_WHEN_ABSENT.has(type) && q.type_counts.length && !q.type_counts.some((t) => t.type === type)) {
+      setType('clusters');
+      setSelected(null);
+    }
+  }, [q, type]);
   const rows = q?.rows ?? [];
   const selectedId = selected;
   /** Open a row's details, or close them when that row is already open. */
@@ -321,7 +391,7 @@ export function InventoryView({
       />
 
       <div className="split" style={{ alignItems: 'flex-start' }}>
-        <Panel as="nav" aria-label="Object types" style={{ flex: '1 1 200px', maxWidth: 240, padding: '4px 0' }}>
+        <Panel as="nav" aria-label="Object types" style={{ flex: '0 0 288px', padding: '4px 0' }}>
           {groups.length === 0 && (query.loading ? <InlineEmpty><Loading /></InlineEmpty> : <InlineEmpty>No object types</InlineEmpty>)}
           {groups.map(([group, items], gi) => (
             <div key={group}>
@@ -342,7 +412,7 @@ export function InventoryView({
                   }}
                 >
                   <span className="ot-name">
-                    {OBJECT_TYPE_MARK[t.type] && <NutanixIcon name={OBJECT_TYPE_MARK[t.type]} size={20} />}
+                    <TypeMark type={t.type} />
                     <span>{t.label}</span>
                   </span>
                   <span className="ot-count">{t.count === null ? NA : fmtCount(t.count)}</span>
@@ -541,7 +611,7 @@ function rawCell(v: CellValue): string | number {
   return String(v);
 }
 
-function Categories({ list }: { list?: string[] }): JSX.Element | null {
+function Categories({ list }: { list?: string[] }): React.JSX.Element | null {
   if (!list?.length) return null;
   return (
     <div className="kv">
@@ -573,7 +643,7 @@ function DetailPanel({
   row: InventoryRow | null;
   columns: InventoryColumn[];
   onClose(): void;
-}): JSX.Element {
+}): React.JSX.Element {
   const toast = useToast();
   const d = state.data;
   const closeRef = useRef<HTMLButtonElement>(null);
@@ -621,7 +691,9 @@ function DetailPanel({
                 <div className="kv">
                   <dt>{f.label}</dt>
                   <dd className={f.mono ? 'mono' : undefined} style={f.label === 'UUID' ? { fontSize: 12, color: 'var(--ink-2)' } : undefined}>
-                    {f.value ?? <span className="dash">{NA}</span>}
+                    {f.parts
+                      ? f.parts.map((p, i) => (p.tone ? <span key={i} className={`ratio-${p.tone}`}>{p.text}</span> : p.text))
+                      : (f.value ?? <span className="dash">{NA}</span>)}
                   </dd>
                 </div>
               </React.Fragment>

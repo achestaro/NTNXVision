@@ -25,6 +25,9 @@ from collections.abc import Iterable
 from dataclasses import dataclass, replace
 from typing import Any
 
+from ntnxvision_core.exporters.products import PRODUCTS
+
+from . import badges
 from . import nesting as NEST
 from . import text as tx
 from . import tokens as K
@@ -124,6 +127,8 @@ LOOKS: dict[str, Look] = {
     "nc2_portal": Look(K.REF, _CARD, _BODY, ("SAAS", K.TAG)),
     "cloud_storage": Look(K.EXTERNAL, (K.SIZE_SMALL, True, K.WHITE),
                           (K.SIZE_SMALL, False, K.WHITE), pad_x=4.0, pad_y=3.0),
+    # ── Nutanix products: a card with the product's own icon (`badges`) at its left ──
+    **{pid: Look(K.PRODUCT, _CARD, _BODY) for pid in NEST.PRODUCTS},
 }
 
 
@@ -146,8 +151,21 @@ class Icon:
 
 
 #: Groups in picker order.
-GROUPS = ("Infrastructure", "NC2 / cloud", "Storage", "Networking", "Security",
-          "Data protection", "Annotations")
+GROUPS = ("Nutanix products", "Infrastructure", "NC2 / cloud", "Storage", "Networking",
+          "Security", "Data protection", "Annotations")
+
+#: Product card icon id -> product id (`exporters.products`).
+PRODUCT_ICONS = {pid: pid.removeprefix("product_") for pid in NEST.PRODUCTS}
+_PRODUCT_WORDS = {
+    "prism": "prism central pc management plane",
+    "nci": "nci cloud infrastructure aos ahv hci cluster flow",
+    "ncm": "ncm cloud manager self-service calm intelligent operations playbooks",
+    "ndb": "ndb database service era db",
+    "nus": "nus unified storage files objects volumes nfs smb s3",
+    "nc2": "nc2 cloud clusters aws azure public cloud",
+    "nkp": "nkp kubernetes platform k8s containers karbon",
+    "nai": "nai enterprise ai gpt llm inference",
+}
 
 CATALOG: tuple[Icon, ...] = (
     Icon("datacenter", "Datacenter", "Infrastructure", 180, 80, "Datacenter", "",
@@ -247,6 +265,10 @@ CATALOG: tuple[Icon, ...] = (
          "category group app tier", "A category group."),
     Icon("plans", "Recovery plans", "Data protection", 80, 11, "RECOVERY PLANS", "",
          "recovery plan dr failover", "A recovery plans chip."),
+    *(Icon(f"product_{p.id}",
+           p.name if p.short in p.name else f"{p.name} ({p.short})", "Nutanix products",
+           150, 30, p.name, p.covers, f"nutanix product {_PRODUCT_WORDS[p.id]}",
+           f"{p.name}: a card with its product icon.") for p in PRODUCTS.values()),
     Icon("note", "Note", "Annotations", 120, 30, "Note", "", "note comment text",
          "A sticky note."),
     Icon("text", "Text", "Annotations", 100, 12, "Text", "", "text label caption title",
@@ -278,9 +300,14 @@ def catalog_docs() -> list[dict[str, Any]]:
                     "chip": ({"label": lk.chip[0], "fill": lk.chip[1].fill}
                              if lk.chip else None),
                     "ink": lk.title[2],
+                    # The product icon the card shows (None: not a product card).
+                    "product": PRODUCT_ICONS.get(i.id),
                     # The kinds it may hold (`nesting.CHILDREN`), for "add into the
                     # selection" and drops.
-                    "children": list(NEST.CHILDREN.get(i.id, ()))})
+                    "children": list(NEST.CHILDREN.get(i.id, ())),
+                    # The kinds it connects to instead (`nesting.RELATED`): a cluster
+                    # put on a Prism Central goes into the PC's zone, connected.
+                    "links": NEST.links_of(i.id)})
     return out
 
 
@@ -320,6 +347,11 @@ def draw(item: dict[str, Any], frame: tuple[float, float, float, float] | None =
         lines = [replace(t, x=q(t.x + lead)) for t in lines]
     node.lines = lines
     out = [node]
+    if icon.id in PRODUCT_ICONS:
+        g = min(NEST.PRODUCT_GLYPH, hh - 2 * lk.pad_y)
+        gy = y + lk.pad_y if valign == "top" else y + (hh - g) / 2
+        out.append(badges.glyph(f"{ident}:glyph", PRODUCT_ICONS[icon.id], x + pad_x, gy, g,
+                                ident, False))
     if lk.chip:
         clabel, cstyle = lk.chip
         if icon.id == "segment":

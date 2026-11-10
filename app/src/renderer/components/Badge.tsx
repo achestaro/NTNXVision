@@ -18,7 +18,7 @@ export function Badge({
   className?: string;
   style?: React.CSSProperties;
   title?: string;
-}): JSX.Element {
+}): React.JSX.Element {
   return (
     <span
       className={['badge', mono && 'mono', strong && 'strong', className].filter(Boolean).join(' ')}

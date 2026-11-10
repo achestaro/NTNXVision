@@ -19,7 +19,7 @@ export function Segmented<T extends string>({
   onChange(v: T): void;
   'aria-label'?: string;
   'aria-labelledby'?: string;
-}): JSX.Element {
+}): React.JSX.Element {
   return (
     <div className="seg" role="group" aria-label={ariaLabel} aria-labelledby={labelledBy}>
       {options.map((o) => (

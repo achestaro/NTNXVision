@@ -33,6 +33,8 @@ import {
   MAX_DIAGRAM_BEND,
   MAX_DIAGRAM_OPS,
   MAX_DIAGRAM_TEXT,
+  MAX_KUBERNETES_ENDPOINTS,
+  MAX_KUBERNETES_TOKEN,
   METRICS_REFRESH_MINUTES,
   type MetricsRefreshMinutes,
 } from '../shared/ipc';
@@ -59,7 +61,7 @@ function snapshotPath(v: unknown, name: string): string {
 }
 
 const MODES = ['prism_central', 'prism_element'] as const;
-const TEST_MODES = ['prism_central', 'prism_element', 'ndb', 'vcenter'] as const;
+const TEST_MODES = ['prism_central', 'prism_element', 'ndb', 'vcenter', 'kubernetes'] as const;
 const FORMATS = ['excel', 'pdf', 'word'] as const;
 const THEMES = ['system', 'light', 'dark', 'hc'] as const;
 const ACCENTS = ['iris', 'prism'] as const;
@@ -75,11 +77,11 @@ function hostField(v: unknown, name: string): void {
   if (!isPlainHost(host)) throw new ValidationError(`${name} must be a host name or IP address only`);
 }
 
-function endpoint(r: Record<string, unknown>, name: string, strictHost = false): void {
+function endpoint(r: Record<string, unknown>, name: string, strictHost = false, maxSecret = 1024): void {
   if (strictHost) hostField(r.host, `${name}.host`);
   else str(r.host, `${name}.host`, 253);
   str(r.username, `${name}.username`, 256);
-  str(r.password, `${name}.password`, 1024);
+  str(r.password, `${name}.password`, maxSecret);
   int(r.port, `${name}.port`, 0, 65535);
   bool(r.insecure, `${name}.insecure`);
 }
@@ -87,9 +89,11 @@ function endpoint(r: Record<string, unknown>, name: string, strictHost = false):
 export function asTestRequest(v: unknown): TestConnectionRequest {
   const r = obj(v, 'request');
   oneOf(r.mode, 'mode', TEST_MODES);
-  endpoint(r, 'request', true);
+  // A Kubernetes test carries a ServiceAccount token in `password` (longer than a password).
+  endpoint(r, 'request', true, r.mode === 'kubernetes' ? MAX_KUBERNETES_TOKEN : 1024);
   optStr(r.targetId, 'targetId', 128);
   optStr(r.pinnedCert, 'pinnedCert', 128);
+  optStr(r.kubernetesId, 'kubernetesId', 128);
   return r as unknown as TestConnectionRequest;
 }
 
@@ -147,6 +151,7 @@ export function asCollectionRequest(v: unknown): CollectionRequest {
   optStr(r.filePrefix, 'filePrefix', 200);
   optNdb(r.ndb, 'ndb');
   optVcenter(r.vcenter, 'vcenter');
+  optBool(r.kubernetes, 'kubernetes');
   optBool(r.lcmInventory, 'lcmInventory');
   return r as unknown as CollectionRequest;
 }
@@ -161,6 +166,7 @@ export function asMultiCollectionRequest(v: unknown): MultiCollectionRequest {
     str(o.name, 'name', 256);
     optNdb(o.ndb, 'ndb');
     optVcenter(o.vcenter, 'vcenter');
+    optBool(o.kubernetes, `targets[${i}].kubernetes`);
   });
   formats(r.formats);
   optStr(r.exportDir, 'exportDir');
@@ -233,13 +239,33 @@ export function asTargetSaveRequest(v: unknown): TargetSaveRequest {
   optStr(r.ndbPinnedCert, 'ndbPinnedCert', 128);
   optStr(r.vcenterPinnedCert, 'vcenterPinnedCert', 128);
   optBool(r.ndbInsecure, 'ndbInsecure');
+  if (r.kubernetes !== undefined && r.kubernetes !== null) {
+    if (!Array.isArray(r.kubernetes) || r.kubernetes.length > MAX_KUBERNETES_ENDPOINTS) {
+      throw new ValidationError(`kubernetes must be a list of at most ${MAX_KUBERNETES_ENDPOINTS}`);
+    }
+    r.kubernetes.forEach((k, i) => {
+      const n = `kubernetes[${i}]`;
+      const o = obj(k, n);
+      str(o.id, `${n}.id`, 128);
+      str(o.name, `${n}.name`, 256);
+      str(o.host, `${n}.host`, 253);
+      int(o.port, `${n}.port`, 1, 65535);
+      bool(o.insecure, `${n}.insecure`);
+      optStr(o.pinnedCert, `${n}.pinnedCert`, 128);
+      optStr(o.token, `${n}.token`, MAX_KUBERNETES_TOKEN);
+      optBool(o.removeToken, `${n}.removeToken`);
+    });
+  }
   return r as unknown as TargetSaveRequest;
 }
+
+const TRUST_ENDPOINT = /^kubernetes:[A-Za-z0-9_-]{1,128}$/;
 
 export function asTrustCertificateRequest(v: unknown): TrustCertificateRequest {
   const r = obj(v, 'request');
   str(r.targetId, 'targetId', 128);
-  oneOf(r.endpoint, 'endpoint', ['primary', 'ndb', 'vcenter'] as const);
+  const ep = str(r.endpoint, 'endpoint', 160);
+  if (!['primary', 'ndb', 'vcenter'].includes(ep) && !TRUST_ENDPOINT.test(ep)) throw new ValidationError('endpoint is not a valid choice');
   str(r.fingerprint, 'fingerprint', 128);
   return r as unknown as TrustCertificateRequest;
 }

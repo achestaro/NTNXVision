@@ -15,7 +15,7 @@ export function StatusGlyph({
   style?: React.CSSProperties;
   /** Accessible name when the glyph stands alone (otherwise hidden). */
   label?: string;
-}): JSX.Element {
+}): React.JSX.Element {
   const cls = ['g', tone, shape !== 'filled' && shape].filter(Boolean).join(' ');
   return label ? (
     <span className={cls} style={style} role="img" aria-label={label} />
@@ -36,7 +36,7 @@ export function Status({
   children: React.ReactNode;
   className?: string;
   style?: React.CSSProperties;
-}): JSX.Element {
+}): React.JSX.Element {
   return (
     <span className={['st', className].filter(Boolean).join(' ')} style={style}>
       <StatusGlyph tone={tone} shape={shape} />
@@ -45,7 +45,7 @@ export function Status({
   );
 }
 
-export function StatusFromValue({ value }: { value: StatusValue }): JSX.Element {
+export function StatusFromValue({ value }: { value: StatusValue }): React.JSX.Element {
   return (
     <Status tone={value.tone} shape={value.shape}>
       {value.label}
@@ -64,7 +64,7 @@ export const AREA_STATUS: Record<AreaStatus, { tone: Tone; shape: GlyphShape; la
   cancelled: { tone: 'idle', shape: 'filled', label: 'Cancelled', rail: '' },
 };
 
-export function AreaStatusLabel({ status }: { status: AreaStatus }): JSX.Element {
+export function AreaStatusLabel({ status }: { status: AreaStatus }): React.JSX.Element {
   const s = AREA_STATUS[status];
   return (
     <Status tone={s.tone} shape={s.shape}>

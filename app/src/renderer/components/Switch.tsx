@@ -14,7 +14,7 @@ export function Switch({
   labelledBy?: string;
   label?: string;
   style?: React.CSSProperties;
-}): JSX.Element {
+}): React.JSX.Element {
   return (
     <button
       type="button"

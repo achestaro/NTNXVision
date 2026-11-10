@@ -8,7 +8,7 @@ export function Panel({
   className,
   children,
   ...rest
-}: React.HTMLAttributes<HTMLElement> & { as?: 'section' | 'aside' | 'nav' | 'div' }): JSX.Element {
+}: React.HTMLAttributes<HTMLElement> & { as?: 'section' | 'aside' | 'nav' | 'div' }): React.JSX.Element {
   return (
     <Tag className={['panel', className].filter(Boolean).join(' ')} {...rest}>
       {children}
@@ -35,7 +35,7 @@ export function PanelHeader({
   meta?: React.ReactNode;
   /** Right-aligned actions (at most two ghost buttons). */
   children?: React.ReactNode;
-}): JSX.Element {
+}): React.JSX.Element {
   return (
     <div className="phead">
       {step !== undefined && <span className="step">{step}</span>}

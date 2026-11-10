@@ -18,7 +18,7 @@ export function CommandBar({
 }: {
   onOpenPalette(): void;
   onShowShortcuts(): void;
-}): JSX.Element {
+}): React.JSX.Element {
   const { navigate } = useRouter();
   const { run, isRunning } = useRun();
 

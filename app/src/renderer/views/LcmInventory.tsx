@@ -35,7 +35,7 @@ export function LcmInventoryToggle({
   /** Why the switch is unavailable (shown instead of the description). */
   reason?: string | null;
   id?: string;
-}): JSX.Element {
+}): React.JSX.Element {
   return (
     <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12 }}>
       <Switch checked={checked && !disabled} onChange={onChange} labelledBy={id} disabled={disabled} style={{ marginTop: 2 }} />
@@ -67,7 +67,7 @@ export function lcmInventorySummary(inv: LcmInventoryInfo): string {
   return `Succeeded on ${fmtCount(ok)} of ${fmtCount(targets.length)} targets`;
 }
 
-export function LcmInventoryPanel({ inventory, live }: { inventory: LcmInventoryInfo; live: boolean }): JSX.Element {
+export function LcmInventoryPanel({ inventory, live }: { inventory: LcmInventoryInfo; live: boolean }): React.JSX.Element {
   const targets = inventory.targets ?? [];
   const multiPc = targets.some((t) => t.source_pc);
   const sentence = inventory.detail && !targets.length ? inventory.detail[0].toUpperCase() + inventory.detail.slice(1) + '.' : null;
@@ -159,7 +159,7 @@ export function LcmInventoryPanel({ inventory, live }: { inventory: LcmInventory
   );
 }
 
-function BusyDetail({ t }: { t: LcmInventoryTargetInfo }): JSX.Element {
+function BusyDetail({ t }: { t: LcmInventoryTargetInfo }): React.JSX.Element {
   const b = t.busy!;
   const op = (b.operation ?? 'operation').toLowerCase();
   const facts = [b.percent !== null && b.percent !== undefined ? `${b.percent}%` : null, b.started_at ? `started ${fmtClock(b.started_at)}` : null]

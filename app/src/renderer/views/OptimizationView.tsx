@@ -15,7 +15,7 @@ import '../styles/optimization.css';
 
 const EYEBROW = 'Insights / Optimization';
 
-export function OptimizationView({ snapshot }: { snapshot?: string }): JSX.Element {
+export function OptimizationView({ snapshot }: { snapshot?: string }): React.JSX.Element {
   const { navigate } = useRouter();
   const { dataVersion } = useRun();
   const list = useAsync<SnapshotList>(() => window.ntnx.listSnapshots(), [dataVersion]);
@@ -128,7 +128,7 @@ export function OptimizationView({ snapshot }: { snapshot?: string }): JSX.Eleme
   );
 }
 
-function ReviewCard({ review: r, data, onOpen }: { review: OptimizationReview; data: OptimizationResult; onOpen(): void }): JSX.Element {
+function ReviewCard({ review: r, data, onOpen }: { review: OptimizationReview; data: OptimizationResult; onOpen(): void }): React.JSX.Element {
   const s = data.vm_compute.summary;
   const parts = r.count ? (['high', 'medium', 'low'] as const).filter((k) => s[k] > 0) : [];
   return (

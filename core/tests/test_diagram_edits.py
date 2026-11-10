@@ -467,7 +467,7 @@ def test_sidecar_operations_and_word_export(demo: Any, data_dir: Path,
     # conceptual overview) is not edited on its own.
     assert [d["type"] for d in listed["diagrams"]] == ["conceptual", "logical", "management",
                                                        "network", "dr", "segments", "vpc",
-                                                       "flow"]
+                                                       "flow", "nkp", "objects"]
     assert listed["carry"] is None
     got = sc._m_get_diagram(None, {"snapshot": snap, "type": "conceptual"})
     assert not got["edited"] and got["palette"] and got["scenes"]

@@ -6,6 +6,58 @@ format older builds can't read. Windows shows the version as X.Y.Z.0 in Installe
 Every pull request that changes shipped code raises it with `node scripts/bump-version.mjs`
 and adds a section here (CI checks both).
 
+## 0.15.0 (2026-11-10)
+
+### Added
+- Nutanix Objects: object stores from v4 (cluster, version, workers, capacity, client IPs,
+  storage VIP) with usage from Objects' groups entity, and buckets, never collected before
+  (owner, versioning, WORM and retention, lifecycle, CORS, static website, NFS,
+  notifications, replication, object count and size). Validated on Objects 5.3.
+- NKP: Kubernetes clusters and nodes from Prism Central (new area, on by default), plus an
+  optional read-only Kubernetes API endpoint per target (token in the keychain, certificate
+  pinned, GET only) for nodes, namespaces, workloads, applications, ingresses, storage
+  classes, volumes, LoadBalancer services, platform apps and networking. New Excel sheets,
+  Inventory types and a "Kubernetes (NKP)" Word/PDF chapter. Validated on NKP 2.18.
+- NDB: the NDB appliance itself (version and build, server VMs, IPs, HA, cluster, DNS, NTP,
+  timezone, SMTP server), plus clones, profiles, SLAs, snapshots, maintenance windows and
+  tags. Validated on NDB 2.5.1.1.
+- Nutanix Files: file server VMs (FSVMs) with client and storage IPs, sizing, host and
+  power state; client and storage networks, storage VIP, DNS and NTP per file server; used
+  space and file counts per server and per share.
+- Diagrams: NKP, NDB, Objects and Files designs. The editor knows how elements relate:
+  adding into a selection goes into the nearest element that can hold it, and a related
+  pair (a cluster on a Prism Central) is placed in the PC's zone with a labelled "Manages"
+  connector, as one undo step.
+- Nutanix product icons in reports, the Overview and diagrams.
+- Inventory: Buckets, File server VMs and an NDB group (shown only when the snapshot has NDB
+  data), with the product icons in the type list.
+- Metrics: network per cluster and top 10 VMs.
+- Targets: switches for NDB, NKP and vCenter, and a Certificate column (CA verified,
+  Pinned, Not trusted).
+- New collection: the Services row lists what the target's last collection found (Files,
+  Objects, FNS, FVN, NDR, NDB, NKP) plus the endpoints configured on the target.
+- Cluster details: a vCPU:pCore ratio over the cluster's target is bold red, one at or under
+  it green.
+
+### Changed
+- Licensing matches Prism Central's Licensing page: when no licence keys are applied, rows
+  come from PrismGateway's licence view per cluster (trials and their expiry), with the v4
+  entitlements as the fallback. The licence table gains Unit and Cluster columns.
+- v3 sunset copy is no longer date-based: areas on v3-only APIs collect normally and come
+  back empty only once a Prism Central release stops serving v3. The routing column is now
+  "When legacy APIs are removed".
+- Health Alerts is listed last and off by default.
+- New collection and Metrics open with no target selected; the run password field appears
+  once a target is chosen; no report format is ticked by default.
+- Diagram availability-zone boxes always fit their contents.
+- Renderer on React 19; app dependencies updated (npm audit clean).
+
+### Fixed
+- Date-only values (a licence expiry) show as the calendar day, not the evening before.
+- Small Files and bucket sizes read in their own unit (KB, MB) instead of 0.0 GiB.
+- The v4 capability probe no longer reads Objects as "status unknown" on every v4 PC.
+- Flow Network Security switched off is a skip, not an error.
+
 ## 0.14.1 (2026-10-25)
 
 ### Changed

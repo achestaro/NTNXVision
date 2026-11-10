@@ -32,7 +32,7 @@ export const SERIES_COLOR = {
 } as const;
 
 /** Width of an element, following resizes (charts fill their card). */
-export function useWidth<T extends HTMLElement>(fallback = 320): [React.RefObject<T>, number] {
+export function useWidth<T extends HTMLElement>(fallback = 320): [React.RefObject<T | null>, number] {
   const ref = useRef<T>(null);
   const [width, setWidth] = useState(fallback);
   useLayoutEffect(() => {
@@ -48,7 +48,7 @@ export function useWidth<T extends HTMLElement>(fallback = 320): [React.RefObjec
 }
 
 /** Width and height of an element, following resizes (a chart that fills its card). */
-export function useSize<T extends HTMLElement>(fallbackW: number, fallbackH: number): [React.RefObject<T>, number, number] {
+export function useSize<T extends HTMLElement>(fallbackW: number, fallbackH: number): [React.RefObject<T | null>, number, number] {
   const ref = useRef<T>(null);
   const [size, setSize] = useState<[number, number]>([fallbackW, fallbackH]);
   useLayoutEffect(() => {
@@ -79,7 +79,7 @@ export function Ring({
   label: string;
   size?: number;
   mark?: number;
-}): JSX.Element {
+}): React.JSX.Element {
   const stroke = 8;
   const r = (size - stroke) / 2;
   const c = 2 * Math.PI * r;
@@ -140,7 +140,7 @@ export interface MeterSegment {
 }
 
 /** A horizontal bar of segments over `total`, 2 px gaps between fills, rounded ends. */
-export function MeterBar({ segments, total, height = 8, label }: { segments: MeterSegment[]; total: number; height?: number; label: string }): JSX.Element {
+export function MeterBar({ segments, total, height = 8, label }: { segments: MeterSegment[]; total: number; height?: number; label: string }): React.JSX.Element {
   const shown = segments.filter((s) => s.value > 0);
   return (
     <div className="mx-meter" style={{ height }} role="img" aria-label={label}>
@@ -199,7 +199,7 @@ export function BarList({
   valueLabel: string;
   nameLabel?: string;
   empty?: string;
-}): JSX.Element {
+}): React.JSX.Element {
   const [sort, setSort] = useTableSort(sortId, { key: 'value', dir: 'desc' });
   const top = max ?? Math.max(0, ...rows.map((r) => r.value ?? 0));
   if (!rows.length) return <p className="mx-empty">{empty}</p>;
@@ -264,7 +264,7 @@ export function Sparkline({
   label: string;
   /** Smallest vertical range shown, so day-to-day noise on a flat series stays flat. */
   minSpan?: number;
-}): JSX.Element {
+}): React.JSX.Element {
   const [ref, width] = useWidth<HTMLDivElement>(160);
   const nums = values.filter((v): v is number => v !== null);
   const mid = (Math.min(...nums) + Math.max(...nums)) / 2;
@@ -368,7 +368,7 @@ export function TrendChart({
   thresholds?: Threshold[];
   projection?: Projection | null;
   label: string;
-}): JSX.Element {
+}): React.JSX.Element {
   const [ref, width, boxH] = useSize<HTMLDivElement>(480, minHeight);
   const height = fill ? Math.max(minHeight, boxH) : minHeight;
   const [hover, setHover] = useState<number | null>(null);
@@ -520,7 +520,7 @@ export function niceMax(v: number): number {
 }
 
 /** Inline legend chips (for charts with two or more series). */
-export function Legend({ items }: { items: { key: string; label: string; color: string }[] }): JSX.Element {
+export function Legend({ items }: { items: { key: string; label: string; color: string }[] }): React.JSX.Element {
   return (
     <div className="mx-legend">
       {items.map((i) => (

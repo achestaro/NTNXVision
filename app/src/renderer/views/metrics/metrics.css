@@ -697,6 +697,27 @@
   font-size: 26px;
   line-height: 1.2;
 }
+/* All clusters: a row per cluster under the totals; tight cells so six columns fit the card. */
+.mx-nettable {
+  margin: 8px -6px 0;
+  overflow-x: auto;
+}
+.mx-nettable .tbl th,
+.mx-nettable .tbl td {
+  height: 28px;
+  padding: 2px 6px;
+  font-size: 12px;
+}
+.mx-nettable .tbl th {
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  background: transparent;
+}
+.mx-nettable .tbl .nm {
+  max-width: 140px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 
 /* ── sources footer ───────────────────────────────────────────────── */
 

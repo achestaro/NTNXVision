@@ -22,6 +22,7 @@ from ntnxvision_core import __version__
 from ntnxvision_core.api import PrismCredentials
 from ntnxvision_core.api.element_client import ElementCredentials
 from ntnxvision_core.api.errors import NutanixApiError
+from ntnxvision_core.api.kube_client import KubeCredentials
 from ntnxvision_core.api.ndb_client import NdbCredentials
 from ntnxvision_core.api.transport import normalize_fingerprint
 from ntnxvision_core.api.vcenter_client import VcenterCredentials
@@ -56,6 +57,58 @@ def _tls(insecure: bool, pin: str | None = None) -> dict[str, Any]:
                   "verified, so anyone on the network path can read the credentials and the "
                   "data. Use --pin <sha256> to pin the expected certificate.[/yellow]")
     return {"allow_unpinned": True}
+
+
+def _kube_creds(hosts: list[str], ports: list[str], names: list[str], tokens: list[str],
+                pins: list[str], insecure: bool) -> list[KubeCredentials] | None:
+    """Kubernetes API endpoints (NKP clusters) from the paired --nkp-* options.
+
+    An API server's certificate is signed by the cluster's own CA: pin it with
+    --nkp-sha256 (verification is then off and the pin enforced), or trust that CA
+    system-wide. --insecure without a pin applies here too, with its warning.
+    """
+    out: list[KubeCredentials] = []
+    for i, nkp_host in enumerate(hosts):
+        if not nkp_host:
+            continue
+        token = tokens[i] or getpass.getpass(f"Kubernetes API token for {nkp_host}: ")
+        try:
+            port_no = int(ports[i] or 6443)
+        except ValueError as exc:
+            raise typer.BadParameter("--nkp-port must be a port number") from exc
+        tls: dict[str, Any]
+        if pins[i]:
+            digest = normalize_fingerprint(pins[i])
+            if digest is None:
+                raise typer.BadParameter(
+                    "--nkp-sha256 must be a SHA-256 fingerprint (64 hex digits)")
+            tls = {"verify_ssl": False, "pinned_sha256": digest}
+        else:
+            tls = {"verify_ssl": not insecure, **_tls(insecure)}
+        out.append(KubeCredentials(host=nkp_host, token=token, port=port_no,
+                                   name=names[i] or None, **tls))
+    return out or None
+
+
+def _kube_kwargs(kube_creds: list[KubeCredentials] | None) -> dict[str, Any]:
+    """`collect_environment` keyword arguments for the Kubernetes endpoints (none when
+    there are none, so the call reads as before)."""
+    return {"kube_creds": kube_creds} if kube_creds else {}
+
+
+def _nkp_paired(option: str, values: list[str] | None, count: int,
+                default: str = "") -> list[str]:
+    """A per-endpoint --nkp-* option, lined up with --nkp-host (once for all, or each)."""
+    values = list(values or [])
+    if not values:
+        return [default] * count
+    if len(values) == 1:
+        return values * count
+    if len(values) != count:
+        raise typer.BadParameter(
+            f"{option} given {len(values)} time(s) for {count} --nkp-host value(s). "
+            "Pass it once for all or once per --nkp-host")
+    return values
 
 
 @app.callback()
@@ -107,6 +160,20 @@ def inventory(
              "minutes). Off by default."),
     lcm_inventory_timeout: int = typer.Option(
         1800, "--lcm-inventory-timeout", help="Seconds to wait for the LCM inventory"),
+    nkp_host: Annotated[list[str] | None, typer.Option(
+        "--nkp-host",
+        help="Optional Kubernetes API host of an NKP cluster (its control plane endpoint); "
+             "repeat per cluster")] = None,
+    nkp_port: Annotated[list[str] | None, typer.Option(
+        "--nkp-port", help="Kubernetes API port, paired with --nkp-host (default 6443)")] = None,
+    nkp_name: Annotated[list[str] | None, typer.Option(
+        "--nkp-name", help="Cluster name to report when the API cannot tell it")] = None,
+    nkp_token: Annotated[list[str] | None, typer.Option(
+        "--nkp-token",
+        help="Bearer token (ideally a read-only ServiceAccount); prompted if omitted")] = None,
+    nkp_sha256: Annotated[list[str] | None, typer.Option(
+        "--nkp-sha256",
+        help="SHA-256 fingerprint to pin for the API server certificate")] = None,
 ) -> None:
     """Connect, collect the full platform inventory, snapshot it, and export."""
     pwd = password or getpass.getpass("Prism Central password: ")
@@ -125,6 +192,13 @@ def inventory(
         vc_creds = VcenterCredentials(host=vcenter_host, username=vcenter_username,
                                       password=vc_pwd, verify_ssl=not insecure, **_tls(insecure))
 
+    hosts = list(nkp_host or [])
+    kube_creds = _kube_creds(
+        hosts, _nkp_paired("--nkp-port", nkp_port, len(hosts), "6443"),
+        _nkp_paired("--nkp-name", nkp_name, len(hosts)),
+        _nkp_paired("--nkp-token", nkp_token, len(hosts)),
+        _nkp_paired("--nkp-sha256", nkp_sha256, len(hosts)), insecure)
+
     def progress(idx: int, total: int, label: str, status: str) -> None:
         console.print(f"  [{idx + 1}/{total}] {label}: [dim]{status}[/dim]")
 
@@ -142,7 +216,8 @@ def inventory(
     try:
         console.print(f"[bold]Connecting[/bold] to {host} …")
         env = collect_environment(creds, progress=progress, ndb_creds=ndb_creds,
-                                  vcenter_creds=vc_creds, lcm_inventory=lcm)
+                                  vcenter_creds=vc_creds, lcm_inventory=lcm,
+                                  **_kube_kwargs(kube_creds))
     except NutanixApiError as exc:
         console.print(f"[red]Collection failed:[/red] {exc}")
         raise typer.Exit(1) from exc
@@ -210,6 +285,17 @@ def inventory_multi(
         "--ndb-username", help="NDB username")] = None,
     ndb_password: Annotated[list[str] | None, typer.Option(
         "--ndb-password", help="NDB password (prompted per NDB host if omitted)")] = None,
+    nkp_host: Annotated[list[str] | None, typer.Option(
+        "--nkp-host",
+        help="Optional Kubernetes API host of an NKP cluster; pair per --host")] = None,
+    nkp_port: Annotated[list[str] | None, typer.Option(
+        "--nkp-port", help="Kubernetes API port, paired per --host (default 6443)")] = None,
+    nkp_name: Annotated[list[str] | None, typer.Option(
+        "--nkp-name", help="NKP cluster name, paired per --host")] = None,
+    nkp_token: Annotated[list[str] | None, typer.Option(
+        "--nkp-token", help="Bearer token (prompted per NKP host if omitted)")] = None,
+    nkp_sha256: Annotated[list[str] | None, typer.Option(
+        "--nkp-sha256", help="SHA-256 fingerprint to pin, paired per --host")] = None,
 ) -> None:
     """Inventory several Prism Centrals in one run, optionally combining them.
 
@@ -221,6 +307,11 @@ def inventory_multi(
     ndb_hosts = _pair("--ndb-host", ndb_host, len(host), allow_empty=True)
     ndb_usernames = _pair("--ndb-username", ndb_username, len(host), allow_empty=True)
     ndb_passwords = _pair("--ndb-password", ndb_password, len(host), allow_empty=True)
+    nkp_hosts = _pair("--nkp-host", nkp_host, len(host), allow_empty=True)
+    nkp_ports = _pair("--nkp-port", nkp_port, len(host), allow_empty=True)
+    nkp_names = _pair("--nkp-name", nkp_name, len(host), allow_empty=True)
+    nkp_tokens = _pair("--nkp-token", nkp_token, len(host), allow_empty=True)
+    nkp_pins = _pair("--nkp-sha256", nkp_sha256, len(host), allow_empty=True)
 
     collected = []
     failures: list[tuple[str, str]] = []
@@ -233,6 +324,8 @@ def inventory_multi(
             ndb_pwd = ndb_passwords[i] or getpass.getpass(f"NDB password for {ndb_hosts[i]}: ")
             ndb_creds = NdbCredentials(host=ndb_hosts[i], username=ndb_usernames[i],
                                        password=ndb_pwd, verify_ssl=not insecure, **_tls(insecure))
+        kube_creds = _kube_creds([nkp_hosts[i]], [nkp_ports[i]], [nkp_names[i]],
+                                 [nkp_tokens[i]], [nkp_pins[i]], insecure)
 
         def progress(idx: int, total: int, label: str, status: str, _t: str = target) -> None:
             console.print(f"  [{_t}] [{idx + 1}/{total}] {label}: [dim]{status}[/dim]")
@@ -240,7 +333,8 @@ def inventory_multi(
         console.print(f"[bold]Connecting[/bold] to {target} … "
                       f"({i + 1}/{len(host)})")
         try:
-            env = collect_environment(creds, progress=progress, ndb_creds=ndb_creds)
+            env = collect_environment(creds, progress=progress, ndb_creds=ndb_creds,
+                                      **_kube_kwargs(kube_creds))
         except Exception as exc:  # noqa: BLE001 — one target never aborts the rest
             console.print(f"[red]{target} failed:[/red] {exc}")
             failures.append((target, str(exc)))

@@ -194,6 +194,54 @@ def legend(scene: Scene, items: list[tuple[str, Style, str]], x: float, y: float
     return q(rows * row_h)
 
 
+def _descendants(sc: Scene, root: str) -> set[str]:
+    kids: dict[str, list[str]] = {}
+    for n in sc.nodes:
+        if n.parent:
+            kids.setdefault(n.parent, []).append(n.id)
+    out: set[str] = set()
+    stack = list(kids.get(root, []))
+    while stack:
+        nid = stack.pop()
+        if nid not in out:
+            out.add(nid)
+            stack.extend(kids.get(nid, []))
+    return out
+
+
+def fit_container(sc: Scene, cont: Node) -> float:
+    """Narrow `cont` to its content: the gap right of its rightmost child becomes the
+    gap left of its leftmost one, so the padding is the same on both sides (an AZ
+    whose cards fill two of three grid columns no longer runs on empty). Never widens:
+    when the header text is wider than the content, the content is centred under it
+    instead. Returns the container's right edge."""
+    inside = _descendants(sc, cont.id)
+    kids = [n for n in sc.nodes if n.parent == cont.id and n.kind != "tag"]
+    if not kids:
+        return q(cont.x + cont.w)
+    left = min(n.x for n in kids)
+    right = max(n.x + n.w for n in kids)
+    pad = left - cont.x
+    head = max((t.x + t.width for t in cont.lines), default=0.0) + pad
+    tags = [n for n in sc.nodes if n.parent == cont.id and n.kind == "tag"]
+    head = max([head] + [n.x + n.w - cont.x + pad for n in tags])
+    want = q(max(right - cont.x + pad, head))
+    if want >= cont.w - 0.5:
+        return q(cont.x + cont.w)
+    dx = q((want - (right - cont.x + pad)) / 2)
+    if dx > 0:
+        for n in sc.nodes:
+            if n.id in inside and not (n.kind == "tag" and n.parent == cont.id):
+                n.x = q(n.x + dx)
+        for e in sc.edges:
+            if e.src in inside and e.dst in inside:
+                e.points = [(q(x + dx), y) for x, y in e.points]
+                for lab in e.labels:
+                    lab.x = q(lab.x + dx)
+    cont.w = want
+    return q(cont.x + cont.w)
+
+
 #: A row hung on a trunk: (height, draw(x, y, w) -> nodes, the row node first).
 TrunkRow = tuple[float, Callable[[float, float, float], list[Node]]]
 

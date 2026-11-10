@@ -1,0 +1,8033 @@
+{
+ "appdeployments": [
+  {
+   "apiVersion": "apps.kommander.d2iq.io/v1alpha3",
+   "kind": "AppDeployment",
+   "metadata": {
+    "name": "cert-manager",
+    "namespace": "kommander-default-workspace"
+   },
+   "spec": {
+    "appRef": {
+     "kind": "ClusterApp",
+     "name": "cert-manager-1.19.3"
+    }
+   }
+  },
+  {
+   "apiVersion": "apps.kommander.d2iq.io/v1alpha3",
+   "kind": "AppDeployment",
+   "metadata": {
+    "name": "gatekeeper",
+    "namespace": "kommander-default-workspace"
+   },
+   "spec": {
+    "appRef": {
+     "kind": "ClusterApp",
+     "name": "gatekeeper-3.22.0"
+    }
+   }
+  },
+  {
+   "apiVersion": "apps.kommander.d2iq.io/v1alpha3",
+   "kind": "AppDeployment",
+   "metadata": {
+    "name": "gateway-api-crds",
+    "namespace": "kommander-default-workspace"
+   },
+   "spec": {
+    "appRef": {
+     "kind": "ClusterApp",
+     "name": "gateway-api-crds-1.11.2"
+    }
+   }
+  },
+  {
+   "apiVersion": "apps.kommander.d2iq.io/v1alpha3",
+   "kind": "AppDeployment",
+   "metadata": {
+    "name": "kommander-flux",
+    "namespace": "kommander-default-workspace"
+   },
+   "spec": {
+    "appRef": {
+     "kind": "ClusterApp",
+     "name": "kommander-flux-2.8.5"
+    }
+   }
+  },
+  {
+   "apiVersion": "apps.kommander.d2iq.io/v1alpha3",
+   "kind": "AppDeployment",
+   "metadata": {
+    "name": "reloader",
+    "namespace": "kommander-default-workspace"
+   },
+   "spec": {
+    "appRef": {
+     "kind": "ClusterApp",
+     "name": "reloader-2.2.11"
+    }
+   }
+  },
+  {
+   "apiVersion": "apps.kommander.d2iq.io/v1alpha3",
+   "kind": "AppDeployment",
+   "metadata": {
+    "name": "traefik",
+    "namespace": "kommander-default-workspace"
+   },
+   "spec": {
+    "appRef": {
+     "kind": "ClusterApp",
+     "name": "traefik-39.0.7"
+    }
+   }
+  },
+  {
+   "apiVersion": "apps.kommander.d2iq.io/v1alpha3",
+   "kind": "AppDeployment",
+   "metadata": {
+    "name": "dex",
+    "namespace": "kommander"
+   },
+   "spec": {
+    "appRef": {
+     "appID": "dex",
+     "kind": "ClusterApp",
+     "name": "dex-2.14.5"
+    }
+   }
+  },
+  {
+   "apiVersion": "apps.kommander.d2iq.io/v1alpha3",
+   "kind": "AppDeployment",
+   "metadata": {
+    "name": "dex-k8s-authenticator",
+    "namespace": "kommander"
+   },
+   "spec": {
+    "appRef": {
+     "appID": "dex-k8s-authenticator",
+     "kind": "ClusterApp",
+     "name": "dex-k8s-authenticator-1.4.8"
+    }
+   }
+  },
+  {
+   "apiVersion": "apps.kommander.d2iq.io/v1alpha3",
+   "kind": "AppDeployment",
+   "metadata": {
+    "name": "external-secrets",
+    "namespace": "kommander"
+   },
+   "spec": {
+    "appRef": {
+     "appID": "external-secrets",
+     "kind": "ClusterApp",
+     "name": "external-secrets-2.3.0"
+    }
+   }
+  },
+  {
+   "apiVersion": "apps.kommander.d2iq.io/v1alpha3",
+   "kind": "AppDeployment",
+   "metadata": {
+    "name": "gatekeeper",
+    "namespace": "kommander"
+   },
+   "spec": {
+    "appRef": {
+     "appID": "gatekeeper",
+     "kind": "ClusterApp",
+     "name": "gatekeeper-3.22.0"
+    }
+   }
+  },
+  {
+   "apiVersion": "apps.kommander.d2iq.io/v1alpha3",
+   "kind": "AppDeployment",
+   "metadata": {
+    "name": "gateway-api-crds",
+    "namespace": "kommander"
+   },
+   "spec": {
+    "appRef": {
+     "appID": "gateway-api-crds",
+     "kind": "ClusterApp",
+     "name": "gateway-api-crds-1.11.2"
+    }
+   }
+  },
+  {
+   "apiVersion": "apps.kommander.d2iq.io/v1alpha3",
+   "kind": "AppDeployment",
+   "metadata": {
+    "name": "git-operator",
+    "namespace": "kommander"
+   },
+   "spec": {
+    "appRef": {
+     "appID": "git-operator",
+     "kind": "ClusterApp",
+     "name": "git-operator-0.13.18"
+    }
+   }
+  },
+  {
+   "apiVersion": "apps.kommander.d2iq.io/v1alpha3",
+   "kind": "AppDeployment",
+   "metadata": {
+    "name": "kommander",
+    "namespace": "kommander"
+   },
+   "spec": {
+    "appRef": {
+     "appID": "kommander",
+     "kind": "ClusterApp",
+     "name": "kommander-0.18.0"
+    }
+   }
+  },
+  {
+   "apiVersion": "apps.kommander.d2iq.io/v1alpha3",
+   "kind": "AppDeployment",
+   "metadata": {
+    "name": "kommander-appmanagement",
+    "namespace": "kommander"
+   },
+   "spec": {
+    "appRef": {
+     "appID": "kommander-appmanagement",
+     "kind": "ClusterApp",
+     "name": "kommander-appmanagement-0.18.0"
+    }
+   }
+  },
+  {
+   "apiVersion": "apps.kommander.d2iq.io/v1alpha3",
+   "kind": "AppDeployment",
+   "metadata": {
+    "name": "kommander-flux",
+    "namespace": "kommander"
+   },
+   "spec": {
+    "appRef": {
+     "appID": "kommander-flux",
+     "kind": "ClusterApp",
+     "name": "kommander-flux-2.8.5"
+    }
+   }
+  },
+  {
+   "apiVersion": "apps.kommander.d2iq.io/v1alpha3",
+   "kind": "AppDeployment",
+   "metadata": {
+    "name": "kommander-ui",
+    "namespace": "kommander"
+   },
+   "spec": {
+    "appRef": {
+     "appID": "kommander-ui",
+     "kind": "ClusterApp",
+     "name": "kommander-ui-17.234.30"
+    }
+   }
+  },
+  {
+   "apiVersion": "apps.kommander.d2iq.io/v1alpha3",
+   "kind": "AppDeployment",
+   "metadata": {
+    "name": "kube-oidc-proxy",
+    "namespace": "kommander"
+   },
+   "spec": {
+    "appRef": {
+     "appID": "kube-oidc-proxy",
+     "kind": "ClusterApp",
+     "name": "kube-oidc-proxy-0.3.8"
+    }
+   }
+  },
+  {
+   "apiVersion": "apps.kommander.d2iq.io/v1alpha3",
+   "kind": "AppDeployment",
+   "metadata": {
+    "name": "kubefed",
+    "namespace": "kommander"
+   },
+   "spec": {
+    "appRef": {
+     "appID": "kubefed",
+     "kind": "ClusterApp",
+     "name": "kubefed-0.12.1"
+    }
+   }
+  },
+  {
+   "apiVersion": "apps.kommander.d2iq.io/v1alpha3",
+   "kind": "AppDeployment",
+   "metadata": {
+    "name": "reloader",
+    "namespace": "kommander"
+   },
+   "spec": {
+    "appRef": {
+     "appID": "reloader",
+     "kind": "ClusterApp",
+     "name": "reloader-2.2.11"
+    }
+   }
+  },
+  {
+   "apiVersion": "apps.kommander.d2iq.io/v1alpha3",
+   "kind": "AppDeployment",
+   "metadata": {
+    "name": "traefik",
+    "namespace": "kommander"
+   },
+   "spec": {
+    "appRef": {
+     "appID": "traefik",
+     "kind": "ClusterApp",
+     "name": "traefik-39.0.7"
+    }
+   }
+  },
+  {
+   "apiVersion": "apps.kommander.d2iq.io/v1alpha3",
+   "kind": "AppDeployment",
+   "metadata": {
+    "name": "traefik-forward-auth-mgmt",
+    "namespace": "kommander"
+   },
+   "spec": {
+    "appRef": {
+     "appID": "traefik-forward-auth-mgmt",
+     "kind": "ClusterApp",
+     "name": "traefik-forward-auth-mgmt-0.3.18"
+    }
+   }
+  }
+ ],
+ "cronjobs": [
+  {
+   "apiVersion": null,
+   "kind": "CronJob",
+   "metadata": {
+    "name": "git-operator-admin-credentials-rotate",
+    "namespace": "git-operator-system"
+   },
+   "spec": {
+    "jobTemplate": {
+     "spec": {
+      "template": {
+       "spec": {
+        "containers": [
+         {
+          "image": "docker.io/mesosphere/kubectl:v1.35.2-alpine",
+          "name": "admin-credentials-rotate"
+         }
+        ]
+       }
+      }
+     }
+    },
+    "schedule": "0 0 * * *",
+    "suspend": false
+   },
+   "status": {}
+  },
+  {
+   "apiVersion": null,
+   "kind": "CronJob",
+   "metadata": {
+    "annotations": {
+     "meta.helm.sh/release-name": "cilium",
+     "meta.helm.sh/release-namespace": "kube-system"
+    },
+    "labels": {
+     "app.kubernetes.io/managed-by": "Helm",
+     "app.kubernetes.io/name": "hubble-generate-certs",
+     "app.kubernetes.io/part-of": "cilium"
+    },
+    "name": "hubble-generate-certs",
+    "namespace": "kube-system"
+   },
+   "spec": {
+    "jobTemplate": {
+     "spec": {
+      "template": {
+       "spec": {
+        "containers": [
+         {
+          "image": "quay.io/cilium/certgen:v0.4.3",
+          "name": "certgen"
+         }
+        ]
+       }
+      }
+     }
+    },
+    "schedule": "0 0 1 * *",
+    "suspend": false
+   },
+   "status": {}
+  },
+  {
+   "apiVersion": null,
+   "kind": "CronJob",
+   "metadata": {
+    "name": "nightly-report",
+    "namespace": "demo-data"
+   },
+   "spec": {
+    "jobTemplate": {
+     "spec": {
+      "template": {
+       "spec": {
+        "containers": [
+         {
+          "image": "busybox:1.36",
+          "name": "report"
+         }
+        ]
+       }
+      }
+     }
+    },
+    "schedule": "0 2 * * *",
+    "suspend": false
+   },
+   "status": {}
+  }
+ ],
+ "daemonsets": [
+  {
+   "apiVersion": null,
+   "kind": "DaemonSet",
+   "metadata": {
+    "annotations": {
+     "meta.helm.sh/release-name": "cilium",
+     "meta.helm.sh/release-namespace": "kube-system"
+    },
+    "labels": {
+     "app.kubernetes.io/managed-by": "Helm",
+     "app.kubernetes.io/name": "cilium-agent",
+     "app.kubernetes.io/part-of": "cilium"
+    },
+    "name": "cilium",
+    "namespace": "kube-system"
+   },
+   "spec": {
+    "template": {
+     "spec": {
+      "containers": [
+       {
+        "image": "quay.io/cilium/cilium:v1.19.4",
+        "name": "cilium-agent"
+       }
+      ]
+     }
+    }
+   },
+   "status": {
+    "desiredNumberScheduled": 4,
+    "numberReady": 4
+   }
+  },
+  {
+   "apiVersion": null,
+   "kind": "DaemonSet",
+   "metadata": {
+    "annotations": {
+     "meta.helm.sh/release-name": "cilium",
+     "meta.helm.sh/release-namespace": "kube-system"
+    },
+    "labels": {
+     "app.kubernetes.io/managed-by": "Helm",
+     "app.kubernetes.io/name": "cilium-envoy",
+     "app.kubernetes.io/part-of": "cilium"
+    },
+    "name": "cilium-envoy",
+    "namespace": "kube-system"
+   },
+   "spec": {
+    "template": {
+     "spec": {
+      "containers": [
+       {
+        "image": "quay.io/cilium/cilium-envoy:v1.36.6-1778235340-b87d1e32f522b33bd51701c6476d199326f01496",
+        "name": "cilium-envoy"
+       }
+      ]
+     }
+    }
+   },
+   "status": {
+    "desiredNumberScheduled": 4,
+    "numberReady": 4
+   }
+  },
+  {
+   "apiVersion": null,
+   "kind": "DaemonSet",
+   "metadata": {
+    "annotations": {
+     "meta.helm.sh/release-name": "multus",
+     "meta.helm.sh/release-namespace": "kube-system"
+    },
+    "labels": {
+     "app.kubernetes.io/instance": "multus",
+     "app.kubernetes.io/managed-by": "Helm",
+     "app.kubernetes.io/name": "multus",
+     "app.kubernetes.io/version": "v4.2.4",
+     "helm.sh/chart": "multus-0.1.1"
+    },
+    "name": "multus",
+    "namespace": "kube-system"
+   },
+   "spec": {
+    "template": {
+     "spec": {
+      "containers": [
+       {
+        "image": "ghcr.io/k8snetworkplumbingwg/multus-cni:v4.2.4-thick",
+        "name": "multus"
+       }
+      ]
+     }
+    }
+   },
+   "status": {
+    "desiredNumberScheduled": 4,
+    "numberReady": 4
+   }
+  },
+  {
+   "apiVersion": null,
+   "kind": "DaemonSet",
+   "metadata": {
+    "annotations": {
+     "meta.helm.sh/release-name": "metallb",
+     "meta.helm.sh/release-namespace": "metallb-system"
+    },
+    "labels": {
+     "app.kubernetes.io/component": "speaker",
+     "app.kubernetes.io/instance": "metallb",
+     "app.kubernetes.io/managed-by": "Helm",
+     "app.kubernetes.io/name": "metallb",
+     "app.kubernetes.io/version": "v0.15.3",
+     "helm.sh/chart": "metallb-0.15.3"
+    },
+    "name": "metallb-speaker",
+    "namespace": "metallb-system"
+   },
+   "spec": {
+    "template": {
+     "spec": {
+      "containers": [
+       {
+        "image": "quay.io/metallb/speaker:v0.15.3",
+        "name": "speaker"
+       },
+       {
+        "image": "quay.io/frrouting/frr:9.1.3",
+        "name": "frr"
+       },
+       {
+        "image": "quay.io/frrouting/frr:9.1.3",
+        "name": "reloader"
+       },
+       {
+        "image": "quay.io/frrouting/frr:9.1.3",
+        "name": "frr-metrics"
+       }
+      ]
+     }
+    }
+   },
+   "status": {
+    "desiredNumberScheduled": 4,
+    "numberReady": 4
+   }
+  },
+  {
+   "apiVersion": null,
+   "kind": "DaemonSet",
+   "metadata": {
+    "annotations": {
+     "meta.helm.sh/release-name": "node-feature-discovery",
+     "meta.helm.sh/release-namespace": "node-feature-discovery"
+    },
+    "labels": {
+     "app.kubernetes.io/instance": "node-feature-discovery",
+     "app.kubernetes.io/managed-by": "Helm",
+     "app.kubernetes.io/name": "node-feature-discovery",
+     "app.kubernetes.io/version": "v0.18.3",
+     "helm.sh/chart": "node-feature-discovery-0.18.3"
+    },
+    "name": "node-feature-discovery-worker",
+    "namespace": "node-feature-discovery"
+   },
+   "spec": {
+    "template": {
+     "spec": {
+      "containers": [
+       {
+        "image": "registry.k8s.io/nfd/node-feature-discovery:v0.18.3",
+        "name": "worker"
+       }
+      ]
+     }
+    }
+   },
+   "status": {
+    "desiredNumberScheduled": 4,
+    "numberReady": 4
+   }
+  },
+  {
+   "apiVersion": null,
+   "kind": "DaemonSet",
+   "metadata": {
+    "annotations": {
+     "meta.helm.sh/release-name": "nutanix-csi",
+     "meta.helm.sh/release-namespace": "ntnx-system"
+    },
+    "labels": {
+     "app.kubernetes.io/instance": "nutanix-csi",
+     "app.kubernetes.io/managed-by": "Helm",
+     "app.kubernetes.io/management-plane": "PrismCentral",
+     "app.kubernetes.io/name": "nutanix-csi-storage",
+     "app.kubernetes.io/topology-enabled": "true",
+     "app.kubernetes.io/version": "3.7.1",
+     "helm.sh/chart": "nutanix-csi-storage-3.7.1"
+    },
+    "name": "nutanix-csi-node",
+    "namespace": "ntnx-system"
+   },
+   "spec": {
+    "template": {
+     "spec": {
+      "containers": [
+       {
+        "image": "registry.k8s.io/sig-storage/csi-node-driver-registrar:v2.15.0",
+        "name": "driver-registrar"
+       },
+       {
+        "image": "docker.io/nutanix/ntnx-csi:3.7.1",
+        "name": "nutanix-csi-node"
+       },
+       {
+        "image": "registry.k8s.io/sig-storage/livenessprobe:v2.17.0",
+        "name": "liveness-probe"
+       }
+      ]
+     }
+    }
+   },
+   "status": {
+    "desiredNumberScheduled": 4,
+    "numberReady": 4
+   }
+  },
+  {
+   "apiVersion": null,
+   "kind": "DaemonSet",
+   "metadata": {
+    "annotations": {
+     "meta.helm.sh/release-name": "fluent-bit",
+     "meta.helm.sh/release-namespace": "demo-logging"
+    },
+    "labels": {
+     "app.kubernetes.io/instance": "fluent-bit",
+     "app.kubernetes.io/managed-by": "Helm",
+     "app.kubernetes.io/name": "fluent-bit",
+     "app.kubernetes.io/version": "5.1.3",
+     "helm.sh/chart": "fluent-bit-0.58.3"
+    },
+    "name": "fluent-bit",
+    "namespace": "demo-logging"
+   },
+   "spec": {
+    "template": {
+     "spec": {
+      "containers": [
+       {
+        "image": "cr.fluentbit.io/fluent/fluent-bit:5.1.3",
+        "name": "fluent-bit"
+       }
+      ]
+     }
+    }
+   },
+   "status": {
+    "desiredNumberScheduled": 4,
+    "numberReady": 4
+   }
+  },
+  {
+   "apiVersion": null,
+   "kind": "DaemonSet",
+   "metadata": {
+    "annotations": {
+     "meta.helm.sh/release-name": "prometheus",
+     "meta.helm.sh/release-namespace": "demo-monitoring"
+    },
+    "labels": {
+     "app.kubernetes.io/component": "metrics",
+     "app.kubernetes.io/instance": "prometheus",
+     "app.kubernetes.io/managed-by": "Helm",
+     "app.kubernetes.io/name": "prometheus-node-exporter",
+     "app.kubernetes.io/part-of": "prometheus-node-exporter",
+     "app.kubernetes.io/version": "1.12.1",
+     "helm.sh/chart": "prometheus-node-exporter-4.60.1"
+    },
+    "name": "prometheus-prometheus-node-exporter",
+    "namespace": "demo-monitoring"
+   },
+   "spec": {
+    "template": {
+     "spec": {
+      "containers": [
+       {
+        "image": "quay.io/prometheus/node-exporter:v1.12.1",
+        "name": "node-exporter"
+       }
+      ]
+     }
+    }
+   },
+   "status": {
+    "desiredNumberScheduled": 4,
+    "numberReady": 4
+   }
+  }
+ ],
+ "deployments": [
+  {
+   "apiVersion": null,
+   "kind": "Deployment",
+   "metadata": {
+    "name": "caaph-controller-manager",
+    "namespace": "caaph-system"
+   },
+   "spec": {
+    "replicas": 1,
+    "template": {
+     "spec": {
+      "containers": [
+       {
+        "image": "registry.k8s.io/cluster-api-helm/cluster-api-helm-controller:v0.6.2",
+        "name": "manager"
+       }
+      ]
+     }
+    }
+   },
+   "status": {
+    "availableReplicas": 1,
+    "readyReplicas": 1,
+    "replicas": 1
+   }
+  },
+  {
+   "apiVersion": null,
+   "kind": "Deployment",
+   "metadata": {
+    "name": "capa-controller-manager",
+    "namespace": "capa-system"
+   },
+   "spec": {
+    "replicas": 1,
+    "template": {
+     "spec": {
+      "containers": [
+       {
+        "image": "ghcr.io/nutanix-cloud-native/cluster-api-aws-controller:v2.11.0-ncn.1",
+        "name": "manager"
+       }
+      ]
+     }
+    }
+   },
+   "status": {
+    "availableReplicas": 1,
+    "readyReplicas": 1,
+    "replicas": 1
+   }
+  },
+  {
+   "apiVersion": null,
+   "kind": "Deployment",
+   "metadata": {
+    "name": "capg-controller-manager",
+    "namespace": "capg-system"
+   },
+   "spec": {
+    "replicas": 1,
+    "template": {
+     "spec": {
+      "containers": [
+       {
+        "image": "registry.k8s.io/cluster-api-gcp/cluster-api-gcp-controller:v1.11.1",
+        "name": "manager"
+       }
+      ]
+     }
+    }
+   },
+   "status": {
+    "availableReplicas": 1,
+    "readyReplicas": 1,
+    "replicas": 1
+   }
+  },
+  {
+   "apiVersion": null,
+   "kind": "Deployment",
+   "metadata": {
+    "name": "capi-kubeadm-bootstrap-controller-manager",
+    "namespace": "capi-kubeadm-bootstrap-system"
+   },
+   "spec": {
+    "replicas": 1,
+    "template": {
+     "spec": {
+      "containers": [
+       {
+        "image": "registry.k8s.io/cluster-api/kubeadm-bootstrap-controller:v1.12.4",
+        "name": "manager"
+       }
+      ]
+     }
+    }
+   },
+   "status": {
+    "availableReplicas": 1,
+    "readyReplicas": 1,
+    "replicas": 1
+   }
+  },
+  {
+   "apiVersion": null,
+   "kind": "Deployment",
+   "metadata": {
+    "name": "capi-kubeadm-control-plane-controller-manager",
+    "namespace": "capi-kubeadm-control-plane-system"
+   },
+   "spec": {
+    "replicas": 1,
+    "template": {
+     "spec": {
+      "containers": [
+       {
+        "image": "registry.k8s.io/cluster-api/kubeadm-control-plane-controller:v1.12.4",
+        "name": "manager"
+       }
+      ]
+     }
+    }
+   },
+   "status": {
+    "availableReplicas": 1,
+    "readyReplicas": 1,
+    "replicas": 1
+   }
+  },
+  {
+   "apiVersion": null,
+   "kind": "Deployment",
+   "metadata": {
+    "annotations": {
+     "meta.helm.sh/release-name": "cluster-api-operator",
+     "meta.helm.sh/release-namespace": "capi-operator-system"
+    },
+    "labels": {
+     "app.kubernetes.io/component": "controller",
+     "app.kubernetes.io/instance": "cluster-api-operator",
+     "app.kubernetes.io/managed-by": "Helm",
+     "app.kubernetes.io/name": "cluster-api-operator"
+    },
+    "name": "cluster-api-operator",
+    "namespace": "capi-operator-system"
+   },
+   "spec": {
+    "replicas": 1,
+    "template": {
+     "spec": {
+      "containers": [
+       {
+        "image": "registry.k8s.io/capi-operator/cluster-api-operator:v0.26.0",
+        "name": "manager"
+       }
+      ]
+     }
+    }
+   },
+   "status": {
+    "availableReplicas": 1,
+    "readyReplicas": 1,
+    "replicas": 1
+   }
+  },
+  {
+   "apiVersion": null,
+   "kind": "Deployment",
+   "metadata": {
+    "annotations": {
+     "meta.helm.sh/release-name": "cluster-api-stack-operator",
+     "meta.helm.sh/release-namespace": "capi-stack-operator"
+    },
+    "labels": {
+     "app.kubernetes.io/instance": "cluster-api-stack-operator",
+     "app.kubernetes.io/managed-by": "Helm",
+     "app.kubernetes.io/name": "cluster-api-stack-operator",
+     "app.kubernetes.io/version": "v0.4.23",
+     "helm.sh/chart": "v0.4.23"
+    },
+    "name": "cluster-api-stack-operator",
+    "namespace": "capi-stack-operator"
+   },
+   "spec": {
+    "replicas": 1,
+    "template": {
+     "spec": {
+      "containers": [
+       {
+        "image": "ghcr.io/nutanix-cloud-native/cluster-api-stack-operator:v0.4.23",
+        "name": "manager"
+       }
+      ]
+     }
+    }
+   },
+   "status": {
+    "availableReplicas": 1,
+    "readyReplicas": 1,
+    "replicas": 1
+   }
+  },
+  {
+   "apiVersion": null,
+   "kind": "Deployment",
+   "metadata": {
+    "annotations": {
+     "meta.helm.sh/release-name": "cluster-api-stack-operator",
+     "meta.helm.sh/release-namespace": "capi-stack-operator"
+    },
+    "labels": {
+     "app.kubernetes.io/component": "self-hosted-bundle",
+     "app.kubernetes.io/instance": "cluster-api-stack-operator",
+     "app.kubernetes.io/managed-by": "Helm",
+     "app.kubernetes.io/name": "cluster-api-stack-operator",
+     "app.kubernetes.io/version": "v0.4.23",
+     "helm.sh/chart": "v0.4.23"
+    },
+    "name": "cluster-api-stack-operator-self-hosted-bundle",
+    "namespace": "capi-stack-operator"
+   },
+   "spec": {
+    "replicas": 1,
+    "template": {
+     "spec": {
+      "containers": [
+       {
+        "image": "ghcr.io/nutanix-cloud-native/capi-stack-bundle:v0.4.23",
+        "name": "registry"
+       }
+      ]
+     }
+    }
+   },
+   "status": {
+    "availableReplicas": 1,
+    "readyReplicas": 1,
+    "replicas": 1
+   }
+  },
+  {
+   "apiVersion": null,
+   "kind": "Deployment",
+   "metadata": {
+    "name": "capi-controller-manager",
+    "namespace": "capi-system"
+   },
+   "spec": {
+    "replicas": 1,
+    "template": {
+     "spec": {
+      "containers": [
+       {
+        "image": "registry.k8s.io/cluster-api/cluster-api-controller:v1.12.4",
+        "name": "manager"
+       }
+      ]
+     }
+    }
+   },
+   "status": {
+    "availableReplicas": 1,
+    "readyReplicas": 1,
+    "replicas": 1
+   }
+  },
+  {
+   "apiVersion": null,
+   "kind": "Deployment",
+   "metadata": {
+    "name": "cappp-controller-manager",
+    "namespace": "cappp-system"
+   },
+   "spec": {
+    "replicas": 1,
+    "template": {
+     "spec": {
+      "containers": [
+       {
+        "image": "docker.io/mesosphere/cluster-api-preprovisioned-controller:v0.42.1",
+        "name": "manager"
+       }
+      ]
+     }
+    }
+   },
+   "status": {
+    "availableReplicas": 1,
+    "readyReplicas": 1,
+    "replicas": 1
+   }
+  },
+  {
+   "apiVersion": null,
+   "kind": "Deployment",
+   "metadata": {
+    "name": "capv-controller-manager",
+    "namespace": "capv-system"
+   },
+   "spec": {
+    "replicas": 1,
+    "template": {
+     "spec": {
+      "containers": [
+       {
+        "image": "registry.k8s.io/cluster-api-vsphere/cluster-api-vsphere-controller:v1.15.2",
+        "name": "manager"
+       }
+      ]
+     }
+    }
+   },
+   "status": {
+    "availableReplicas": 1,
+    "readyReplicas": 1,
+    "replicas": 1
+   }
+  },
+  {
+   "apiVersion": null,
+   "kind": "Deployment",
+   "metadata": {
+    "name": "capx-controller-manager",
+    "namespace": "capx-system"
+   },
+   "spec": {
+    "replicas": 1,
+    "template": {
+     "spec": {
+      "containers": [
+       {
+        "image": "ghcr.io/nutanix-cloud-native/dkp-container-images/nkp-cluster-api-provider-nutanix:v1.9.6",
+        "name": "manager"
+       }
+      ]
+     }
+    }
+   },
+   "status": {
+    "availableReplicas": 1,
+    "readyReplicas": 1,
+    "replicas": 1
+   }
+  },
+  {
+   "apiVersion": null,
+   "kind": "Deployment",
+   "metadata": {
+    "labels": {
+     "app.kubernetes.io/name": "azure-service-operator",
+     "app.kubernetes.io/version": "v2.13.0"
+    },
+    "name": "azureserviceoperator-controller-manager",
+    "namespace": "capz-system"
+   },
+   "spec": {
+    "replicas": 2,
+    "template": {
+     "spec": {
+      "containers": [
+       {
+        "image": "mcr.microsoft.com/k8s/azureserviceoperator:v2.13.0",
+        "name": "manager"
+       }
+      ]
+     }
+    }
+   },
+   "status": {
+    "availableReplicas": 2,
+    "readyReplicas": 2,
+    "replicas": 2
+   }
+  },
+  {
+   "apiVersion": null,
+   "kind": "Deployment",
+   "metadata": {
+    "name": "capz-controller-manager",
+    "namespace": "capz-system"
+   },
+   "spec": {
+    "replicas": 1,
+    "template": {
+     "spec": {
+      "containers": [
+       {
+        "image": "registry.k8s.io/cluster-api-azure/cluster-api-azure-controller:v1.23.0",
+        "name": "manager"
+       }
+      ]
+     }
+    }
+   },
+   "status": {
+    "availableReplicas": 1,
+    "readyReplicas": 1,
+    "replicas": 1
+   }
+  },
+  {
+   "apiVersion": null,
+   "kind": "Deployment",
+   "metadata": {
+    "labels": {
+     "app.kubernetes.io/instance": "cluster-api-runtime-extensions-nutanix",
+     "app.kubernetes.io/managed-by": "Helm",
+     "app.kubernetes.io/name": "cluster-api-runtime-extensions-nutanix",
+     "app.kubernetes.io/version": "v0.52.6",
+     "helm.sh/chart": "cluster-api-runtime-extensions-nutanix-v0.52.6"
+    },
+    "name": "cluster-api-runtime-extensions-nutanix",
+    "namespace": "caren-system"
+   },
+   "spec": {
+    "replicas": 1,
+    "template": {
+     "spec": {
+      "containers": [
+       {
+        "image": "ghcr.io/nutanix-cloud-native/dkp-container-images/nkp-cluster-api-runtime-extensions-nutanix:v0.52.6",
+        "name": "manager"
+       }
+      ]
+     }
+    }
+   },
+   "status": {
+    "availableReplicas": 1,
+    "readyReplicas": 1,
+    "replicas": 1
+   }
+  },
+  {
+   "apiVersion": null,
+   "kind": "Deployment",
+   "metadata": {
+    "name": "helm-repository",
+    "namespace": "caren-system"
+   },
+   "spec": {
+    "replicas": 1,
+    "template": {
+     "spec": {
+      "containers": [
+       {
+        "image": "ghcr.io/mesosphere/mindthegap:v1.25.1",
+        "name": "manager"
+       }
+      ]
+     }
+    }
+   },
+   "status": {
+    "availableReplicas": 1,
+    "readyReplicas": 1,
+    "replicas": 1
+   }
+  },
+  {
+   "apiVersion": null,
+   "kind": "Deployment",
+   "metadata": {
+    "annotations": {
+     "meta.helm.sh/release-name": "cert-manager",
+     "meta.helm.sh/release-namespace": "cert-manager"
+    },
+    "labels": {
+     "app.kubernetes.io/component": "controller",
+     "app.kubernetes.io/instance": "cert-manager",
+     "app.kubernetes.io/managed-by": "Helm",
+     "app.kubernetes.io/name": "cert-manager",
+     "app.kubernetes.io/version": "v1.19.3",
+     "helm.sh/chart": "cert-manager-v1.19.3"
+    },
+    "name": "cert-manager",
+    "namespace": "cert-manager"
+   },
+   "spec": {
+    "replicas": 1,
+    "template": {
+     "spec": {
+      "containers": [
+       {
+        "image": "quay.io/jetstack/cert-manager-controller:v1.19.3",
+        "name": "cert-manager-controller"
+       }
+      ]
+     }
+    }
+   },
+   "status": {
+    "availableReplicas": 1,
+    "readyReplicas": 1,
+    "replicas": 1
+   }
+  },
+  {
+   "apiVersion": null,
+   "kind": "Deployment",
+   "metadata": {
+    "annotations": {
+     "meta.helm.sh/release-name": "cert-manager",
+     "meta.helm.sh/release-namespace": "cert-manager"
+    },
+    "labels": {
+     "app.kubernetes.io/component": "cainjector",
+     "app.kubernetes.io/instance": "cert-manager",
+     "app.kubernetes.io/managed-by": "Helm",
+     "app.kubernetes.io/name": "cainjector",
+     "app.kubernetes.io/version": "v1.19.3",
+     "helm.sh/chart": "cert-manager-v1.19.3"
+    },
+    "name": "cert-manager-cainjector",
+    "namespace": "cert-manager"
+   },
+   "spec": {
+    "replicas": 1,
+    "template": {
+     "spec": {
+      "containers": [
+       {
+        "image": "quay.io/jetstack/cert-manager-cainjector:v1.19.3",
+        "name": "cert-manager-cainjector"
+       }
+      ]
+     }
+    }
+   },
+   "status": {
+    "availableReplicas": 1,
+    "readyReplicas": 1,
+    "replicas": 1
+   }
+  },
+  {
+   "apiVersion": null,
+   "kind": "Deployment",
+   "metadata": {
+    "annotations": {
+     "meta.helm.sh/release-name": "cert-manager",
+     "meta.helm.sh/release-namespace": "cert-manager"
+    },
+    "labels": {
+     "app.kubernetes.io/component": "webhook",
+     "app.kubernetes.io/instance": "cert-manager",
+     "app.kubernetes.io/managed-by": "Helm",
+     "app.kubernetes.io/name": "webhook",
+     "app.kubernetes.io/version": "v1.19.3",
+     "helm.sh/chart": "cert-manager-v1.19.3"
+    },
+    "name": "cert-manager-webhook",
+    "namespace": "cert-manager"
+   },
+   "spec": {
+    "replicas": 1,
+    "template": {
+     "spec": {
+      "containers": [
+       {
+        "image": "quay.io/jetstack/cert-manager-webhook:v1.19.3",
+        "name": "cert-manager-webhook"
+       }
+      ]
+     }
+    }
+   },
+   "status": {
+    "availableReplicas": 1,
+    "readyReplicas": 1,
+    "replicas": 1
+   }
+  },
+  {
+   "apiVersion": null,
+   "kind": "Deployment",
+   "metadata": {
+    "annotations": {
+     "meta.helm.sh/release-name": "cosi-controller",
+     "meta.helm.sh/release-namespace": "container-object-storage-system"
+    },
+    "labels": {
+     "app.kubernetes.io/component": "controller",
+     "app.kubernetes.io/managed-by": "Helm",
+     "app.kubernetes.io/name": "container-object-storage-interface-controller",
+     "app.kubernetes.io/part-of": "container-object-storage-interface"
+    },
+    "name": "container-object-storage-controller",
+    "namespace": "container-object-storage-system"
+   },
+   "spec": {
+    "replicas": 1,
+    "template": {
+     "spec": {
+      "containers": [
+       {
+        "image": "ghcr.io/mesosphere/dkp-container-images/objectstorage-controller:v0.2.2",
+        "name": "objectstorage-controller"
+       }
+      ]
+     }
+    }
+   },
+   "status": {
+    "availableReplicas": 1,
+    "readyReplicas": 1,
+    "replicas": 1
+   }
+  },
+  {
+   "apiVersion": null,
+   "kind": "Deployment",
+   "metadata": {
+    "annotations": {
+     "meta.helm.sh/release-name": "external-secrets",
+     "meta.helm.sh/release-namespace": "external-secrets"
+    },
+    "labels": {
+     "app.kubernetes.io/instance": "external-secrets",
+     "app.kubernetes.io/managed-by": "Helm",
+     "app.kubernetes.io/name": "external-secrets",
+     "app.kubernetes.io/version": "v2.3.0",
+     "helm.sh/chart": "external-secrets-2.3.0"
+    },
+    "name": "external-secrets",
+    "namespace": "external-secrets"
+   },
+   "spec": {
+    "replicas": 1,
+    "template": {
+     "spec": {
+      "containers": [
+       {
+        "image": "ghcr.io/external-secrets/external-secrets:v2.3.0",
+        "name": "external-secrets"
+       }
+      ]
+     }
+    }
+   },
+   "status": {
+    "availableReplicas": 1,
+    "readyReplicas": 1,
+    "replicas": 1
+   }
+  },
+  {
+   "apiVersion": null,
+   "kind": "Deployment",
+   "metadata": {
+    "annotations": {
+     "meta.helm.sh/release-name": "external-secrets",
+     "meta.helm.sh/release-namespace": "external-secrets"
+    },
+    "labels": {
+     "app.kubernetes.io/instance": "external-secrets",
+     "app.kubernetes.io/managed-by": "Helm",
+     "app.kubernetes.io/name": "external-secrets-webhook",
+     "app.kubernetes.io/version": "v2.3.0",
+     "helm.sh/chart": "external-secrets-2.3.0"
+    },
+    "name": "external-secrets-webhook",
+    "namespace": "external-secrets"
+   },
+   "spec": {
+    "replicas": 1,
+    "template": {
+     "spec": {
+      "containers": [
+       {
+        "image": "ghcr.io/external-secrets/external-secrets:v2.3.0",
+        "name": "webhook"
+       }
+      ]
+     }
+    }
+   },
+   "status": {
+    "availableReplicas": 1,
+    "readyReplicas": 1,
+    "replicas": 1
+   }
+  },
+  {
+   "apiVersion": null,
+   "kind": "Deployment",
+   "metadata": {
+    "labels": {
+     "app.kubernetes.io/component": "manager",
+     "app.kubernetes.io/created-by": "git-operator",
+     "app.kubernetes.io/instance": "git-operator-controller-manager",
+     "app.kubernetes.io/managed-by": "kustomize",
+     "app.kubernetes.io/name": "deployment",
+     "app.kubernetes.io/part-of": "git-operator"
+    },
+    "name": "git-operator-controller-manager",
+    "namespace": "git-operator-system"
+   },
+   "spec": {
+    "replicas": 1,
+    "template": {
+     "spec": {
+      "containers": [
+       {
+        "image": "quay.io/brancz/kube-rbac-proxy:v0.21.1",
+        "name": "kube-rbac-proxy"
+       },
+       {
+        "image": "docker.io/mesosphere/git-operator:v0.13.19",
+        "name": "manager"
+       }
+      ]
+     }
+    }
+   },
+   "status": {
+    "availableReplicas": 1,
+    "readyReplicas": 1,
+    "replicas": 1
+   }
+  },
+  {
+   "apiVersion": null,
+   "kind": "Deployment",
+   "metadata": {
+    "annotations": {
+     "meta.helm.sh/release-name": "karma-traefik-certs",
+     "meta.helm.sh/release-namespace": "kommander-default-workspace"
+    },
+    "labels": {
+     "app.kubernetes.io/managed-by": "Helm"
+    },
+    "name": "karma-traefik-certs-kommander-default-workspace-cert-federation",
+    "namespace": "kommander-default-workspace"
+   },
+   "spec": {
+    "replicas": 1,
+    "template": {
+     "spec": {
+      "containers": [
+       {
+        "image": "docker.io/mesosphere/kubectl:v1.35.2-alpine",
+        "name": "wait-for-renewal"
+       }
+      ]
+     }
+    }
+   },
+   "status": {
+    "availableReplicas": 1,
+    "readyReplicas": 1,
+    "replicas": 1
+   }
+  },
+  {
+   "apiVersion": null,
+   "kind": "Deployment",
+   "metadata": {
+    "annotations": {
+     "meta.helm.sh/release-name": "prometheus-traefik-certs",
+     "meta.helm.sh/release-namespace": "kommander-default-workspace"
+    },
+    "labels": {
+     "app.kubernetes.io/managed-by": "Helm"
+    },
+    "name": "prometheus-traefik-certs-kommander-default-workspace-cert-federation",
+    "namespace": "kommander-default-workspace"
+   },
+   "spec": {
+    "replicas": 1,
+    "template": {
+     "spec": {
+      "containers": [
+       {
+        "image": "docker.io/mesosphere/kubectl:v1.35.2-alpine",
+        "name": "wait-for-renewal"
+       }
+      ]
+     }
+    }
+   },
+   "status": {
+    "availableReplicas": 1,
+    "readyReplicas": 1,
+    "replicas": 1
+   }
+  },
+  {
+   "apiVersion": null,
+   "kind": "Deployment",
+   "metadata": {
+    "name": "flux-oci-mirror",
+    "namespace": "kommander-flux"
+   },
+   "spec": {
+    "replicas": 1,
+    "template": {
+     "spec": {
+      "containers": [
+       {
+        "image": "mesosphere/flux-oci-mirror:v0.3.1",
+        "name": "manager"
+       }
+      ]
+     }
+    }
+   },
+   "status": {
+    "availableReplicas": 1,
+    "readyReplicas": 1,
+    "replicas": 1
+   }
+  },
+  {
+   "apiVersion": null,
+   "kind": "Deployment",
+   "metadata": {
+    "annotations": {
+     "meta.helm.sh/release-name": "kommander-flux",
+     "meta.helm.sh/release-namespace": "kommander-flux"
+    },
+    "labels": {
+     "app.kubernetes.io/component": "helm-controller",
+     "app.kubernetes.io/instance": "kommander-flux",
+     "app.kubernetes.io/managed-by": "Helm",
+     "app.kubernetes.io/part-of": "flux",
+     "app.kubernetes.io/version": "2.8.5",
+     "helm.sh/chart": "flux2-2.18.3"
+    },
+    "name": "helm-controller",
+    "namespace": "kommander-flux"
+   },
+   "spec": {
+    "replicas": 1,
+    "template": {
+     "spec": {
+      "containers": [
+       {
+        "image": "ghcr.io/fluxcd/helm-controller:v1.5.4",
+        "name": "manager"
+       }
+      ]
+     }
+    }
+   },
+   "status": {
+    "availableReplicas": 1,
+    "readyReplicas": 1,
+    "replicas": 1
+   }
+  },
+  {
+   "apiVersion": null,
+   "kind": "Deployment",
+   "metadata": {
+    "annotations": {
+     "meta.helm.sh/release-name": "kommander-flux",
+     "meta.helm.sh/release-namespace": "kommander-flux"
+    },
+    "labels": {
+     "app.kubernetes.io/component": "image-automation-controller",
+     "app.kubernetes.io/instance": "kommander-flux",
+     "app.kubernetes.io/managed-by": "Helm",
+     "app.kubernetes.io/part-of": "flux",
+     "app.kubernetes.io/version": "2.8.5",
+     "helm.sh/chart": "flux2-2.18.3"
+    },
+    "name": "image-automation-controller",
+    "namespace": "kommander-flux"
+   },
+   "spec": {
+    "replicas": 1,
+    "template": {
+     "spec": {
+      "containers": [
+       {
+        "image": "ghcr.io/fluxcd/image-automation-controller:v1.1.1",
+        "name": "manager"
+       }
+      ]
+     }
+    }
+   },
+   "status": {
+    "availableReplicas": 1,
+    "readyReplicas": 1,
+    "replicas": 1
+   }
+  },
+  {
+   "apiVersion": null,
+   "kind": "Deployment",
+   "metadata": {
+    "annotations": {
+     "meta.helm.sh/release-name": "kommander-flux",
+     "meta.helm.sh/release-namespace": "kommander-flux"
+    },
+    "labels": {
+     "app.kubernetes.io/component": "image-reflector-controller",
+     "app.kubernetes.io/instance": "kommander-flux",
+     "app.kubernetes.io/managed-by": "Helm",
+     "app.kubernetes.io/part-of": "flux",
+     "app.kubernetes.io/version": "2.8.5",
+     "helm.sh/chart": "flux2-2.18.3"
+    },
+    "name": "image-reflector-controller",
+    "namespace": "kommander-flux"
+   },
+   "spec": {
+    "replicas": 1,
+    "template": {
+     "spec": {
+      "containers": [
+       {
+        "image": "ghcr.io/fluxcd/image-reflector-controller:v1.1.1",
+        "name": "manager"
+       }
+      ]
+     }
+    }
+   },
+   "status": {
+    "availableReplicas": 1,
+    "readyReplicas": 1,
+    "replicas": 1
+   }
+  },
+  {
+   "apiVersion": null,
+   "kind": "Deployment",
+   "metadata": {
+    "annotations": {
+     "meta.helm.sh/release-name": "kommander-flux",
+     "meta.helm.sh/release-namespace": "kommander-flux"
+    },
+    "labels": {
+     "app.kubernetes.io/component": "kustomize-controller",
+     "app.kubernetes.io/instance": "kommander-flux",
+     "app.kubernetes.io/managed-by": "Helm",
+     "app.kubernetes.io/part-of": "flux",
+     "app.kubernetes.io/version": "2.8.5",
+     "helm.sh/chart": "flux2-2.18.3"
+    },
+    "name": "kustomize-controller",
+    "namespace": "kommander-flux"
+   },
+   "spec": {
+    "replicas": 1,
+    "template": {
+     "spec": {
+      "containers": [
+       {
+        "image": "ghcr.io/fluxcd/kustomize-controller:v1.8.3",
+        "name": "manager"
+       }
+      ]
+     }
+    }
+   },
+   "status": {
+    "availableReplicas": 1,
+    "readyReplicas": 1,
+    "replicas": 1
+   }
+  },
+  {
+   "apiVersion": null,
+   "kind": "Deployment",
+   "metadata": {
+    "annotations": {
+     "meta.helm.sh/release-name": "kommander-flux",
+     "meta.helm.sh/release-namespace": "kommander-flux"
+    },
+    "labels": {
+     "app.kubernetes.io/component": "notification-controller",
+     "app.kubernetes.io/instance": "kommander-flux",
+     "app.kubernetes.io/managed-by": "Helm",
+     "app.kubernetes.io/part-of": "flux",
+     "app.kubernetes.io/version": "2.8.5",
+     "helm.sh/chart": "flux2-2.18.3"
+    },
+    "name": "notification-controller",
+    "namespace": "kommander-flux"
+   },
+   "spec": {
+    "replicas": 1,
+    "template": {
+     "spec": {
+      "containers": [
+       {
+        "image": "ghcr.io/fluxcd/notification-controller:v1.8.3",
+        "name": "manager"
+       }
+      ]
+     }
+    }
+   },
+   "status": {
+    "availableReplicas": 1,
+    "readyReplicas": 1,
+    "replicas": 1
+   }
+  },
+  {
+   "apiVersion": null,
+   "kind": "Deployment",
+   "metadata": {
+    "annotations": {
+     "meta.helm.sh/release-name": "kommander-flux",
+     "meta.helm.sh/release-namespace": "kommander-flux"
+    },
+    "labels": {
+     "app.kubernetes.io/component": "source-controller",
+     "app.kubernetes.io/instance": "kommander-flux",
+     "app.kubernetes.io/managed-by": "Helm",
+     "app.kubernetes.io/part-of": "flux",
+     "app.kubernetes.io/version": "2.8.5",
+     "helm.sh/chart": "flux2-2.18.3"
+    },
+    "name": "source-controller",
+    "namespace": "kommander-flux"
+   },
+   "spec": {
+    "replicas": 1,
+    "template": {
+     "spec": {
+      "containers": [
+       {
+        "image": "ghcr.io/fluxcd/source-controller:v1.8.2",
+        "name": "manager"
+       }
+      ]
+     }
+    }
+   },
+   "status": {
+    "availableReplicas": 1,
+    "readyReplicas": 1,
+    "replicas": 1
+   }
+  },
+  {
+   "apiVersion": null,
+   "kind": "Deployment",
+   "metadata": {
+    "annotations": {
+     "meta.helm.sh/release-name": "ca-a896a1fa-0000-4000-8000-1e697c08de6f",
+     "meta.helm.sh/release-namespace": "kommander"
+    },
+    "labels": {
+     "app.kubernetes.io/instance": "ca-a896a1fa-0000-4000-8000-1e697c08de6f",
+     "app.kubernetes.io/managed-by": "Helm",
+     "app.kubernetes.io/name": "clusterapi-cluster-autoscaler",
+     "helm.sh/chart": "cluster-autoscaler-9.56.0"
+    },
+    "name": "cluster-autoscaler-a896a1fa-0000-4000-8000-1e697c08de6f",
+    "namespace": "kommander"
+   },
+   "spec": {
+    "replicas": 1,
+    "template": {
+     "spec": {
+      "containers": [
+       {
+        "image": "registry.k8s.io/autoscaling/cluster-autoscaler:v1.34.3",
+        "name": "clusterapi-cluster-autoscaler"
+       }
+      ]
+     }
+    }
+   },
+   "status": {
+    "availableReplicas": 1,
+    "readyReplicas": 1,
+    "replicas": 1
+   }
+  },
+  {
+   "apiVersion": null,
+   "kind": "Deployment",
+   "metadata": {
+    "annotations": {
+     "meta.helm.sh/release-name": "cluster-observer-19996545",
+     "meta.helm.sh/release-namespace": "kommander"
+    },
+    "labels": {
+     "app.kubernetes.io/instance": "cluster-observer-19996545",
+     "app.kubernetes.io/managed-by": "Helm",
+     "app.kubernetes.io/name": "cluster-observer",
+     "app.kubernetes.io/version": "1.6.0",
+     "helm.sh/chart": "cluster-observer-1.6.0"
+    },
+    "name": "cluster-observer-19996545",
+    "namespace": "kommander"
+   },
+   "spec": {
+    "replicas": 1,
+    "template": {
+     "spec": {
+      "containers": [
+       {
+        "image": "docker.io/mesosphere/cluster-observer:1.6.0",
+        "name": "cluster-observer"
+       }
+      ]
+     }
+    }
+   },
+   "status": {
+    "availableReplicas": 1,
+    "readyReplicas": 1,
+    "replicas": 1
+   }
+  },
+  {
+   "apiVersion": null,
+   "kind": "Deployment",
+   "metadata": {
+    "annotations": {
+     "meta.helm.sh/release-name": "dex",
+     "meta.helm.sh/release-namespace": "kommander"
+    },
+    "labels": {
+     "app.kubernetes.io/component": "dex",
+     "app.kubernetes.io/instance": "dex",
+     "app.kubernetes.io/managed-by": "Helm",
+     "app.kubernetes.io/name": "dex",
+     "app.kubernetes.io/version": "2.37.0",
+     "helm.sh/chart": "dex-2.14.0"
+    },
+    "name": "dex",
+    "namespace": "kommander"
+   },
+   "spec": {
+    "replicas": 1,
+    "template": {
+     "spec": {
+      "containers": [
+       {
+        "image": "mesosphere/dex:v2.42.0-d2iq.0",
+        "name": "main"
+       }
+      ]
+     }
+    }
+   },
+   "status": {
+    "availableReplicas": 1,
+    "readyReplicas": 1,
+    "replicas": 1
+   }
+  },
+  {
+   "apiVersion": null,
+   "kind": "Deployment",
+   "metadata": {
+    "annotations": {
+     "meta.helm.sh/release-name": "dex",
+     "meta.helm.sh/release-namespace": "kommander"
+    },
+    "labels": {
+     "app.kubernetes.io/managed-by": "Helm"
+    },
+    "name": "dex-dex-controller",
+    "namespace": "kommander"
+   },
+   "spec": {
+    "replicas": 1,
+    "template": {
+     "spec": {
+      "containers": [
+       {
+        "image": "quay.io/brancz/kube-rbac-proxy:v0.21.1",
+        "name": "kube-rbac-proxy"
+       },
+       {
+        "image": "mesosphere/dex-controller:v0.16.1",
+        "name": "manager"
+       }
+      ]
+     }
+    }
+   },
+   "status": {
+    "availableReplicas": 1,
+    "readyReplicas": 1,
+    "replicas": 1
+   }
+  },
+  {
+   "apiVersion": null,
+   "kind": "Deployment",
+   "metadata": {
+    "annotations": {
+     "meta.helm.sh/release-name": "dex-k8s-authenticator",
+     "meta.helm.sh/release-namespace": "kommander"
+    },
+    "labels": {
+     "app.kubernetes.io/managed-by": "Helm"
+    },
+    "name": "dex-k8s-authenticator",
+    "namespace": "kommander"
+   },
+   "spec": {
+    "replicas": 1,
+    "template": {
+     "spec": {
+      "containers": [
+       {
+        "image": "mesosphere/dex-k8s-authenticator:v1.4.6-d2iq",
+        "name": "dex-k8s-authenticator"
+       }
+      ]
+     }
+    }
+   },
+   "status": {
+    "availableReplicas": 1,
+    "readyReplicas": 1,
+    "replicas": 1
+   }
+  },
+  {
+   "apiVersion": null,
+   "kind": "Deployment",
+   "metadata": {
+    "annotations": {
+     "meta.helm.sh/release-name": "kommander-gatekeeper",
+     "meta.helm.sh/release-namespace": "kommander"
+    },
+    "labels": {
+     "app.kubernetes.io/instance": "kommander-gatekeeper",
+     "app.kubernetes.io/managed-by": "Helm",
+     "app.kubernetes.io/name": "gatekeeper",
+     "app.kubernetes.io/version": "3.22.0",
+     "helm.sh/chart": "gatekeeper-3.22.0"
+    },
+    "name": "gatekeeper-audit",
+    "namespace": "kommander"
+   },
+   "spec": {
+    "replicas": 1,
+    "template": {
+     "spec": {
+      "containers": [
+       {
+        "image": "openpolicyagent/gatekeeper:v3.22.0",
+        "name": "manager"
+       }
+      ]
+     }
+    }
+   },
+   "status": {
+    "availableReplicas": 1,
+    "readyReplicas": 1,
+    "replicas": 1
+   }
+  },
+  {
+   "apiVersion": null,
+   "kind": "Deployment",
+   "metadata": {
+    "annotations": {
+     "meta.helm.sh/release-name": "kommander-gatekeeper",
+     "meta.helm.sh/release-namespace": "kommander"
+    },
+    "labels": {
+     "app.kubernetes.io/instance": "kommander-gatekeeper",
+     "app.kubernetes.io/managed-by": "Helm",
+     "app.kubernetes.io/name": "gatekeeper",
+     "app.kubernetes.io/version": "3.22.0",
+     "helm.sh/chart": "gatekeeper-3.22.0"
+    },
+    "name": "gatekeeper-controller-manager",
+    "namespace": "kommander"
+   },
+   "spec": {
+    "replicas": 2,
+    "template": {
+     "spec": {
+      "containers": [
+       {
+        "image": "openpolicyagent/gatekeeper:v3.22.0",
+        "name": "manager"
+       }
+      ]
+     }
+    }
+   },
+   "status": {
+    "availableReplicas": 2,
+    "readyReplicas": 2,
+    "replicas": 2
+   }
+  },
+  {
+   "apiVersion": null,
+   "kind": "Deployment",
+   "metadata": {
+    "annotations": {
+     "meta.helm.sh/release-name": "karma-traefik-certs",
+     "meta.helm.sh/release-namespace": "kommander"
+    },
+    "labels": {
+     "app.kubernetes.io/managed-by": "Helm"
+    },
+    "name": "karma-traefik-certs-kommander-cert-federation",
+    "namespace": "kommander"
+   },
+   "spec": {
+    "replicas": 1,
+    "template": {
+     "spec": {
+      "containers": [
+       {
+        "image": "docker.io/mesosphere/kubectl:v1.35.2-alpine",
+        "name": "wait-for-renewal"
+       }
+      ]
+     }
+    }
+   },
+   "status": {
+    "availableReplicas": 1,
+    "readyReplicas": 1,
+    "replicas": 1
+   }
+  },
+  {
+   "apiVersion": null,
+   "kind": "Deployment",
+   "metadata": {
+    "annotations": {
+     "meta.helm.sh/release-name": "kommander-appmanagement",
+     "meta.helm.sh/release-namespace": "kommander"
+    },
+    "labels": {
+     "app.kubernetes.io/instance": "kommander-appmanagement",
+     "app.kubernetes.io/managed-by": "Helm",
+     "app.kubernetes.io/name": "kommander-appmanagement-chart",
+     "app.kubernetes.io/version": "v2.18.0",
+     "helm.sh/chart": "kommander-appmanagement-chart-v2.18.0"
+    },
+    "name": "kommander-appmanagement",
+    "namespace": "kommander"
+   },
+   "spec": {
+    "replicas": 1,
+    "template": {
+     "spec": {
+      "containers": [
+       {
+        "image": "mesosphere/kommander2-appmanagement:v2.18.0",
+        "name": "manager"
+       },
+       {
+        "image": "quay.io/brancz/kube-rbac-proxy:v0.21.1",
+        "name": "kube-rbac-proxy"
+       }
+      ]
+     }
+    }
+   },
+   "status": {
+    "availableReplicas": 1,
+    "readyReplicas": 1,
+    "replicas": 1
+   }
+  },
+  {
+   "apiVersion": null,
+   "kind": "Deployment",
+   "metadata": {
+    "annotations": {
+     "meta.helm.sh/release-name": "kommander-appmanagement",
+     "meta.helm.sh/release-namespace": "kommander"
+    },
+    "labels": {
+     "app.kubernetes.io/instance": "kommander-appmanagement",
+     "app.kubernetes.io/managed-by": "Helm",
+     "app.kubernetes.io/name": "kommander-appmanagement-chart",
+     "app.kubernetes.io/version": "v2.18.0",
+     "helm.sh/chart": "kommander-appmanagement-chart-v2.18.0"
+    },
+    "name": "kommander-appmanagement-webhook",
+    "namespace": "kommander"
+   },
+   "spec": {
+    "replicas": 1,
+    "template": {
+     "spec": {
+      "containers": [
+       {
+        "image": "mesosphere/kommander2-appmanagement-webhook:v2.18.0",
+        "name": "webhook"
+       }
+      ]
+     }
+    }
+   },
+   "status": {
+    "availableReplicas": 1,
+    "readyReplicas": 1,
+    "replicas": 1
+   }
+  },
+  {
+   "apiVersion": null,
+   "kind": "Deployment",
+   "metadata": {
+    "annotations": {
+     "meta.helm.sh/release-name": "kommander",
+     "meta.helm.sh/release-namespace": "kommander"
+    },
+    "labels": {
+     "app.kubernetes.io/instance": "kommander",
+     "app.kubernetes.io/managed-by": "Helm",
+     "app.kubernetes.io/name": "kommander-chart",
+     "app.kubernetes.io/version": "v2.18.0",
+     "helm.sh/chart": "kommander-chart-v2.18.0"
+    },
+    "name": "kommander-authorizedlister",
+    "namespace": "kommander"
+   },
+   "spec": {
+    "replicas": 1,
+    "template": {
+     "spec": {
+      "containers": [
+       {
+        "image": "mesosphere/kommander2-federation-authorizedlister:v2.18.0",
+        "name": "authorizedlister"
+       }
+      ]
+     }
+    }
+   },
+   "status": {
+    "availableReplicas": 1,
+    "readyReplicas": 1,
+    "replicas": 1
+   }
+  },
+  {
+   "apiVersion": null,
+   "kind": "Deployment",
+   "metadata": {
+    "annotations": {
+     "meta.helm.sh/release-name": "kommander",
+     "meta.helm.sh/release-namespace": "kommander"
+    },
+    "labels": {
+     "app.kubernetes.io/instance": "kommander",
+     "app.kubernetes.io/managed-by": "Helm",
+     "app.kubernetes.io/name": "kommander-chart",
+     "app.kubernetes.io/version": "v2.18.0",
+     "helm.sh/chart": "kommander-chart-v2.18.0"
+    },
+    "name": "kommander-capimate",
+    "namespace": "kommander"
+   },
+   "spec": {
+    "replicas": 2,
+    "template": {
+     "spec": {
+      "containers": [
+       {
+        "image": "mesosphere/capimate:v2.18.0",
+        "name": "capimate"
+       }
+      ]
+     }
+    }
+   },
+   "status": {
+    "availableReplicas": 2,
+    "readyReplicas": 2,
+    "replicas": 2
+   }
+  },
+  {
+   "apiVersion": null,
+   "kind": "Deployment",
+   "metadata": {
+    "annotations": {
+     "meta.helm.sh/release-name": "kommander",
+     "meta.helm.sh/release-namespace": "kommander"
+    },
+    "labels": {
+     "app.kubernetes.io/instance": "kommander",
+     "app.kubernetes.io/managed-by": "Helm",
+     "app.kubernetes.io/name": "kommander-chart",
+     "app.kubernetes.io/version": "v2.18.0",
+     "helm.sh/chart": "kommander-chart-v2.18.0"
+    },
+    "name": "kommander-cm",
+    "namespace": "kommander"
+   },
+   "spec": {
+    "replicas": 1,
+    "template": {
+     "spec": {
+      "containers": [
+       {
+        "image": "mesosphere/kommander2-federation-controller-manager:v2.18.0",
+        "name": "controller-manager"
+       },
+       {
+        "image": "quay.io/brancz/kube-rbac-proxy:v0.21.1",
+        "name": "kube-rbac-proxy"
+       }
+      ]
+     }
+    }
+   },
+   "status": {
+    "availableReplicas": 1,
+    "readyReplicas": 1,
+    "replicas": 1
+   }
+  },
+  {
+   "apiVersion": null,
+   "kind": "Deployment",
+   "metadata": {
+    "annotations": {
+     "meta.helm.sh/release-name": "kommander",
+     "meta.helm.sh/release-namespace": "kommander"
+    },
+    "labels": {
+     "app.kubernetes.io/instance": "kommander",
+     "app.kubernetes.io/managed-by": "Helm",
+     "app.kubernetes.io/name": "kommander-chart",
+     "app.kubernetes.io/version": "v2.18.0",
+     "helm.sh/chart": "kommander-chart-v2.18.0"
+    },
+    "name": "kommander-flux-operator",
+    "namespace": "kommander"
+   },
+   "spec": {
+    "replicas": 1,
+    "template": {
+     "spec": {
+      "containers": [
+       {
+        "image": "mesosphere/kommander2-flux-operator:v2.18.0",
+        "name": "controller-manager"
+       },
+       {
+        "image": "quay.io/brancz/kube-rbac-proxy:v0.21.1",
+        "name": "kube-rbac-proxy"
+       }
+      ]
+     }
+    }
+   },
+   "status": {
+    "availableReplicas": 1,
+    "readyReplicas": 1,
+    "replicas": 1
+   }
+  },
+  {
+   "apiVersion": null,
+   "kind": "Deployment",
+   "metadata": {
+    "annotations": {
+     "meta.helm.sh/release-name": "kommander-kommander-ui",
+     "meta.helm.sh/release-namespace": "kommander"
+    },
+    "labels": {
+     "app.kubernetes.io/managed-by": "Helm"
+    },
+    "name": "kommander-kommander-ui",
+    "namespace": "kommander"
+   },
+   "spec": {
+    "replicas": 1,
+    "template": {
+     "spec": {
+      "containers": [
+       {
+        "image": "mesosphere/kommander:17.234.30",
+        "name": "kommander-kommander-ui"
+       }
+      ]
+     }
+    }
+   },
+   "status": {
+    "availableReplicas": 1,
+    "readyReplicas": 1,
+    "replicas": 1
+   }
+  },
+  {
+   "apiVersion": null,
+   "kind": "Deployment",
+   "metadata": {
+    "annotations": {
+     "meta.helm.sh/release-name": "kommander",
+     "meta.helm.sh/release-namespace": "kommander"
+    },
+    "labels": {
+     "app.kubernetes.io/instance": "kommander",
+     "app.kubernetes.io/managed-by": "Helm",
+     "app.kubernetes.io/name": "kommander-licensing",
+     "app.kubernetes.io/version": "v2.18.0",
+     "helm.sh/chart": "kommander-licensing-v2.18.0"
+    },
+    "name": "kommander-licensing-cm",
+    "namespace": "kommander"
+   },
+   "spec": {
+    "replicas": 1,
+    "template": {
+     "spec": {
+      "containers": [
+       {
+        "image": "mesosphere/kommander2-licensing-controller-manager:v2.18.0",
+        "name": "controller-manager"
+       },
+       {
+        "image": "quay.io/brancz/kube-rbac-proxy:v0.21.1",
+        "name": "kube-rbac-proxy"
+       }
+      ]
+     }
+    }
+   },
+   "status": {
+    "availableReplicas": 1,
+    "readyReplicas": 1,
+    "replicas": 1
+   }
+  },
+  {
+   "apiVersion": null,
+   "kind": "Deployment",
+   "metadata": {
+    "annotations": {
+     "meta.helm.sh/release-name": "kommander",
+     "meta.helm.sh/release-namespace": "kommander"
+    },
+    "labels": {
+     "app.kubernetes.io/instance": "kommander",
+     "app.kubernetes.io/managed-by": "Helm",
+     "app.kubernetes.io/name": "kommander-licensing",
+     "app.kubernetes.io/version": "v2.18.0",
+     "helm.sh/chart": "kommander-licensing-v2.18.0"
+    },
+    "name": "kommander-licensing-webhook",
+    "namespace": "kommander"
+   },
+   "spec": {
+    "replicas": 1,
+    "template": {
+     "spec": {
+      "containers": [
+       {
+        "image": "mesosphere/kommander2-licensing-webhook:v2.18.0",
+        "name": "webhook"
+       }
+      ]
+     }
+    }
+   },
+   "status": {
+    "availableReplicas": 1,
+    "readyReplicas": 1,
+    "replicas": 1
+   }
+  },
+  {
+   "apiVersion": null,
+   "kind": "Deployment",
+   "metadata": {
+    "annotations": {
+     "meta.helm.sh/release-name": "kommander-operator",
+     "meta.helm.sh/release-namespace": "kommander"
+    },
+    "labels": {
+     "app.kubernetes.io/managed-by": "Helm"
+    },
+    "name": "kommander-operator",
+    "namespace": "kommander"
+   },
+   "spec": {
+    "replicas": 1,
+    "template": {
+     "spec": {
+      "containers": [
+       {
+        "image": "mesosphere/kommander2-core-installer:v2.18.0",
+        "name": "kommander-operator"
+       }
+      ]
+     }
+    }
+   },
+   "status": {
+    "availableReplicas": 1,
+    "readyReplicas": 1,
+    "replicas": 1
+   }
+  },
+  {
+   "apiVersion": null,
+   "kind": "Deployment",
+   "metadata": {
+    "annotations": {
+     "meta.helm.sh/release-name": "kommander-operator",
+     "meta.helm.sh/release-namespace": "kommander"
+    },
+    "labels": {
+     "app.kubernetes.io/component": "webhook",
+     "app.kubernetes.io/managed-by": "Helm",
+     "app.kubernetes.io/name": "kommander-operator"
+    },
+    "name": "kommander-operator-webhook",
+    "namespace": "kommander"
+   },
+   "spec": {
+    "replicas": 1,
+    "template": {
+     "spec": {
+      "containers": [
+       {
+        "image": "mesosphere/kommander2-core-installer:v2.18.0",
+        "name": "webhook"
+       }
+      ]
+     }
+    }
+   },
+   "status": {
+    "availableReplicas": 1,
+    "readyReplicas": 1,
+    "replicas": 1
+   }
+  },
+  {
+   "apiVersion": null,
+   "kind": "Deployment",
+   "metadata": {
+    "annotations": {
+     "meta.helm.sh/release-name": "kommander-reloader",
+     "meta.helm.sh/release-namespace": "kommander"
+    },
+    "labels": {
+     "app.kubernetes.io/instance": "kommander-reloader",
+     "app.kubernetes.io/managed-by": "Helm",
+     "app.kubernetes.io/name": "reloader",
+     "app.kubernetes.io/version": "v1.4.16",
+     "helm.sh/chart": "reloader-2.2.11"
+    },
+    "name": "kommander-reloader-reloader",
+    "namespace": "kommander"
+   },
+   "spec": {
+    "replicas": 1,
+    "template": {
+     "spec": {
+      "containers": [
+       {
+        "image": "ghcr.io/stakater/reloader:v1.4.16",
+        "name": "kommander-reloader-reloader"
+       }
+      ]
+     }
+    }
+   },
+   "status": {
+    "availableReplicas": 1,
+    "readyReplicas": 1,
+    "replicas": 1
+   }
+  },
+  {
+   "apiVersion": null,
+   "kind": "Deployment",
+   "metadata": {
+    "annotations": {
+     "meta.helm.sh/release-name": "kommander-traefik",
+     "meta.helm.sh/release-namespace": "kommander"
+    },
+    "labels": {
+     "app.kubernetes.io/instance": "kommander-traefik",
+     "app.kubernetes.io/managed-by": "Helm",
+     "app.kubernetes.io/name": "traefik",
+     "helm.sh/chart": "traefik-39.0.7"
+    },
+    "name": "kommander-traefik",
+    "namespace": "kommander"
+   },
+   "spec": {
+    "replicas": 2,
+    "template": {
+     "spec": {
+      "containers": [
+       {
+        "image": "docker.io/traefik:v3.6.12",
+        "name": "kommander-traefik"
+       }
+      ]
+     }
+    }
+   },
+   "status": {
+    "availableReplicas": 2,
+    "readyReplicas": 2,
+    "replicas": 2
+   }
+  },
+  {
+   "apiVersion": null,
+   "kind": "Deployment",
+   "metadata": {
+    "annotations": {
+     "meta.helm.sh/release-name": "kommander",
+     "meta.helm.sh/release-namespace": "kommander"
+    },
+    "labels": {
+     "app.kubernetes.io/instance": "kommander",
+     "app.kubernetes.io/managed-by": "Helm",
+     "app.kubernetes.io/name": "kommander-chart",
+     "app.kubernetes.io/version": "v2.18.0",
+     "helm.sh/chart": "kommander-chart-v2.18.0"
+    },
+    "name": "kommander-webhook",
+    "namespace": "kommander"
+   },
+   "spec": {
+    "replicas": 1,
+    "template": {
+     "spec": {
+      "containers": [
+       {
+        "image": "mesosphere/kommander2-federation-webhook:v2.18.0",
+        "name": "webhook"
+       }
+      ]
+     }
+    }
+   },
+   "status": {
+    "availableReplicas": 1,
+    "readyReplicas": 1,
+    "replicas": 1
+   }
+  },
+  {
+   "apiVersion": null,
+   "kind": "Deployment",
+   "metadata": {
+    "annotations": {
+     "meta.helm.sh/release-name": "kube-oidc-proxy",
+     "meta.helm.sh/release-namespace": "kommander"
+    },
+    "labels": {
+     "app.kubernetes.io/instance": "kube-oidc-proxy",
+     "app.kubernetes.io/managed-by": "Helm",
+     "app.kubernetes.io/name": "kube-oidc-proxy",
+     "app.kubernetes.io/version": "v0.3.0",
+     "helm.sh/chart": "kube-oidc-proxy-0.3.4"
+    },
+    "name": "kube-oidc-proxy",
+    "namespace": "kommander"
+   },
+   "spec": {
+    "replicas": 1,
+    "template": {
+     "spec": {
+      "containers": [
+       {
+        "image": "ghcr.io/mesosphere/dkp-container-images/kube-oidc-proxy:1.0.9",
+        "name": "kube-oidc-proxy"
+       }
+      ]
+     }
+    }
+   },
+   "status": {
+    "availableReplicas": 1,
+    "readyReplicas": 1,
+    "replicas": 1
+   }
+  },
+  {
+   "apiVersion": null,
+   "kind": "Deployment",
+   "metadata": {
+    "labels": {
+     "app.kubernetes.io/component": "controller-manager",
+     "app.kubernetes.io/name": "loggingstack"
+    },
+    "name": "loggingstack-controller-manager",
+    "namespace": "kommander"
+   },
+   "spec": {
+    "replicas": 1,
+    "template": {
+     "spec": {
+      "containers": [
+       {
+        "image": "mesosphere/kommander2-core-installer:v2.18.0",
+        "name": "controller-manager"
+       }
+      ]
+     }
+    }
+   },
+   "status": {
+    "availableReplicas": 1,
+    "readyReplicas": 1,
+    "replicas": 1
+   }
+  },
+  {
+   "apiVersion": null,
+   "kind": "Deployment",
+   "metadata": {
+    "labels": {
+     "app.kubernetes.io/component": "controller-manager",
+     "app.kubernetes.io/name": "nkp-cluster"
+    },
+    "name": "nkp-cluster-controller-manager",
+    "namespace": "kommander"
+   },
+   "spec": {
+    "replicas": 1,
+    "template": {
+     "spec": {
+      "containers": [
+       {
+        "image": "mesosphere/kommander2-core-installer:v2.18.0",
+        "name": "controller-manager"
+       }
+      ]
+     }
+    }
+   },
+   "status": {
+    "availableReplicas": 1,
+    "readyReplicas": 1,
+    "replicas": 1
+   }
+  },
+  {
+   "apiVersion": null,
+   "kind": "Deployment",
+   "metadata": {
+    "labels": {
+     "app.kubernetes.io/component": "webhook",
+     "app.kubernetes.io/name": "nkp-cluster"
+    },
+    "name": "nkp-cluster-webhook",
+    "namespace": "kommander"
+   },
+   "spec": {
+    "replicas": 1,
+    "template": {
+     "spec": {
+      "containers": [
+       {
+        "image": "mesosphere/kommander2-core-installer:v2.18.0",
+        "name": "webhook"
+       }
+      ]
+     }
+    }
+   },
+   "status": {
+    "availableReplicas": 1,
+    "readyReplicas": 1,
+    "replicas": 1
+   }
+  },
+  {
+   "apiVersion": null,
+   "kind": "Deployment",
+   "metadata": {
+    "labels": {
+     "app.kubernetes.io/component": "controller-manager",
+     "app.kubernetes.io/name": "nkp-management-plane"
+    },
+    "name": "nkp-management-plane-controller-manager",
+    "namespace": "kommander"
+   },
+   "spec": {
+    "replicas": 1,
+    "template": {
+     "spec": {
+      "containers": [
+       {
+        "image": "mesosphere/kommander2-core-installer:v2.18.0",
+        "name": "controller-manager"
+       }
+      ]
+     }
+    }
+   },
+   "status": {
+    "availableReplicas": 1,
+    "readyReplicas": 1,
+    "replicas": 1
+   }
+  },
+  {
+   "apiVersion": null,
+   "kind": "Deployment",
+   "metadata": {
+    "labels": {
+     "app.kubernetes.io/component": "webhook",
+     "app.kubernetes.io/name": "nkp-management-plane"
+    },
+    "name": "nkp-management-plane-webhook",
+    "namespace": "kommander"
+   },
+   "spec": {
+    "replicas": 1,
+    "template": {
+     "spec": {
+      "containers": [
+       {
+        "image": "mesosphere/kommander2-core-installer:v2.18.0",
+        "name": "webhook"
+       }
+      ]
+     }
+    }
+   },
+   "status": {
+    "availableReplicas": 1,
+    "readyReplicas": 1,
+    "replicas": 1
+   }
+  },
+  {
+   "apiVersion": null,
+   "kind": "Deployment",
+   "metadata": {
+    "annotations": {
+     "meta.helm.sh/release-name": "prometheus-traefik-certs",
+     "meta.helm.sh/release-namespace": "kommander"
+    },
+    "labels": {
+     "app.kubernetes.io/managed-by": "Helm"
+    },
+    "name": "prometheus-traefik-certs-kommander-cert-federation",
+    "namespace": "kommander"
+   },
+   "spec": {
+    "replicas": 1,
+    "template": {
+     "spec": {
+      "containers": [
+       {
+        "image": "docker.io/mesosphere/kubectl:v1.35.2-alpine",
+        "name": "wait-for-renewal"
+       }
+      ]
+     }
+    }
+   },
+   "status": {
+    "availableReplicas": 1,
+    "readyReplicas": 1,
+    "replicas": 1
+   }
+  },
+  {
+   "apiVersion": null,
+   "kind": "Deployment",
+   "metadata": {
+    "name": "runtime-extension-kommander",
+    "namespace": "kommander"
+   },
+   "spec": {
+    "replicas": 1,
+    "template": {
+     "spec": {
+      "containers": [
+       {
+        "image": "docker.io/mesosphere/kommander2-runtime-extension:v1.6.1",
+        "name": "manager"
+       }
+      ]
+     }
+    }
+   },
+   "status": {
+    "availableReplicas": 1,
+    "readyReplicas": 1,
+    "replicas": 1
+   }
+  },
+  {
+   "apiVersion": null,
+   "kind": "Deployment",
+   "metadata": {
+    "annotations": {
+     "meta.helm.sh/release-name": "traefik-forward-auth-mgmt",
+     "meta.helm.sh/release-namespace": "kommander"
+    },
+    "labels": {
+     "app.kubernetes.io/instance": "traefik-forward-auth-mgmt",
+     "app.kubernetes.io/managed-by": "Helm",
+     "app.kubernetes.io/name": "traefik-forward-auth",
+     "helm.sh/chart": "traefik-forward-auth-0.3.10"
+    },
+    "name": "traefik-forward-auth-mgmt",
+    "namespace": "kommander"
+   },
+   "spec": {
+    "replicas": 1,
+    "template": {
+     "spec": {
+      "containers": [
+       {
+        "image": "mesosphere/traefik-forward-auth:v3.3.0",
+        "name": "traefik-forward-auth"
+       }
+      ]
+     }
+    }
+   },
+   "status": {
+    "availableReplicas": 1,
+    "readyReplicas": 1,
+    "replicas": 1
+   }
+  },
+  {
+   "apiVersion": null,
+   "kind": "Deployment",
+   "metadata": {
+    "annotations": {
+     "meta.helm.sh/release-name": "kubefed",
+     "meta.helm.sh/release-namespace": "kube-federation-system"
+    },
+    "labels": {
+     "app.kubernetes.io/managed-by": "Helm"
+    },
+    "name": "kubefed-admission-webhook",
+    "namespace": "kube-federation-system"
+   },
+   "spec": {
+    "replicas": 1,
+    "template": {
+     "spec": {
+      "containers": [
+       {
+        "image": "ghcr.io/mesosphere/kubefed:v0.12.1",
+        "name": "admission-webhook"
+       }
+      ]
+     }
+    }
+   },
+   "status": {
+    "availableReplicas": 1,
+    "readyReplicas": 1,
+    "replicas": 1
+   }
+  },
+  {
+   "apiVersion": null,
+   "kind": "Deployment",
+   "metadata": {
+    "annotations": {
+     "meta.helm.sh/release-name": "kubefed",
+     "meta.helm.sh/release-namespace": "kube-federation-system"
+    },
+    "labels": {
+     "app.kubernetes.io/managed-by": "Helm"
+    },
+    "name": "kubefed-controller-manager",
+    "namespace": "kube-federation-system"
+   },
+   "spec": {
+    "replicas": 2,
+    "template": {
+     "spec": {
+      "containers": [
+       {
+        "image": "ghcr.io/mesosphere/kubefed:v0.12.1",
+        "name": "controller-manager"
+       }
+      ]
+     }
+    }
+   },
+   "status": {
+    "availableReplicas": 2,
+    "readyReplicas": 2,
+    "replicas": 2
+   }
+  },
+  {
+   "apiVersion": null,
+   "kind": "Deployment",
+   "metadata": {
+    "annotations": {
+     "meta.helm.sh/release-name": "cilium",
+     "meta.helm.sh/release-namespace": "kube-system"
+    },
+    "labels": {
+     "app.kubernetes.io/managed-by": "Helm",
+     "app.kubernetes.io/name": "cilium-operator",
+     "app.kubernetes.io/part-of": "cilium"
+    },
+    "name": "cilium-operator",
+    "namespace": "kube-system"
+   },
+   "spec": {
+    "replicas": 2,
+    "template": {
+     "spec": {
+      "containers": [
+       {
+        "image": "quay.io/cilium/operator-generic:v1.19.4",
+        "name": "cilium-operator"
+       }
+      ]
+     }
+    }
+   },
+   "status": {
+    "availableReplicas": 2,
+    "readyReplicas": 2,
+    "replicas": 2
+   }
+  },
+  {
+   "apiVersion": null,
+   "kind": "Deployment",
+   "metadata": {
+    "name": "coredns",
+    "namespace": "kube-system"
+   },
+   "spec": {
+    "replicas": 2,
+    "template": {
+     "spec": {
+      "containers": [
+       {
+        "image": "registry.k8s.io/coredns/coredns:v1.13.1",
+        "name": "coredns"
+       }
+      ]
+     }
+    }
+   },
+   "status": {
+    "availableReplicas": 2,
+    "readyReplicas": 2,
+    "replicas": 2
+   }
+  },
+  {
+   "apiVersion": null,
+   "kind": "Deployment",
+   "metadata": {
+    "annotations": {
+     "meta.helm.sh/release-name": "cilium",
+     "meta.helm.sh/release-namespace": "kube-system"
+    },
+    "labels": {
+     "app.kubernetes.io/managed-by": "Helm",
+     "app.kubernetes.io/name": "hubble-relay",
+     "app.kubernetes.io/part-of": "cilium"
+    },
+    "name": "hubble-relay",
+    "namespace": "kube-system"
+   },
+   "spec": {
+    "replicas": 1,
+    "template": {
+     "spec": {
+      "containers": [
+       {
+        "image": "quay.io/cilium/hubble-relay:v1.19.4",
+        "name": "hubble-relay"
+       }
+      ]
+     }
+    }
+   },
+   "status": {
+    "availableReplicas": 1,
+    "readyReplicas": 1,
+    "replicas": 1
+   }
+  },
+  {
+   "apiVersion": null,
+   "kind": "Deployment",
+   "metadata": {
+    "annotations": {
+     "meta.helm.sh/release-name": "nutanix-ccm",
+     "meta.helm.sh/release-namespace": "kube-system"
+    },
+    "labels": {
+     "app.kubernetes.io/managed-by": "Helm"
+    },
+    "name": "nutanix-cloud-controller-manager",
+    "namespace": "kube-system"
+   },
+   "spec": {
+    "replicas": 1,
+    "template": {
+     "spec": {
+      "containers": [
+       {
+        "image": "ghcr.io/nutanix-cloud-native/dkp-container-images/nkp-cloud-provider-nutanix:v0.7.4",
+        "name": "nutanix-cloud-controller-manager"
+       }
+      ]
+     }
+    }
+   },
+   "status": {
+    "availableReplicas": 1,
+    "readyReplicas": 1,
+    "replicas": 1
+   }
+  },
+  {
+   "apiVersion": null,
+   "kind": "Deployment",
+   "metadata": {
+    "annotations": {
+     "meta.helm.sh/release-name": "snapshot-controller",
+     "meta.helm.sh/release-namespace": "kube-system"
+    },
+    "labels": {
+     "app.kubernetes.io/instance": "snapshot-controller",
+     "app.kubernetes.io/managed-by": "Helm",
+     "app.kubernetes.io/name": "snapshot-controller",
+     "app.kubernetes.io/version": "v8.5.0",
+     "helm.sh/chart": "snapshot-controller-5.0.3"
+    },
+    "name": "snapshot-controller",
+    "namespace": "kube-system"
+   },
+   "spec": {
+    "replicas": 1,
+    "template": {
+     "spec": {
+      "containers": [
+       {
+        "image": "registry.k8s.io/sig-storage/snapshot-controller:v8.5.0",
+        "name": "snapshot-controller"
+       }
+      ]
+     }
+    }
+   },
+   "status": {
+    "availableReplicas": 1,
+    "readyReplicas": 1,
+    "replicas": 1
+   }
+  },
+  {
+   "apiVersion": null,
+   "kind": "Deployment",
+   "metadata": {
+    "annotations": {
+     "meta.helm.sh/release-name": "metallb",
+     "meta.helm.sh/release-namespace": "metallb-system"
+    },
+    "labels": {
+     "app.kubernetes.io/component": "controller",
+     "app.kubernetes.io/instance": "metallb",
+     "app.kubernetes.io/managed-by": "Helm",
+     "app.kubernetes.io/name": "metallb",
+     "app.kubernetes.io/version": "v0.15.3",
+     "helm.sh/chart": "metallb-0.15.3"
+    },
+    "name": "metallb-controller",
+    "namespace": "metallb-system"
+   },
+   "spec": {
+    "replicas": 1,
+    "template": {
+     "spec": {
+      "containers": [
+       {
+        "image": "quay.io/metallb/controller:v0.15.3",
+        "name": "controller"
+       }
+      ]
+     }
+    }
+   },
+   "status": {
+    "availableReplicas": 1,
+    "readyReplicas": 1,
+    "replicas": 1
+   }
+  },
+  {
+   "apiVersion": null,
+   "kind": "Deployment",
+   "metadata": {
+    "annotations": {
+     "meta.helm.sh/release-name": "node-feature-discovery",
+     "meta.helm.sh/release-namespace": "node-feature-discovery"
+    },
+    "labels": {
+     "app.kubernetes.io/instance": "node-feature-discovery",
+     "app.kubernetes.io/managed-by": "Helm",
+     "app.kubernetes.io/name": "node-feature-discovery",
+     "app.kubernetes.io/version": "v0.18.3",
+     "helm.sh/chart": "node-feature-discovery-0.18.3"
+    },
+    "name": "node-feature-discovery-gc",
+    "namespace": "node-feature-discovery"
+   },
+   "spec": {
+    "replicas": 1,
+    "template": {
+     "spec": {
+      "containers": [
+       {
+        "image": "registry.k8s.io/nfd/node-feature-discovery:v0.18.3",
+        "name": "gc"
+       }
+      ]
+     }
+    }
+   },
+   "status": {
+    "availableReplicas": 1,
+    "readyReplicas": 1,
+    "replicas": 1
+   }
+  },
+  {
+   "apiVersion": null,
+   "kind": "Deployment",
+   "metadata": {
+    "annotations": {
+     "meta.helm.sh/release-name": "node-feature-discovery",
+     "meta.helm.sh/release-namespace": "node-feature-discovery"
+    },
+    "labels": {
+     "app.kubernetes.io/instance": "node-feature-discovery",
+     "app.kubernetes.io/managed-by": "Helm",
+     "app.kubernetes.io/name": "node-feature-discovery",
+     "app.kubernetes.io/version": "v0.18.3",
+     "helm.sh/chart": "node-feature-discovery-0.18.3"
+    },
+    "name": "node-feature-discovery-master",
+    "namespace": "node-feature-discovery"
+   },
+   "spec": {
+    "replicas": 1,
+    "template": {
+     "spec": {
+      "containers": [
+       {
+        "image": "registry.k8s.io/nfd/node-feature-discovery:v0.18.3",
+        "name": "master"
+       }
+      ]
+     }
+    }
+   },
+   "status": {
+    "availableReplicas": 1,
+    "readyReplicas": 1,
+    "replicas": 1
+   }
+  },
+  {
+   "apiVersion": null,
+   "kind": "Deployment",
+   "metadata": {
+    "annotations": {
+     "meta.helm.sh/release-name": "konnector-agent",
+     "meta.helm.sh/release-namespace": "ntnx-system"
+    },
+    "labels": {
+     "app.kubernetes.io/managed-by": "Helm"
+    },
+    "name": "konnector-agent",
+    "namespace": "ntnx-system"
+   },
+   "spec": {
+    "replicas": 1,
+    "template": {
+     "spec": {
+      "containers": [
+       {
+        "image": "docker.io/nutanix/konnector-agent:1.4.1",
+        "name": "konnector-agent"
+       }
+      ]
+     }
+    }
+   },
+   "status": {
+    "availableReplicas": 1,
+    "readyReplicas": 1,
+    "replicas": 1
+   }
+  },
+  {
+   "apiVersion": null,
+   "kind": "Deployment",
+   "metadata": {
+    "annotations": {
+     "meta.helm.sh/release-name": "nutanix-csi",
+     "meta.helm.sh/release-namespace": "ntnx-system"
+    },
+    "labels": {
+     "app.kubernetes.io/instance": "nutanix-csi",
+     "app.kubernetes.io/managed-by": "Helm",
+     "app.kubernetes.io/management-plane": "PrismCentral",
+     "app.kubernetes.io/name": "nutanix-csi-storage",
+     "app.kubernetes.io/topology-enabled": "true",
+     "app.kubernetes.io/version": "3.7.1",
+     "helm.sh/chart": "nutanix-csi-storage-3.7.1"
+    },
+    "name": "nutanix-csi-controller",
+    "namespace": "ntnx-system"
+   },
+   "spec": {
+    "replicas": 2,
+    "template": {
+     "spec": {
+      "containers": [
+       {
+        "image": "registry.k8s.io/sig-storage/csi-provisioner:v5.3.0",
+        "name": "csi-provisioner"
+       },
+       {
+        "image": "registry.k8s.io/sig-storage/csi-attacher:v4.10.0",
+        "name": "csi-attacher"
+       },
+       {
+        "image": "registry.k8s.io/sig-storage/csi-resizer:v2.0.0",
+        "name": "csi-resizer"
+       },
+       {
+        "image": "registry.k8s.io/sig-storage/csi-snapshotter:v8.4.0",
+        "name": "csi-snapshotter"
+       },
+       {
+        "image": "docker.io/nutanix/ntnx-csi:3.7.1",
+        "name": "nutanix-csi-plugin"
+       },
+       {
+        "image": "registry.k8s.io/sig-storage/livenessprobe:v2.17.0",
+        "name": "liveness-probe"
+       },
+       {
+        "image": "registry.k8s.io/sig-storage/csi-external-health-monitor-controller:v0.16.0",
+        "name": "csi-external-health-monitor-controller"
+       }
+      ]
+     }
+    }
+   },
+   "status": {
+    "availableReplicas": 2,
+    "readyReplicas": 2,
+    "replicas": 2
+   }
+  },
+  {
+   "apiVersion": null,
+   "kind": "Deployment",
+   "metadata": {
+    "name": "web-frontend",
+    "namespace": "demo-apps"
+   },
+   "spec": {
+    "replicas": 3,
+    "template": {
+     "spec": {
+      "containers": [
+       {
+        "image": "nginx:1.27-alpine",
+        "name": "nginx"
+       }
+      ]
+     }
+    }
+   },
+   "status": {
+    "availableReplicas": 3,
+    "readyReplicas": 3,
+    "replicas": 3
+   }
+  },
+  {
+   "apiVersion": null,
+   "kind": "Deployment",
+   "metadata": {
+    "annotations": {
+     "meta.helm.sh/release-name": "blog",
+     "meta.helm.sh/release-namespace": "demo-blog"
+    },
+    "labels": {
+     "app.kubernetes.io/instance": "blog",
+     "app.kubernetes.io/managed-by": "Helm",
+     "app.kubernetes.io/name": "wordpress",
+     "app.kubernetes.io/part-of": "wordpress-stack"
+    },
+    "name": "blog-wordpress",
+    "namespace": "demo-blog"
+   },
+   "spec": {
+    "replicas": 1,
+    "template": {
+     "spec": {
+      "containers": [
+       {
+        "image": "wordpress:6.8-apache",
+        "name": "wordpress"
+       }
+      ]
+     }
+    }
+   },
+   "status": {
+    "availableReplicas": 1,
+    "readyReplicas": 1,
+    "replicas": 1
+   }
+  },
+  {
+   "apiVersion": null,
+   "kind": "Deployment",
+   "metadata": {
+    "annotations": {
+     "meta.helm.sh/release-name": "prometheus",
+     "meta.helm.sh/release-namespace": "demo-monitoring"
+    },
+    "labels": {
+     "app.kubernetes.io/component": "metrics",
+     "app.kubernetes.io/instance": "prometheus",
+     "app.kubernetes.io/managed-by": "Helm",
+     "app.kubernetes.io/name": "kube-state-metrics",
+     "app.kubernetes.io/part-of": "kube-state-metrics",
+     "app.kubernetes.io/version": "2.20.0",
+     "helm.sh/chart": "kube-state-metrics-9.0.0"
+    },
+    "name": "prometheus-kube-state-metrics",
+    "namespace": "demo-monitoring"
+   },
+   "spec": {
+    "replicas": 1,
+    "template": {
+     "spec": {
+      "containers": [
+       {
+        "image": "registry.k8s.io/kube-state-metrics/kube-state-metrics:v2.20.0",
+        "name": "kube-state-metrics"
+       }
+      ]
+     }
+    }
+   },
+   "status": {
+    "availableReplicas": 1,
+    "readyReplicas": 1,
+    "replicas": 1
+   }
+  },
+  {
+   "apiVersion": null,
+   "kind": "Deployment",
+   "metadata": {
+    "annotations": {
+     "meta.helm.sh/release-name": "prometheus",
+     "meta.helm.sh/release-namespace": "demo-monitoring"
+    },
+    "labels": {
+     "app.kubernetes.io/component": "server",
+     "app.kubernetes.io/instance": "prometheus",
+     "app.kubernetes.io/managed-by": "Helm",
+     "app.kubernetes.io/name": "prometheus",
+     "app.kubernetes.io/part-of": "prometheus",
+     "app.kubernetes.io/version": "v3.16.0",
+     "helm.sh/chart": "prometheus-29.44.0"
+    },
+    "name": "prometheus-server",
+    "namespace": "demo-monitoring"
+   },
+   "spec": {
+    "replicas": 1,
+    "template": {
+     "spec": {
+      "containers": [
+       {
+        "image": "quay.io/prometheus-operator/prometheus-config-reloader:v0.95.1",
+        "name": "prometheus-server-configmap-reload"
+       },
+       {
+        "image": "quay.io/prometheus/prometheus:v3.16.0",
+        "name": "prometheus-server"
+       }
+      ]
+     }
+    }
+   },
+   "status": {
+    "availableReplicas": 1,
+    "readyReplicas": 1,
+    "replicas": 1
+   }
+  },
+  {
+   "apiVersion": null,
+   "kind": "Deployment",
+   "metadata": {
+    "annotations": {
+     "meta.helm.sh/release-name": "shop",
+     "meta.helm.sh/release-namespace": "demo-shop"
+    },
+    "labels": {
+     "app.kubernetes.io/managed-by": "Helm"
+    },
+    "name": "adservice",
+    "namespace": "demo-shop"
+   },
+   "spec": {
+    "replicas": 1,
+    "template": {
+     "spec": {
+      "containers": [
+       {
+        "image": "us-central1-docker.pkg.dev/online-boutique-ci/microservices-demo/adservice:v0.10.7",
+        "name": "server"
+       }
+      ]
+     }
+    }
+   },
+   "status": {
+    "availableReplicas": 1,
+    "readyReplicas": 1,
+    "replicas": 1
+   }
+  },
+  {
+   "apiVersion": null,
+   "kind": "Deployment",
+   "metadata": {
+    "annotations": {
+     "meta.helm.sh/release-name": "shop",
+     "meta.helm.sh/release-namespace": "demo-shop"
+    },
+    "labels": {
+     "app.kubernetes.io/managed-by": "Helm"
+    },
+    "name": "cartservice",
+    "namespace": "demo-shop"
+   },
+   "spec": {
+    "replicas": 1,
+    "template": {
+     "spec": {
+      "containers": [
+       {
+        "image": "us-central1-docker.pkg.dev/online-boutique-ci/microservices-demo/cartservice:v0.10.7",
+        "name": "server"
+       }
+      ]
+     }
+    }
+   },
+   "status": {
+    "availableReplicas": 1,
+    "readyReplicas": 1,
+    "replicas": 1
+   }
+  },
+  {
+   "apiVersion": null,
+   "kind": "Deployment",
+   "metadata": {
+    "annotations": {
+     "meta.helm.sh/release-name": "shop",
+     "meta.helm.sh/release-namespace": "demo-shop"
+    },
+    "labels": {
+     "app.kubernetes.io/managed-by": "Helm"
+    },
+    "name": "checkoutservice",
+    "namespace": "demo-shop"
+   },
+   "spec": {
+    "replicas": 1,
+    "template": {
+     "spec": {
+      "containers": [
+       {
+        "image": "us-central1-docker.pkg.dev/online-boutique-ci/microservices-demo/checkoutservice:v0.10.7",
+        "name": "server"
+       }
+      ]
+     }
+    }
+   },
+   "status": {
+    "availableReplicas": 1,
+    "readyReplicas": 1,
+    "replicas": 1
+   }
+  },
+  {
+   "apiVersion": null,
+   "kind": "Deployment",
+   "metadata": {
+    "annotations": {
+     "meta.helm.sh/release-name": "shop",
+     "meta.helm.sh/release-namespace": "demo-shop"
+    },
+    "labels": {
+     "app.kubernetes.io/managed-by": "Helm"
+    },
+    "name": "currencyservice",
+    "namespace": "demo-shop"
+   },
+   "spec": {
+    "replicas": 1,
+    "template": {
+     "spec": {
+      "containers": [
+       {
+        "image": "us-central1-docker.pkg.dev/online-boutique-ci/microservices-demo/currencyservice:v0.10.7",
+        "name": "server"
+       }
+      ]
+     }
+    }
+   },
+   "status": {
+    "availableReplicas": 1,
+    "readyReplicas": 1,
+    "replicas": 1
+   }
+  },
+  {
+   "apiVersion": null,
+   "kind": "Deployment",
+   "metadata": {
+    "annotations": {
+     "meta.helm.sh/release-name": "shop",
+     "meta.helm.sh/release-namespace": "demo-shop"
+    },
+    "labels": {
+     "app.kubernetes.io/managed-by": "Helm"
+    },
+    "name": "emailservice",
+    "namespace": "demo-shop"
+   },
+   "spec": {
+    "replicas": 1,
+    "template": {
+     "spec": {
+      "containers": [
+       {
+        "image": "us-central1-docker.pkg.dev/online-boutique-ci/microservices-demo/emailservice:v0.10.7",
+        "name": "server"
+       }
+      ]
+     }
+    }
+   },
+   "status": {
+    "availableReplicas": 1,
+    "readyReplicas": 1,
+    "replicas": 1
+   }
+  },
+  {
+   "apiVersion": null,
+   "kind": "Deployment",
+   "metadata": {
+    "annotations": {
+     "meta.helm.sh/release-name": "shop",
+     "meta.helm.sh/release-namespace": "demo-shop"
+    },
+    "labels": {
+     "app.kubernetes.io/managed-by": "Helm"
+    },
+    "name": "frontend",
+    "namespace": "demo-shop"
+   },
+   "spec": {
+    "replicas": 1,
+    "template": {
+     "spec": {
+      "containers": [
+       {
+        "image": "us-central1-docker.pkg.dev/online-boutique-ci/microservices-demo/frontend:v0.10.7",
+        "name": "server"
+       }
+      ]
+     }
+    }
+   },
+   "status": {
+    "availableReplicas": 1,
+    "readyReplicas": 1,
+    "replicas": 1
+   }
+  },
+  {
+   "apiVersion": null,
+   "kind": "Deployment",
+   "metadata": {
+    "annotations": {
+     "meta.helm.sh/release-name": "shop",
+     "meta.helm.sh/release-namespace": "demo-shop"
+    },
+    "labels": {
+     "app.kubernetes.io/managed-by": "Helm"
+    },
+    "name": "paymentservice",
+    "namespace": "demo-shop"
+   },
+   "spec": {
+    "replicas": 1,
+    "template": {
+     "spec": {
+      "containers": [
+       {
+        "image": "us-central1-docker.pkg.dev/online-boutique-ci/microservices-demo/paymentservice:v0.10.7",
+        "name": "server"
+       }
+      ]
+     }
+    }
+   },
+   "status": {
+    "availableReplicas": 1,
+    "readyReplicas": 1,
+    "replicas": 1
+   }
+  },
+  {
+   "apiVersion": null,
+   "kind": "Deployment",
+   "metadata": {
+    "annotations": {
+     "meta.helm.sh/release-name": "shop",
+     "meta.helm.sh/release-namespace": "demo-shop"
+    },
+    "labels": {
+     "app.kubernetes.io/managed-by": "Helm"
+    },
+    "name": "productcatalogservice",
+    "namespace": "demo-shop"
+   },
+   "spec": {
+    "replicas": 1,
+    "template": {
+     "spec": {
+      "containers": [
+       {
+        "image": "us-central1-docker.pkg.dev/online-boutique-ci/microservices-demo/productcatalogservice:v0.10.7",
+        "name": "server"
+       }
+      ]
+     }
+    }
+   },
+   "status": {
+    "availableReplicas": 1,
+    "readyReplicas": 1,
+    "replicas": 1
+   }
+  },
+  {
+   "apiVersion": null,
+   "kind": "Deployment",
+   "metadata": {
+    "annotations": {
+     "meta.helm.sh/release-name": "shop",
+     "meta.helm.sh/release-namespace": "demo-shop"
+    },
+    "labels": {
+     "app.kubernetes.io/managed-by": "Helm"
+    },
+    "name": "recommendationservice",
+    "namespace": "demo-shop"
+   },
+   "spec": {
+    "replicas": 1,
+    "template": {
+     "spec": {
+      "containers": [
+       {
+        "image": "us-central1-docker.pkg.dev/online-boutique-ci/microservices-demo/recommendationservice:v0.10.7",
+        "name": "server"
+       }
+      ]
+     }
+    }
+   },
+   "status": {
+    "availableReplicas": 1,
+    "readyReplicas": 1,
+    "replicas": 1
+   }
+  },
+  {
+   "apiVersion": null,
+   "kind": "Deployment",
+   "metadata": {
+    "annotations": {
+     "meta.helm.sh/release-name": "shop",
+     "meta.helm.sh/release-namespace": "demo-shop"
+    },
+    "labels": {
+     "app.kubernetes.io/managed-by": "Helm"
+    },
+    "name": "redis-cart",
+    "namespace": "demo-shop"
+   },
+   "spec": {
+    "replicas": 1,
+    "template": {
+     "spec": {
+      "containers": [
+       {
+        "image": "redis:alpine@sha256:8096655e437712b07503796fb64d81359256cfcff0ab29d95a7da72863786efb",
+        "name": "redis"
+       }
+      ]
+     }
+    }
+   },
+   "status": {
+    "availableReplicas": 1,
+    "readyReplicas": 1,
+    "replicas": 1
+   }
+  },
+  {
+   "apiVersion": null,
+   "kind": "Deployment",
+   "metadata": {
+    "annotations": {
+     "meta.helm.sh/release-name": "shop",
+     "meta.helm.sh/release-namespace": "demo-shop"
+    },
+    "labels": {
+     "app.kubernetes.io/managed-by": "Helm"
+    },
+    "name": "shippingservice",
+    "namespace": "demo-shop"
+   },
+   "spec": {
+    "replicas": 1,
+    "template": {
+     "spec": {
+      "containers": [
+       {
+        "image": "us-central1-docker.pkg.dev/online-boutique-ci/microservices-demo/shippingservice:v0.10.7",
+        "name": "server"
+       }
+      ]
+     }
+    }
+   },
+   "status": {
+    "availableReplicas": 1,
+    "readyReplicas": 1,
+    "replicas": 1
+   }
+  }
+ ],
+ "helmreleases": [
+  {
+   "apiVersion": "helm.toolkit.fluxcd.io/v2",
+   "kind": "HelmRelease",
+   "metadata": {
+    "name": "karma-traefik-certs",
+    "namespace": "kommander-default-workspace"
+   },
+   "spec": {
+    "releaseName": "karma-traefik-certs"
+   },
+   "status": {
+    "conditions": [
+     {
+      "status": "True",
+      "type": "Ready"
+     },
+     {
+      "status": "True",
+      "type": "Released"
+     }
+    ],
+    "lastAttemptedRevision": "0.0.13"
+   }
+  },
+  {
+   "apiVersion": "helm.toolkit.fluxcd.io/v2",
+   "kind": "HelmRelease",
+   "metadata": {
+    "name": "prometheus-traefik-certs",
+    "namespace": "kommander-default-workspace"
+   },
+   "spec": {
+    "releaseName": "prometheus-traefik-certs"
+   },
+   "status": {
+    "conditions": [
+     {
+      "status": "True",
+      "type": "Ready"
+     },
+     {
+      "status": "True",
+      "type": "Released"
+     }
+    ],
+    "lastAttemptedRevision": "0.0.13"
+   }
+  },
+  {
+   "apiVersion": "helm.toolkit.fluxcd.io/v2",
+   "kind": "HelmRelease",
+   "metadata": {
+    "name": "cluster-observer-19996545",
+    "namespace": "kommander"
+   },
+   "spec": {
+    "releaseName": "cluster-observer-19996545",
+    "targetNamespace": "kommander"
+   },
+   "status": {
+    "conditions": [
+     {
+      "status": "True",
+      "type": "Ready"
+     },
+     {
+      "status": "True",
+      "type": "Released"
+     }
+    ],
+    "lastAttemptedRevision": "1.6.0"
+   }
+  },
+  {
+   "apiVersion": "helm.toolkit.fluxcd.io/v2",
+   "kind": "HelmRelease",
+   "metadata": {
+    "labels": {
+     "kommander.d2iq.io/managed-by-kind": "AppDeployment"
+    },
+    "name": "dex",
+    "namespace": "kommander"
+   },
+   "spec": {
+    "releaseName": "dex",
+    "targetNamespace": "kommander"
+   },
+   "status": {
+    "conditions": [
+     {
+      "status": "True",
+      "type": "Ready"
+     },
+     {
+      "status": "True",
+      "type": "Released"
+     }
+    ],
+    "lastAttemptedRevision": "2.14.0"
+   }
+  },
+  {
+   "apiVersion": "helm.toolkit.fluxcd.io/v2",
+   "kind": "HelmRelease",
+   "metadata": {
+    "labels": {
+     "kommander.d2iq.io/managed-by-kind": "AppDeployment"
+    },
+    "name": "dex-k8s-authenticator",
+    "namespace": "kommander"
+   },
+   "spec": {
+    "releaseName": "dex-k8s-authenticator",
+    "targetNamespace": "kommander"
+   },
+   "status": {
+    "conditions": [
+     {
+      "status": "True",
+      "type": "Ready"
+     },
+     {
+      "status": "True",
+      "type": "Released"
+     }
+    ],
+    "lastAttemptedRevision": "1.4.3"
+   }
+  },
+  {
+   "apiVersion": "helm.toolkit.fluxcd.io/v2",
+   "kind": "HelmRelease",
+   "metadata": {
+    "labels": {
+     "kommander.d2iq.io/managed-by-kind": "AppDeployment"
+    },
+    "name": "external-secrets",
+    "namespace": "kommander"
+   },
+   "spec": {
+    "releaseName": "external-secrets",
+    "targetNamespace": "external-secrets"
+   },
+   "status": {
+    "conditions": [
+     {
+      "status": "True",
+      "type": "Ready"
+     },
+     {
+      "status": "True",
+      "type": "Released"
+     }
+    ],
+    "lastAttemptedRevision": "2.3.0"
+   }
+  },
+  {
+   "apiVersion": "helm.toolkit.fluxcd.io/v2",
+   "kind": "HelmRelease",
+   "metadata": {
+    "labels": {
+     "kommander.d2iq.io/managed-by-kind": "AppDeployment"
+    },
+    "name": "gatekeeper",
+    "namespace": "kommander"
+   },
+   "spec": {
+    "releaseName": "kommander-gatekeeper"
+   },
+   "status": {
+    "conditions": [
+     {
+      "status": "True",
+      "type": "Ready"
+     },
+     {
+      "status": "True",
+      "type": "Released"
+     }
+    ],
+    "lastAttemptedRevision": "3.22.0"
+   }
+  },
+  {
+   "apiVersion": "helm.toolkit.fluxcd.io/v2",
+   "kind": "HelmRelease",
+   "metadata": {
+    "name": "gatekeeper-proxy-mutations",
+    "namespace": "kommander"
+   },
+   "spec": {
+    "releaseName": "gatekeeper-proxy-mutations"
+   },
+   "status": {
+    "conditions": [
+     {
+      "status": "True",
+      "type": "Ready"
+     },
+     {
+      "status": "True",
+      "type": "Released"
+     }
+    ],
+    "lastAttemptedRevision": "v0.0.1"
+   }
+  },
+  {
+   "apiVersion": "helm.toolkit.fluxcd.io/v2",
+   "kind": "HelmRelease",
+   "metadata": {
+    "labels": {
+     "kommander.d2iq.io/managed-by-kind": "AppDeployment"
+    },
+    "name": "gateway-api-crds",
+    "namespace": "kommander"
+   },
+   "spec": {},
+   "status": {
+    "conditions": [
+     {
+      "status": "True",
+      "type": "Ready"
+     },
+     {
+      "status": "True",
+      "type": "Released"
+     }
+    ],
+    "lastAttemptedRevision": "1.11.1"
+   }
+  },
+  {
+   "apiVersion": "helm.toolkit.fluxcd.io/v2",
+   "kind": "HelmRelease",
+   "metadata": {
+    "name": "karma-traefik-certs",
+    "namespace": "kommander"
+   },
+   "spec": {
+    "releaseName": "karma-traefik-certs"
+   },
+   "status": {
+    "conditions": [
+     {
+      "status": "True",
+      "type": "Ready"
+     },
+     {
+      "status": "True",
+      "type": "Released"
+     }
+    ],
+    "lastAttemptedRevision": "0.0.13"
+   }
+  },
+  {
+   "apiVersion": "helm.toolkit.fluxcd.io/v2",
+   "kind": "HelmRelease",
+   "metadata": {
+    "labels": {
+     "kommander.d2iq.io/managed-by-kind": "AppDeployment"
+    },
+    "name": "kommander",
+    "namespace": "kommander"
+   },
+   "spec": {
+    "releaseName": "kommander"
+   },
+   "status": {
+    "conditions": [
+     {
+      "status": "True",
+      "type": "Ready"
+     },
+     {
+      "status": "True",
+      "type": "Released"
+     }
+    ],
+    "lastAttemptedRevision": "v2.18.0"
+   }
+  },
+  {
+   "apiVersion": "helm.toolkit.fluxcd.io/v2",
+   "kind": "HelmRelease",
+   "metadata": {
+    "labels": {
+     "kommander.d2iq.io/managed-by-kind": "AppDeployment"
+    },
+    "name": "kommander-appmanagement",
+    "namespace": "kommander"
+   },
+   "spec": {
+    "releaseName": "kommander-appmanagement"
+   },
+   "status": {
+    "conditions": [
+     {
+      "status": "True",
+      "type": "Ready"
+     },
+     {
+      "status": "True",
+      "type": "Released"
+     }
+    ],
+    "lastAttemptedRevision": "v2.18.0"
+   }
+  },
+  {
+   "apiVersion": "helm.toolkit.fluxcd.io/v2",
+   "kind": "HelmRelease",
+   "metadata": {
+    "labels": {
+     "kommander.d2iq.io/managed-by-kind": "AppDeployment"
+    },
+    "name": "kommander-flux",
+    "namespace": "kommander"
+   },
+   "spec": {
+    "releaseName": "kommander-flux",
+    "targetNamespace": "kommander-flux"
+   },
+   "status": {
+    "conditions": [
+     {
+      "status": "True",
+      "type": "Ready"
+     },
+     {
+      "status": "True",
+      "type": "Released"
+     }
+    ],
+    "lastAttemptedRevision": "2.18.3"
+   }
+  },
+  {
+   "apiVersion": "helm.toolkit.fluxcd.io/v2",
+   "kind": "HelmRelease",
+   "metadata": {
+    "name": "kommander-operator",
+    "namespace": "kommander"
+   },
+   "spec": {},
+   "status": {
+    "conditions": [
+     {
+      "status": "True",
+      "type": "Ready"
+     },
+     {
+      "status": "True",
+      "type": "Released"
+     }
+    ],
+    "lastAttemptedRevision": "0.4.0"
+   }
+  },
+  {
+   "apiVersion": "helm.toolkit.fluxcd.io/v2",
+   "kind": "HelmRelease",
+   "metadata": {
+    "labels": {
+     "kommander.d2iq.io/managed-by-kind": "AppDeployment"
+    },
+    "name": "kommander-ui",
+    "namespace": "kommander"
+   },
+   "spec": {
+    "targetNamespace": "kommander"
+   },
+   "status": {
+    "conditions": [
+     {
+      "status": "True",
+      "type": "Ready"
+     },
+     {
+      "status": "True",
+      "type": "Released"
+     }
+    ],
+    "lastAttemptedRevision": "17.234.30"
+   }
+  },
+  {
+   "apiVersion": "helm.toolkit.fluxcd.io/v2",
+   "kind": "HelmRelease",
+   "metadata": {
+    "labels": {
+     "kommander.d2iq.io/managed-by-kind": "AppDeployment"
+    },
+    "name": "kube-oidc-proxy",
+    "namespace": "kommander"
+   },
+   "spec": {
+    "releaseName": "kube-oidc-proxy",
+    "targetNamespace": "kommander"
+   },
+   "status": {
+    "conditions": [
+     {
+      "status": "True",
+      "type": "Ready"
+     },
+     {
+      "status": "True",
+      "type": "Released"
+     }
+    ],
+    "lastAttemptedRevision": "0.3.4"
+   }
+  },
+  {
+   "apiVersion": "helm.toolkit.fluxcd.io/v2",
+   "kind": "HelmRelease",
+   "metadata": {
+    "labels": {
+     "kommander.d2iq.io/managed-by-kind": "AppDeployment"
+    },
+    "name": "kubefed",
+    "namespace": "kommander"
+   },
+   "spec": {
+    "releaseName": "kubefed",
+    "targetNamespace": "kube-federation-system"
+   },
+   "status": {
+    "conditions": [
+     {
+      "status": "True",
+      "type": "Ready"
+     },
+     {
+      "status": "True",
+      "type": "Released"
+     }
+    ],
+    "lastAttemptedRevision": "0.12.1"
+   }
+  },
+  {
+   "apiVersion": "helm.toolkit.fluxcd.io/v2",
+   "kind": "HelmRelease",
+   "metadata": {
+    "name": "prometheus-traefik-certs",
+    "namespace": "kommander"
+   },
+   "spec": {
+    "releaseName": "prometheus-traefik-certs"
+   },
+   "status": {
+    "conditions": [
+     {
+      "status": "True",
+      "type": "Ready"
+     },
+     {
+      "status": "True",
+      "type": "Released"
+     }
+    ],
+    "lastAttemptedRevision": "0.0.13"
+   }
+  },
+  {
+   "apiVersion": "helm.toolkit.fluxcd.io/v2",
+   "kind": "HelmRelease",
+   "metadata": {
+    "labels": {
+     "kommander.d2iq.io/managed-by-kind": "AppDeployment"
+    },
+    "name": "reloader",
+    "namespace": "kommander"
+   },
+   "spec": {
+    "targetNamespace": "kommander"
+   },
+   "status": {
+    "conditions": [
+     {
+      "status": "True",
+      "type": "Ready"
+     },
+     {
+      "status": "True",
+      "type": "Released"
+     }
+    ],
+    "lastAttemptedRevision": "2.2.11"
+   }
+  },
+  {
+   "apiVersion": "helm.toolkit.fluxcd.io/v2",
+   "kind": "HelmRelease",
+   "metadata": {
+    "labels": {
+     "kommander.d2iq.io/managed-by-kind": "AppDeployment"
+    },
+    "name": "traefik",
+    "namespace": "kommander"
+   },
+   "spec": {
+    "releaseName": "kommander-traefik"
+   },
+   "status": {
+    "conditions": [
+     {
+      "status": "True",
+      "type": "Ready"
+     },
+     {
+      "status": "True",
+      "type": "Released"
+     }
+    ],
+    "lastAttemptedRevision": "39.0.7"
+   }
+  },
+  {
+   "apiVersion": "helm.toolkit.fluxcd.io/v2",
+   "kind": "HelmRelease",
+   "metadata": {
+    "name": "traefik-crds",
+    "namespace": "kommander"
+   },
+   "spec": {
+    "releaseName": "traefik-crds"
+   },
+   "status": {
+    "conditions": [
+     {
+      "status": "True",
+      "type": "Ready"
+     },
+     {
+      "status": "True",
+      "type": "Released"
+     }
+    ],
+    "lastAttemptedRevision": "1.11.1"
+   }
+  },
+  {
+   "apiVersion": "helm.toolkit.fluxcd.io/v2",
+   "kind": "HelmRelease",
+   "metadata": {
+    "labels": {
+     "kommander.d2iq.io/managed-by-kind": "AppDeployment"
+    },
+    "name": "traefik-forward-auth-mgmt",
+    "namespace": "kommander"
+   },
+   "spec": {
+    "releaseName": "traefik-forward-auth-mgmt",
+    "targetNamespace": "kommander"
+   },
+   "status": {
+    "conditions": [
+     {
+      "status": "True",
+      "type": "Ready"
+     },
+     {
+      "status": "True",
+      "type": "Released"
+     }
+    ],
+    "lastAttemptedRevision": "0.3.10"
+   }
+  }
+ ],
+ "ingresses": [
+  {
+   "apiVersion": null,
+   "kind": "Ingress",
+   "metadata": {
+    "name": "git-operator-git",
+    "namespace": "git-operator-system"
+   },
+   "spec": {
+    "ingressClassName": "kommander-traefik",
+    "rules": [
+     {
+      "http": {
+       "paths": [
+        {
+         "backend": {
+          "service": {
+           "name": "git-operator-git",
+           "port": {
+            "name": "https"
+           }
+          }
+         },
+         "path": "/dkp/kommander/git-operator",
+         "pathType": "Prefix"
+        }
+       ]
+      }
+     }
+    ]
+   },
+   "status": {
+    "loadBalancer": {
+     "ingress": [
+      {
+       "ip": "10.21.71.246"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "apiVersion": null,
+   "kind": "Ingress",
+   "metadata": {
+    "annotations": {
+     "kubernetes.io/ingress.class": "kommander-traefik",
+     "meta.helm.sh/release-name": "dex",
+     "meta.helm.sh/release-namespace": "kommander"
+    },
+    "labels": {
+     "app.kubernetes.io/instance": "dex",
+     "app.kubernetes.io/managed-by": "Helm",
+     "app.kubernetes.io/name": "dex",
+     "app.kubernetes.io/version": "2.37.0",
+     "helm.sh/chart": "dex-2.14.0"
+    },
+    "name": "dex",
+    "namespace": "kommander"
+   },
+   "spec": {
+    "rules": [
+     {
+      "http": {
+       "paths": [
+        {
+         "backend": {
+          "service": {
+           "name": "dex",
+           "port": {
+            "number": 32000
+           }
+          }
+         },
+         "path": "/dex",
+         "pathType": "ImplementationSpecific"
+        }
+       ]
+      }
+     }
+    ]
+   },
+   "status": {
+    "loadBalancer": {
+     "ingress": [
+      {
+       "ip": "10.21.71.246"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "apiVersion": null,
+   "kind": "Ingress",
+   "metadata": {
+    "annotations": {
+     "kubernetes.io/ingress.class": "kommander-traefik",
+     "meta.helm.sh/release-name": "dex-k8s-authenticator",
+     "meta.helm.sh/release-namespace": "kommander"
+    },
+    "labels": {
+     "app.kubernetes.io/managed-by": "Helm"
+    },
+    "name": "dex-k8s-authenticator",
+    "namespace": "kommander"
+   },
+   "spec": {
+    "rules": [
+     {
+      "http": {
+       "paths": [
+        {
+         "backend": {
+          "service": {
+           "name": "dex-k8s-authenticator",
+           "port": {
+            "number": 5555
+           }
+          }
+         },
+         "path": "/token",
+         "pathType": "Prefix"
+        }
+       ]
+      }
+     }
+    ]
+   },
+   "status": {
+    "loadBalancer": {
+     "ingress": [
+      {
+       "ip": "10.21.71.246"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "apiVersion": null,
+   "kind": "Ingress",
+   "metadata": {
+    "annotations": {
+     "kubernetes.io/ingress.class": "kommander-traefik",
+     "meta.helm.sh/release-name": "kommander-kommander-ui",
+     "meta.helm.sh/release-namespace": "kommander"
+    },
+    "labels": {
+     "app.kubernetes.io/managed-by": "Helm"
+    },
+    "name": "kommander-kommander-ui",
+    "namespace": "kommander"
+   },
+   "spec": {
+    "rules": [
+     {
+      "http": {
+       "paths": [
+        {
+         "backend": {
+          "service": {
+           "name": "kommander",
+           "port": {
+            "number": 80
+           }
+          }
+         },
+         "path": "/dkp/kommander/dashboard",
+         "pathType": "Prefix"
+        }
+       ]
+      }
+     }
+    ]
+   },
+   "status": {
+    "loadBalancer": {
+     "ingress": [
+      {
+       "ip": "10.21.71.246"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "apiVersion": null,
+   "kind": "Ingress",
+   "metadata": {
+    "annotations": {
+     "kubernetes.io/ingress.class": "kommander-traefik",
+     "meta.helm.sh/release-name": "kube-oidc-proxy",
+     "meta.helm.sh/release-namespace": "kommander"
+    },
+    "labels": {
+     "app.kubernetes.io/instance": "kube-oidc-proxy",
+     "app.kubernetes.io/managed-by": "Helm",
+     "app.kubernetes.io/name": "kube-oidc-proxy",
+     "app.kubernetes.io/version": "v0.3.0",
+     "helm.sh/chart": "kube-oidc-proxy-0.3.4"
+    },
+    "name": "kube-oidc-proxy",
+    "namespace": "kommander"
+   },
+   "spec": {
+    "rules": [
+     {
+      "http": {
+       "paths": [
+        {
+         "backend": {
+          "service": {
+           "name": "kube-oidc-proxy",
+           "port": {
+            "name": "https"
+           }
+          }
+         },
+         "path": "/dkp/api-server",
+         "pathType": "Prefix"
+        }
+       ]
+      }
+     }
+    ]
+   },
+   "status": {
+    "loadBalancer": {
+     "ingress": [
+      {
+       "ip": "10.21.71.246"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "apiVersion": null,
+   "kind": "Ingress",
+   "metadata": {
+    "annotations": {
+     "kubernetes.io/ingress.class": "kommander-traefik",
+     "meta.helm.sh/release-name": "traefik-forward-auth-mgmt",
+     "meta.helm.sh/release-namespace": "kommander"
+    },
+    "labels": {
+     "app.kubernetes.io/instance": "traefik-forward-auth-mgmt",
+     "app.kubernetes.io/managed-by": "Helm",
+     "app.kubernetes.io/name": "traefik-forward-auth",
+     "helm.sh/chart": "traefik-forward-auth-0.3.10"
+    },
+    "name": "traefik-forward-auth-mgmt",
+    "namespace": "kommander"
+   },
+   "spec": {
+    "rules": [
+     {
+      "http": {
+       "paths": [
+        {
+         "backend": {
+          "service": {
+           "name": "traefik-forward-auth-mgmt",
+           "port": {
+            "name": "http"
+           }
+          }
+         },
+         "path": "/_oauth",
+         "pathType": "Prefix"
+        }
+       ]
+      }
+     }
+    ]
+   },
+   "status": {
+    "loadBalancer": {
+     "ingress": [
+      {
+       "ip": "10.21.71.246"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "apiVersion": null,
+   "kind": "Ingress",
+   "metadata": {
+    "name": "web-frontend",
+    "namespace": "demo-apps"
+   },
+   "spec": {
+    "ingressClassName": "kommander-traefik",
+    "rules": [
+     {
+      "host": "web.demo.example.lab",
+      "http": {
+       "paths": [
+        {
+         "backend": {
+          "service": {
+           "name": "web-frontend",
+           "port": {
+            "number": 80
+           }
+          }
+         },
+         "path": "/",
+         "pathType": "Prefix"
+        }
+       ]
+      }
+     }
+    ]
+   },
+   "status": {
+    "loadBalancer": {
+     "ingress": [
+      {
+       "ip": "10.21.71.246"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "apiVersion": null,
+   "kind": "Ingress",
+   "metadata": {
+    "annotations": {
+     "meta.helm.sh/release-name": "blog",
+     "meta.helm.sh/release-namespace": "demo-blog"
+    },
+    "labels": {
+     "app.kubernetes.io/instance": "blog",
+     "app.kubernetes.io/managed-by": "Helm",
+     "app.kubernetes.io/name": "wordpress"
+    },
+    "name": "blog-wordpress",
+    "namespace": "demo-blog"
+   },
+   "spec": {
+    "ingressClassName": "kommander-traefik",
+    "rules": [
+     {
+      "host": "blog.demo.example.lab",
+      "http": {
+       "paths": [
+        {
+         "backend": {
+          "service": {
+           "name": "blog-wordpress",
+           "port": {
+            "name": "http"
+           }
+          }
+         },
+         "path": "/",
+         "pathType": "Prefix"
+        }
+       ]
+      }
+     }
+    ]
+   },
+   "status": {
+    "loadBalancer": {
+     "ingress": [
+      {
+       "ip": "10.21.71.246"
+      }
+     ]
+    }
+   }
+  }
+ ],
+ "namespaces": [
+  {
+   "apiVersion": "v1",
+   "kind": "Namespace",
+   "metadata": {
+    "name": "caaph-system"
+   },
+   "status": {
+    "phase": "Active"
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Namespace",
+   "metadata": {
+    "name": "capa-system"
+   },
+   "status": {
+    "phase": "Active"
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Namespace",
+   "metadata": {
+    "name": "capg-system"
+   },
+   "status": {
+    "phase": "Active"
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Namespace",
+   "metadata": {
+    "name": "capi-kubeadm-bootstrap-system"
+   },
+   "status": {
+    "phase": "Active"
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Namespace",
+   "metadata": {
+    "name": "capi-kubeadm-control-plane-system"
+   },
+   "status": {
+    "phase": "Active"
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Namespace",
+   "metadata": {
+    "name": "capi-operator-system"
+   },
+   "status": {
+    "phase": "Active"
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Namespace",
+   "metadata": {
+    "name": "capi-stack-operator"
+   },
+   "status": {
+    "phase": "Active"
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Namespace",
+   "metadata": {
+    "name": "capi-stack-operator-installer"
+   },
+   "status": {
+    "phase": "Active"
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Namespace",
+   "metadata": {
+    "name": "capi-system"
+   },
+   "status": {
+    "phase": "Active"
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Namespace",
+   "metadata": {
+    "name": "cappp-system"
+   },
+   "status": {
+    "phase": "Active"
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Namespace",
+   "metadata": {
+    "name": "capv-system"
+   },
+   "status": {
+    "phase": "Active"
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Namespace",
+   "metadata": {
+    "name": "capx-system"
+   },
+   "status": {
+    "phase": "Active"
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Namespace",
+   "metadata": {
+    "name": "capz-system"
+   },
+   "status": {
+    "phase": "Active"
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Namespace",
+   "metadata": {
+    "name": "caren-system"
+   },
+   "status": {
+    "phase": "Active"
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Namespace",
+   "metadata": {
+    "name": "cert-manager"
+   },
+   "status": {
+    "phase": "Active"
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Namespace",
+   "metadata": {
+    "name": "cilium-secrets"
+   },
+   "status": {
+    "phase": "Active"
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Namespace",
+   "metadata": {
+    "name": "container-object-storage-system"
+   },
+   "status": {
+    "phase": "Active"
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Namespace",
+   "metadata": {
+    "name": "default"
+   },
+   "status": {
+    "phase": "Active"
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Namespace",
+   "metadata": {
+    "name": "external-secrets"
+   },
+   "status": {
+    "phase": "Active"
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Namespace",
+   "metadata": {
+    "name": "git-operator-system"
+   },
+   "status": {
+    "phase": "Active"
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Namespace",
+   "metadata": {
+    "name": "kommander"
+   },
+   "status": {
+    "phase": "Active"
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Namespace",
+   "metadata": {
+    "name": "kommander-default-workspace"
+   },
+   "status": {
+    "phase": "Active"
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Namespace",
+   "metadata": {
+    "name": "kommander-flux"
+   },
+   "status": {
+    "phase": "Active"
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Namespace",
+   "metadata": {
+    "name": "kube-federation-system"
+   },
+   "status": {
+    "phase": "Active"
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Namespace",
+   "metadata": {
+    "name": "kube-node-lease"
+   },
+   "status": {
+    "phase": "Active"
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Namespace",
+   "metadata": {
+    "name": "kube-public"
+   },
+   "status": {
+    "phase": "Active"
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Namespace",
+   "metadata": {
+    "name": "kube-system"
+   },
+   "status": {
+    "phase": "Active"
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Namespace",
+   "metadata": {
+    "name": "metallb-system"
+   },
+   "status": {
+    "phase": "Active"
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Namespace",
+   "metadata": {
+    "name": "node-feature-discovery"
+   },
+   "status": {
+    "phase": "Active"
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Namespace",
+   "metadata": {
+    "name": "ntnx-system"
+   },
+   "status": {
+    "phase": "Active"
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Namespace",
+   "metadata": {
+    "name": "demo-apps"
+   },
+   "status": {
+    "phase": "Active"
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Namespace",
+   "metadata": {
+    "name": "demo-blog"
+   },
+   "status": {
+    "phase": "Active"
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Namespace",
+   "metadata": {
+    "name": "demo-cache"
+   },
+   "status": {
+    "phase": "Active"
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Namespace",
+   "metadata": {
+    "name": "demo-data"
+   },
+   "status": {
+    "phase": "Active"
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Namespace",
+   "metadata": {
+    "name": "demo-logging"
+   },
+   "status": {
+    "phase": "Active"
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Namespace",
+   "metadata": {
+    "name": "demo-monitoring"
+   },
+   "status": {
+    "phase": "Active"
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Namespace",
+   "metadata": {
+    "name": "demo-shop"
+   },
+   "status": {
+    "phase": "Active"
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Namespace",
+   "metadata": {
+    "name": "registry-system"
+   },
+   "status": {
+    "phase": "Active"
+   }
+  }
+ ],
+ "services": [
+  {
+   "apiVersion": "v1",
+   "kind": "Service",
+   "metadata": {
+    "name": "caaph-controller-manager-metrics-service",
+    "namespace": "caaph-system"
+   },
+   "spec": {
+    "ports": [
+     {
+      "name": "https",
+      "port": 8443,
+      "protocol": "TCP"
+     }
+    ],
+    "type": "ClusterIP"
+   },
+   "status": {
+    "loadBalancer": {}
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Service",
+   "metadata": {
+    "name": "caaph-webhook-service",
+    "namespace": "caaph-system"
+   },
+   "spec": {
+    "ports": [
+     {
+      "name": null,
+      "port": 443,
+      "protocol": "TCP"
+     }
+    ],
+    "type": "ClusterIP"
+   },
+   "status": {
+    "loadBalancer": {}
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Service",
+   "metadata": {
+    "name": "capa-metrics-service",
+    "namespace": "capa-system"
+   },
+   "spec": {
+    "ports": [
+     {
+      "name": null,
+      "port": 8080,
+      "protocol": "TCP"
+     }
+    ],
+    "type": "ClusterIP"
+   },
+   "status": {
+    "loadBalancer": {}
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Service",
+   "metadata": {
+    "name": "capa-webhook-service",
+    "namespace": "capa-system"
+   },
+   "spec": {
+    "ports": [
+     {
+      "name": null,
+      "port": 443,
+      "protocol": "TCP"
+     }
+    ],
+    "type": "ClusterIP"
+   },
+   "status": {
+    "loadBalancer": {}
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Service",
+   "metadata": {
+    "name": "capg-webhook-service",
+    "namespace": "capg-system"
+   },
+   "spec": {
+    "ports": [
+     {
+      "name": null,
+      "port": 443,
+      "protocol": "TCP"
+     }
+    ],
+    "type": "ClusterIP"
+   },
+   "status": {
+    "loadBalancer": {}
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Service",
+   "metadata": {
+    "name": "capi-kubeadm-bootstrap-webhook-service",
+    "namespace": "capi-kubeadm-bootstrap-system"
+   },
+   "spec": {
+    "ports": [
+     {
+      "name": null,
+      "port": 443,
+      "protocol": "TCP"
+     }
+    ],
+    "type": "ClusterIP"
+   },
+   "status": {
+    "loadBalancer": {}
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Service",
+   "metadata": {
+    "name": "capi-kubeadm-control-plane-webhook-service",
+    "namespace": "capi-kubeadm-control-plane-system"
+   },
+   "spec": {
+    "ports": [
+     {
+      "name": null,
+      "port": 443,
+      "protocol": "TCP"
+     }
+    ],
+    "type": "ClusterIP"
+   },
+   "status": {
+    "loadBalancer": {}
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Service",
+   "metadata": {
+    "annotations": {
+     "meta.helm.sh/release-name": "cluster-api-operator",
+     "meta.helm.sh/release-namespace": "capi-operator-system"
+    },
+    "labels": {
+     "app.kubernetes.io/managed-by": "Helm"
+    },
+    "name": "capi-operator-webhook-service",
+    "namespace": "capi-operator-system"
+   },
+   "spec": {
+    "ports": [
+     {
+      "name": null,
+      "port": 443,
+      "protocol": "TCP"
+     }
+    ],
+    "type": "ClusterIP"
+   },
+   "status": {
+    "loadBalancer": {}
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Service",
+   "metadata": {
+    "annotations": {
+     "meta.helm.sh/release-name": "cluster-api-stack-operator",
+     "meta.helm.sh/release-namespace": "capi-stack-operator"
+    },
+    "labels": {
+     "app.kubernetes.io/instance": "cluster-api-stack-operator",
+     "app.kubernetes.io/managed-by": "Helm",
+     "app.kubernetes.io/name": "cluster-api-stack-operator",
+     "app.kubernetes.io/version": "v0.4.23",
+     "helm.sh/chart": "v0.4.23"
+    },
+    "name": "cluster-api-stack-operator-metrics-service",
+    "namespace": "capi-stack-operator"
+   },
+   "spec": {
+    "ports": [
+     {
+      "name": "https",
+      "port": 8443,
+      "protocol": "TCP"
+     }
+    ],
+    "type": "ClusterIP"
+   },
+   "status": {
+    "loadBalancer": {}
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Service",
+   "metadata": {
+    "annotations": {
+     "meta.helm.sh/release-name": "cluster-api-stack-operator",
+     "meta.helm.sh/release-namespace": "capi-stack-operator"
+    },
+    "labels": {
+     "app.kubernetes.io/component": "self-hosted-bundle",
+     "app.kubernetes.io/instance": "cluster-api-stack-operator",
+     "app.kubernetes.io/managed-by": "Helm",
+     "app.kubernetes.io/name": "cluster-api-stack-operator",
+     "app.kubernetes.io/version": "v0.4.23",
+     "helm.sh/chart": "v0.4.23"
+    },
+    "name": "cluster-api-stack-operator-self-hosted-bundle",
+    "namespace": "capi-stack-operator"
+   },
+   "spec": {
+    "ports": [
+     {
+      "name": null,
+      "port": 5000,
+      "protocol": "TCP"
+     }
+    ],
+    "type": "ClusterIP"
+   },
+   "status": {
+    "loadBalancer": {}
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Service",
+   "metadata": {
+    "annotations": {
+     "meta.helm.sh/release-name": "cluster-api-stack-operator",
+     "meta.helm.sh/release-namespace": "capi-stack-operator"
+    },
+    "labels": {
+     "app.kubernetes.io/instance": "cluster-api-stack-operator",
+     "app.kubernetes.io/managed-by": "Helm",
+     "app.kubernetes.io/name": "cluster-api-stack-operator",
+     "app.kubernetes.io/version": "v0.4.23",
+     "helm.sh/chart": "v0.4.23"
+    },
+    "name": "cluster-api-stack-operator-webhook-service",
+    "namespace": "capi-stack-operator"
+   },
+   "spec": {
+    "ports": [
+     {
+      "name": "https",
+      "port": 443,
+      "protocol": "TCP"
+     }
+    ],
+    "type": "ClusterIP"
+   },
+   "status": {
+    "loadBalancer": {}
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Service",
+   "metadata": {
+    "name": "capi-webhook-service",
+    "namespace": "capi-system"
+   },
+   "spec": {
+    "ports": [
+     {
+      "name": null,
+      "port": 443,
+      "protocol": "TCP"
+     }
+    ],
+    "type": "ClusterIP"
+   },
+   "status": {
+    "loadBalancer": {}
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Service",
+   "metadata": {
+    "name": "cappp-webhook-service",
+    "namespace": "cappp-system"
+   },
+   "spec": {
+    "ports": [
+     {
+      "name": null,
+      "port": 443,
+      "protocol": "TCP"
+     }
+    ],
+    "type": "ClusterIP"
+   },
+   "status": {
+    "loadBalancer": {}
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Service",
+   "metadata": {
+    "name": "capv-webhook-service",
+    "namespace": "capv-system"
+   },
+   "spec": {
+    "ports": [
+     {
+      "name": null,
+      "port": 443,
+      "protocol": "TCP"
+     }
+    ],
+    "type": "ClusterIP"
+   },
+   "status": {
+    "loadBalancer": {}
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Service",
+   "metadata": {
+    "name": "capx-controller-manager-metrics-service",
+    "namespace": "capx-system"
+   },
+   "spec": {
+    "ports": [
+     {
+      "name": "https",
+      "port": 8443,
+      "protocol": "TCP"
+     }
+    ],
+    "type": "ClusterIP"
+   },
+   "status": {
+    "loadBalancer": {}
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Service",
+   "metadata": {
+    "name": "capx-webhook-service",
+    "namespace": "capx-system"
+   },
+   "spec": {
+    "ports": [
+     {
+      "name": null,
+      "port": 443,
+      "protocol": "TCP"
+     }
+    ],
+    "type": "ClusterIP"
+   },
+   "status": {
+    "loadBalancer": {}
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Service",
+   "metadata": {
+    "labels": {
+     "app.kubernetes.io/name": "azure-service-operator",
+     "app.kubernetes.io/version": "v2.13.0"
+    },
+    "name": "azureserviceoperator-controller-manager-metrics-service",
+    "namespace": "capz-system"
+   },
+   "spec": {
+    "ports": [
+     {
+      "name": "metrics",
+      "port": 8443,
+      "protocol": "TCP"
+     }
+    ],
+    "type": "ClusterIP"
+   },
+   "status": {
+    "loadBalancer": {}
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Service",
+   "metadata": {
+    "labels": {
+     "app.kubernetes.io/name": "azure-service-operator",
+     "app.kubernetes.io/version": "v2.13.0"
+    },
+    "name": "azureserviceoperator-webhook-service",
+    "namespace": "capz-system"
+   },
+   "spec": {
+    "ports": [
+     {
+      "name": null,
+      "port": 443,
+      "protocol": "TCP"
+     }
+    ],
+    "type": "ClusterIP"
+   },
+   "status": {
+    "loadBalancer": {}
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Service",
+   "metadata": {
+    "name": "capz-webhook-service",
+    "namespace": "capz-system"
+   },
+   "spec": {
+    "ports": [
+     {
+      "name": null,
+      "port": 443,
+      "protocol": "TCP"
+     }
+    ],
+    "type": "ClusterIP"
+   },
+   "status": {
+    "loadBalancer": {}
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Service",
+   "metadata": {
+    "labels": {
+     "app.kubernetes.io/instance": "cluster-api-runtime-extensions-nutanix",
+     "app.kubernetes.io/managed-by": "Helm",
+     "app.kubernetes.io/name": "cluster-api-runtime-extensions-nutanix",
+     "app.kubernetes.io/version": "v0.52.6",
+     "helm.sh/chart": "cluster-api-runtime-extensions-nutanix-v0.52.6"
+    },
+    "name": "cluster-api-runtime-extensions-nutanix-admission",
+    "namespace": "caren-system"
+   },
+   "spec": {
+    "ports": [
+     {
+      "name": "https",
+      "port": 443,
+      "protocol": "TCP"
+     }
+    ],
+    "type": "ClusterIP"
+   },
+   "status": {
+    "loadBalancer": {}
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Service",
+   "metadata": {
+    "labels": {
+     "app.kubernetes.io/instance": "cluster-api-runtime-extensions-nutanix",
+     "app.kubernetes.io/managed-by": "Helm",
+     "app.kubernetes.io/name": "cluster-api-runtime-extensions-nutanix",
+     "app.kubernetes.io/version": "v0.52.6",
+     "helm.sh/chart": "cluster-api-runtime-extensions-nutanix-v0.52.6"
+    },
+    "name": "cluster-api-runtime-extensions-nutanix-runtimehooks",
+    "namespace": "caren-system"
+   },
+   "spec": {
+    "ports": [
+     {
+      "name": "https",
+      "port": 443,
+      "protocol": "TCP"
+     }
+    ],
+    "type": "ClusterIP"
+   },
+   "status": {
+    "loadBalancer": {}
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Service",
+   "metadata": {
+    "name": "helm-repository",
+    "namespace": "caren-system"
+   },
+   "spec": {
+    "ports": [
+     {
+      "name": null,
+      "port": 443,
+      "protocol": "TCP"
+     }
+    ],
+    "type": "ClusterIP"
+   },
+   "status": {
+    "loadBalancer": {}
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Service",
+   "metadata": {
+    "annotations": {
+     "meta.helm.sh/release-name": "cert-manager",
+     "meta.helm.sh/release-namespace": "cert-manager"
+    },
+    "labels": {
+     "app.kubernetes.io/component": "controller",
+     "app.kubernetes.io/instance": "cert-manager",
+     "app.kubernetes.io/managed-by": "Helm",
+     "app.kubernetes.io/name": "cert-manager",
+     "app.kubernetes.io/version": "v1.19.3",
+     "helm.sh/chart": "cert-manager-v1.19.3"
+    },
+    "name": "cert-manager",
+    "namespace": "cert-manager"
+   },
+   "spec": {
+    "ports": [
+     {
+      "name": "tcp-prometheus-servicemonitor",
+      "port": 9402,
+      "protocol": "TCP"
+     }
+    ],
+    "type": "ClusterIP"
+   },
+   "status": {
+    "loadBalancer": {}
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Service",
+   "metadata": {
+    "annotations": {
+     "meta.helm.sh/release-name": "cert-manager",
+     "meta.helm.sh/release-namespace": "cert-manager"
+    },
+    "labels": {
+     "app.kubernetes.io/component": "cainjector",
+     "app.kubernetes.io/instance": "cert-manager",
+     "app.kubernetes.io/managed-by": "Helm",
+     "app.kubernetes.io/name": "cainjector",
+     "app.kubernetes.io/version": "v1.19.3",
+     "helm.sh/chart": "cert-manager-v1.19.3"
+    },
+    "name": "cert-manager-cainjector",
+    "namespace": "cert-manager"
+   },
+   "spec": {
+    "ports": [
+     {
+      "name": "http-metrics",
+      "port": 9402,
+      "protocol": "TCP"
+     }
+    ],
+    "type": "ClusterIP"
+   },
+   "status": {
+    "loadBalancer": {}
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Service",
+   "metadata": {
+    "annotations": {
+     "meta.helm.sh/release-name": "cert-manager",
+     "meta.helm.sh/release-namespace": "cert-manager"
+    },
+    "labels": {
+     "app.kubernetes.io/component": "webhook",
+     "app.kubernetes.io/instance": "cert-manager",
+     "app.kubernetes.io/managed-by": "Helm",
+     "app.kubernetes.io/name": "webhook",
+     "app.kubernetes.io/version": "v1.19.3",
+     "helm.sh/chart": "cert-manager-v1.19.3"
+    },
+    "name": "cert-manager-webhook",
+    "namespace": "cert-manager"
+   },
+   "spec": {
+    "ports": [
+     {
+      "name": "https",
+      "port": 443,
+      "protocol": "TCP"
+     },
+     {
+      "name": "metrics",
+      "port": 9402,
+      "protocol": "TCP"
+     }
+    ],
+    "type": "ClusterIP"
+   },
+   "status": {
+    "loadBalancer": {}
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Service",
+   "metadata": {
+    "name": "kubernetes",
+    "namespace": "default"
+   },
+   "spec": {
+    "ports": [
+     {
+      "name": "https",
+      "port": 443,
+      "protocol": "TCP"
+     }
+    ],
+    "type": "ClusterIP"
+   },
+   "status": {
+    "loadBalancer": {}
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Service",
+   "metadata": {
+    "annotations": {
+     "meta.helm.sh/release-name": "external-secrets",
+     "meta.helm.sh/release-namespace": "external-secrets"
+    },
+    "labels": {
+     "app.kubernetes.io/instance": "external-secrets",
+     "app.kubernetes.io/managed-by": "Helm",
+     "app.kubernetes.io/name": "external-secrets-webhook",
+     "app.kubernetes.io/version": "v2.3.0",
+     "helm.sh/chart": "external-secrets-2.3.0"
+    },
+    "name": "external-secrets-webhook",
+    "namespace": "external-secrets"
+   },
+   "spec": {
+    "ports": [
+     {
+      "name": "webhook",
+      "port": 443,
+      "protocol": "TCP"
+     }
+    ],
+    "type": "ClusterIP"
+   },
+   "status": {
+    "loadBalancer": {}
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Service",
+   "metadata": {
+    "labels": {
+     "app.kubernetes.io/component": "kube-rbac-proxy",
+     "app.kubernetes.io/created-by": "git-operator",
+     "app.kubernetes.io/instance": "git-operator-controller-manager-metrics-service",
+     "app.kubernetes.io/managed-by": "kustomize",
+     "app.kubernetes.io/name": "service",
+     "app.kubernetes.io/part-of": "git-operator"
+    },
+    "name": "git-operator-controller-manager-metrics-service",
+    "namespace": "git-operator-system"
+   },
+   "spec": {
+    "ports": [
+     {
+      "name": "https",
+      "port": 8443,
+      "protocol": "TCP"
+     }
+    ],
+    "type": "ClusterIP"
+   },
+   "status": {
+    "loadBalancer": {}
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Service",
+   "metadata": {
+    "labels": {
+     "app.kubernetes.io/instance": "git-operator-webserver-service",
+     "app.kubernetes.io/name": "git-operator"
+    },
+    "name": "git-operator-git",
+    "namespace": "git-operator-system"
+   },
+   "spec": {
+    "ports": [
+     {
+      "name": "https",
+      "port": 443,
+      "protocol": "TCP"
+     },
+     {
+      "name": "https-admin",
+      "port": 9443,
+      "protocol": "TCP"
+     }
+    ],
+    "type": "ClusterIP"
+   },
+   "status": {
+    "loadBalancer": {}
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Service",
+   "metadata": {
+    "name": "flux-oci-mirror",
+    "namespace": "kommander-flux"
+   },
+   "spec": {
+    "ports": [
+     {
+      "name": "proxy",
+      "port": 8443,
+      "protocol": "TCP"
+     }
+    ],
+    "type": "ClusterIP"
+   },
+   "status": {
+    "loadBalancer": {}
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Service",
+   "metadata": {
+    "annotations": {
+     "meta.helm.sh/release-name": "kommander-flux",
+     "meta.helm.sh/release-namespace": "kommander-flux"
+    },
+    "labels": {
+     "app.kubernetes.io/instance": "kommander-flux",
+     "app.kubernetes.io/managed-by": "Helm",
+     "app.kubernetes.io/part-of": "flux",
+     "app.kubernetes.io/version": "2.8.5",
+     "helm.sh/chart": "flux2-2.18.3"
+    },
+    "name": "notification-controller",
+    "namespace": "kommander-flux"
+   },
+   "spec": {
+    "ports": [
+     {
+      "name": "http",
+      "port": 80,
+      "protocol": "TCP"
+     }
+    ],
+    "type": "ClusterIP"
+   },
+   "status": {
+    "loadBalancer": {}
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Service",
+   "metadata": {
+    "annotations": {
+     "meta.helm.sh/release-name": "kommander-flux",
+     "meta.helm.sh/release-namespace": "kommander-flux"
+    },
+    "labels": {
+     "app.kubernetes.io/instance": "kommander-flux",
+     "app.kubernetes.io/managed-by": "Helm",
+     "app.kubernetes.io/part-of": "flux",
+     "app.kubernetes.io/version": "2.8.5",
+     "helm.sh/chart": "flux2-2.18.3"
+    },
+    "name": "source-controller",
+    "namespace": "kommander-flux"
+   },
+   "spec": {
+    "ports": [
+     {
+      "name": "http",
+      "port": 80,
+      "protocol": "TCP"
+     }
+    ],
+    "type": "ClusterIP"
+   },
+   "status": {
+    "loadBalancer": {}
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Service",
+   "metadata": {
+    "annotations": {
+     "meta.helm.sh/release-name": "kommander-flux",
+     "meta.helm.sh/release-namespace": "kommander-flux"
+    },
+    "labels": {
+     "app.kubernetes.io/instance": "kommander-flux",
+     "app.kubernetes.io/managed-by": "Helm",
+     "app.kubernetes.io/part-of": "flux",
+     "app.kubernetes.io/version": "2.8.5",
+     "helm.sh/chart": "flux2-2.18.3"
+    },
+    "name": "webhook-receiver",
+    "namespace": "kommander-flux"
+   },
+   "spec": {
+    "ports": [
+     {
+      "name": "http",
+      "port": 80,
+      "protocol": "TCP"
+     }
+    ],
+    "type": "ClusterIP"
+   },
+   "status": {
+    "loadBalancer": {}
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Service",
+   "metadata": {
+    "annotations": {
+     "meta.helm.sh/release-name": "ca-a896a1fa-0000-4000-8000-1e697c08de6f",
+     "meta.helm.sh/release-namespace": "kommander"
+    },
+    "labels": {
+     "app.kubernetes.io/instance": "ca-a896a1fa-0000-4000-8000-1e697c08de6f",
+     "app.kubernetes.io/managed-by": "Helm",
+     "app.kubernetes.io/name": "clusterapi-cluster-autoscaler",
+     "helm.sh/chart": "cluster-autoscaler-9.56.0"
+    },
+    "name": "cluster-autoscaler-a896a1fa-0000-4000-8000-1e697c08de6f",
+    "namespace": "kommander"
+   },
+   "spec": {
+    "ports": [
+     {
+      "name": "http",
+      "port": 8085,
+      "protocol": "TCP"
+     }
+    ],
+    "type": "ClusterIP"
+   },
+   "status": {
+    "loadBalancer": {}
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Service",
+   "metadata": {
+    "annotations": {
+     "meta.helm.sh/release-name": "dex",
+     "meta.helm.sh/release-namespace": "kommander"
+    },
+    "labels": {
+     "app.kubernetes.io/instance": "dex",
+     "app.kubernetes.io/managed-by": "Helm",
+     "app.kubernetes.io/name": "dex",
+     "app.kubernetes.io/version": "2.37.0",
+     "helm.sh/chart": "dex-2.14.0"
+    },
+    "name": "dex",
+    "namespace": "kommander"
+   },
+   "spec": {
+    "ports": [
+     {
+      "name": "https",
+      "port": 32000,
+      "protocol": "TCP"
+     }
+    ],
+    "type": "ClusterIP"
+   },
+   "status": {
+    "loadBalancer": {}
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Service",
+   "metadata": {
+    "annotations": {
+     "meta.helm.sh/release-name": "dex",
+     "meta.helm.sh/release-namespace": "kommander"
+    },
+    "labels": {
+     "app.kubernetes.io/managed-by": "Helm"
+    },
+    "name": "dex-dex-controller-manager-metrics-service",
+    "namespace": "kommander"
+   },
+   "spec": {
+    "ports": [
+     {
+      "name": "https",
+      "port": 8443,
+      "protocol": "TCP"
+     }
+    ],
+    "type": "ClusterIP"
+   },
+   "status": {
+    "loadBalancer": {}
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Service",
+   "metadata": {
+    "annotations": {
+     "meta.helm.sh/release-name": "dex",
+     "meta.helm.sh/release-namespace": "kommander"
+    },
+    "labels": {
+     "app.kubernetes.io/managed-by": "Helm"
+    },
+    "name": "dex-dex-controller-webhook-service",
+    "namespace": "kommander"
+   },
+   "spec": {
+    "ports": [
+     {
+      "name": "https",
+      "port": 443,
+      "protocol": "TCP"
+     },
+     {
+      "name": "mt-webhook-srv",
+      "port": 18443,
+      "protocol": "TCP"
+     }
+    ],
+    "type": "ClusterIP"
+   },
+   "status": {
+    "loadBalancer": {}
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Service",
+   "metadata": {
+    "annotations": {
+     "meta.helm.sh/release-name": "dex-k8s-authenticator",
+     "meta.helm.sh/release-namespace": "kommander"
+    },
+    "labels": {
+     "app.kubernetes.io/managed-by": "Helm"
+    },
+    "name": "dex-k8s-authenticator",
+    "namespace": "kommander"
+   },
+   "spec": {
+    "ports": [
+     {
+      "name": "http",
+      "port": 5555,
+      "protocol": "TCP"
+     }
+    ],
+    "type": "ClusterIP"
+   },
+   "status": {
+    "loadBalancer": {}
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Service",
+   "metadata": {
+    "annotations": {
+     "meta.helm.sh/release-name": "kommander-gatekeeper",
+     "meta.helm.sh/release-namespace": "kommander"
+    },
+    "labels": {
+     "app.kubernetes.io/managed-by": "Helm"
+    },
+    "name": "gatekeeper-webhook-service",
+    "namespace": "kommander"
+   },
+   "spec": {
+    "ports": [
+     {
+      "name": "https-webhook-server",
+      "port": 443,
+      "protocol": "TCP"
+     }
+    ],
+    "type": "ClusterIP"
+   },
+   "status": {
+    "loadBalancer": {}
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Service",
+   "metadata": {
+    "annotations": {
+     "meta.helm.sh/release-name": "kommander-kommander-ui",
+     "meta.helm.sh/release-namespace": "kommander"
+    },
+    "labels": {
+     "app.kubernetes.io/managed-by": "Helm"
+    },
+    "name": "kommander",
+    "namespace": "kommander"
+   },
+   "spec": {
+    "ports": [
+     {
+      "name": "metrics",
+      "port": 80,
+      "protocol": "TCP"
+     }
+    ],
+    "type": "ClusterIP"
+   },
+   "status": {
+    "loadBalancer": {}
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Service",
+   "metadata": {
+    "annotations": {
+     "meta.helm.sh/release-name": "kommander-appmanagement",
+     "meta.helm.sh/release-namespace": "kommander"
+    },
+    "labels": {
+     "app.kubernetes.io/instance": "kommander-appmanagement",
+     "app.kubernetes.io/managed-by": "Helm",
+     "app.kubernetes.io/name": "kommander-appmanagement-chart",
+     "app.kubernetes.io/version": "v2.18.0",
+     "helm.sh/chart": "kommander-appmanagement-chart-v2.18.0"
+    },
+    "name": "kommander-appmanagement-cm-metrics",
+    "namespace": "kommander"
+   },
+   "spec": {
+    "ports": [
+     {
+      "name": "https",
+      "port": 443,
+      "protocol": "TCP"
+     }
+    ],
+    "type": "ClusterIP"
+   },
+   "status": {
+    "loadBalancer": {}
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Service",
+   "metadata": {
+    "annotations": {
+     "meta.helm.sh/release-name": "kommander-appmanagement",
+     "meta.helm.sh/release-namespace": "kommander"
+    },
+    "labels": {
+     "app.kubernetes.io/instance": "kommander-appmanagement",
+     "app.kubernetes.io/managed-by": "Helm",
+     "app.kubernetes.io/name": "kommander-appmanagement-chart",
+     "app.kubernetes.io/version": "v2.18.0",
+     "helm.sh/chart": "kommander-appmanagement-chart-v2.18.0"
+    },
+    "name": "kommander-appmanagement-webhook",
+    "namespace": "kommander"
+   },
+   "spec": {
+    "ports": [
+     {
+      "name": "https",
+      "port": 443,
+      "protocol": "TCP"
+     }
+    ],
+    "type": "ClusterIP"
+   },
+   "status": {
+    "loadBalancer": {}
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Service",
+   "metadata": {
+    "annotations": {
+     "meta.helm.sh/release-name": "kommander",
+     "meta.helm.sh/release-namespace": "kommander"
+    },
+    "labels": {
+     "app.kubernetes.io/instance": "kommander",
+     "app.kubernetes.io/managed-by": "Helm",
+     "app.kubernetes.io/name": "kommander-chart",
+     "app.kubernetes.io/version": "v2.18.0",
+     "helm.sh/chart": "kommander-chart-v2.18.0"
+    },
+    "name": "kommander-authorizedlister",
+    "namespace": "kommander"
+   },
+   "spec": {
+    "ports": [
+     {
+      "name": "https",
+      "port": 443,
+      "protocol": "TCP"
+     }
+    ],
+    "type": "ClusterIP"
+   },
+   "status": {
+    "loadBalancer": {}
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Service",
+   "metadata": {
+    "annotations": {
+     "meta.helm.sh/release-name": "kommander",
+     "meta.helm.sh/release-namespace": "kommander"
+    },
+    "labels": {
+     "app.kubernetes.io/instance": "kommander",
+     "app.kubernetes.io/managed-by": "Helm",
+     "app.kubernetes.io/name": "kommander-chart",
+     "app.kubernetes.io/version": "v2.18.0",
+     "helm.sh/chart": "kommander-chart-v2.18.0"
+    },
+    "name": "kommander-capimate",
+    "namespace": "kommander"
+   },
+   "spec": {
+    "ports": [
+     {
+      "name": "https",
+      "port": 8443,
+      "protocol": "TCP"
+     }
+    ],
+    "type": "ClusterIP"
+   },
+   "status": {
+    "loadBalancer": {}
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Service",
+   "metadata": {
+    "annotations": {
+     "meta.helm.sh/release-name": "kommander",
+     "meta.helm.sh/release-namespace": "kommander"
+    },
+    "labels": {
+     "app.kubernetes.io/instance": "kommander",
+     "app.kubernetes.io/managed-by": "Helm",
+     "app.kubernetes.io/name": "kommander-chart",
+     "app.kubernetes.io/version": "v2.18.0",
+     "helm.sh/chart": "kommander-chart-v2.18.0"
+    },
+    "name": "kommander-cm-metrics",
+    "namespace": "kommander"
+   },
+   "spec": {
+    "ports": [
+     {
+      "name": "https",
+      "port": 443,
+      "protocol": "TCP"
+     }
+    ],
+    "type": "ClusterIP"
+   },
+   "status": {
+    "loadBalancer": {}
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Service",
+   "metadata": {
+    "annotations": {
+     "meta.helm.sh/release-name": "kommander",
+     "meta.helm.sh/release-namespace": "kommander"
+    },
+    "labels": {
+     "app.kubernetes.io/instance": "kommander",
+     "app.kubernetes.io/managed-by": "Helm",
+     "app.kubernetes.io/name": "kommander-chart",
+     "app.kubernetes.io/version": "v2.18.0",
+     "helm.sh/chart": "kommander-chart-v2.18.0"
+    },
+    "name": "kommander-flux-operator-metrics",
+    "namespace": "kommander"
+   },
+   "spec": {
+    "ports": [
+     {
+      "name": "https",
+      "port": 443,
+      "protocol": "TCP"
+     }
+    ],
+    "type": "ClusterIP"
+   },
+   "status": {
+    "loadBalancer": {}
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Service",
+   "metadata": {
+    "annotations": {
+     "meta.helm.sh/release-name": "kommander",
+     "meta.helm.sh/release-namespace": "kommander"
+    },
+    "labels": {
+     "app.kubernetes.io/instance": "kommander",
+     "app.kubernetes.io/managed-by": "Helm",
+     "app.kubernetes.io/name": "kommander-licensing",
+     "app.kubernetes.io/version": "v2.18.0",
+     "helm.sh/chart": "kommander-licensing-v2.18.0"
+    },
+    "name": "kommander-licensing-cm-metrics",
+    "namespace": "kommander"
+   },
+   "spec": {
+    "ports": [
+     {
+      "name": "https",
+      "port": 443,
+      "protocol": "TCP"
+     }
+    ],
+    "type": "ClusterIP"
+   },
+   "status": {
+    "loadBalancer": {}
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Service",
+   "metadata": {
+    "annotations": {
+     "meta.helm.sh/release-name": "kommander",
+     "meta.helm.sh/release-namespace": "kommander"
+    },
+    "labels": {
+     "app.kubernetes.io/instance": "kommander",
+     "app.kubernetes.io/managed-by": "Helm",
+     "app.kubernetes.io/name": "kommander-licensing",
+     "app.kubernetes.io/version": "v2.18.0",
+     "helm.sh/chart": "kommander-licensing-v2.18.0"
+    },
+    "name": "kommander-licensing-webhook",
+    "namespace": "kommander"
+   },
+   "spec": {
+    "ports": [
+     {
+      "name": "https",
+      "port": 443,
+      "protocol": "TCP"
+     }
+    ],
+    "type": "ClusterIP"
+   },
+   "status": {
+    "loadBalancer": {}
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Service",
+   "metadata": {
+    "annotations": {
+     "meta.helm.sh/release-name": "kommander-operator",
+     "meta.helm.sh/release-namespace": "kommander"
+    },
+    "labels": {
+     "app.kubernetes.io/component": "webhook",
+     "app.kubernetes.io/managed-by": "Helm",
+     "app.kubernetes.io/name": "kommander-operator"
+    },
+    "name": "kommander-operator-webhook",
+    "namespace": "kommander"
+   },
+   "spec": {
+    "ports": [
+     {
+      "name": "https",
+      "port": 443,
+      "protocol": "TCP"
+     }
+    ],
+    "type": "ClusterIP"
+   },
+   "status": {
+    "loadBalancer": {}
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Service",
+   "metadata": {
+    "annotations": {
+     "meta.helm.sh/release-name": "kommander-traefik",
+     "meta.helm.sh/release-namespace": "kommander"
+    },
+    "labels": {
+     "app.kubernetes.io/instance": "kommander-traefik",
+     "app.kubernetes.io/managed-by": "Helm",
+     "app.kubernetes.io/name": "traefik",
+     "helm.sh/chart": "traefik-39.0.7"
+    },
+    "name": "kommander-traefik",
+    "namespace": "kommander"
+   },
+   "spec": {
+    "ports": [
+     {
+      "name": "external-ceph",
+      "port": 8085,
+      "protocol": "TCP"
+     },
+     {
+      "name": "registry",
+      "port": 5000,
+      "protocol": "TCP"
+     },
+     {
+      "name": "web",
+      "port": 80,
+      "protocol": "TCP"
+     },
+     {
+      "name": "websecure",
+      "port": 443,
+      "protocol": "TCP"
+     }
+    ],
+    "type": "LoadBalancer"
+   },
+   "status": {
+    "loadBalancer": {
+     "ingress": [
+      {
+       "ip": "10.21.71.246",
+       "ipMode": "VIP"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Service",
+   "metadata": {
+    "name": "kommander-traefik-dashboard",
+    "namespace": "kommander"
+   },
+   "spec": {
+    "ports": [
+     {
+      "name": "dashboard-http",
+      "port": 80,
+      "protocol": "TCP"
+     }
+    ],
+    "type": "ClusterIP"
+   },
+   "status": {
+    "loadBalancer": {}
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Service",
+   "metadata": {
+    "name": "kommander-traefik-prometheus",
+    "namespace": "kommander"
+   },
+   "spec": {
+    "ports": [
+     {
+      "name": "metrics",
+      "port": 9100,
+      "protocol": "TCP"
+     }
+    ],
+    "type": "ClusterIP"
+   },
+   "status": {
+    "loadBalancer": {}
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Service",
+   "metadata": {
+    "annotations": {
+     "meta.helm.sh/release-name": "kommander",
+     "meta.helm.sh/release-namespace": "kommander"
+    },
+    "labels": {
+     "app.kubernetes.io/instance": "kommander",
+     "app.kubernetes.io/managed-by": "Helm",
+     "app.kubernetes.io/name": "kommander-chart",
+     "app.kubernetes.io/version": "v2.18.0",
+     "helm.sh/chart": "kommander-chart-v2.18.0"
+    },
+    "name": "kommander-webhook",
+    "namespace": "kommander"
+   },
+   "spec": {
+    "ports": [
+     {
+      "name": "https",
+      "port": 443,
+      "protocol": "TCP"
+     }
+    ],
+    "type": "ClusterIP"
+   },
+   "status": {
+    "loadBalancer": {}
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Service",
+   "metadata": {
+    "annotations": {
+     "meta.helm.sh/release-name": "kube-oidc-proxy",
+     "meta.helm.sh/release-namespace": "kommander"
+    },
+    "labels": {
+     "app.kubernetes.io/instance": "kube-oidc-proxy",
+     "app.kubernetes.io/managed-by": "Helm",
+     "app.kubernetes.io/name": "kube-oidc-proxy",
+     "app.kubernetes.io/version": "v0.3.0",
+     "helm.sh/chart": "kube-oidc-proxy-0.3.4"
+    },
+    "name": "kube-oidc-proxy",
+    "namespace": "kommander"
+   },
+   "spec": {
+    "ports": [
+     {
+      "name": "https",
+      "port": 443,
+      "protocol": "TCP"
+     }
+    ],
+    "type": "ClusterIP"
+   },
+   "status": {
+    "loadBalancer": {}
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Service",
+   "metadata": {
+    "labels": {
+     "app.kubernetes.io/component": "controller-manager",
+     "app.kubernetes.io/name": "loggingstack"
+    },
+    "name": "loggingstack-controller-manager-metrics",
+    "namespace": "kommander"
+   },
+   "spec": {
+    "ports": [
+     {
+      "name": "metrics",
+      "port": 8080,
+      "protocol": "TCP"
+     }
+    ],
+    "type": "ClusterIP"
+   },
+   "status": {
+    "loadBalancer": {}
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Service",
+   "metadata": {
+    "labels": {
+     "app.kubernetes.io/component": "controller-manager",
+     "app.kubernetes.io/name": "nkp-cluster"
+    },
+    "name": "nkp-cluster-controller-manager-metrics",
+    "namespace": "kommander"
+   },
+   "spec": {
+    "ports": [
+     {
+      "name": "metrics",
+      "port": 8080,
+      "protocol": "TCP"
+     }
+    ],
+    "type": "ClusterIP"
+   },
+   "status": {
+    "loadBalancer": {}
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Service",
+   "metadata": {
+    "labels": {
+     "app.kubernetes.io/component": "webhook",
+     "app.kubernetes.io/name": "nkp-cluster"
+    },
+    "name": "nkp-cluster-webhook",
+    "namespace": "kommander"
+   },
+   "spec": {
+    "ports": [
+     {
+      "name": "https",
+      "port": 443,
+      "protocol": "TCP"
+     }
+    ],
+    "type": "ClusterIP"
+   },
+   "status": {
+    "loadBalancer": {}
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Service",
+   "metadata": {
+    "labels": {
+     "app.kubernetes.io/component": "controller-manager",
+     "app.kubernetes.io/name": "nkp-management-plane"
+    },
+    "name": "nkp-management-plane-controller-manager-metrics",
+    "namespace": "kommander"
+   },
+   "spec": {
+    "ports": [
+     {
+      "name": "metrics",
+      "port": 8080,
+      "protocol": "TCP"
+     }
+    ],
+    "type": "ClusterIP"
+   },
+   "status": {
+    "loadBalancer": {}
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Service",
+   "metadata": {
+    "labels": {
+     "app.kubernetes.io/component": "webhook",
+     "app.kubernetes.io/name": "nkp-management-plane"
+    },
+    "name": "nkp-management-plane-webhook",
+    "namespace": "kommander"
+   },
+   "spec": {
+    "ports": [
+     {
+      "name": "https",
+      "port": 443,
+      "protocol": "TCP"
+     }
+    ],
+    "type": "ClusterIP"
+   },
+   "status": {
+    "loadBalancer": {}
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Service",
+   "metadata": {
+    "name": "runtime-extension-kommander",
+    "namespace": "kommander"
+   },
+   "spec": {
+    "ports": [
+     {
+      "name": "https",
+      "port": 443,
+      "protocol": "TCP"
+     }
+    ],
+    "type": "ClusterIP"
+   },
+   "status": {
+    "loadBalancer": {}
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Service",
+   "metadata": {
+    "annotations": {
+     "meta.helm.sh/release-name": "traefik-forward-auth-mgmt",
+     "meta.helm.sh/release-namespace": "kommander"
+    },
+    "labels": {
+     "app.kubernetes.io/instance": "traefik-forward-auth-mgmt",
+     "app.kubernetes.io/managed-by": "Helm",
+     "app.kubernetes.io/name": "traefik-forward-auth",
+     "helm.sh/chart": "traefik-forward-auth-0.3.10"
+    },
+    "name": "traefik-forward-auth-mgmt",
+    "namespace": "kommander"
+   },
+   "spec": {
+    "ports": [
+     {
+      "name": "http",
+      "port": 4181,
+      "protocol": "TCP"
+     }
+    ],
+    "type": "ClusterIP"
+   },
+   "status": {
+    "loadBalancer": {}
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Service",
+   "metadata": {
+    "annotations": {
+     "meta.helm.sh/release-name": "kubefed",
+     "meta.helm.sh/release-namespace": "kube-federation-system"
+    },
+    "labels": {
+     "app.kubernetes.io/managed-by": "Helm"
+    },
+    "name": "kubefed-admission-webhook",
+    "namespace": "kube-federation-system"
+   },
+   "spec": {
+    "ports": [
+     {
+      "name": null,
+      "port": 443,
+      "protocol": "TCP"
+     }
+    ],
+    "type": "ClusterIP"
+   },
+   "status": {
+    "loadBalancer": {}
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Service",
+   "metadata": {
+    "annotations": {
+     "meta.helm.sh/release-name": "kubefed",
+     "meta.helm.sh/release-namespace": "kube-federation-system"
+    },
+    "labels": {
+     "app.kubernetes.io/managed-by": "Helm"
+    },
+    "name": "kubefed-controller-manager-metrics-service",
+    "namespace": "kube-federation-system"
+   },
+   "spec": {
+    "ports": [
+     {
+      "name": "metrics",
+      "port": 9090,
+      "protocol": "TCP"
+     }
+    ],
+    "type": "ClusterIP"
+   },
+   "status": {
+    "loadBalancer": {}
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Service",
+   "metadata": {
+    "annotations": {
+     "meta.helm.sh/release-name": "cilium",
+     "meta.helm.sh/release-namespace": "kube-system"
+    },
+    "labels": {
+     "app.kubernetes.io/managed-by": "Helm",
+     "app.kubernetes.io/name": "cilium-envoy",
+     "app.kubernetes.io/part-of": "cilium"
+    },
+    "name": "cilium-envoy",
+    "namespace": "kube-system"
+   },
+   "spec": {
+    "ports": [
+     {
+      "name": "envoy-metrics",
+      "port": 9964,
+      "protocol": "TCP"
+     }
+    ],
+    "type": "ClusterIP"
+   },
+   "status": {
+    "loadBalancer": {}
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Service",
+   "metadata": {
+    "annotations": {
+     "meta.helm.sh/release-name": "cilium",
+     "meta.helm.sh/release-namespace": "kube-system"
+    },
+    "labels": {
+     "app.kubernetes.io/managed-by": "Helm",
+     "app.kubernetes.io/name": "hubble-peer",
+     "app.kubernetes.io/part-of": "cilium"
+    },
+    "name": "hubble-peer",
+    "namespace": "kube-system"
+   },
+   "spec": {
+    "ports": [
+     {
+      "name": "peer-service",
+      "port": 443,
+      "protocol": "TCP"
+     }
+    ],
+    "type": "ClusterIP"
+   },
+   "status": {
+    "loadBalancer": {}
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Service",
+   "metadata": {
+    "annotations": {
+     "meta.helm.sh/release-name": "cilium",
+     "meta.helm.sh/release-namespace": "kube-system"
+    },
+    "labels": {
+     "app.kubernetes.io/managed-by": "Helm",
+     "app.kubernetes.io/name": "hubble-relay",
+     "app.kubernetes.io/part-of": "cilium"
+    },
+    "name": "hubble-relay",
+    "namespace": "kube-system"
+   },
+   "spec": {
+    "ports": [
+     {
+      "name": null,
+      "port": 443,
+      "protocol": "TCP"
+     }
+    ],
+    "type": "ClusterIP"
+   },
+   "status": {
+    "loadBalancer": {}
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Service",
+   "metadata": {
+    "name": "kube-dns",
+    "namespace": "kube-system"
+   },
+   "spec": {
+    "ports": [
+     {
+      "name": "dns",
+      "port": 53,
+      "protocol": "UDP"
+     },
+     {
+      "name": "dns-tcp",
+      "port": 53,
+      "protocol": "TCP"
+     },
+     {
+      "name": "metrics",
+      "port": 9153,
+      "protocol": "TCP"
+     }
+    ],
+    "type": "ClusterIP"
+   },
+   "status": {
+    "loadBalancer": {}
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Service",
+   "metadata": {
+    "annotations": {
+     "meta.helm.sh/release-name": "metallb",
+     "meta.helm.sh/release-namespace": "metallb-system"
+    },
+    "labels": {
+     "app.kubernetes.io/instance": "metallb",
+     "app.kubernetes.io/managed-by": "Helm",
+     "app.kubernetes.io/name": "metallb",
+     "app.kubernetes.io/version": "v0.15.3",
+     "helm.sh/chart": "metallb-0.15.3"
+    },
+    "name": "metallb-webhook-service",
+    "namespace": "metallb-system"
+   },
+   "spec": {
+    "ports": [
+     {
+      "name": null,
+      "port": 443,
+      "protocol": "TCP"
+     }
+    ],
+    "type": "ClusterIP"
+   },
+   "status": {
+    "loadBalancer": {}
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Service",
+   "metadata": {
+    "annotations": {
+     "meta.helm.sh/release-name": "nutanix-csi",
+     "meta.helm.sh/release-namespace": "ntnx-system"
+    },
+    "labels": {
+     "app.kubernetes.io/instance": "nutanix-csi",
+     "app.kubernetes.io/managed-by": "Helm",
+     "app.kubernetes.io/management-plane": "PrismCentral",
+     "app.kubernetes.io/name": "nutanix-csi-storage",
+     "app.kubernetes.io/topology-enabled": "true",
+     "app.kubernetes.io/version": "3.7.1",
+     "helm.sh/chart": "nutanix-csi-storage-3.7.1"
+    },
+    "name": "nutanix-csi-metrics",
+    "namespace": "ntnx-system"
+   },
+   "spec": {
+    "ports": [
+     {
+      "name": "provisioner",
+      "port": 9809,
+      "protocol": "TCP"
+     },
+     {
+      "name": "attacher",
+      "port": 9810,
+      "protocol": "TCP"
+     },
+     {
+      "name": "resizer",
+      "port": 9811,
+      "protocol": "TCP"
+     },
+     {
+      "name": "snapshotter",
+      "port": 9812,
+      "protocol": "TCP"
+     }
+    ],
+    "type": "ClusterIP"
+   },
+   "status": {
+    "loadBalancer": {}
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Service",
+   "metadata": {
+    "name": "web-frontend",
+    "namespace": "demo-apps"
+   },
+   "spec": {
+    "ports": [
+     {
+      "name": "http",
+      "port": 80,
+      "protocol": "TCP"
+     }
+    ],
+    "type": "LoadBalancer"
+   },
+   "status": {
+    "loadBalancer": {
+     "ingress": [
+      {
+       "ip": "10.21.71.247",
+       "ipMode": "VIP"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Service",
+   "metadata": {
+    "annotations": {
+     "meta.helm.sh/release-name": "blog",
+     "meta.helm.sh/release-namespace": "demo-blog"
+    },
+    "labels": {
+     "app.kubernetes.io/instance": "blog",
+     "app.kubernetes.io/managed-by": "Helm",
+     "app.kubernetes.io/name": "mariadb"
+    },
+    "name": "blog-mariadb",
+    "namespace": "demo-blog"
+   },
+   "spec": {
+    "ports": [
+     {
+      "name": "mysql",
+      "port": 3306,
+      "protocol": "TCP"
+     }
+    ],
+    "type": "ClusterIP"
+   },
+   "status": {
+    "loadBalancer": {}
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Service",
+   "metadata": {
+    "annotations": {
+     "meta.helm.sh/release-name": "blog",
+     "meta.helm.sh/release-namespace": "demo-blog"
+    },
+    "labels": {
+     "app.kubernetes.io/instance": "blog",
+     "app.kubernetes.io/managed-by": "Helm",
+     "app.kubernetes.io/name": "wordpress"
+    },
+    "name": "blog-wordpress",
+    "namespace": "demo-blog"
+   },
+   "spec": {
+    "ports": [
+     {
+      "name": "http",
+      "port": 80,
+      "protocol": "TCP"
+     }
+    ],
+    "type": "ClusterIP"
+   },
+   "status": {
+    "loadBalancer": {}
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Service",
+   "metadata": {
+    "labels": {
+     "app.kubernetes.io/name": "valkey"
+    },
+    "name": "valkey",
+    "namespace": "demo-cache"
+   },
+   "spec": {
+    "ports": [
+     {
+      "name": "valkey",
+      "port": 6379,
+      "protocol": "TCP"
+     }
+    ],
+    "type": "ClusterIP"
+   },
+   "status": {
+    "loadBalancer": {}
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Service",
+   "metadata": {
+    "labels": {
+     "app.kubernetes.io/name": "valkey"
+    },
+    "name": "valkey-headless",
+    "namespace": "demo-cache"
+   },
+   "spec": {
+    "ports": [
+     {
+      "name": "valkey",
+      "port": 6379,
+      "protocol": "TCP"
+     }
+    ],
+    "type": "ClusterIP"
+   },
+   "status": {
+    "loadBalancer": {}
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Service",
+   "metadata": {
+    "name": "orders-db",
+    "namespace": "demo-data"
+   },
+   "spec": {
+    "ports": [
+     {
+      "name": null,
+      "port": 5432,
+      "protocol": "TCP"
+     }
+    ],
+    "type": "ClusterIP"
+   },
+   "status": {
+    "loadBalancer": {}
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Service",
+   "metadata": {
+    "annotations": {
+     "meta.helm.sh/release-name": "fluent-bit",
+     "meta.helm.sh/release-namespace": "demo-logging"
+    },
+    "labels": {
+     "app.kubernetes.io/instance": "fluent-bit",
+     "app.kubernetes.io/managed-by": "Helm",
+     "app.kubernetes.io/name": "fluent-bit",
+     "app.kubernetes.io/version": "5.1.3",
+     "helm.sh/chart": "fluent-bit-0.58.3"
+    },
+    "name": "fluent-bit",
+    "namespace": "demo-logging"
+   },
+   "spec": {
+    "ports": [
+     {
+      "name": "http",
+      "port": 2020,
+      "protocol": "TCP"
+     }
+    ],
+    "type": "ClusterIP"
+   },
+   "status": {
+    "loadBalancer": {}
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Service",
+   "metadata": {
+    "annotations": {
+     "meta.helm.sh/release-name": "prometheus",
+     "meta.helm.sh/release-namespace": "demo-monitoring"
+    },
+    "labels": {
+     "app.kubernetes.io/instance": "prometheus",
+     "app.kubernetes.io/managed-by": "Helm",
+     "app.kubernetes.io/name": "alertmanager",
+     "app.kubernetes.io/version": "v0.34.2",
+     "helm.sh/chart": "alertmanager-2.3.0"
+    },
+    "name": "prometheus-alertmanager",
+    "namespace": "demo-monitoring"
+   },
+   "spec": {
+    "ports": [
+     {
+      "name": "http",
+      "port": 9093,
+      "protocol": "TCP"
+     }
+    ],
+    "type": "ClusterIP"
+   },
+   "status": {
+    "loadBalancer": {}
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Service",
+   "metadata": {
+    "annotations": {
+     "meta.helm.sh/release-name": "prometheus",
+     "meta.helm.sh/release-namespace": "demo-monitoring"
+    },
+    "labels": {
+     "app.kubernetes.io/instance": "prometheus",
+     "app.kubernetes.io/managed-by": "Helm",
+     "app.kubernetes.io/name": "alertmanager",
+     "app.kubernetes.io/version": "v0.34.2",
+     "helm.sh/chart": "alertmanager-2.3.0"
+    },
+    "name": "prometheus-alertmanager-headless",
+    "namespace": "demo-monitoring"
+   },
+   "spec": {
+    "ports": [
+     {
+      "name": "http",
+      "port": 9093,
+      "protocol": "TCP"
+     }
+    ],
+    "type": "ClusterIP"
+   },
+   "status": {
+    "loadBalancer": {}
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Service",
+   "metadata": {
+    "annotations": {
+     "meta.helm.sh/release-name": "prometheus",
+     "meta.helm.sh/release-namespace": "demo-monitoring"
+    },
+    "labels": {
+     "app.kubernetes.io/component": "metrics",
+     "app.kubernetes.io/instance": "prometheus",
+     "app.kubernetes.io/managed-by": "Helm",
+     "app.kubernetes.io/name": "kube-state-metrics",
+     "app.kubernetes.io/part-of": "kube-state-metrics",
+     "app.kubernetes.io/version": "2.20.0",
+     "helm.sh/chart": "kube-state-metrics-9.0.0"
+    },
+    "name": "prometheus-kube-state-metrics",
+    "namespace": "demo-monitoring"
+   },
+   "spec": {
+    "ports": [
+     {
+      "name": "http",
+      "port": 8080,
+      "protocol": "TCP"
+     }
+    ],
+    "type": "ClusterIP"
+   },
+   "status": {
+    "loadBalancer": {}
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Service",
+   "metadata": {
+    "annotations": {
+     "meta.helm.sh/release-name": "prometheus",
+     "meta.helm.sh/release-namespace": "demo-monitoring"
+    },
+    "labels": {
+     "app.kubernetes.io/component": "metrics",
+     "app.kubernetes.io/instance": "prometheus",
+     "app.kubernetes.io/managed-by": "Helm",
+     "app.kubernetes.io/name": "prometheus-node-exporter",
+     "app.kubernetes.io/part-of": "prometheus-node-exporter",
+     "app.kubernetes.io/version": "1.12.1",
+     "helm.sh/chart": "prometheus-node-exporter-4.60.1"
+    },
+    "name": "prometheus-prometheus-node-exporter",
+    "namespace": "demo-monitoring"
+   },
+   "spec": {
+    "ports": [
+     {
+      "name": "metrics",
+      "port": 9100,
+      "protocol": "TCP"
+     }
+    ],
+    "type": "ClusterIP"
+   },
+   "status": {
+    "loadBalancer": {}
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Service",
+   "metadata": {
+    "annotations": {
+     "meta.helm.sh/release-name": "prometheus",
+     "meta.helm.sh/release-namespace": "demo-monitoring"
+    },
+    "labels": {
+     "app.kubernetes.io/component": "server",
+     "app.kubernetes.io/instance": "prometheus",
+     "app.kubernetes.io/managed-by": "Helm",
+     "app.kubernetes.io/name": "prometheus",
+     "app.kubernetes.io/part-of": "prometheus",
+     "app.kubernetes.io/version": "v3.16.0",
+     "helm.sh/chart": "prometheus-29.44.0"
+    },
+    "name": "prometheus-server",
+    "namespace": "demo-monitoring"
+   },
+   "spec": {
+    "ports": [
+     {
+      "name": "http",
+      "port": 80,
+      "protocol": "TCP"
+     }
+    ],
+    "type": "ClusterIP"
+   },
+   "status": {
+    "loadBalancer": {}
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Service",
+   "metadata": {
+    "annotations": {
+     "meta.helm.sh/release-name": "shop",
+     "meta.helm.sh/release-namespace": "demo-shop"
+    },
+    "labels": {
+     "app.kubernetes.io/managed-by": "Helm"
+    },
+    "name": "adservice",
+    "namespace": "demo-shop"
+   },
+   "spec": {
+    "ports": [
+     {
+      "name": "grpc",
+      "port": 9555,
+      "protocol": "TCP"
+     }
+    ],
+    "type": "ClusterIP"
+   },
+   "status": {
+    "loadBalancer": {}
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Service",
+   "metadata": {
+    "annotations": {
+     "meta.helm.sh/release-name": "shop",
+     "meta.helm.sh/release-namespace": "demo-shop"
+    },
+    "labels": {
+     "app.kubernetes.io/managed-by": "Helm"
+    },
+    "name": "cartservice",
+    "namespace": "demo-shop"
+   },
+   "spec": {
+    "ports": [
+     {
+      "name": "grpc",
+      "port": 7070,
+      "protocol": "TCP"
+     }
+    ],
+    "type": "ClusterIP"
+   },
+   "status": {
+    "loadBalancer": {}
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Service",
+   "metadata": {
+    "annotations": {
+     "meta.helm.sh/release-name": "shop",
+     "meta.helm.sh/release-namespace": "demo-shop"
+    },
+    "labels": {
+     "app.kubernetes.io/managed-by": "Helm"
+    },
+    "name": "checkoutservice",
+    "namespace": "demo-shop"
+   },
+   "spec": {
+    "ports": [
+     {
+      "name": "grpc",
+      "port": 5050,
+      "protocol": "TCP"
+     }
+    ],
+    "type": "ClusterIP"
+   },
+   "status": {
+    "loadBalancer": {}
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Service",
+   "metadata": {
+    "annotations": {
+     "meta.helm.sh/release-name": "shop",
+     "meta.helm.sh/release-namespace": "demo-shop"
+    },
+    "labels": {
+     "app.kubernetes.io/managed-by": "Helm"
+    },
+    "name": "currencyservice",
+    "namespace": "demo-shop"
+   },
+   "spec": {
+    "ports": [
+     {
+      "name": "grpc",
+      "port": 7000,
+      "protocol": "TCP"
+     }
+    ],
+    "type": "ClusterIP"
+   },
+   "status": {
+    "loadBalancer": {}
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Service",
+   "metadata": {
+    "annotations": {
+     "meta.helm.sh/release-name": "shop",
+     "meta.helm.sh/release-namespace": "demo-shop"
+    },
+    "labels": {
+     "app.kubernetes.io/managed-by": "Helm"
+    },
+    "name": "emailservice",
+    "namespace": "demo-shop"
+   },
+   "spec": {
+    "ports": [
+     {
+      "name": "grpc",
+      "port": 5000,
+      "protocol": "TCP"
+     }
+    ],
+    "type": "ClusterIP"
+   },
+   "status": {
+    "loadBalancer": {}
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Service",
+   "metadata": {
+    "annotations": {
+     "meta.helm.sh/release-name": "shop",
+     "meta.helm.sh/release-namespace": "demo-shop"
+    },
+    "labels": {
+     "app.kubernetes.io/managed-by": "Helm"
+    },
+    "name": "frontend",
+    "namespace": "demo-shop"
+   },
+   "spec": {
+    "ports": [
+     {
+      "name": "http",
+      "port": 80,
+      "protocol": "TCP"
+     }
+    ],
+    "type": "ClusterIP"
+   },
+   "status": {
+    "loadBalancer": {}
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Service",
+   "metadata": {
+    "labels": {
+     "app.kubernetes.io/part-of": "onlineboutique"
+    },
+    "name": "frontend-external",
+    "namespace": "demo-shop"
+   },
+   "spec": {
+    "ports": [
+     {
+      "name": "http",
+      "port": 80,
+      "protocol": "TCP"
+     }
+    ],
+    "type": "LoadBalancer"
+   },
+   "status": {
+    "loadBalancer": {
+     "ingress": [
+      {
+       "ip": "10.21.71.248",
+       "ipMode": "VIP"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Service",
+   "metadata": {
+    "annotations": {
+     "meta.helm.sh/release-name": "shop",
+     "meta.helm.sh/release-namespace": "demo-shop"
+    },
+    "labels": {
+     "app.kubernetes.io/managed-by": "Helm"
+    },
+    "name": "paymentservice",
+    "namespace": "demo-shop"
+   },
+   "spec": {
+    "ports": [
+     {
+      "name": "grpc",
+      "port": 50051,
+      "protocol": "TCP"
+     }
+    ],
+    "type": "ClusterIP"
+   },
+   "status": {
+    "loadBalancer": {}
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Service",
+   "metadata": {
+    "annotations": {
+     "meta.helm.sh/release-name": "shop",
+     "meta.helm.sh/release-namespace": "demo-shop"
+    },
+    "labels": {
+     "app.kubernetes.io/managed-by": "Helm"
+    },
+    "name": "productcatalogservice",
+    "namespace": "demo-shop"
+   },
+   "spec": {
+    "ports": [
+     {
+      "name": "grpc",
+      "port": 3550,
+      "protocol": "TCP"
+     }
+    ],
+    "type": "ClusterIP"
+   },
+   "status": {
+    "loadBalancer": {}
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Service",
+   "metadata": {
+    "annotations": {
+     "meta.helm.sh/release-name": "shop",
+     "meta.helm.sh/release-namespace": "demo-shop"
+    },
+    "labels": {
+     "app.kubernetes.io/managed-by": "Helm"
+    },
+    "name": "recommendationservice",
+    "namespace": "demo-shop"
+   },
+   "spec": {
+    "ports": [
+     {
+      "name": "grpc",
+      "port": 8080,
+      "protocol": "TCP"
+     }
+    ],
+    "type": "ClusterIP"
+   },
+   "status": {
+    "loadBalancer": {}
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Service",
+   "metadata": {
+    "annotations": {
+     "meta.helm.sh/release-name": "shop",
+     "meta.helm.sh/release-namespace": "demo-shop"
+    },
+    "labels": {
+     "app.kubernetes.io/managed-by": "Helm"
+    },
+    "name": "redis-cart",
+    "namespace": "demo-shop"
+   },
+   "spec": {
+    "ports": [
+     {
+      "name": "tcp-redis",
+      "port": 6379,
+      "protocol": "TCP"
+     }
+    ],
+    "type": "ClusterIP"
+   },
+   "status": {
+    "loadBalancer": {}
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Service",
+   "metadata": {
+    "annotations": {
+     "meta.helm.sh/release-name": "shop",
+     "meta.helm.sh/release-namespace": "demo-shop"
+    },
+    "labels": {
+     "app.kubernetes.io/managed-by": "Helm"
+    },
+    "name": "shippingservice",
+    "namespace": "demo-shop"
+   },
+   "spec": {
+    "ports": [
+     {
+      "name": "grpc",
+      "port": 50051,
+      "protocol": "TCP"
+     }
+    ],
+    "type": "ClusterIP"
+   },
+   "status": {
+    "loadBalancer": {}
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Service",
+   "metadata": {
+    "annotations": {
+     "meta.helm.sh/release-name": "cncf-distribution-registry",
+     "meta.helm.sh/release-namespace": "registry-system"
+    },
+    "labels": {
+     "app.kubernetes.io/managed-by": "Helm"
+    },
+    "name": "cncf-distribution-registry-docker-registry",
+    "namespace": "registry-system"
+   },
+   "spec": {
+    "ports": [
+     {
+      "name": "https-443",
+      "port": 443,
+      "protocol": "TCP"
+     }
+    ],
+    "type": "ClusterIP"
+   },
+   "status": {
+    "loadBalancer": {}
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Service",
+   "metadata": {
+    "annotations": {
+     "meta.helm.sh/release-name": "cncf-distribution-registry",
+     "meta.helm.sh/release-namespace": "registry-system"
+    },
+    "labels": {
+     "app.kubernetes.io/managed-by": "Helm"
+    },
+    "name": "cncf-distribution-registry-docker-registry-headless",
+    "namespace": "registry-system"
+   },
+   "spec": {
+    "ports": [
+     {
+      "name": "https",
+      "port": 5000,
+      "protocol": "TCP"
+     }
+    ],
+    "type": "ClusterIP"
+   },
+   "status": {
+    "loadBalancer": {}
+   }
+  }
+ ],
+ "statefulsets": [
+  {
+   "apiVersion": null,
+   "kind": "StatefulSet",
+   "metadata": {
+    "name": "git-operator-git",
+    "namespace": "git-operator-system"
+   },
+   "spec": {
+    "replicas": 1,
+    "template": {
+     "spec": {
+      "containers": [
+       {
+        "image": "docker.io/nginxinc/nginx-unprivileged:1.29.5-alpine",
+        "name": "git-server-nginx"
+       },
+       {
+        "image": "docker.io/mesosphere/gitwebserver:v0.13.19",
+        "name": "git-server-fcgi"
+       },
+       {
+        "image": "docker.io/mesosphere/gitwebserver:v0.13.19",
+        "name": "gitsnapshot"
+       }
+      ]
+     }
+    }
+   },
+   "status": {
+    "availableReplicas": 1,
+    "readyReplicas": 1,
+    "replicas": 1
+   }
+  },
+  {
+   "apiVersion": null,
+   "kind": "StatefulSet",
+   "metadata": {
+    "annotations": {
+     "meta.helm.sh/release-name": "blog",
+     "meta.helm.sh/release-namespace": "demo-blog"
+    },
+    "labels": {
+     "app.kubernetes.io/instance": "blog",
+     "app.kubernetes.io/managed-by": "Helm",
+     "app.kubernetes.io/name": "mariadb",
+     "app.kubernetes.io/part-of": "wordpress-stack"
+    },
+    "name": "blog-mariadb",
+    "namespace": "demo-blog"
+   },
+   "spec": {
+    "replicas": 1,
+    "template": {
+     "spec": {
+      "containers": [
+       {
+        "image": "mariadb:11.4",
+        "name": "mariadb"
+       }
+      ]
+     }
+    }
+   },
+   "status": {
+    "availableReplicas": 1,
+    "readyReplicas": 1,
+    "replicas": 1
+   }
+  },
+  {
+   "apiVersion": null,
+   "kind": "StatefulSet",
+   "metadata": {
+    "labels": {
+     "app.kubernetes.io/component": "cache",
+     "app.kubernetes.io/name": "valkey"
+    },
+    "name": "valkey",
+    "namespace": "demo-cache"
+   },
+   "spec": {
+    "replicas": 1,
+    "template": {
+     "spec": {
+      "containers": [
+       {
+        "image": "valkey/valkey:8.1-alpine",
+        "name": "valkey"
+       }
+      ]
+     }
+    }
+   },
+   "status": {
+    "availableReplicas": 1,
+    "readyReplicas": 1,
+    "replicas": 1
+   }
+  },
+  {
+   "apiVersion": null,
+   "kind": "StatefulSet",
+   "metadata": {
+    "name": "orders-db",
+    "namespace": "demo-data"
+   },
+   "spec": {
+    "replicas": 1,
+    "template": {
+     "spec": {
+      "containers": [
+       {
+        "image": "postgres:16-alpine",
+        "name": "postgres"
+       }
+      ]
+     }
+    }
+   },
+   "status": {
+    "availableReplicas": 1,
+    "readyReplicas": 1,
+    "replicas": 1
+   }
+  },
+  {
+   "apiVersion": null,
+   "kind": "StatefulSet",
+   "metadata": {
+    "annotations": {
+     "meta.helm.sh/release-name": "prometheus",
+     "meta.helm.sh/release-namespace": "demo-monitoring"
+    },
+    "labels": {
+     "app.kubernetes.io/instance": "prometheus",
+     "app.kubernetes.io/managed-by": "Helm",
+     "app.kubernetes.io/name": "alertmanager",
+     "app.kubernetes.io/version": "v0.34.2",
+     "helm.sh/chart": "alertmanager-2.3.0"
+    },
+    "name": "prometheus-alertmanager",
+    "namespace": "demo-monitoring"
+   },
+   "spec": {
+    "replicas": 1,
+    "template": {
+     "spec": {
+      "containers": [
+       {
+        "image": "quay.io/prometheus-operator/prometheus-config-reloader:v0.95.1",
+        "name": "alertmanager-configmap-reload"
+       },
+       {
+        "image": "quay.io/prometheus/alertmanager:v0.34.2",
+        "name": "alertmanager"
+       }
+      ]
+     }
+    }
+   },
+   "status": {
+    "availableReplicas": 1,
+    "readyReplicas": 1,
+    "replicas": 1
+   }
+  },
+  {
+   "apiVersion": null,
+   "kind": "StatefulSet",
+   "metadata": {
+    "annotations": {
+     "meta.helm.sh/release-name": "cncf-distribution-registry",
+     "meta.helm.sh/release-namespace": "registry-system"
+    },
+    "labels": {
+     "app.kubernetes.io/managed-by": "Helm"
+    },
+    "name": "cncf-distribution-registry-docker-registry",
+    "namespace": "registry-system"
+   },
+   "spec": {
+    "replicas": 2,
+    "template": {
+     "spec": {
+      "containers": [
+       {
+        "image": "registry:2.8.3",
+        "name": "docker-registry"
+       },
+       {
+        "image": "docker.io/regclient/regsync:v0.8.3",
+        "name": "docker-registry-syncer"
+       }
+      ]
+     }
+    }
+   },
+   "status": {
+    "availableReplicas": 2,
+    "readyReplicas": 2,
+    "replicas": 2
+   }
+  }
+ ]
+}

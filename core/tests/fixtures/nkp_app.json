@@ -1,0 +1,682 @@
+{
+ "api_version": "3.0",
+ "metadata": {
+  "kind": "app",
+  "name": "demo-nkp",
+  "uuid": "696159db-534f-571e-e2e4-c5a37e3e8762"
+ },
+ "spec": {
+  "name": "demo-nkp",
+  "resources": {
+   "deployment_list": [
+    {
+     "name": "NkpDeployment",
+     "service_list": [
+      {
+       "name": "NkpService",
+       "variable_list": [
+        {
+         "name": "nkp_version",
+         "type": "LOCAL",
+         "val_type": "STRING",
+         "value": "v2.18.0"
+        },
+        {
+         "name": "kubernetes_version",
+         "type": "LOCAL",
+         "val_type": "STRING",
+         "value": "v1.35.2"
+        },
+        {
+         "name": "is_experimental",
+         "type": "LOCAL",
+         "val_type": "STRING",
+         "value": "true"
+        }
+       ]
+      }
+     ],
+     "substrate": {
+      "name": "NkpSubstrate",
+      "variable_list": [
+       {
+        "name": "subnet_uuid",
+        "type": "LOCAL",
+        "val_type": "STRING",
+        "value": "30db0b21-d840-d8ba-0107-c9e8e7a94a20"
+       },
+       {
+        "name": "nkp_control_plane_prism_element_name",
+        "type": "LOCAL",
+        "val_type": "STRING",
+        "value": "PHX-PROD-02"
+       },
+       {
+        "name": "csi_storage_container_name",
+        "type": "LOCAL",
+        "val_type": "STRING",
+        "value": "default-container-69411"
+       },
+       {
+        "name": "prism_central_username",
+        "type": "LOCAL",
+        "val_type": "STRING",
+        "value": "admin@example.lab"
+       },
+       {
+        "name": "prism_central_password",
+        "type": "SECRET",
+        "val_type": "STRING",
+        "value": null
+       },
+       {
+        "name": "node_image",
+        "type": "LOCAL",
+        "val_type": "STRING",
+        "value": "nkp-rocky-9.7-release-cis-1.35.2-20260626061237"
+       },
+       {
+        "name": "nkp_cluster_name",
+        "type": "LOCAL",
+        "val_type": "STRING",
+        "value": "demo-nkp"
+       },
+       {
+        "name": "kubernetes_service_load_balancer_ip_range",
+        "type": "LOCAL",
+        "val_type": "STRING",
+        "value": "10.21.71.246-10.21.71.249"
+       },
+       {
+        "name": "control_plane_endpoint_ip",
+        "type": "LOCAL",
+        "val_type": "STRING",
+        "value": "10.21.71.245"
+       },
+       {
+        "name": "control_plane_endpoint_port",
+        "type": "LOCAL",
+        "val_type": "INT",
+        "value": "6443"
+       },
+       {
+        "name": "node_subnets",
+        "type": "LOCAL",
+        "val_type": "STRING",
+        "value": "nkp-nodes"
+       },
+       {
+        "name": "kubernetes_pod_network_cidr",
+        "type": "LOCAL",
+        "val_type": "STRING",
+        "value": "192.168.0.0/16"
+       },
+       {
+        "name": "kubernetes_service_cidr",
+        "type": "LOCAL",
+        "val_type": "STRING",
+        "value": "10.96.0.0/12"
+       },
+       {
+        "name": "http_proxy_list",
+        "type": "LOCAL",
+        "val_type": "STRING",
+        "value": ""
+       },
+       {
+        "name": "https_proxy_list",
+        "type": "LOCAL",
+        "val_type": "STRING",
+        "value": ""
+       },
+       {
+        "name": "no_proxy_list",
+        "type": "LOCAL",
+        "val_type": "STRING",
+        "value": ""
+       },
+       {
+        "name": "registry_mirror_url",
+        "type": "LOCAL",
+        "val_type": "STRING",
+        "value": ""
+       },
+       {
+        "name": "registry_mirror_username",
+        "type": "LOCAL",
+        "val_type": "STRING",
+        "value": ""
+       },
+       {
+        "name": "registry_mirror_password",
+        "type": "SECRET",
+        "val_type": "STRING",
+        "value": null
+       },
+       {
+        "name": "registry_mirror_ca_cert",
+        "type": "SECRET",
+        "val_type": "STRING",
+        "value": null
+       },
+       {
+        "name": "registry_url",
+        "type": "LOCAL",
+        "val_type": "STRING",
+        "value": ""
+       },
+       {
+        "name": "registry_username",
+        "type": "LOCAL",
+        "val_type": "STRING",
+        "value": ""
+       },
+       {
+        "name": "registry_password",
+        "type": "SECRET",
+        "val_type": "STRING",
+        "value": null
+       },
+       {
+        "name": "registry_ca_cert",
+        "type": "SECRET",
+        "val_type": "STRING",
+        "value": null
+       },
+       {
+        "name": "control_plane_replicas",
+        "type": "LOCAL",
+        "val_type": "INT",
+        "value": "1"
+       },
+       {
+        "name": "control_plane_node_cores_per_vcpu",
+        "type": "LOCAL",
+        "val_type": "INT",
+        "value": "1"
+       },
+       {
+        "name": "control_plane_node_vcpus",
+        "type": "LOCAL",
+        "val_type": "INT",
+        "value": "4"
+       },
+       {
+        "name": "control_plane_node_memory",
+        "type": "LOCAL",
+        "val_type": "INT",
+        "value": "16"
+       },
+       {
+        "name": "control_plane_node_disk_size",
+        "type": "LOCAL",
+        "val_type": "INT",
+        "value": "80"
+       },
+       {
+        "name": "worker_replicas",
+        "type": "LOCAL",
+        "val_type": "INT",
+        "value": "3"
+       },
+       {
+        "name": "worker_node_cores_per_vcpu",
+        "type": "LOCAL",
+        "val_type": "INT",
+        "value": "1"
+       },
+       {
+        "name": "worker_node_vcpus",
+        "type": "LOCAL",
+        "val_type": "INT",
+        "value": "8"
+       },
+       {
+        "name": "worker_node_memory",
+        "type": "LOCAL",
+        "val_type": "INT",
+        "value": "32"
+       },
+       {
+        "name": "worker_node_disk_size",
+        "type": "LOCAL",
+        "val_type": "INT",
+        "value": "80"
+       },
+       {
+        "name": "ssh_username",
+        "type": "LOCAL",
+        "val_type": "STRING",
+        "value": "konvoy"
+       },
+       {
+        "name": "ssh_public_key",
+        "type": "SECRET",
+        "val_type": "STRING",
+        "value": null
+       },
+       {
+        "name": "csi_hypervisor_attached_volume",
+        "type": "LOCAL",
+        "val_type": "STRING",
+        "value": "true"
+       },
+       {
+        "name": "csi_reclaim_policy",
+        "type": "LOCAL",
+        "val_type": "STRING",
+        "value": "Delete"
+       },
+       {
+        "name": "csi_filesystem",
+        "type": "LOCAL",
+        "val_type": "STRING",
+        "value": "ext4"
+       },
+       {
+        "name": "apply_ssh_config_to_nodes",
+        "type": "LOCAL",
+        "val_type": "STRING",
+        "value": "true"
+       },
+       {
+        "name": "control_plane_nodes_categories",
+        "type": "LOCAL",
+        "val_type": "STRING",
+        "value": ""
+       },
+       {
+        "name": "worker_nodes_categories",
+        "type": "LOCAL",
+        "val_type": "STRING",
+        "value": ""
+       },
+       {
+        "name": "airgapped",
+        "type": "LOCAL",
+        "val_type": "STRING",
+        "value": "false"
+       },
+       {
+        "name": "nkp_version",
+        "type": "LOCAL",
+        "val_type": "STRING",
+        "value": "2.18.0"
+       },
+       {
+        "name": "kubernetes_version",
+        "type": "LOCAL",
+        "val_type": "STRING",
+        "value": "1.35.2"
+       },
+       {
+        "name": "pe_cluster_uuid",
+        "type": "LOCAL",
+        "val_type": "STRING",
+        "value": ""
+       }
+      ]
+     },
+     "type": "GREENFIELD"
+    }
+   ]
+  }
+ },
+ "status": {
+  "name": "demo-nkp",
+  "resources": {
+   "app_blueprint_reference": {
+    "kind": "blueprint",
+    "name": "Nutanix Kubernetes Platform 05f2a935",
+    "uuid": "d49d22d9-f965-5266-4be8-102378048441"
+   },
+   "deployment_list": [
+    {
+     "name": "NkpDeployment",
+     "service_list": [
+      {
+       "name": "NkpService",
+       "variable_list": [
+        {
+         "name": "nkp_version",
+         "type": "LOCAL",
+         "val_type": "STRING",
+         "value": "v2.18.0"
+        },
+        {
+         "name": "kubernetes_version",
+         "type": "LOCAL",
+         "val_type": "STRING",
+         "value": "v1.35.2"
+        },
+        {
+         "name": "is_experimental",
+         "type": "LOCAL",
+         "val_type": "STRING",
+         "value": "true"
+        },
+        {
+         "name": "machine_names",
+         "type": "SYS_LOCAL",
+         "val_type": "STRING",
+         "value": "DE-NkpDeployment-afbfe7b0-9609-3a5e-319c-c74d2013b96d-0"
+        },
+        {
+         "name": "deployment_entity_uuid",
+         "type": "SYS_LOCAL",
+         "val_type": "STRING",
+         "value": "f838b0d4-66a3-6016-0541-7eb33563eb07"
+        },
+        {
+         "name": "pe_cluster_uuid",
+         "type": "SYS_LOCAL",
+         "val_type": "STRING",
+         "value": "927e381e-bcb4-0740-5378-72e3ab39e540"
+        },
+        {
+         "name": "nkp_vm_app_uuid",
+         "type": "SYS_LOCAL",
+         "val_type": "STRING",
+         "value": "3c422805-d8e0-cdf9-cb11-06d3d2a1c308"
+        },
+        {
+         "name": "bastion_ip",
+         "type": "SYS_LOCAL",
+         "val_type": "STRING",
+         "value": "10.21.70.117"
+        }
+       ]
+      }
+     ],
+     "substrate_configuration": {
+      "name": "NkpSubstrate",
+      "variable_list": [
+       {
+        "name": "subnet_uuid",
+        "type": "LOCAL",
+        "val_type": "STRING",
+        "value": "30db0b21-d840-d8ba-0107-c9e8e7a94a20"
+       },
+       {
+        "name": "nkp_control_plane_prism_element_name",
+        "type": "LOCAL",
+        "val_type": "STRING",
+        "value": "PHX-PROD-02"
+       },
+       {
+        "name": "csi_storage_container_name",
+        "type": "LOCAL",
+        "val_type": "STRING",
+        "value": "default-container-69411"
+       },
+       {
+        "name": "prism_central_username",
+        "type": "LOCAL",
+        "val_type": "STRING",
+        "value": "admin@example.lab"
+       },
+       {
+        "name": "prism_central_password",
+        "type": "SECRET",
+        "val_type": "STRING",
+        "value": ""
+       },
+       {
+        "name": "node_image",
+        "type": "LOCAL",
+        "val_type": "STRING",
+        "value": "nkp-rocky-9.7-release-cis-1.35.2-20260626061237"
+       },
+       {
+        "name": "nkp_cluster_name",
+        "type": "LOCAL",
+        "val_type": "STRING",
+        "value": "demo-nkp"
+       },
+       {
+        "name": "kubernetes_service_load_balancer_ip_range",
+        "type": "LOCAL",
+        "val_type": "STRING",
+        "value": "10.21.71.246-10.21.71.249"
+       },
+       {
+        "name": "control_plane_endpoint_ip",
+        "type": "LOCAL",
+        "val_type": "STRING",
+        "value": "10.21.71.245"
+       },
+       {
+        "name": "control_plane_endpoint_port",
+        "type": "LOCAL",
+        "val_type": "INT",
+        "value": "6443"
+       },
+       {
+        "name": "node_subnets",
+        "type": "LOCAL",
+        "val_type": "STRING",
+        "value": "nkp-nodes"
+       },
+       {
+        "name": "kubernetes_pod_network_cidr",
+        "type": "LOCAL",
+        "val_type": "STRING",
+        "value": "192.168.0.0/16"
+       },
+       {
+        "name": "kubernetes_service_cidr",
+        "type": "LOCAL",
+        "val_type": "STRING",
+        "value": "10.96.0.0/12"
+       },
+       {
+        "name": "http_proxy_list",
+        "type": "LOCAL",
+        "val_type": "STRING",
+        "value": ""
+       },
+       {
+        "name": "https_proxy_list",
+        "type": "LOCAL",
+        "val_type": "STRING",
+        "value": ""
+       },
+       {
+        "name": "no_proxy_list",
+        "type": "LOCAL",
+        "val_type": "STRING",
+        "value": ""
+       },
+       {
+        "name": "registry_mirror_url",
+        "type": "LOCAL",
+        "val_type": "STRING",
+        "value": ""
+       },
+       {
+        "name": "registry_mirror_username",
+        "type": "LOCAL",
+        "val_type": "STRING",
+        "value": ""
+       },
+       {
+        "name": "registry_mirror_password",
+        "type": "SECRET",
+        "val_type": "STRING",
+        "value": ""
+       },
+       {
+        "name": "registry_mirror_ca_cert",
+        "type": "SECRET",
+        "val_type": "STRING",
+        "value": ""
+       },
+       {
+        "name": "registry_url",
+        "type": "LOCAL",
+        "val_type": "STRING",
+        "value": ""
+       },
+       {
+        "name": "registry_username",
+        "type": "LOCAL",
+        "val_type": "STRING",
+        "value": ""
+       },
+       {
+        "name": "registry_password",
+        "type": "SECRET",
+        "val_type": "STRING",
+        "value": ""
+       },
+       {
+        "name": "registry_ca_cert",
+        "type": "SECRET",
+        "val_type": "STRING",
+        "value": ""
+       },
+       {
+        "name": "control_plane_replicas",
+        "type": "LOCAL",
+        "val_type": "INT",
+        "value": "1"
+       },
+       {
+        "name": "control_plane_node_cores_per_vcpu",
+        "type": "LOCAL",
+        "val_type": "INT",
+        "value": "1"
+       },
+       {
+        "name": "control_plane_node_vcpus",
+        "type": "LOCAL",
+        "val_type": "INT",
+        "value": "4"
+       },
+       {
+        "name": "control_plane_node_memory",
+        "type": "LOCAL",
+        "val_type": "INT",
+        "value": "16"
+       },
+       {
+        "name": "control_plane_node_disk_size",
+        "type": "LOCAL",
+        "val_type": "INT",
+        "value": "80"
+       },
+       {
+        "name": "worker_replicas",
+        "type": "LOCAL",
+        "val_type": "INT",
+        "value": "3"
+       },
+       {
+        "name": "worker_node_cores_per_vcpu",
+        "type": "LOCAL",
+        "val_type": "INT",
+        "value": "1"
+       },
+       {
+        "name": "worker_node_vcpus",
+        "type": "LOCAL",
+        "val_type": "INT",
+        "value": "8"
+       },
+       {
+        "name": "worker_node_memory",
+        "type": "LOCAL",
+        "val_type": "INT",
+        "value": "32"
+       },
+       {
+        "name": "worker_node_disk_size",
+        "type": "LOCAL",
+        "val_type": "INT",
+        "value": "80"
+       },
+       {
+        "name": "ssh_username",
+        "type": "LOCAL",
+        "val_type": "STRING",
+        "value": "konvoy"
+       },
+       {
+        "name": "ssh_public_key",
+        "type": "SECRET",
+        "val_type": "STRING",
+        "value": ""
+       },
+       {
+        "name": "csi_hypervisor_attached_volume",
+        "type": "LOCAL",
+        "val_type": "STRING",
+        "value": "true"
+       },
+       {
+        "name": "csi_reclaim_policy",
+        "type": "LOCAL",
+        "val_type": "STRING",
+        "value": "Delete"
+       },
+       {
+        "name": "csi_filesystem",
+        "type": "LOCAL",
+        "val_type": "STRING",
+        "value": "ext4"
+       },
+       {
+        "name": "apply_ssh_config_to_nodes",
+        "type": "LOCAL",
+        "val_type": "STRING",
+        "value": "true"
+       },
+       {
+        "name": "control_plane_nodes_categories",
+        "type": "LOCAL",
+        "val_type": "STRING",
+        "value": ""
+       },
+       {
+        "name": "worker_nodes_categories",
+        "type": "LOCAL",
+        "val_type": "STRING",
+        "value": ""
+       },
+       {
+        "name": "airgapped",
+        "type": "LOCAL",
+        "val_type": "STRING",
+        "value": "false"
+       },
+       {
+        "name": "nkp_version",
+        "type": "LOCAL",
+        "val_type": "STRING",
+        "value": "2.18.0"
+       },
+       {
+        "name": "kubernetes_version",
+        "type": "LOCAL",
+        "val_type": "STRING",
+        "value": "1.35.2"
+       },
+       {
+        "name": "pe_cluster_uuid",
+        "type": "LOCAL",
+        "val_type": "STRING",
+        "value": ""
+       }
+      ]
+     },
+     "type": "GREENFIELD"
+    }
+   ],
+   "source_marketplace_name": "Nutanix Kubernetes Platform",
+   "source_marketplace_version": "1.2.0",
+   "variable_list": []
+  },
+  "state": "provisioning",
+  "uuid": "696159db-534f-571e-e2e4-c5a37e3e8762"
+ }
+}

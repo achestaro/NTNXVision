@@ -89,6 +89,13 @@ function toDate(v: string | number | Date | null | undefined): Date | null {
 
 /** "Oct 15 09:45" this year, "2025-10-15 09:45" otherwise. */
 export function fmtAbs(v: string | number | Date | null | undefined): string {
+  // A date with no time (a licence expiry, "2054-03-27") is a calendar day: parsed as UTC
+  // midnight and shown in local time it lands on the evening before, west of UTC.
+  const day = typeof v === 'string' ? /^(\d{4})-(\d{2})-(\d{2})$/.exec(v.trim()) : null;
+  if (day) {
+    const [, y, m, dd] = day;
+    return Number(y) === new Date().getFullYear() ? `${MONTHS[Number(m) - 1]} ${dd}` : `${y}-${m}-${dd}`;
+  }
   const d = toDate(v);
   if (!d) return NA;
   const hm = `${pad(d.getHours())}:${pad(d.getMinutes())}`;

@@ -40,6 +40,7 @@ from docx.shared import Emu, Inches, Pt, RGBColor
 from ntnxvision_core.diagrams.render.png import render_png
 from ntnxvision_core.diagrams.render.svg import render_svg
 from ntnxvision_core.diagrams.render.vsdx import ZIP_TIME
+from ntnxvision_core.exporters import products as P
 from ntnxvision_core.exporters import theme as T
 from ntnxvision_core.exporters import wordcols
 from ntnxvision_core.exporters.content import (
@@ -49,6 +50,7 @@ from ntnxvision_core.exporters.content import (
     FigureRow,
     FigureStrip,
     Paragraph,
+    ProductStrip,
     Report,
     SceneFigure,
     Status,
@@ -66,6 +68,10 @@ GLYPH = "■"
 SUMMARY_MIN_W = 170.0
 #: Tables with at most this many rows keep together on one page.
 SMALL_TABLE = 15
+#: Product icons: beside a chapter heading, in the products row, on the cover.
+ICON_HEAD = Inches(0.32)
+ICON_ROW = Inches(0.4)
+ICON_COVER = Inches(0.3)
 
 _INK = RGBColor.from_string(T.INK)
 _INK_2 = RGBColor.from_string(T.INK_2)
@@ -208,6 +214,9 @@ class WordExporter:
         rule.paragraph_format.right_indent = Inches(5.9)
         rule.paragraph_format.space_after = Pt(40)
         _border(rule._p.get_or_add_pPr(), "bottom", T.IRIS, size=12, space=1)
+        if cover.products:
+            rule.paragraph_format.space_after = Pt(18)
+            self._cover_products(doc, cover.products)
 
         for label, value in cover.meta:
             p = doc.add_paragraph()
@@ -223,6 +232,19 @@ class WordExporter:
         _border(note._p.get_or_add_pPr(), "top", T.RULE_2, size=4, space=6)
         _run(note.add_run(T.clean(cover.note)), 8.5, _INK_3, italic=True)
         doc.add_page_break()
+
+    @staticmethod
+    def _cover_products(doc: DocumentObject, products: list[P.Product]) -> None:
+        """The products the report covers: their icons with short names, in one line."""
+        p = doc.add_paragraph()
+        p.paragraph_format.space_after = Pt(26)
+        p.paragraph_format.tab_stops.add_tab_stop(Inches(1.55))
+        _run(p.add_run("Products\t"), 9, _INK_3)
+        for i, product in enumerate(products):
+            if i:
+                p.add_run("      ")
+            _product_picture(p.add_run(), product, ICON_COVER)
+            _run(p.add_run(f"  {product.short}"), 9, _INK_2, bold=True)
 
     def _toc(self, doc: DocumentObject, report: Report) -> None:
         """Contents: a real TOC field (Heading 1 and 2, hyperlinked), pre-filled with the
@@ -253,6 +275,10 @@ class WordExporter:
         wide = [self._is_wide(doc, s.blocks) for s in ch.sections]
         self._orientation(doc, bool(wide) and wide[0])
         h = doc.add_heading(T.clean(ch.heading), level=1)
+        if ch.product is not None:
+            # Floating at the right margin, so the heading text (and the contents and
+            # navigation pane that copy it) stays text only.
+            _float_right(_product_picture(h.add_run(), ch.product, ICON_HEAD))
         h.paragraph_format.page_break_before = not self._fresh
         h.paragraph_format.keep_with_next = True
         self._fresh = False
@@ -312,6 +338,8 @@ class WordExporter:
                     doc.add_paragraph(T.clean(item), style="List Bullet")
             elif isinstance(blk, FigureStrip):
                 self._strip(doc, blk)
+            elif isinstance(blk, ProductStrip):
+                self._products(doc, blk)
             elif isinstance(blk, Table):
                 self._table(doc, blk)
             elif isinstance(blk, Figure):
@@ -344,6 +372,41 @@ class WordExporter:
             if item.qualifier:
                 color = RGBColor.from_string(T.STATUS_HEX.get(item.tone or "", T.INK_3))
                 _run(q.add_run(T.clean(item.qualifier)), 8, color)
+        spacer = doc.add_paragraph()
+        spacer.paragraph_format.space_after = Pt(4)
+
+    def _products(self, doc: DocumentObject, strip: ProductStrip) -> None:
+        """The estate's Nutanix products in one ruled row: icon, name, what it has."""
+        if not strip.items:
+            return
+        intro = doc.add_paragraph()
+        intro.paragraph_format.keep_with_next = True
+        intro.paragraph_format.space_before = Pt(6)
+        _run(intro.add_run(T.clean(strip.title)), None, _INK, bold=True)
+        n = len(strip.items)
+        width = _text_width(doc)
+        icon_w = int(ICON_ROW) + int(Inches(0.12))
+        text_w = max(int(Inches(0.8)), width // n - icon_w)
+        table = doc.add_table(rows=1, cols=2 * n)
+        table.alignment = WD_TABLE_ALIGNMENT.LEFT
+        _table_borders(table, top=T.RULE, bottom=T.RULE)
+        _fixed_layout(table, [icon_w, text_w] * n)
+        cells = table.rows[0].cells
+        for i, item in enumerate(strip.items):
+            icon, text = cells[2 * i], cells[2 * i + 1]
+            pic = icon.paragraphs[0]
+            pic.paragraph_format.space_before = Pt(5)
+            pic.paragraph_format.space_after = Pt(5)
+            _product_picture(pic.add_run(), item.product, ICON_ROW)
+            name = text.paragraphs[0]
+            name.paragraph_format.space_before = Pt(5)
+            name.paragraph_format.space_after = Pt(0)
+            label = item.product.name if item.product.short in item.product.name \
+                else f"{item.product.name} ({item.product.short})"
+            _run(name.add_run(T.clean(label)), 8.5, _INK, bold=True)
+            detail = text.add_paragraph()
+            detail.paragraph_format.space_after = Pt(5)
+            _run(detail.add_run(T.clean(item.detail)), 8, _INK_3)
         spacer = doc.add_paragraph()
         spacer.paragraph_format.space_after = Pt(4)
 
@@ -805,6 +868,62 @@ def _add_svg_picture(run: Any, png: bytes, svg: bytes, width: int) -> None:
         f'<a:ext uri="{SVG_BLIP_EXT}"><asvg:svgBlip xmlns:asvg="{_NS_ASVG}" '
         f'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" '
         f'r:embed="{rid}"/></a:ext></a:extLst>'))
+
+
+def _product_picture(run: Any, product: P.Product, width: int) -> Any:
+    """`product`'s icon in `run`: the PNG, with the SVG as its vector alternative (one
+    SVG part per product per document). Returns the inline shape."""
+    from docx.opc.constants import RELATIONSHIP_TYPE as RT
+    from docx.opc.packuri import PackURI
+    from docx.opc.part import Part
+    from docx.oxml import parse_xml
+
+    shape = run.add_picture(io.BytesIO(P.png_bytes(product.id)), width=Emu(int(width)))
+    doc_part = run.part
+    package = doc_part.package
+    name = PackURI(f"/word/media/product-{product.id}.svg")
+    part = next((p for p in package.iter_parts() if p.partname == name), None)
+    if part is None:
+        part = Part(name, "image/svg+xml", P.svg_bytes(product.id), package)
+    rid = doc_part.relate_to(part, RT.IMAGE)
+    blip = shape._inline.xpath(".//a:blip")[0]
+    blip.append(parse_xml(
+        f'<a:extLst xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">'
+        f'<a:ext uri="{SVG_BLIP_EXT}"><asvg:svgBlip xmlns:asvg="{_NS_ASVG}" '
+        f'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" '
+        f'r:embed="{rid}"/></a:ext></a:extLst>'))
+    for doc_pr in shape._inline.iter(qn("wp:docPr")):
+        doc_pr.set("descr", product.name)
+        doc_pr.set("title", product.name)
+    return shape
+
+
+def _float_right(shape: Any) -> None:
+    """Turn an inline picture into one floating at the right margin, level with the top
+    of its paragraph, with no text wrap (it never moves the paragraph's text)."""
+    from docx.oxml import parse_xml
+
+    inline = shape._inline
+    wp = "http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing"
+    anchor = parse_xml(
+        f'<wp:anchor xmlns:wp="{wp}" distT="0" distB="0" distL="114300" distR="0" '
+        'simplePos="0" relativeHeight="251659264" behindDoc="0" locked="0" '
+        'layoutInCell="1" allowOverlap="1"><wp:simplePos x="0" y="0"/>'
+        '<wp:positionH relativeFrom="margin"><wp:align>right</wp:align></wp:positionH>'
+        '<wp:positionV relativeFrom="paragraph"><wp:posOffset>0</wp:posOffset>'
+        '</wp:positionV></wp:anchor>')
+    extent = inline.find(qn("wp:extent"))
+    anchor.append(extent)
+    effect = inline.find(qn("wp:effectExtent"))
+    anchor.append(effect if effect is not None else parse_xml(
+        f'<wp:effectExtent xmlns:wp="{wp}" l="0" t="0" r="0" b="0"/>'))
+    anchor.append(parse_xml(f'<wp:wrapNone xmlns:wp="{wp}"/>'))
+    for tag in ("wp:docPr", "wp:cNvGraphicFramePr"):
+        el = inline.find(qn(tag))
+        if el is not None:
+            anchor.append(el)
+    anchor.append(inline.find(qn("a:graphic")))
+    inline.getparent().replace(inline, anchor)
 
 
 def _alt_text(paragraph: Any, text: str) -> None:

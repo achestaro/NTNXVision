@@ -153,7 +153,8 @@ def _probe(conn: PrismConnection, namespace: V4Namespace) -> str:
     # that tell "service not running" (503) apart from other failures.
     statuses: dict[str, int] = conn.__dict__.setdefault("probe_status", {})
     try:
-        conn.v4_get(namespace.probe_path, params={"$limit": 1})
+        # `$page` with `$limit`: Objects answers 400 (OBJ-10006) to either one alone.
+        conn.v4_get(namespace.probe_path, params={"$page": 0, "$limit": 1})
     except NutanixApiError as exc:
         statuses[namespace.area] = exc.status_code or 0
         # 404 means the namespace genuinely is not routed on this PC. Any other error
@@ -182,7 +183,7 @@ def first_served(conn: PrismConnection, candidates: list[str]) -> str | None:
     for path in candidates:
         if path not in cache:
             try:
-                conn.v4_get(path, params={"$limit": 1})
+                conn.v4_get(path, params={"$page": 0, "$limit": 1})
                 cache[path] = True
             except NutanixApiError:
                 cache[path] = False

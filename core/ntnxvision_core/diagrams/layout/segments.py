@@ -19,7 +19,18 @@ from typing import Any
 
 from .. import text as tx
 from .. import tokens as K
-from ..build import LEGEND_GAP, Row, box, chip, legend, measure, place_lines, text_h, trunk_list
+from ..build import (
+    LEGEND_GAP,
+    Row,
+    box,
+    chip,
+    fit_container,
+    legend,
+    measure,
+    place_lines,
+    text_h,
+    trunk_list,
+)
 from ..netcommon import (
     MAX_AZ_FIGURES,
     MAX_PARTS,
@@ -310,7 +321,8 @@ def _scene(site: SSite, rows: list[list[SCluster]], part: tuple[int, int], level
     cont.h = q(y - GAP + P - cont.y)
     y = cont.y + cont.h
     cards = [c for r in rows for c in r]
-    lh = legend(sc, _legend_items(cards), MX, y + LEGEND_GAP, width - 2 * MX)
+    sc.width = q(fit_container(sc, cont) + MX)
+    lh = legend(sc, _legend_items(cards), MX, y + LEGEND_GAP, sc.width - 2 * MX)
     sc.height = q(y + LEGEND_GAP + lh + 1)
     where = site.name + (f", part {part[0]} of {part[1]}" if part[1] > 1 else "")
     sc.caption = (f"Network segment design, {where}: virtual switches, VLANs, subnets"

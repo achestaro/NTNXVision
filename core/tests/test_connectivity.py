@@ -17,12 +17,12 @@ def test_ok_reports_version_counts_and_routing(demo: Any) -> None:
     assert r["status"] == "ok" and r["ok"] is True
     assert r["version"] == "pc.2024.3" and r["version_supported"] is True
     assert r["clusters"] == 4 and r["hosts"] == 28
-    # totalAvailableResults: 1,214 workloads + the PC VM (the 3 ESXi records v4 fails to
-    # serialize still count — they exist, they just cannot be read).
-    assert r["vms"] == 1215
+    # totalAvailableResults: 1,214 workloads + 4 NKP node VMs + the PC VM (the 3 ESXi
+    # records v4 fails to serialize still count — they exist, they just cannot be read).
+    assert r["vms"] == 1219
     api = r["api"]
     assert api["v4"] > api["v3"] > 0 and api["not_deployed"] >= 1  # Files not deployed
-    assert sum(api.values()) == 22
+    assert sum(api.values()) == 23
     assert r["supported_range"] == "pc.2024.1 to pc.7.5.1.6"
     assert "within supported range" in r["detail"]
 
@@ -87,6 +87,8 @@ def test_ndb(demo: Any) -> None:
     r = check({"mode": "ndb", "host": "ndb.demo.local", "username": "admin",
                "password": "x", "insecure": False})
     assert r["status"] == "ok" and "12 database servers" in r["detail"]
+    # The version comes from `downloads/versions` (NDB 2.5 has no `about`).
+    assert r["version"] == "2.5.6" and r["message"] == "Connected to NDB 2.5.6"
 
 
 def test_missing_host_is_an_error_result() -> None:

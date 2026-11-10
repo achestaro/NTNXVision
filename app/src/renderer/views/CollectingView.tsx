@@ -23,7 +23,7 @@ import { runCounts, useRun } from '../lib/run';
 import { NA, fmtClock, fmtCount, fmtDuration, plural } from '../lib/format';
 import { LcmInventoryPanel } from './LcmInventory';
 
-export function CollectingView(): JSX.Element {
+export function CollectingView(): React.JSX.Element {
   const { navigate } = useRouter();
   const { run, isRunning, cancel, lastResult } = useRun();
   const [now, setNow] = useState(Date.now());
@@ -194,7 +194,7 @@ export function CollectingView(): JSX.Element {
   );
 }
 
-function AreaTable({ areas, starting }: { areas: AreaProgress[]; starting: boolean }): JSX.Element {
+function AreaTable({ areas, starting }: { areas: AreaProgress[]; starting: boolean }): React.JSX.Element {
   return (
     <DataTable<AreaProgress>
       ariaLabel="Product areas"

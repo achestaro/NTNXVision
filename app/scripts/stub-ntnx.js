@@ -25,6 +25,39 @@
 //             and unbroken tokens (URLs, build strings) to check that cards contain them
 (function () {
   const opt = Object.assign({ theme: 'light', accent: 'iris', run: 'hold', test: 'ok', clusters: 'ok', platform: 'darwin' }, window.__STUB__ || {});
+  // Nutanix product icons on the diagram fixtures (until stub-diagrams.json is regenerated
+  // by a core that draws them): the eight "Nutanix products" catalog icons for the Add
+  // picker, and a Prism glyph badging each zone's Prism Central box on the canvas.
+  (function addProducts(D) {
+    if (!D) return;
+    const PRODUCTS = [
+      ['prism', 'Nutanix Prism Central'],
+      ['nci', 'Nutanix Cloud Infrastructure (NCI)'],
+      ['ncm', 'Nutanix Cloud Manager (NCM)'],
+      ['ndb', 'Nutanix Database Service (NDB)'],
+      ['nus', 'Nutanix Unified Storage (NUS)'],
+      ['nc2', 'Nutanix Cloud Clusters (NC2)'],
+      ['nkp', 'Nutanix Kubernetes Platform (NKP)'],
+      ['nai', 'Nutanix Enterprise AI (NAI)'],
+    ];
+    const card = { fill: '#FFFFFF', stroke: '#C9D0D6', stroke_w: 0.7, dash: null, radius: 3.4 };
+    for (const state of ['generated', 'edited', 'stale', 'nested']) {
+      const d = D[state];
+      if (!d) continue;
+      if (Array.isArray(d.icons) && !d.icons.some((i) => i.product)) {
+        for (const [id, name] of PRODUCTS) {
+          d.icons.push({ id: `product_${id}`, label: name, group: 'Nutanix products', w: 150, h: 30, name, sub: '', keywords: `nutanix product ${id} ${name.toLowerCase()}`, hint: 'A product card with its icon.', container: false, style: card, chip: null, ink: '#0F1A24', children: [], product: id });
+        }
+      }
+      for (const sc of d.scenes || []) {
+        if (sc.nodes.some((n) => n.kind === 'glyph')) continue;
+        for (const n of [...sc.nodes]) {
+          if (n.kind !== 'box' || !/:pc$/.test(n.id)) continue;
+          sc.nodes.push({ id: `${n.id}:glyph`, kind: 'glyph', x: n.x + n.w - 16, y: n.y + 4, w: 12, h: 12, style: { fill: '#FFFFFF', stroke: null, stroke_w: 0.75, dash: null, radius: 1.6 }, lines: [], parent: n.id, data: { product: 'prism', name: 'Nutanix Prism Central' } });
+        }
+      }
+    }
+  })(window.__STUB_DIAGRAMS__);
   const GB = 1024 ** 3;
   const MB = 1024 ** 2;
   const year = new Date().getFullYear();
@@ -84,7 +117,7 @@
   let connections = opt.empty || opt.noTargets
     ? []
     : [
-        { id: 't-pc01', mode: 'prism_central', host: 'pc01.example.com', username: 'admin', port: 9440, insecure: false, name: 'PC01 Production', ndbHost: 'ndb01.example.com', ndbUser: 'admin', vcpuRatioOverrides: { 'c-phx-prod-01': 6 }, hasPassword: true, ndbHasPassword: true, lastTest: tested('ok', true, 'Connected to Prism Central pc.2024.3', 'pc.2024.3', at(10, 15, 9, 40)) },
+        { id: 't-pc01', mode: 'prism_central', host: 'pc01.example.com', username: 'admin', port: 9440, insecure: false, name: 'PC01 Production', ndbHost: 'ndb01.example.com', ndbUser: 'admin', kubernetes: [{ id: 'k-nkp-prod', name: 'nkp-prod', host: 'nkp-prod.example.com', port: 6443, insecure: true, pinnedCert: '7C:21:9E:04:B3:58:AF:6D:12:E9:40:C7:8B:35:D2:61:FA:0E:93:4C:27:B8:5D:A1:6E:03:C9:72:4F:E6:18:B5', hasToken: true }], vcpuRatioOverrides: { 'c-phx-prod-01': 6 }, hasPassword: true, ndbHasPassword: true, lastTest: tested('ok', true, 'Connected to Prism Central pc.2024.3', 'pc.2024.3', at(10, 15, 9, 40)) },
         { id: 't-pc02', mode: 'prism_central', host: 'pc02.example.com', username: 'admin', port: 9440, insecure: false, name: 'PC02 DR site', hasPassword: true, lastTest: tested('ok', true, 'Connected to Prism Central pc.7.3', 'pc.7.3', at(10, 14, 17, 10)) },
         { id: 't-pc03', mode: 'prism_central', host: 'pc03.example.com', username: 'svc-inventory', port: 9440, insecure: false, name: 'PC03 Labs', hasPassword: false, lastTest: tested('auth_failed', false, 'HTTP 401 Unauthorized', null, at(10, 12, 11, 5)) },
         { id: 't-phx', mode: 'prism_element', host: 'phx-dr-01.example.com', username: 'admin', port: 9440, insecure: false, name: 'phx-dr-01', hasPassword: true, lastTest: null },
@@ -189,27 +222,27 @@
   // ── collection areas ──
   const AREAS = [
     ['clusters', 'Clusters', 'Infrastructure', true],
-    ['hosts', 'Hosts / nodes', 'Infrastructure', true],
-    ['storage', 'Storage containers', 'Infrastructure', true],
-    ['subnets', 'Subnets / networks', 'Infrastructure', true],
-    ['host_networking', 'Host networking (virtual switches, NICs)', 'Infrastructure', false],
-    ['vms', 'Virtual machines', 'Infrastructure', true],
+    ['hosts', 'Hosts / Nodes', 'Infrastructure', true],
+    ['storage', 'Storage Containers', 'Infrastructure', true],
+    ['subnets', 'Subnets / Networks', 'Infrastructure', true],
+    ['host_networking', 'Host Networking (Virtual Switches, NICs)', 'Infrastructure', false],
+    ['vms', 'Virtual Machines', 'Infrastructure', true],
     ['images', 'Images', 'Infrastructure', false],
-    ['templates', 'VM templates', 'Infrastructure', false],
+    ['templates', 'VM Templates', 'Infrastructure', false],
     ['ovas', 'OVAs', 'Infrastructure', false],
-    ['dr', 'Data protection / DR', 'Platform services', false],
-    ['flow', 'Flow network security', 'Platform services', false],
-    ['fvn', 'Flow virtual networking', 'Platform services', false],
+    ['dr', 'Data Protection / DR', 'Platform services', false],
+    ['flow', 'Flow Network Security', 'Platform services', false],
+    ['fvn', 'Flow Virtual Networking', 'Platform services', false],
     ['files', 'Nutanix Files', 'Platform services', false],
     ['objects', 'Nutanix Objects', 'Platform services', false],
-    ['vg', 'Volume groups', 'Platform services', false],
+    ['vg', 'Volume Groups', 'Platform services', false],
     ['lic', 'Licensing', 'Operations and governance', false],
-    ['alerts', 'Health alerts', 'Operations and governance', false],
-    ['iam', 'IAM (users, roles, projects)', 'Operations and governance', false],
-    ['lcm', 'LCM firmware and software', 'Operations and governance', false],
-    ['xplay', 'X-Play playbooks', 'Operations and governance', false],
-    ['ncm', 'NCM reports', 'Operations and governance', false],
-    ['pcconf', 'Prism Central configuration', 'Operations and governance', false],
+    ['alerts', 'Health Alerts', 'Operations and governance', false],
+    ['iam', 'IAM (Users, Roles, Projects)', 'Operations and governance', false],
+    ['lcm', 'LCM Firmware and Software', 'Operations and governance', false],
+    ['xplay', 'X-Play Playbooks', 'Operations and governance', false],
+    ['ncm', 'NCM Reports', 'Operations and governance', false],
+    ['pcconf', 'Prism Central Configuration', 'Operations and governance', false],
   ].map(([id, label, group, pe]) => ({ id, label, group, pe_supported: pe, default_on: true }));
 
   // Run order and mid-run state from Collecting.dc.html.
@@ -602,6 +635,25 @@
       }),
     testRaw: (req) => {
       const host = req.host;
+      if (req.mode === 'kubernetes') {
+        // An NKP cluster: trust on first use (its API uses the cluster's own CA), then ok.
+        const saved = req.targetId && connections.find((c) => c.id === req.targetId);
+        const ep = saved && (saved.kubernetes || []).find((k) => k.id === req.kubernetesId);
+        const trusted = !req.insecure || (req.pinnedCert !== undefined ? !!req.pinnedCert : !!(ep && ep.pinnedCert));
+        const kbase = { product: 'kubernetes', name: host };
+        if (!trusted)
+          return delay(
+            {
+              ...kbase,
+              status: 'trust_required',
+              ok: false,
+              message: 'This server certificate has not been trusted yet',
+              certificate: { subject: 'CN=kube-apiserver', issuer: 'CN=kubernetes', self_signed: false, fingerprint_sha256: '7C:21:9E:04:B3:58:AF:6D:12:E9:40:C7:8B:35:D2:61:FA:0E:93:4C:27:B8:5D:A1:6E:03:C9:72:4F:E6:18:B5', not_after: '2027-06-14T00:00:00Z' },
+            },
+            300,
+          );
+        return delay({ ...kbase, status: 'ok', ok: true, version: 'v1.31.4', message: 'Connected to Kubernetes v1.31.4 (NKP 2.14)', detail: '6 nodes · 14 namespaces · read-only access' }, 300);
+      }
       const scenario = host.startsWith('pc03') && !req.password ? 'auth_failed' : opt.test;
       const base = { product: req.mode, name: host, supported_range: 'pc.2024.1 to pc.7.5.1.6', typical_seconds: req.mode === 'prism_element' ? 60 : 240 };
       if (scenario === 'auth_failed') return delay({ ...base, status: 'auth_failed', ok: false, message: 'HTTP 401 Unauthorized' }, 300);
@@ -923,10 +975,21 @@
       if (Object.keys(errors).length) return delay({ ok: false, errors, targets: connections.slice() });
       const id = req.id || 't-' + Math.random().toString(36).slice(2, 10);
       const prev = connections.find((c) => c.id === id);
-      const { password, ndbPassword, ...rest } = req;
+      const { password, ndbPassword, kubernetes: kubeIn, ...rest } = req;
+      // Like the main process: the request's list replaces the saved one, tokens never come back.
+      const prevKube = (prev && prev.kubernetes) || [];
+      const kubernetes = req.mode === 'prism_element' ? [] : Array.isArray(kubeIn)
+        ? kubeIn.map((k) => {
+            const old = prevKube.find((p) => p.id === k.id);
+            const same = old && old.host === k.host && old.port === k.port && !!old.insecure === !!k.insecure;
+            const { token, removeToken, ...ep } = k;
+            return { ...ep, id: k.id || 'k-' + Math.random().toString(36).slice(2, 10), pinnedCert: k.insecure ? k.pinnedCert || (same ? old.pinnedCert : undefined) : undefined, hasToken: !removeToken && (!!token || !!(same && old.hasToken)) };
+          })
+        : prevKube;
       const target = {
         ...rest,
         id,
+        kubernetes: kubernetes.length ? kubernetes : undefined,
         ndbHost: req.ndbHost || undefined,
         hasPassword: !!password || (prev ? prev.hasPassword : false),
         ndbHasPassword: !!req.ndbHost && (!!ndbPassword || (prev ? !!prev.ndbHasPassword : false)),
@@ -936,6 +999,11 @@
       return delay(() => ({ ok: true, target, targets: connections.slice() }));
     },
     trustCertificate: (req) => {
+      if (req.endpoint.startsWith('kubernetes:')) {
+        const kid = req.endpoint.slice('kubernetes:'.length);
+        connections = connections.map((c) => (c.id === req.targetId ? { ...c, kubernetes: (c.kubernetes || []).map((k) => (k.id === kid ? { ...k, pinnedCert: req.fingerprint } : k)) } : c));
+        return delay(() => connections.slice());
+      }
       connections = connections.map((c) => (c.id === req.targetId ? { ...c, [req.endpoint === 'ndb' ? 'ndbPinnedCert' : req.endpoint === 'vcenter' ? 'vcenterPinnedCert' : 'pinnedCert']: req.fingerprint } : c));
       return delay(() => connections.slice());
     },
@@ -1171,15 +1239,16 @@
       uuid: `${c.uuid}-vm${i}`,
       name: `${c.name.toLowerCase().slice(0, 3)}-${VMS[i % VMS.length]}`,
       cluster_uuid: c.uuid,
-      cpu_pct: Math.round((88 - i * 13 - unit(c.uuid + i) * 6) * 100) / 100,
+      cpu_pct: Math.round((88 - i * 8 - unit(c.uuid + i) * 6) * 100) / 100,
       memory_pct: Math.round((91 - i * 9 - unit(c.uuid + 'm' + i) * 5) * 100) / 100,
       iops: Math.round(2400 / (i + 1) - unit(c.uuid + 'i' + i) * 50),
       latency_usecs: Math.round(5200 / (i + 1) + 300),
-      vcpus: [16, 8, 8, 4, 4][i],
-      memory_bytes: [64, 32, 48, 16, 16][i] * GB,
+      vcpus: [16, 8, 8, 4, 4, 8, 4, 2, 4, 2, 2, 2][i],
+      memory_bytes: [64, 32, 48, 16, 16, 32, 16, 8, 16, 8, 8, 4][i] * GB,
     });
     const top = (c) => {
-      const rows = [0, 1, 2, 3, 4].map((i) => vm(c, i));
+      // Ten per list, like the core's TOP_N (the page shows five, expandable to ten).
+      const rows = Array.from({ length: 10 }, (_, i) => vm(c, i));
       const by = (f) => [...rows].sort((a, b) => b[f] - a[f]);
       return { cpu: by('cpu_pct'), memory: by('memory_pct'), iops: by('iops'), latency: by('latency_usecs') };
     };
@@ -1268,6 +1337,11 @@
           efficiency: { saved_bytes: cl.reduce((a, c) => a + c.efficiency.saved_bytes, 0) },
           health: { critical: cl.filter((c) => c.health.status === 'critical').length, warning: 0, ok: cl.filter((c) => c.health.status === 'ok').length, nodes_total: cl.reduce((a, c) => a + c.nodes.length, 0), nodes_ok: cl.reduce((a, c) => a + c.nodes.length, 0) },
           alerts: { critical: alerts.length, warning: cl.reduce((a, c) => a + c.alerts.warning, 0) },
+          network: {
+            rx_kBps: cl.reduce((a, c) => a + c.network.rx_kBps, 0), tx_kBps: cl.reduce((a, c) => a + c.network.tx_kBps, 0),
+            errors: cl.reduce((a, c) => a + c.network.errors, 0), dropped: cl.reduce((a, c) => a + c.network.dropped, 0),
+            nic_count: cl.reduce((a, c) => a + c.network.nics.length, 0), links_up: cl.reduce((a, c) => a + c.network.links_up, 0),
+          },
         },
         alerts: { critical: alerts, critical_count: alerts.length + 1, warning_count: 15, listed: alerts.length },
         sources: [

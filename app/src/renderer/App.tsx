@@ -29,7 +29,7 @@ import { OptimizationView } from './views/OptimizationView';
 import { SettingsView } from './views/SettingsView';
 import { LegalView } from './views/LegalView';
 
-export function App(): JSX.Element {
+export function App(): React.JSX.Element {
   return (
     <SettingsProvider>
       <RouterProvider>
@@ -50,7 +50,7 @@ export function App(): JSX.Element {
   );
 }
 
-function Shell(): JSX.Element {
+function Shell(): React.JSX.Element {
   const { route, navigate } = useRouter();
   const { appInfo } = useSettings();
   const [paletteOpen, setPaletteOpen] = useState(false);
@@ -127,7 +127,7 @@ function Shell(): JSX.Element {
     </div>
   );
 
-  function renderScreen(): JSX.Element {
+  function renderScreen(): React.JSX.Element {
     switch (route.screen) {
       case 'overview':
         return <OverviewView />;

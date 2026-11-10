@@ -7,6 +7,7 @@ checks run on the scenes the Word and PDF documents draw.
 from __future__ import annotations
 
 import io
+import posixpath
 import shutil
 import subprocess
 import xml.etree.ElementTree as ET
@@ -31,6 +32,7 @@ from ntnxvision_core.diagrams.render.vsdx import page_names, render_vsdx
 from ntnxvision_core.diagrams.scene import Scene
 from ntnxvision_core.exporters import export_environment
 from ntnxvision_core.exporters.naming import diagrams_stem
+from ntnxvision_core.exporters.products import PRODUCTS
 from ntnxvision_core.models import Environment
 
 from .diagram_helpers import shuffled as _shuffled
@@ -58,7 +60,11 @@ def check_vsdx(data: bytes, scenes: list[Scene]) -> None:
     z = zipfile.ZipFile(io.BytesIO(data))
     names = z.namelist()
     assert len(names) == len(set(names))
-    xml = {n: ET.fromstring(z.read(n)) for n in names}  # every part is well formed
+    # Every XML part is well formed; the rest are the product icon pictures (PNG).
+    xml = {n: ET.fromstring(z.read(n)) for n in names if not n.endswith(".png")}
+    media = [n for n in names if n.endswith(".png")]
+    assert all(n.startswith("visio/media/") and z.read(n)[:8] == b"\x89PNG\r\n\x1a\n"
+               for n in media)
     types = xml["[Content_Types].xml"]
     defaults = {d.get("Extension") for d in types.iter(f"{CT}Default")}
     overrides = {o.get("PartName") for o in types.iter(f"{CT}Override")}
@@ -73,7 +79,7 @@ def check_vsdx(data: bytes, scenes: list[Scene]) -> None:
         folder = base.rsplit("/", 1)[0] if "/" in base else ""
         for rel in xml[n].iter(f"{PR}Relationship"):
             target = rel.get("Target") or ""
-            path = f"{folder}/{target}" if folder else target
+            path = posixpath.normpath(f"{folder}/{target}" if folder else target)
             assert path in names, f"{n} -> {target}"
     pages = [p for p in xml["visio/pages/pages.xml"].iter(f"{V}Page")]
     assert len(pages) == len(scenes)
@@ -99,6 +105,11 @@ def check_vsdx(data: bytes, scenes: list[Scene]) -> None:
             assert n.id in members, f"page {i}: {n.id} not inside group {parent}"
         glued = [e for e in sc_.edges if e.src and e.dst]
         assert len(list(root.iter(f"{V}Connect"))) == 2 * len(glued)
+        # Product badges are Visio pictures holding their icon.
+        for n in sc_.nodes:
+            if n.kind == "glyph":
+                assert by_name[n.id].get("Type") == "Foreign", n.id
+                assert by_name[n.id].find(f"{V}ForeignData") is not None
 
 
 def test_vsdx_structure_groups_and_glue(design_envs: dict[str, Any]) -> None:
@@ -262,6 +273,11 @@ def test_word_figures_carry_an_svg_alternative(design_envs: dict[str, Any],
             pairs.append((targets[blip.get(f"{r_ns}embed") or ""],
                           targets[svg.get(f"{r_ns}embed") or ""]))
     figures = len(report_scenes(design_envs["small"]))
+    # Product icons (cover, headings, products row) carry their SVG too.
+    icons = [p for p in pairs if p[1].startswith("media/product-")]
+    assert icons and all(p[1].removeprefix("media/product-").removesuffix(".svg")
+                         in PRODUCTS for p in icons)
+    pairs = [p for p in pairs if p not in icons]
     assert len(pairs) == figures > 0
     for png, svg in pairs:
         assert png.endswith(".png") and svg.endswith(".svg")

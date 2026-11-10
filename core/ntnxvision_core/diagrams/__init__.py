@@ -21,6 +21,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
+from . import badges as _badges
 from . import connectors as _connectors
 from . import dr as _dr
 from . import edit_designs as _edits
@@ -179,6 +180,8 @@ def _with_overlay(fn: Callable[..., list[Scene]]) -> Callable[..., list[Scene]]:
             _connectors.overlay(scenes, extra)
         if drawn:
             _icons.apply_texts(scenes, drawn.texts)
+        # Product icons last, into the room the final text and chips leave.
+        _badges.add(scenes)
         _icons.mark_legend(scenes)
         return scenes
 
@@ -227,6 +230,11 @@ TYPES: dict[str, DiagramType] = {
 from .netdesigns import TYPES as _NET_TYPES  # noqa: E402
 
 TYPES.update(_NET_TYPES)
+
+# Platform service figures (NKP, NDB, Objects, Files), registered from their own module.
+from .svcdesigns import TYPES as _SVC_TYPES  # noqa: E402
+
+TYPES.update(_SVC_TYPES)
 
 
 def model_envelope(type_id: str, model: Any) -> dict[str, Any]:

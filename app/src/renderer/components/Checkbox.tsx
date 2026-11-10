@@ -38,7 +38,7 @@ export function CheckboxBox({
   'aria-label': ariaLabel,
   'aria-describedby': describedBy,
   'data-testid': testId,
-}: Omit<CheckboxProps, 'children' | 'description' | 'style'>): JSX.Element {
+}: Omit<CheckboxProps, 'children' | 'description' | 'style'>): React.JSX.Element {
   const ref = useRef<HTMLInputElement>(null);
   useEffect(() => {
     if (ref.current) ref.current.indeterminate = indeterminate;
@@ -64,7 +64,7 @@ export function CheckboxBox({
   );
 }
 
-export function Checkbox({ children, description, className, style, disabled, ...box }: CheckboxProps): JSX.Element {
+export function Checkbox({ children, description, className, style, disabled, ...box }: CheckboxProps): React.JSX.Element {
   if (children === undefined && description === undefined) {
     return <CheckboxBox {...box} disabled={disabled} className={className} />;
   }
@@ -96,7 +96,7 @@ export function FormatCard({
   title: string;
   description: React.ReactNode;
   disabled?: boolean;
-}): JSX.Element {
+}): React.JSX.Element {
   return (
     <label className={['fmt', checked && 'on', disabled && 'dis'].filter(Boolean).join(' ')}>
       <CheckboxBox checked={checked} onChange={onChange} disabled={disabled} />

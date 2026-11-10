@@ -1,15 +1,16 @@
 // Metrics subpages: the detail a dashboard card hides (progressive disclosure). Each one is
 // reached from its card and returns with the back link; the cluster scope carries over.
 
-import React from 'react';
+import React, { useState } from 'react';
 import type { MetricsAlert, MetricsClusterTrends, MetricsResource, MetricsTopKey, MetricsTrends, MetricsTrendsResult, Runway, RunwayByRange } from '@shared/ipc';
 import { Status } from '../../components';
 import { SortableTable } from './sorting';
 import { NA, fmtAbs, fmtCount } from '../../lib/format';
 import { BarList, SERIES_COLOR, TrendChart } from './charts';
-import { Card, Section, soonestCluster, topRows, type Detail } from './Dashboard';
+import { Card, NET_CLUSTER_COLUMNS, Section, soonestCluster, topRows, type Detail } from './Dashboard';
 import {
   RESOURCES,
+  type NetClusterRow,
   type NicRow,
   type NodeRow,
   type ScopeView,
@@ -21,6 +22,8 @@ import {
   runwayWhen,
   sliceTrends,
   threshold,
+  TOP_MAX,
+  TOP_SHOWN,
 } from './model';
 import type { PartState } from './useMetrics';
 
@@ -34,7 +37,7 @@ export const DETAIL_TITLE: Record<Detail, string> = {
 
 // ─── alerts ────────────────────────────────────────────────────────────
 
-export function AlertsDetail({ v, listed }: { v: ScopeView; listed: number }): JSX.Element {
+export function AlertsDetail({ v, listed }: { v: ScopeView; listed: number }): React.JSX.Element {
   const total = v.health.criticalAlerts;
   return (
     <Section title="Unresolved critical alerts" note={total > v.alerts.length ? `Newest ${fmtCount(v.alerts.length)} of ${fmtCount(total)}` : `${fmtCount(total)}`}>
@@ -68,7 +71,7 @@ export function AlertsDetail({ v, listed }: { v: ScopeView; listed: number }): J
 
 const NODE_TONE = { ok: 'ok', warn: 'warn', error: 'error' } as const;
 
-export function NodesDetail({ v }: { v: ScopeView }): JSX.Element {
+export function NodesDetail({ v }: { v: ScopeView }): React.JSX.Element {
   return (
     <Section title="Nodes and CVMs" note={`${fmtCount(v.health.nodesOk)} of ${fmtCount(v.health.nodesTotal)} healthy`}>
       <div className="panel scroll-x">
@@ -131,22 +134,12 @@ const VM_LISTS: { key: MetricsTopKey; title: string }[] = [
   { key: 'latency', title: 'Latency' },
 ];
 
-export function VmsDetail({ v }: { v: ScopeView }): JSX.Element {
+export function VmsDetail({ v }: { v: ScopeView }): React.JSX.Element {
   return (
-    <Section title="Top powered-on VMs" note="Five per list">
+    <Section title="Top powered-on VMs" note={`Top ${TOP_SHOWN} per list, up to ${TOP_MAX} expanded`}>
       <div className="mx-grid mx-grid-2">
         {VM_LISTS.map((l) => (
-          <Card key={l.key} title={l.title}>
-            <BarList
-              rows={topRows(v, l.key, v.clusterCount > 1)}
-              color={SERIES_COLOR[l.key]}
-              max={l.key === 'cpu' || l.key === 'memory' ? 100 : undefined}
-              sortId={`vms.${l.key}`}
-              label={`Top VMs by ${l.title}`}
-              valueLabel={l.title}
-              empty="No powered-on VMs reported."
-            />
-          </Card>
+          <VmListCard key={l.key} v={v} list={l} />
         ))}
       </div>
       <p className="mx-foot">Controller VMs are left out. Memory is the hypervisor's view of the VM's memory in use.</p>
@@ -154,52 +147,103 @@ export function VmsDetail({ v }: { v: ScopeView }): JSX.Element {
   );
 }
 
-// ─── network ───────────────────────────────────────────────────────────
-
-export function NetworkDetail({ v }: { v: ScopeView }): JSX.Element {
+/** One top list: the top five, expandable to the top ten the core sends. */
+function VmListCard({ v, list }: { v: ScopeView; list: { key: MetricsTopKey; title: string } }): React.JSX.Element {
+  const [expanded, setExpanded] = useState(false);
+  const all = v.top[list.key].length;
+  const canExpand = all > TOP_SHOWN;
+  const shown = expanded ? Math.min(all, TOP_MAX) : Math.min(all, TOP_SHOWN);
+  const id = `mx-vms-${list.key}`;
   return (
-    <Section title="Host NICs" note={`${fmtCount(v.network.nics.length)} NICs · receive ${rate(v.network.rx_kBps)} · transmit ${rate(v.network.tx_kBps)}`}>
-      <div className="panel scroll-x">
-        <SortableTable<NicRow>
-          sortId="network"
-          ariaLabel="Host NICs"
-          rows={v.network.nics}
-          rowKey={(n) => n.key}
-          primary
-          empty="No host NICs were returned."
-          columns={[
-            { key: 'cluster', header: 'Cluster', sortValue: (n) => n.cluster, render: (n) => n.cluster },
-            { key: 'host', header: 'Host', className: 'nm', sortValue: (n) => n.host, render: (n) => n.host },
-            { key: 'nic', header: 'NIC', sortValue: (n) => n.name, render: (n) => <span className="mono">{n.name ?? NA}</span> },
-            {
-              key: 'link',
-              header: 'Link',
-              // Fastest first; a down link (no speed) counts as 0.
-              sortFirst: 'desc',
-              sortValue: (n) => n.link_speed_kbps ?? 0,
-              render: (n) => (n.link_speed_kbps ? linkSpeed(n.link_speed_kbps) : <Status tone="idle">Down</Status>),
-            },
-            { key: 'rx', header: 'Receive', numeric: true, sortValue: (n) => n.rx_kBps, render: (n) => rate(n.rx_kBps) },
-            { key: 'tx', header: 'Transmit', numeric: true, sortValue: (n) => n.tx_kBps, render: (n) => rate(n.tx_kBps) },
-            {
-              key: 'err',
-              header: 'Errors',
-              numeric: true,
-              sortValue: (n) => n.errors,
-              render: (n) => <span className={n.errors ? 'tone-warn' : undefined}>{fmtCount(n.errors)}</span>,
-            },
-            {
-              key: 'drop',
-              header: 'Dropped',
-              numeric: true,
-              sortValue: (n) => n.dropped,
-              render: (n) => <span className={n.dropped ? 'tone-warn' : undefined}>{fmtCount(n.dropped)}</span>,
-            },
-          ]}
+    <Card title={list.title}>
+      <div id={id}>
+        <BarList
+          rows={topRows(v, list.key, v.clusterCount > 1, shown)}
+          color={SERIES_COLOR[list.key]}
+          max={list.key === 'cpu' || list.key === 'memory' ? 100 : undefined}
+          sortId={`vms.${list.key}`}
+          label={`Top VMs by ${list.title}`}
+          valueLabel={list.title}
+          empty="No powered-on VMs reported."
         />
       </div>
-      <p className="mx-foot">Rates and packet counts are Prism Element's latest sampling interval. N/A: the hypervisor does not report it.</p>
-    </Section>
+      {canExpand && (
+        <button
+          type="button"
+          className="textlink mx-more"
+          aria-expanded={expanded}
+          aria-controls={id}
+          onClick={() => setExpanded((e) => !e)}
+        >
+          {expanded ? `Show top ${fmtCount(TOP_SHOWN)}` : `Show top ${fmtCount(Math.min(all, TOP_MAX))}`}
+        </button>
+      )}
+      {!canExpand && all > 0 && <p className="mx-sub">{all === 1 ? 'The only powered-on VM' : `All ${fmtCount(all)} powered-on VMs`}</p>}
+    </Card>
+  );
+}
+
+// ─── network ───────────────────────────────────────────────────────────
+
+export function NetworkDetail({ v }: { v: ScopeView }): React.JSX.Element {
+  return (
+    <div className="mx-page">
+      {v.network.clusters.length > 1 && (
+        <Section title="Per cluster" note={`All clusters: receive ${rate(v.network.rx_kBps)} · transmit ${rate(v.network.tx_kBps)}`}>
+          <div className="panel scroll-x">
+            <SortableTable<NetClusterRow>
+              sortId="network.clusters"
+              ariaLabel="Network per cluster"
+              rows={v.network.clusters}
+              rowKey={(r) => r.uuid}
+              columns={NET_CLUSTER_COLUMNS}
+            />
+          </div>
+        </Section>
+      )}
+      <Section title="Host NICs" note={`${fmtCount(v.network.nics.length)} NICs · receive ${rate(v.network.rx_kBps)} · transmit ${rate(v.network.tx_kBps)}`}>
+        <div className="panel scroll-x">
+          <SortableTable<NicRow>
+            sortId="network"
+            ariaLabel="Host NICs"
+            rows={v.network.nics}
+            rowKey={(n) => n.key}
+            primary
+            empty="No host NICs were returned."
+            columns={[
+              { key: 'cluster', header: 'Cluster', sortValue: (n) => n.cluster, render: (n) => n.cluster },
+              { key: 'host', header: 'Host', className: 'nm', sortValue: (n) => n.host, render: (n) => n.host },
+              { key: 'nic', header: 'NIC', sortValue: (n) => n.name, render: (n) => <span className="mono">{n.name ?? NA}</span> },
+              {
+                key: 'link',
+                header: 'Link',
+                // Fastest first; a down link (no speed) counts as 0.
+                sortFirst: 'desc',
+                sortValue: (n) => n.link_speed_kbps ?? 0,
+                render: (n) => (n.link_speed_kbps ? linkSpeed(n.link_speed_kbps) : <Status tone="idle">Down</Status>),
+              },
+              { key: 'rx', header: 'Receive', numeric: true, sortValue: (n) => n.rx_kBps, render: (n) => rate(n.rx_kBps) },
+              { key: 'tx', header: 'Transmit', numeric: true, sortValue: (n) => n.tx_kBps, render: (n) => rate(n.tx_kBps) },
+              {
+                key: 'err',
+                header: 'Errors',
+                numeric: true,
+                sortValue: (n) => n.errors,
+                render: (n) => <span className={n.errors ? 'tone-warn' : undefined}>{fmtCount(n.errors)}</span>,
+              },
+              {
+                key: 'drop',
+                header: 'Dropped',
+                numeric: true,
+                sortValue: (n) => n.dropped,
+                render: (n) => <span className={n.dropped ? 'tone-warn' : undefined}>{fmtCount(n.dropped)}</span>,
+              },
+            ]}
+          />
+        </div>
+        <p className="mx-foot">Rates and packet counts are Prism Element's latest sampling interval. N/A: the hypervisor does not report it.</p>
+      </Section>
+    </div>
   );
 }
 
@@ -235,7 +279,7 @@ export function RunwayDetail({
   range: number;
   /** All clusters: one row per cluster under the target's charts. */
   clusterRunways?: MetricsClusterTrends[];
-}): JSX.Element {
+}): React.JSX.Element {
   if (!scoped) {
     return (
       <div className="mx-card mx-placeholder" role="status">
@@ -314,7 +358,7 @@ function ResourceRunway({
   prism: number | null;
   /** All clusters: the cluster that reaches 80% before the target as a whole. */
   soonest: { name: string; runway: RunwayByRange[string][MetricsResource] } | null;
-}): JSX.Element {
+}): React.JSX.Element {
   const values = tr[`${resource}_pct` as 'cpu_pct'];
   const last = tr.t[tr.t.length - 1];
   const t80 = runway ? threshold(runway, 80) : undefined;
@@ -380,7 +424,7 @@ function ResourceRunway({
 }
 
 /** All clusters: the charts are the target's total, so name the cluster that fills first. */
-function SoonestLine({ name, runway }: { name: string; runway: RunwayByRange[string][MetricsResource] }): JSX.Element {
+function SoonestLine({ name, runway }: { name: string; runway: RunwayByRange[string][MetricsResource] }): React.JSX.Element {
   const th = threshold(runway, 80);
   const when = runwayWhen(runway, th);
   const tone = runwayTone(th);

@@ -182,6 +182,9 @@ class Features:
     #: pc-dr); a tuple replaces it. Paired demo PCs use `az_peers` / `extra_policies`.
     azs: tuple[AzSpec, ...] | None = None
     policies: tuple[PolicySpec, ...] | None = None
+    #: NKP clusters deployed from the Marketplace: their node VMs (category
+    #: ``KubernetesClusterName``) and Self-Service apps (`synthetic.kube`).
+    nkp: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -397,6 +400,8 @@ class PcEstate:
     pc_vms: list[dict[str, Any]] = field(default_factory=list)
     products: list[dict[str, Any]] = field(default_factory=list)
     registrations: list[dict[str, Any]] = field(default_factory=list)
+    #: Self-Service (Calm) app records: NKP clusters and their bastion VMs.
+    nkp_apps: list[dict[str, Any]] = field(default_factory=list)
 
     @property
     def v4_ga(self) -> bool:
@@ -432,6 +437,18 @@ class NdbEstate:
     dbservers: list[dict[str, Any]] = field(default_factory=list)
     databases: list[dict[str, Any]] = field(default_factory=list)
     time_machines: list[dict[str, Any]] = field(default_factory=list)
+    clones: list[dict[str, Any]] = field(default_factory=list)
+    profiles: list[dict[str, Any]] = field(default_factory=list)
+    slas: list[dict[str, Any]] = field(default_factory=list)
+    snapshots: list[dict[str, Any]] = field(default_factory=list)
+    maintenance: list[dict[str, Any]] = field(default_factory=list)
+    tags: list[dict[str, Any]] = field(default_factory=list)
+    #: The appliance's own endpoints: `downloads/versions`, `ha`, `config/era-server`,
+    #: `config/about-era` (shapes as NDB 2.5.1.1 returns them).
+    versions: list[dict[str, Any]] = field(default_factory=list)
+    ha: dict[str, Any] = field(default_factory=dict)
+    era_server: dict[str, Any] = field(default_factory=dict)
+    about_era: dict[str, Any] = field(default_factory=dict)
 
 
 # ─── Prism Central estate ──────────────────────────────────────────────
@@ -468,6 +485,11 @@ def build_pc_estate(
     _catalog(est)
     _categories(est)
     _vms(est, specs)
+    if est.features.nkp:
+        from ntnxvision_core.synthetic.kube import add_nkp_vms
+
+        for nkp_cluster in est.features.nkp:
+            add_nkp_vms(est, nkp_cluster)
     _compute_shapes(est)
     _system_vms(est)
     _data_protection(est)
@@ -1212,25 +1234,67 @@ def _nus(est: PcEstate) -> None:
     if feats.files:
         for i, name in enumerate(["fs-corp", "fs-home"][: max(1, len(est.clusters) - 1)]):
             c = est.clusters[i % len(est.clusters)]
+            hosts = [h["name"] for h in est.hosts if h["cluster_uuid"] == c["uuid"]] or [None]
+            # FSVMs as Files v4 (a2) lists them: client IPs on the external network,
+            # storage IPs on the internal one; host and power state from their VM records.
+            fsvms = [{
+                "uuid": uid(seed, "fsvm", name, n), "name": f"NTNX-{name}-{n}",
+                "client_ip": f"10.21.{40 + i}.{20 + n}", "storage_ip": f"10.21.{50 + i}.{20 + n}",
+                "host": hosts[(n - 1) % len(hosts)], "cluster_uuid": c["uuid"],
+                "cluster_name": c["name"],
+            } for n in range(1, 4)]
+            shares = []
+            for j, share in enumerate(["projects", "finance", "profiles", "scratch"]):
+                # "scratch" is near-empty: a few KB must show as such, not as 0 GiB.
+                used = 12 * 1024 if share == "scratch" else int(1024 * (j + 1) * GIB * 0.12)
+                shares.append({
+                    "uuid": uid(seed, "share", name, share), "name": f"{share}",
+                    "file_server": name, "file_server_uuid": uid(seed, "fs", name),
+                    "protocol": "SMB" if j % 3 else "NFS",
+                    "max_gib": 1024 * (j + 1), "used": used,
+                    "files": 3 if share == "scratch" else 1800 * (j + 1),
+                })
+            est.file_shares.extend(shares)
             est.file_servers.append({
                 "uuid": uid(seed, "fs", name), "name": name, "cluster_name": c["name"],
+                "cluster_uuid": c["uuid"],
                 "version": "5.0.0.1", "fsvms": 3, "size_gib": 20480 * (i + 1),
-                "used": int(20480 * (i + 1) * GIB * 0.41),
+                "used": sum(sh["used"] for sh in shares),
+                "files": sum(sh["files"] for sh in shares),
                 "internal": f"{c['name'].lower()}-mgmt", "external": f"{c['name'].lower()}-prod",
+                "storage_vip": f"10.21.{50 + i}.10", "dns_domain": "files.example.lab",
+                "dns_servers": ["10.21.0.53"], "ntp_servers": ["pool.ntp.example.lab"],
+                "vcpus": 4, "memory_gib": 12, "vms": fsvms,
             })
-            for j, share in enumerate(["projects", "finance", "profiles", "scratch"]):
-                est.file_shares.append({
-                    "uuid": uid(seed, "share", name, share), "name": f"{share}",
-                    "file_server": name, "protocol": "SMB" if j % 3 else "NFS",
-                    "max_gib": 1024 * (j + 1),
-                })
     if feats.objects:
         c = est.clusters[0]
-        est.object_stores.append({
+        store = {
             "uuid": uid(seed, "oss", "objects-01"), "name": "objects-01",
-            "cluster_name": c["name"], "version": "4.4", "workers": 3,
-            "capacity_gib": 102400, "used": int(102400 * GIB * 0.18), "state": "COMPLETE",
-        })
+            "cluster_name": c["name"], "cluster_uuid": c["uuid"], "version": "4.4",
+            "workers": 3, "capacity_gib": 102400, "used": int(102400 * GIB * 0.18),
+            "state": "COMPLETE", "client_ips": ["10.21.9.20", "10.21.9.21"],
+            "storage_vip": "10.21.9.11", "domain": "msp.cluster.local", "buckets": [],
+        }
+        # Buckets in the shapes Objects' groups query returns (flags as strings).
+        for name, owner, flags, objects, size in (
+                ("finance-reports", "svc-finance", {"versioning": "Enabled"}, 1840, 42 * GIB),
+                ("app-logs", "svc-platform", {"lifecycle": "true"}, 96210, 310 * GIB),
+                ("legal-hold", "svc-legal", {"versioning": "Enabled", "worm": "true",
+                                             "retention_duration_days": "2555"}, 512, 8 * GIB),
+                ("web-assets", "svc-web", {"website": "true", "cors": "true"}, 4200, 3 * GIB),
+                ("dr-copy", "svc-platform", {"versioning": "Enabled",
+                                             "outbound_replication_status": "Enabled"},
+                 22000, 640 * GIB),
+                ("nfs-share", "svc-hpc", {"nfs": "true"}, 120, GIB)):
+            store["buckets"].append({
+                "uuid": uid(seed, "bucket", name), "name": name, "owner_name": owner,
+                "versioning": "Disabled", "worm": "false", "retention_duration_days": "0",
+                "lifecycle": "false", "cors": "false", "website": "false", "nfs": "false",
+                "bucket_notification_state": "Disabled", "inbound_replication_status": "None",
+                "outbound_replication_status": "None", "object_count": str(objects),
+                "storage_usage_bytes": str(size), **flags,
+            })
+        est.object_stores.append(store)
     for c in est.clusters:
         for k in range(3 + c["nodes"] // 3):
             name = f"vg-{c['name'].lower()}-{k + 1:02d}"
@@ -1684,37 +1748,188 @@ def build_pe_estate(
 
 
 def build_ndb_estate(host: str, version: str = "2.5.6", *, seed: str | None = None) -> NdbEstate:
+    """An NDB estate in the shapes NDB 2.5 returns (checked against a live 2.5.1.1).
+
+    Servers carry the engine in `databaseType` (`type` is always `DBSERVER`) and their
+    profiles as id properties; databases name their server in `databaseNodes`; time
+    machines name their database by `databaseId`; clones live in their own list.
+    """
     seed = seed or host
     est = NdbEstate(host=host, version=version, seed=seed)
-    est.clusters = [{"id": uid(seed, "ndbcl", n), "name": n, "status": "UP"}
-                    for n in ("PHX-PROD-01", "PHX-PROD-02")]
-    engines = [("postgres_database", "pg"), ("oracle_database", "ora"),
-               ("sqlserver_database", "mssql"), ("mysql_database", "mysql")]
+    est.clusters = [{"id": uid(seed, "ndbcl", n), "name": n, "status": "UP",
+                     "ipAddresses": [f"10.21.0.{10 + i}"], "hypervisorType": "AHV",
+                     "hypervisorVersion": "10.0", "cloudType": "NTNX", "healthy": True,
+                     "description": f"{n} registered in NDB"}
+                    for i, n in enumerate(("PHX-PROD-01", "PHX-PROD-02"))]
+
+    def profile(name: str, kind: str, engine: str, props: dict[str, str], *,
+                system: bool = True, topology: str = "ALL") -> str:
+        pid = uid(seed, "ndbprof", name)
+        version_id = uid(seed, "ndbprofv", name)
+        est.profiles.append({
+            "id": pid, "name": name, "type": kind, "engineType": engine, "status": "READY",
+            "systemProfile": system, "topology": topology, "dbVersion": "ALL",
+            "latestVersion": "1.0", "latestVersionId": version_id,
+            "versions": [{"id": version_id, "name": f"{name} (1.0)", "version": "1.0",
+                          "status": "READY", "published": True,
+                          "properties": [{"name": k, "value": v} for k, v in props.items()]}],
+        })
+        return pid
+
+    engines = [("postgres_database", "pg", "15.4", "POSTGRES_15_OOB", 5432),
+               ("oracle_database", "ora", "19.0.0", "ORACLE_19C", 1521),
+               ("sqlserver_database", "mssql", "2022", "SQLSERVER_2022", 1433),
+               ("mysql_database", "mysql", "8.0", "MYSQL_8.0_OOB", 3306),
+               ("mariadb_database", "maria", "10.6", "MARIADB_10.6_OOB", 3306),
+               ("mongodb_database", "mongo", "6.0", "MONGODB_6.0_OOB", 27017)]
+    computes = [profile("DEFAULT_OOB_SMALL_COMPUTE", "Compute", "Generic",
+                        {"CPUS": "2", "CORE_PER_CPU": "1", "MEMORY_SIZE": "4"}),
+                profile("DEFAULT_OOB_COMPUTE", "Compute", "Generic",
+                        {"CPUS": "1", "CORE_PER_CPU": "4", "MEMORY_SIZE": "32"}),
+                profile("PROD_8C_64G", "Compute", "Generic",
+                        {"CPUS": "4", "CORE_PER_CPU": "2", "MEMORY_SIZE": "64"}, system=False)]
+    sw, net, par = {}, {}, {}
+    for engine, short, _ver, sw_name, _port in engines:
+        sw[engine] = profile(sw_name, "Software", engine, {"OOB_PROFILE": "true"},
+                             system=sw_name.endswith("_OOB"), topology="single")
+        net[engine] = profile(f"{short.upper()}_PROD_NETWORK", "Network", engine,
+                              {"VLAN_NAME": "db-vlan-120", "VLAN_TYPE": "Static"}, system=False)
+        par[engine] = profile(f"DEFAULT_{short.upper()}_PARAMS", "Database_Parameter", engine, {})
+
+    for name, cont, daily, weekly, monthly, quarterly, system in (
+            ("DEFAULT_OOB_GOLD_SLA", 30, 90, 16, 12, 35, True),
+            ("DEFAULT_OOB_SILVER_SLA", 14, 60, 12, 12, 0, True),
+            ("DEFAULT_OOB_BRONZE_SLA", 7, 30, 8, 6, 0, True),
+            ("FINANCE_7Y_SLA", 14, 90, 52, 24, 28, False)):
+        est.slas.append({"id": uid(seed, "sla", name), "name": name, "systemSla": system,
+                         "continuousRetention": cont, "dailyRetention": daily,
+                         "weeklyRetention": weekly, "monthlyRetention": monthly,
+                         "quarterlyRetention": quarterly, "yearlyRetention": 0,
+                         "pitrEnabled": cont > 0})
+    sla_by_name = {s["name"]: s for s in est.slas}
+
+    for tname, entity in (("env", "DATABASE"), ("app", "DATABASE"), ("owner", "TIME_MACHINE"),
+                          ("cost-center", "CLONE")):
+        est.tags.append({"id": uid(seed, "ndbtag", tname), "name": tname,
+                         "entityType": entity, "required": tname == "env",
+                         "status": "ENABLED", "description": f"{tname} tag"})
+    tag_ids = {t["name"]: t["id"] for t in est.tags}
+
+    def tags(**kv: str) -> list[dict[str, Any]]:
+        return [{"tagId": tag_ids[k.replace("_", "-")], "tagName": k.replace("_", "-"),
+                 "value": v} for k, v in kv.items()]
+
     for i in range(12):
-        engine, short = engines[i % len(engines)]
+        engine, short, ver, _sw, port = engines[i % len(engines)]
         cl = est.clusters[i % 2]
         srv = f"{short}-srv-{i + 1:02d}"
+        srv_id = uid(seed, "dbsrv", srv)
+        compute = computes[2] if i % 4 == 0 else computes[i % 2]
         est.dbservers.append({
-            "id": uid(seed, "dbsrv", srv), "name": srv, "type": engine,
+            "id": srv_id, "name": srv, "type": "DBSERVER", "databaseType": engine,
             "ipAddresses": [f"10.21.4.{40 + i}"], "status": "UP", "nxClusterId": cl["id"],
-            "properties": [{"name": "vm_cpu_count", "value": str(4 + 2 * (i % 3))},
-                           {"name": "vm_memory_gb", "value": str(16 * (1 + i % 3))},
-                           {"name": "application_type", "value": engine}],
+            "eraCreated": True, "description": f"{short} server {i + 1}",
+            "tags": [],
+            "properties": [{"name": k, "value": v} for k, v in {
+                "application_type": engine, "application_version": ver, "os_type": "linux",
+                "software_profile_id": sw[engine], "compute_profile_id": compute,
+                "network_profile_id": net[engine]}.items()],
         })
         db = f"{short}-db-{i + 1:02d}"
-        sla = ["GOLD", "SILVER", "BRONZE"][i % 3]
+        db_id = uid(seed, "db", db)
+        sla = sla_by_name[["DEFAULT_OOB_GOLD_SLA", "DEFAULT_OOB_SILVER_SLA",
+                           "DEFAULT_OOB_BRONZE_SLA", "FINANCE_7Y_SLA"][i % 4]]
         tm = f"{db}_TM"
+        tm_id = uid(seed, "tm", tm)
         est.databases.append({
-            "id": uid(seed, "db", db), "name": db, "type": engine,
-            "databaseClusterType": "HA" if i % 5 == 0 else None, "status": "READY",
-            "dbserverLogicalCluster": {"name": srv},
-            "timeMachine": {"name": tm, "sla": {"name": sla}},
-            "clone": i % 6 == 5, "dateCreated": iso(BASE_TIME - timedelta(days=30 * (i + 1))),
+            "id": db_id, "name": db, "type": engine,
+            "databaseClusterType": "HA" if i % 5 == 0 else None, "clustered": i % 5 == 0,
+            "status": "READY", "clone": False,
+            "databaseNodes": [{"dbserverId": srv_id, "dbserver": {"id": srv_id, "name": srv,
+                                                                   "nxClusterId": cl["id"]}}],
+            "timeMachineId": tm_id,
+            "timeMachine": {"id": tm_id, "name": tm, "sla": {"id": sla["id"], "name": sla["name"]}},
+            "tags": tags(env=["prod", "dev", "test"][i % 3], app=f"app{i % 4 + 1}"),
+            "properties": [{"name": k, "value": v} for k, v in {
+                "version": ver, "listener_port": str(port), "SIZE": str(50 * (1 + i % 4)),
+                "SIZE_UNIT": "GB", "db_parameter_profile_id": par[engine]}.items()],
+            "dateCreated": iso(BASE_TIME - timedelta(days=30 * (i + 1))),
         })
         est.time_machines.append({
-            "id": uid(seed, "tm", tm), "name": tm, "databaseName": db, "clustered": False,
-            "sla": {"name": sla}, "status": "READY",
-            "schedule": {"snapshotTimeOfDay": {"hours": 1 + i % 4, "minutes": 0}},
-            "clones": i % 3,
+            "id": tm_id, "name": tm, "databaseId": db_id, "type": engine, "clustered": False,
+            "sla": {"id": sla["id"], "name": sla["name"]}, "slaId": sla["id"],
+            "status": "READY", "scope": "LOCAL", "sourceNxClusters": [cl["id"]],
+            "tags": tags(owner="dba-team") if i % 3 == 0 else [],
+            "schedule": {"snapshotTimeOfDay": {"hours": 1 + i % 4, "minutes": 0},
+                         "continuousSchedule": {"enabled": sla["continuousRetention"] > 0,
+                                                "logBackupInterval": 30},
+                         "weeklySchedule": {"enabled": True, "dayOfWeek": "SUNDAY"},
+                         "monthlySchedule": {"enabled": True, "dayOfMonth": "1"}},
         })
+        for n in range(1 + i % 3):
+            kind = "MANUAL" if n == 0 and i % 4 == 1 else "DAILY_EXTRA"
+            est.snapshots.append({
+                "id": uid(seed, "ndbsnap", f"{tm}-{n}"),
+                "name": f"{db}-manual" if kind == "MANUAL" else "era_auto_snapshot",
+                "timeMachineId": tm_id, "type": kind, "status": "ACTIVE", "dbserverName": srv,
+                "snapshotTimeStamp": iso(BASE_TIME - timedelta(days=n)),
+            })
+        if i % 6 == 5:
+            clone = f"{db}-clone"
+            est.clones.append({
+                "id": uid(seed, "clone", clone), "name": clone, "type": engine, "clone": True,
+                "status": "READY", "parentTimeMachineId": tm_id,
+                "databaseNodes": est.databases[-1]["databaseNodes"],
+                "tags": tags(cost_center="qa"),
+                "properties": [{"name": "version", "value": ver}],
+                "dateCreated": iso(BASE_TIME - timedelta(days=2)),
+            })
+    pg = [s for s in est.dbservers if s["databaseType"] == "postgres_database"]
+    est.maintenance.append({
+        "id": uid(seed, "ndbmw", "sunday"), "name": "SUNDAY_PATCHING", "status": "ACTIVE",
+        "schedule": {"recurrence": "WEEKLY", "dayOfWeek": "SUNDAY", "startTime": "02:00:00",
+                     "duration": 3, "timeZone": "UTC"},
+        "nextRunTime": iso(BASE_TIME + timedelta(days=3)),
+        "entityTaskAssoc": [{"entityType": "ERA_DBSERVER", "entityId": s["id"], "taskType": t}
+                            for s in pg for t in ("OS_PATCHING", "DB_PATCHING")],
+    })
+    _ndb_appliance(est)
     return est
+
+
+def _ndb_appliance(est: NdbEstate) -> None:
+    """A single (non-HA) NDB server on the first registered cluster."""
+    seed, vm_id, ip = est.seed, uid(est.seed, "ndbvm"), "10.21.0.5"
+    vm_name = "ndb-server-01"
+    build = uid(seed, "ndbbuild").replace("-", "")[:32] + "0a1b2c3d"
+    est.versions = [{
+        "versionPrefix": "Nutanix ERA", "component": "ERA Server",
+        "machineERAId": uid(seed, "ndbmachine"), "machineIp": ip, "version": est.version,
+        "buildId": build, "branch": None, "warVersion": est.version, "warBuildId": "NA",
+        "warBuildDate": "NA", "manifest": None, "date": "2026-08-14 10:12:00",
+    }] + [{
+        # The DB servers' agents: listed, with no version of their own.
+        "versionPrefix": "Nutanix ERA", "component": "ERA_HOST",
+        "machineERAId": s["id"], "machineIp": s["ipAddresses"][0],
+        "version": "<Not Available>", "buildId": "NA", "branch": None, "warVersion": "NA",
+        "warBuildId": "NA", "warBuildDate": None, "manifest": None, "date": "<Not Available>",
+    } for s in est.dbservers]
+    est.ha = {
+        "clusterIP": None, "writePort": None, "readPort": None, "proxyNodes": None,
+        "repoNodes": None, "repoHAStatus": "invalid", "eraServiceHAStatus": "invalid",
+        "serverNodes": [{"hostname": vm_name, "ip": ip, "uuid": vm_id,
+                         "nxClusterId": est.clusters[0]["id"], "leader": False,
+                         "dbserver": None}],
+    }
+    est.era_server = {
+        "vmName": vm_name, "vmId": vm_id, "clusterId": est.clusters[0]["id"],
+        "dnsServers": ["10.21.0.2", "10.21.0.3"], "ntpServers": ["0.pool.ntp.example.lab",
+                                                                "1.pool.ntp.example.lab"],
+        "timezone": "UTC",
+        "smtpConfig": {"smtpServerIPPort": "smtp.example.lab:587", "smtpUsername": "ndb",
+                       "smtpPassword": "", "isSmtpPasswordChanged": False,
+                       "emailFromAddress": "ndb@example.lab", "tlsEnabled": True,
+                       "testEmailToAddress": None, "slackAPIURL": None, "unsecured": False,
+                       "universalMailConfig": None},
+    }
+    est.about_era = {"eraName": None, "multiClusterEnabled": len(est.clusters) > 1}

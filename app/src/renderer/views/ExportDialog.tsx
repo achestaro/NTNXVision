@@ -47,7 +47,7 @@ export function useExportDialog(): Ctx {
   return c;
 }
 
-export function ExportDialogProvider({ children }: { children: React.ReactNode }): JSX.Element {
+export function ExportDialogProvider({ children }: { children: React.ReactNode }): React.JSX.Element {
   const [state, setState] = useState<{ paths: string[]; opts: OpenOptions; key: number } | null>(null);
   const open = useCallback(
     (path: string | string[], opts: OpenOptions = {}) =>
@@ -111,7 +111,7 @@ function ExportDialog({
   snapshotPaths: string[];
   initialFormats?: ExportFormat[];
   onClose(): void;
-}): JSX.Element {
+}): React.JSX.Element {
   const snapshotPath = snapshotPaths[0];
   const many = snapshotPaths.length > 1;
   const { settings, appInfo, update } = useSettings();

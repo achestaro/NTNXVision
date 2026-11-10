@@ -12,7 +12,7 @@ import { useSettings } from '../lib/settings';
 import { buildTags } from './Rail';
 import { useDropdownMenu } from './useDropdownMenu';
 
-export function HelpMenu({ onShowShortcuts }: { onShowShortcuts(): void }): JSX.Element {
+export function HelpMenu({ onShowShortcuts }: { onShowShortcuts(): void }): React.JSX.Element {
   const { navigate } = useRouter();
   const { appInfo } = useSettings();
   const { trigger, menu, open, pos, close, toggle, onTriggerKey, onMenuKey } = useDropdownMenu();

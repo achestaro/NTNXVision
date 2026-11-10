@@ -164,8 +164,8 @@ def require_pin(host: str, insecure: bool, pinned: str | None) -> str | None:
 #: Requests that use a non-GET method but change nothing. Matched on the URL path only,
 #: on any host: the patterns are not tied to the host a client was built for.
 #:
-#: * Prism Central v3 lists (``POST .../<kind>/list``) and the groups query API are
-#:   reads that Nutanix models as POST;
+#: * Prism Central v3 lists (``POST .../<kind>/list``) and the groups query API (also
+#:   Nutanix Objects' own, under ``/oss``) are reads that Nutanix models as POST;
 #: * the vSphere Automation API session login (POST) and logout (DELETE), which create
 #:   and end only the tool's own API session. ``/api/session`` is a generic path: it
 #:   matches on *any* host (Prism Central included), so a POST or DELETE there is never
@@ -175,6 +175,11 @@ def require_pin(host: str, insecure: bool, pinned: str | None) -> str | None:
 _READ_ONLY_REQUESTS: tuple[tuple[str, re.Pattern[str]], ...] = (
     ("POST", re.compile(r"/api/nutanix/v3/[a-z_]+/list")),
     ("POST", re.compile(r"/api/nutanix/v3/groups")),
+    # Nutanix Objects serves its object stores and buckets only through its own groups
+    # query (on Prism Central, under /oss): the store-level one and, per store, the bucket
+    # one behind the store's proxy. Both are reads like the v3 groups query.
+    ("POST", re.compile(r"/oss/api/nutanix/v3/groups")),
+    ("POST", re.compile(r"/oss/api/nutanix/v3/objectstore_proxy/[0-9a-fA-F-]{36}/groups")),
     ("POST", re.compile(r"/api/session")),
     ("DELETE", re.compile(r"/api/session")),
     ("POST", re.compile(r"/rest/com/vmware/cis/session")),

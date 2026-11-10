@@ -369,9 +369,12 @@ export class Scheduler {
         vcenter = { host: t.vcenterHost, username: t.vcenterUser || 'administrator@vsphere.local', password: vcPassword, insecure: tls.vcenter.insecure, pinned_sha256: tls.vcenter.pinnedCert };
       }
     }
+    // NKP clusters: every saved endpoint whose token is in the keychain (none = left out).
+    const k8s = await store.targets.kubernetesRequests(t.id);
+    const kubernetes = k8s.length ? k8s : undefined;
     // Per-cluster vCPU:pCPU targets remembered from the last manual run.
     const overrides = cleanOverrides(t.vcpuRatioOverrides);
-    return { host: t.host, username: t.username, port: t.port, insecure: t.insecure, pinnedCert: tls.primary.pinnedCert, password, ndb, vcenter, overrides };
+    return { host: t.host, username: t.username, port: t.port, insecure: t.insecure, pinnedCert: tls.primary.pinnedCert, password, ndb, vcenter, kubernetes, overrides };
   }
 
   /**
@@ -454,6 +457,7 @@ export class Scheduler {
           export_dir: settings.exportDir,
           ndb: conn.ndb,
           vcenter: conn.vcenter,
+          kubernetes: conn.kubernetes,
           vcpu_ratio: settings.vcpuRatio,
           diagram_legend: settings.diagramLegend !== false,
           vcpu_ratio_overrides: conn.overrides,
@@ -478,6 +482,7 @@ export class Scheduler {
             name: names.targets[i],
             ndb: c.ndb,
             vcenter: c.vcenter,
+            kubernetes: c.kubernetes,
             vcpu_ratio_overrides: c.overrides,
             clusters: scopes[i],
           })),

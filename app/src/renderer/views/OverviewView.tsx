@@ -30,7 +30,7 @@ import { NA, fmtAbs, fmtCount, fmtRel, targetLabel } from '../lib/format';
 import { useExportDialog } from './ExportDialog';
 import { ImportedBadge, useSnapshotTransfer } from './SnapshotTransfer';
 
-export function OverviewView(): JSX.Element {
+export function OverviewView(): React.JSX.Element {
   const { navigate } = useRouter();
   const { dataVersion } = useRun();
   const exportDialog = useExportDialog();
@@ -103,9 +103,10 @@ export function OverviewView(): JSX.Element {
           {o.sunset_areas.length > 0 && (
             <Callout
               tone="warn"
-              title={`${o.sunset_areas.length} ${o.sunset_areas.length === 1 ? 'area still uses a v3 API' : 'areas still use v3 APIs'} that Nutanix retires in Q4 2026.`}
+              title={`${o.sunset_areas.length} ${o.sunset_areas.length === 1 ? 'area depends on a v3 API' : 'areas depend on v3 APIs'} that Nutanix is retiring.`}
             >
-              {listSentence(o.sunset_areas)} will stop collecting after the sunset.{' '}
+              {listSentence(o.sunset_areas)} {o.sunset_areas.length === 1 ? 'collects' : 'collect'} normally today. {o.sunset_areas.length === 1 ? 'It' : 'They'} will come back empty only once
+              your Prism Central no longer serves v3, typically after an upgrade. The app has no cut-off date.{' '}
               <button type="button" className="textlink" onClick={() => navigate({ screen: 'results', snapshot: latest.path })}>
                 See API routing
               </button>
@@ -175,13 +176,13 @@ export function OverviewView(): JSX.Element {
 }
 
 function listSentence(items: string[]): string {
-  if (items.length <= 1) return items.join('');
+  if (items.length <= 1) return items.map((i) => `${i.charAt(0).toUpperCase()}${i.slice(1)}`).join('');
   const [first, ...rest] = items;
   const head = [first, ...rest.slice(0, -1)].join(', ');
   return `${head.charAt(0).toUpperCase()}${head.slice(1)} and ${rest[rest.length - 1]}`;
 }
 
-function RecentTable({ rows, latest, baseline }: { rows: SnapshotInfo[]; latest: SnapshotInfo; baseline: string | null }): JSX.Element {
+function RecentTable({ rows, latest, baseline }: { rows: SnapshotInfo[]; latest: SnapshotInfo; baseline: string | null }): React.JSX.Element {
   const { navigate } = useRouter();
   const exportDialog = useExportDialog();
   const open = (s: SnapshotInfo) => navigate({ screen: 'inventory', snapshot: s.path });
@@ -239,7 +240,7 @@ export function sourceLabel(s: SnapshotInfo): string {
   return s.source ?? NA;
 }
 
-function QuickAction({ mark, title, desc, onClick }: { mark: NutanixMarkName; title: string; desc: string; onClick(): void }): JSX.Element {
+function QuickAction({ mark, title, desc, onClick }: { mark: NutanixMarkName; title: string; desc: string; onClick(): void }): React.JSX.Element {
   return (
     <button type="button" className="qa" onClick={onClick}>
       <NutanixIcon name={mark} size={24} />
@@ -256,7 +257,7 @@ function SavedTargets({
   state,
 }: {
   state: ReturnType<typeof useAsync<SavedConnection[]>>;
-}): JSX.Element {
+}): React.JSX.Element {
   const { navigate } = useRouter();
   const { isRunning } = useRun();
   const toast = useToast();
@@ -348,7 +349,7 @@ function SavedTargets({
   );
 }
 
-function Coverage({ o }: { o: OverviewResult }): JSX.Element {
+function Coverage({ o }: { o: OverviewResult }): React.JSX.Element {
   const c = o.coverage!;
   const r = o.api_routing;
   const routed = r ? r.v4 + r.v3 + r.v2 : 0;

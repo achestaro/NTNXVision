@@ -92,7 +92,7 @@ export function DataTable<T>({
   rowInlineActions,
   onRowClick,
   rowAria,
-}: DataTableProps<T>): JSX.Element {
+}: DataTableProps<T>): React.JSX.Element {
   const [ctx, setCtx] = useState<{ row: T; anchor: MenuAnchor } | null>(null);
   const focusable = primary || !!onRowOpen || !!onRowKeyExtra || !!onRowClick;
   const down = useRef<{ x: number; y: number } | null>(null);

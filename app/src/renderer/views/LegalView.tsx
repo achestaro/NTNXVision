@@ -37,7 +37,7 @@ function filterNotices(text: string, query: string): string {
   return hits.length ? hits.join('\n\n') : `No entries match "${query.trim()}".`;
 }
 
-export function LegalView(): JSX.Element {
+export function LegalView(): React.JSX.Element {
   const { back, canGoBack, navigate } = useRouter();
   const docs = useAsync<LegalDocuments>(() => window.ntnx.getLegalDocuments(), []);
   const [tab, setTab] = useState<DocTab>('license');

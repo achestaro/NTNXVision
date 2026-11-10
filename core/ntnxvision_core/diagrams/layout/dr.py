@@ -476,11 +476,14 @@ def _layout_part(m: DrModel, sites: list[DrSite], parts: list[list[DrSite]], pag
 
     # Measure.
     def margins(s: DrSite) -> tuple[float, float]:
+        """Card inset on each side of its column: room for the bracket lanes (left) and
+        the trunks dropping out of the zone (their side), mirrored on the other side so
+        the cards sit centred with the same padding left and right."""
         left = P + len(lanes_left[s.id]) * lane_w[s.id] if lanes_left[s.id] else P
         down = (down_lanes[s.id] - 1) * LANE + 10 if down_lanes[s.id] else 0
-        if down_side[s.id] == "L":
-            return left + down, P
-        return left, P + down
+        lm, rm = (left + down, P) if down_side[s.id] == "L" else (left, P + down)
+        side = q(max(lm, rm))
+        return side, side
 
     card_h = 0.0
     for s in sites:

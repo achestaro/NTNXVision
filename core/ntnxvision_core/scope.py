@@ -39,7 +39,8 @@ if TYPE_CHECKING:  # pragma: no cover
 CLUSTER_BOUND_FIELDS: tuple[str, ...] = (
     "hosts", "vms", "system_vms", "storage_containers", "subnets", "port_groups", "licenses",
     "alerts",
-    "lcm_entities", "ovas", "volume_groups", "file_servers", "object_stores", "remote_sites",
+    "lcm_entities", "ovas", "volume_groups", "file_servers", "file_server_vms", "object_stores",
+    "remote_sites",
     "blocks", "cvms", "virtual_switches", "host_nics", "external_storages",
 )
 

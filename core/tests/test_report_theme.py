@@ -181,7 +181,7 @@ def test_combined_routing_judges_each_pc_against_its_own_version() -> None:
     by = {(r["source"], r["api"], r["reason"]): r for r in rows}
     old_clusters = by[("old.lab", "v3", "v4 not GA on pc.2024.1")]
     assert old_clusters["areas"] == "old.lab: Clusters"
-    assert old_clusters["after_sunset"]["label"] == "Moves to v4 after a PC upgrade"
+    assert old_clusters["after_sunset"]["label"] == "Switches to v4 after a PC upgrade"
     assert by[("new.lab", "v4", "v4 SDK served by this Prism Central")]
     assert sunset_areas(rows) == ["X-Play playbooks"]
 
@@ -234,7 +234,7 @@ def test_excel_overview_notes_routing_and_values(tmp_path: Path) -> None:
     assert vm_row[1:3] == ("Collected with notes", "v4")
     assert EM not in vm_row[3]
     routing = list(wb["API Routing"].iter_rows(values_only=True))
-    assert routing[0] == ("Areas", "API", "Reason", "After Q4 2026 v3 sunset")
+    assert routing[0] == ("Areas", "API", "Reason", "When legacy APIs are removed")
     assert ("X-Play playbooks", "v3", "No v4 equivalent yet", "Stops collecting") in routing
 
 
@@ -243,7 +243,7 @@ def test_excel_without_run_metadata_reads_ok_notes_as_collected(tmp_path: Path) 
     Collection Notes sheet as "Error" with the raw note text."""
     wb = load_workbook(ExcelExporter().export(_pc_env(), tmp_path / "old.xlsx"))
     notes = {r[0]: r for r in wb["Collection Notes"].iter_rows(values_only=True)}
-    assert notes["Virtual machines"][1] == "Collected with notes"
+    assert notes["Virtual Machines"][1] == "Collected with notes"
     assert notes["Nutanix Files"][1] == "Skipped"
 
     lic = wb["Licensing"]

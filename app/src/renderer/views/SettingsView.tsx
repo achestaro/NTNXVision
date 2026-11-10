@@ -20,7 +20,7 @@ import { buildTags } from '../shell/Rail';
 const MIN_RATIO = MIN_CLUSTER_RATIO;
 const MAX_RATIO = MAX_CLUSTER_RATIO;
 
-export function SettingsView(): JSX.Element {
+export function SettingsView(): React.JSX.Element {
   const { settings, theme, accent, density, appInfo, update, error } = useSettings();
   const { dataVersion, invalidate, isRunning } = useRun();
   const toast = useToast();
@@ -273,7 +273,7 @@ export function SettingsView(): JSX.Element {
  * report sections in every export (the Export dialog starts from it; Email, New collection,
  * Multiple PCs and schedules use it). The order is kept while the switch is off.
  */
-function SectionOrderSetting(): JSX.Element {
+function SectionOrderSetting(): React.JSX.Element {
   const { settings, update } = useSettings();
   const on = settings.customSectionOrder === true;
   const order = normalizeSectionOrder(settings.sectionOrder);
@@ -313,7 +313,7 @@ function SectionOrderSetting(): JSX.Element {
   );
 }
 
-function Swatch({ color, label }: { color: string; label: string }): JSX.Element {
+function Swatch({ color, label }: { color: string; label: string }): React.JSX.Element {
   return (
     <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
       <span className="g" style={{ background: color }} aria-hidden="true" />

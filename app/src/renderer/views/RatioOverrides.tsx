@@ -63,7 +63,7 @@ export function RatioOverrides({
   defaultRatio: number;
   open: boolean;
   onToggle(): void;
-}): JSX.Element | null {
+}): React.JSX.Element | null {
   const id = useId();
   if (!clusters.length) return null;
   const uuids = clusters.map((c) => c.uuid);

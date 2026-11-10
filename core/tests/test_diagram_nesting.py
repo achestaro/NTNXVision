@@ -412,3 +412,50 @@ def test_nested_siblings_never_overlap(env: Environment) -> None:
             assert _inside(n[a.parent], a)  # type: ignore[index]
             for b in kids[i + 1:]:
                 assert not _overlap(a, b), (a.id, b.id)
+
+
+# ─── related kinds: connected, not nested ──────────────────────────────
+
+
+def test_related_kinds_are_catalog_icons_and_never_also_nest() -> None:
+    for src, dst, label in N.RELATED:
+        assert src in I.ICONS and dst in I.ICONS and label
+        # Containment wins: a pair that may nest is never also a link.
+        assert not N.can_contain(src, dst) and not N.can_contain(dst, src), (src, dst)
+    assert len({(s, d) for s, d, _ in N.RELATED}) == len(N.RELATED)
+
+
+def test_relation_reads_both_ways() -> None:
+    assert N.relation("pc", "cluster") == ("Manages", True)
+    assert N.relation("cluster", "pc") == ("Manages", False)
+    assert N.relation("node", "tor") == ("Uplinks to", True)
+    assert N.relation("cluster", "cluster") == ("Replicates to", True)
+    assert N.relation("container", "cluster") is None  # nests instead
+    assert N.relation("note", "cluster") is None
+
+
+def test_catalog_sends_each_icons_links() -> None:
+    docs = {d["id"]: d for d in I.catalog_docs()}
+    assert docs["cluster"]["links"]["pc"] == {"label": "Manages", "out": False}
+    assert docs["pc"]["links"]["cluster"] == {"label": "Manages", "out": True}
+    for kind, doc in docs.items():
+        for other, link in doc["links"].items():
+            assert docs[other]["links"][kind] == {"label": link["label"],
+                                                  "out": not link["out"] or kind == other}
+
+
+def test_a_cluster_put_on_a_prism_central_goes_into_its_zone_connected(
+        env: Environment) -> None:
+    sc0 = _scene0(env, "management")
+    pc = next(n for n in sc0.nodes if N.collected_kind(n) == "pc")
+    assert pc.parent and N.can_contain(N.collected_kinds(sc0)[pc.parent], "cluster")
+    ops = [_p(sc0, "user:c", "cluster", parent=pc.parent),
+           {"op": "connect", "id": "user:l", "a": pc.id, "b": "user:c", "label": "Manages"}]
+    view = _view(env, ops, "management")
+    assert view.problems == []
+    sc = view.scenes[0]
+    assert sc.meta["placed"]["user:c"]["parent"] == pc.parent
+    edge = next(e for e in sc.edges if e.id == "user:l")
+    assert (edge.src, edge.dst) == (pc.id, "user:c") and edge.points
+    assert [lb.lines[0].text for lb in edge.labels] == ["Manages"]
+    assert check_scene(sc) == []

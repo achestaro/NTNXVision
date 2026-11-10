@@ -25,7 +25,7 @@ const MODES: { value: ThemeMode; label: string; icon: PhosphorIcon }[] = [
   { value: 'hc', label: 'High contrast', icon: CircleHalfIcon },
 ];
 
-export function ThemeModeMenu(): JSX.Element {
+export function ThemeModeMenu(): React.JSX.Element {
   const { theme, update } = useSettings();
   const { navigate } = useRouter();
   const { trigger, menu, open, pos, close, toggle, onTriggerKey, onMenuKey } = useDropdownMenu();

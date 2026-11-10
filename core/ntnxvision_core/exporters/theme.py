@@ -190,8 +190,9 @@ _TONES: dict[str, dict[str, str]] = {
     "connection": {"CONNECTED": "ok", "REACHABLE": "ok", "DISCONNECTED": "error",
                    "UNREACHABLE": "error"},
     "outcome": {"COLLECTED": "ok", "COLLECTED WITH NOTES": "warn", "FAILED": "error"},
-    "after q4 2026 v3 sunset": {"UNAFFECTED": "ok", "MOVES TO V4 AFTER A PC UPGRADE": "ok",
-                                "STOPS COLLECTING": "warn"},
+    "when legacy apis are removed": {"UNAFFECTED": "ok",
+                                     "SWITCHES TO V4 AFTER A PC UPGRADE": "ok",
+                                     "STOPS COLLECTING": "warn"},
 }
 
 

@@ -33,8 +33,10 @@ from ntnxvision_core.diagrams.facts import short_name
 from ntnxvision_core.diagrams.layout.fit import fits_first
 from ntnxvision_core.diagrams.scene import Scene
 from ntnxvision_core.exporters import diagrams
+from ntnxvision_core.exporters import products as report_products
 from ntnxvision_core.exporters import sections as report_sections
 from ntnxvision_core.exporters.diagrams import Diagram
+from ntnxvision_core.exporters.products import Product
 from ntnxvision_core.exporters.sourcing import source_hosts, sources, with_sources
 from ntnxvision_core.exporters.tables import Ctx
 from ntnxvision_core.exporters.theme import (
@@ -48,6 +50,7 @@ from ntnxvision_core.exporters.theme import (
     switch_label,
     tone_for,
 )
+from ntnxvision_core.inventory import fmt_bytes
 from ntnxvision_core.lcm_inventory import (
     provenance,
     report_rows,
@@ -257,7 +260,23 @@ class FigureStrip:
     items: list[StripItem]
 
 
-Block = Paragraph | Bullets | Table | Figure | SceneFigure | FigureRow | FigureStrip
+@dataclass
+class ProductItem:
+    product: Product
+    #: What the estate has of it ("4 clusters, 28 nodes").
+    detail: str
+
+
+@dataclass
+class ProductStrip:
+    """The Nutanix products the estate runs, each with its product icon, in one row."""
+
+    items: list[ProductItem]
+    title: str = "Nutanix products in this environment"
+
+
+Block = (Paragraph | Bullets | Table | Figure | SceneFigure | FigureRow | FigureStrip
+         | ProductStrip)
 
 
 @dataclass
@@ -280,6 +299,11 @@ class Chapter:
     sections: list[Section] = field(default_factory=list)
     appendix: bool = False
     number: str = ""
+
+    @property
+    def product(self) -> Product | None:
+        """The Nutanix product this chapter documents (its icon goes by the heading)."""
+        return report_products.for_section(self.key)
 
     @property
     def heading(self) -> str:
@@ -308,6 +332,8 @@ class Cover:
     subtitle: str
     meta: list[tuple[str, str]]
     note: str
+    #: The Nutanix products the estate runs (their icons go on the cover).
+    products: list[Product] = field(default_factory=list)
 
 
 @dataclass
@@ -497,7 +523,7 @@ def deployment(cfg: Any) -> str | None:
 
 _OUTCOME = {"collected": "Collected", "notes": "Collected with notes", "skipped": "Skipped",
             "failed": "Failed", "cancelled": "Cancelled"}
-_API_LABEL = {"v2": "v2.0", "era": "Era", "vcenter": "vCenter"}
+_API_LABEL = {"v2": "v2.0", "era": "Era", "vcenter": "vCenter", "kubernetes": "Kubernetes"}
 
 
 def run_areas(env: Environment) -> list[dict[str, Any]]:
@@ -649,6 +675,7 @@ class _Builder:
             subtitle=subtitle,
             meta=meta,
             note=f"Confidential. {provenance(env.lcm_inventory)}",
+            products=[p for p, _ in report_products.in_estate(env)],
         )
 
     # ─ chapters ─
@@ -693,6 +720,8 @@ class _Builder:
         strip = [StripItem(f["label"], fmt_count(f["value"]), f.get("qualifier"),
                            f.get("qualifier_tone")) for f in self.figures]
         ch.blocks.append(FigureStrip(strip[:6]))
+        if (products := report_products.in_estate(env)):
+            ch.blocks.append(ProductStrip([ProductItem(p, d) for p, d in products]))
         findings = Bullets(self.highlights(), intro="Key findings")
         ch.blocks.append(findings)
         if self.sunset:
@@ -720,10 +749,13 @@ class _Builder:
         items.append(self.compat_sentence())
         if self.sunset:
             items.append(
-                f"{plural(len(self.sunset), 'area')} still "
-                f"{'uses a v3 API' if len(self.sunset) == 1 else 'use v3 APIs'} that Nutanix "
-                f"retires in Q4 2026 ({', '.join(self.sunset)}) and will stop collecting "
-                f"after the sunset{_APPENDIX_REF}."
+                f"{plural(len(self.sunset), 'area')} "
+                f"({', '.join(self.sunset)}) "
+                f"{'depends on a v3 API' if len(self.sunset) == 1 else 'depend on v3 APIs'} "
+                f"that Nutanix is retiring. "
+                f"{'It collects' if len(self.sunset) == 1 else 'They collect'} normally "
+                f"today and will come back empty only once Prism Central no longer serves "
+                f"v3, typically after an upgrade{_APPENDIX_REF}."
             )
         cap = sum(c.max_capacity_bytes or 0 for c in env.storage_containers)
         used = sum(c.used_bytes or 0 for c in env.storage_containers)
@@ -1364,25 +1396,53 @@ class _Builder:
     def storage_services(self) -> Chapter:
         env = self.env
         ch = Chapter("nus", "Unified Storage Services (NUS)", "platform_services")
+        self.design_sections(ch)  # Files Design, Objects Design (diagrams.svcdesigns)
+        v4_shares = [s for s in env.file_shares if s.api_source == "v4"]
         ch.add("Files", make_table(
-            ["File Server", "Cluster", "Version", "FSVMs", "Size (GiB)", "Shares"],
-            [[f.name, self.cluster(f), f.version, f.num_fsvm, gib(f.size_bytes), f.share_count]
-             for f in env.file_servers],
-            "Nutanix Files servers", self.src(env.file_servers)),
+            ["File Server", "Cluster", "Version", "FSVMs", "Size (GiB)", "Used", "Shares",
+             "Client Network", "Storage Network", "DNS Domain"],
+            # Used reads in its own unit: a new file server holds a few MB, 0.0 in GiB.
+            [[f.name, self.cluster(f), f.version, f.num_fsvm, gib(f.size_bytes),
+              fmt_bytes(f.used_bytes), f.share_count, f.external_network,
+              f.internal_network, f.dns_domain] for f in env.file_servers],
+            "Nutanix Files servers", self.src(env.file_servers),
+            prune=("Client Network", "Storage Network", "DNS Domain")),
             make_table(
-            ["Share", "File Server", "Type", "Protocol", "Max Size (GiB)", "Used (GiB)"],
-            [[s.name, s.file_server_name, s.share_type, s.protocol, gib(s.max_size_bytes),
-              gib(s.used_bytes)] for s in env.file_shares],
-            "File shares", self.src(env.file_shares)))
+            ["FSVM", "Cluster", "File Server", "Client IPs", "Storage IPs", "vCPU",
+             "Memory (GiB)", "Host", "Power"],
+            [[v.name, self.cluster(v), v.file_server_name, ", ".join(v.client_ips),
+              ", ".join(v.storage_ips), v.num_vcpus, gib(v.memory_bytes), v.host_name,
+              v.power_state] for v in env.file_server_vms],
+            "File server VMs", self.src(env.file_server_vms), prune=("Host", "Power")),
+            make_table(
+            ["Share", "File Server", "Type", "Protocol", "Max Size (GiB)", "Used", "Files"],
+            # v4 reports no quota as 0 (stored as None): the share is unlimited.
+            [[s.name, s.file_server_name, s.share_type, s.protocol,
+              gib(s.max_size_bytes) if s.max_size_bytes or s.api_source != "v4"
+              else "Unlimited", fmt_bytes(s.used_bytes), s.file_count]
+             for s in env.file_shares],
+            "File shares", self.src(env.file_shares), prune=("Files",)),
+            make_table(
+            ["Share", "ABE", "Continuous Availability", "SMB3 Encryption", "Compression",
+             "Previous Versions"],
+            [[s.name, yes_no(s.access_based_enumeration), yes_no(s.continuous_availability),
+              yes_no(s.smb3_encryption), yes_no(s.compression), yes_no(s.previous_versions)]
+             for s in v4_shares],
+            "File share settings", self.src(v4_shares)))
         ch.add("Objects", make_table(
-            ["Object Store", "Cluster", "Workers", "Capacity (GiB)", "Buckets", "State"],
-            [[o.name, self.cluster(o), o.num_worker_nodes, gib(o.total_capacity_bytes),
-              o.bucket_count, o.state] for o in env.object_stores],
+            ["Object Store", "Cluster", "Version", "Workers", "Capacity (GiB)", "Used (GiB)",
+             "Buckets", "Client IPs"],
+            [[o.name, self.cluster(o), o.deployment_version, o.num_worker_nodes,
+              gib(o.total_capacity_bytes), gib(o.used_bytes), o.bucket_count,
+              ", ".join(o.client_ips)] for o in env.object_stores],
             "Nutanix Objects stores", self.src(env.object_stores)),
             make_table(
-            ["Bucket", "Object Store", "Versioning", "WORM", "Objects", "Used (GiB)"],
-            [[b.name, b.object_store_name, yes_no(b.versioning), yes_no(b.worm_enabled),
-              b.object_count, gib(b.used_bytes)] for b in env.buckets],
+            # Buckets are often far below a GiB: their size reads in its own unit.
+            ["Bucket", "Cluster", "Owner", "Versioning", "WORM", "Lifecycle", "Objects", "Used"],
+            [[b.name, self.cluster(b), b.owner, yes_no(b.versioning),
+              f"Yes ({b.retention_days} d)" if b.worm_enabled and b.retention_days
+              else yes_no(b.worm_enabled), yes_no(b.lifecycle), b.object_count,
+              fmt_bytes(b.used_bytes)] for b in env.buckets],
             "Buckets", self.src(env.buckets)))
         ch.add("Volumes", make_table(
             ["Volume Group", "Cluster", "Disks", "Capacity (GiB)", "Shared"],
@@ -1503,22 +1563,183 @@ class _Builder:
     def databases(self) -> Chapter:
         env = self.env
         ch = Chapter("ndb", "Database Services (NDB)", "platform_services")
+        self.design_sections(ch)  # Database Service Design (diagrams.svcdesigns)
+        ch.add("NDB Appliance", make_table(
+            ["NDB Server", "Cluster", "NDB Version", "IP", "High Availability",
+             "Registered Clusters", "Timezone"],
+            [[a.name, self.cluster(a), a.version, ", ".join(a.ip_addresses),
+              yes_no(a.ha_enabled), a.registered_clusters, a.timezone]
+             for a in env.ndb_appliances],
+            "NDB appliance", self.src(env.ndb_appliances)))
+        dbs = [d for d in env.databases if not d.clone]
+        clones = [d for d in env.databases if d.clone]
         ch.add("Databases", make_table(
-            ["Database", "Engine", "Type", "Status", "Time Machine", "SLA"],
-            [[d.name, d.db_engine, d.db_type, d.status, d.time_machine_name, d.sla_name]
-             for d in env.databases],
-            "NDB-managed databases", self.src(env.databases)))
+            ["Database", "Engine", "Version", "Cluster", "DB Server", "Size (GB)", "Status"],
+            [[d.name, d.db_engine, d.engine_version, self.cluster(d), d.db_server_name,
+              d.size_gb, d.status] for d in dbs],
+            "NDB-managed databases", self.src(dbs)),
+            make_table(
+            ["Clone", "Engine", "Cloned From", "DB Server", "Status", "Tags"],
+            [[d.name, d.db_engine, d.parent_time_machine, d.db_server_name, d.status,
+              ", ".join(d.tags)] for d in clones],
+            "Database clones", self.src(clones)))
         ch.add("Database Servers", make_table(
-            ["Server", "Engine", "Status", "Cluster", "Cores", "Memory (GB)"],
-            [[s.name, s.db_engine, s.status, self.cluster(s), s.vm_cores, s.memory_gb]
-             for s in env.database_servers],
+            ["Server", "Engine", "Cluster", "Cores", "Memory (GB)", "Software Profile",
+             "Status"],
+            [[s.name, s.db_engine, self.cluster(s), s.vm_cores, s.memory_gb,
+              s.software_profile, s.status] for s in env.database_servers],
             "Database servers", self.src(env.database_servers)))
         ch.add("Time Machines", make_table(
-            ["Time Machine", "Database", "SLA", "Status", "Schedule", "Clones"],
-            [[t.name, t.database_name, t.sla_name, t.status, t.schedule, t.clone_count]
-             for t in env.time_machines],
-            "Time machines", self.src(env.time_machines)))
+            ["Time Machine", "Database", "Cluster", "SLA", "Schedule", "Snapshots", "Clones"],
+            [[t.name, t.database_name, self.cluster(t), t.sla_name, t.schedule,
+              t.snapshot_count, t.clone_count] for t in env.time_machines],
+            "Time machines", self.src(env.time_machines)),
+            make_table(
+            ["SLA", "Continuous (days)", "Daily", "Weekly", "Monthly", "Quarterly",
+             "Time Machines"],
+            [[s.name, s.continuous_days, s.daily, s.weekly, s.monthly, s.quarterly,
+              s.time_machine_count] for s in env.ndb_slas],
+            "NDB SLAs (retention)", self.src(env.ndb_slas)))
+        ch.add("Profiles", make_table(
+            ["Profile", "Type", "Engine", "Details", "Built-in"],
+            [[p.name, (p.profile_type or "").replace("_", " "), p.db_engine, p.details,
+              yes_no(p.system)] for p in env.ndb_profiles],
+            "NDB profiles", self.src(env.ndb_profiles)))
+        ch.add("Operations", make_table(
+            ["Cluster", "IP", "Hypervisor", "Status"],
+            [[c.name, ", ".join(c.ip_addresses), c.hypervisor, c.status]
+             for c in env.ndb_clusters],
+            "Clusters registered in NDB", self.src(env.ndb_clusters)),
+            make_table(
+            ["Maintenance Window", "Schedule", "Tasks", "DB Servers", "Next Run"],
+            [[w.name, w.schedule, w.tasks, w.db_server_count, w.next_run]
+             for w in env.ndb_maintenance_windows],
+            "NDB maintenance windows", self.src(env.ndb_maintenance_windows)),
+            make_table(
+            ["Tag", "Applies To", "Required"],
+            [[t.name, (t.entity_type or "").replace("_", " ").title(), yes_no(t.required)]
+             for t in env.ndb_tags],
+            "NDB tags", self.src(env.ndb_tags)))
         return ch
+
+    def kubernetes(self) -> Chapter:
+        """NKP clusters: what Prism Central sees of them, and what their own Kubernetes
+        API adds when it was read. "Cluster" is the Nutanix cluster the nodes run on."""
+        env = self.env
+        ch = Chapter("kubernetes", "Kubernetes (NKP)", "platform_services")
+        self.design_sections(ch)  # Kubernetes Platform Design (diagrams.svcdesigns)
+        clusters = env.kubernetes_clusters
+        ch.add("Clusters", make_table(
+            ["Kubernetes Cluster", "Cluster", "NKP", "Kubernetes", "API Endpoint",
+             "Control Plane", "Workers", "vCPUs", "Memory (GiB)", "Source"],
+            [[k.name, self.kube_cluster(k), k.nkp_version, k.kubernetes_version,
+              k.control_plane_endpoint, k.control_plane_nodes, k.worker_nodes, k.total_vcpus,
+              gib(k.total_memory_bytes), _KUBE_SOURCE.get(k.api_source, k.api_source)]
+             for k in clusters],
+            "NKP clusters", self.src(clusters)),
+            make_table(
+            ["Kubernetes Cluster", "Cluster", "Management", "CNI", "Load Balancer",
+             "Pod CIDR", "Service CIDR", "License", "Deployed By"],
+            [[k.name, self.kube_cluster(k),
+              "" if k.management_cluster is None else yes_no(k.management_cluster), k.cni,
+              k.load_balancer, k.pod_cidr, k.service_cidr, k.license, k.deployed_by]
+             for k in clusters],
+            "NKP cluster configuration", self.src(clusters)))
+        nodes = env.kubernetes_nodes
+        ch.add("Nodes", make_table(
+            ["Node", "Cluster", "Kubernetes Cluster", "Role", "Pool", "IP", "vCPUs",
+             "Memory (GiB)", "Kubelet", "Status"],
+            [[n.name, self.kube_cluster(n), n.kubernetes_cluster, n.role, n.pool,
+              n.ip_address, n.vcpus, gib(n.memory_bytes), n.kubelet_version, n.status]
+             for n in nodes],
+            "Kubernetes nodes", self.src(nodes)),
+            make_table(
+            ["Node", "Cluster", "OS Image", "Kernel", "Container Runtime"],
+            [[n.name, self.kube_cluster(n), n.os_image, n.kernel, n.container_runtime]
+             for n in nodes if n.os_image or n.kernel or n.container_runtime],
+            "Node software", self.src([n for n in nodes
+                                       if n.os_image or n.kernel or n.container_runtime])))
+        spaces = env.kubernetes_namespaces
+        # User namespaces one by one; the platform's own (often 25+ on NKP) fold into
+        # one row per Kubernetes cluster. Excel and the Inventory keep every namespace.
+        user_ns = [n for n in spaces if not n.system]
+        ns_rows: list[list[Any]] = [
+            [n.name, self.kube_cluster(n), n.kubernetes_cluster, n.pods, n.deployments,
+             n.statefulsets, n.daemonsets, n.services, n.volume_claims] for n in user_ns]
+        ns_src: list[Any] = list(user_ns)
+        system_ns: dict[tuple[str | None, str], list[Any]] = {}
+        for n in spaces:
+            if n.system:
+                system_ns.setdefault((n.source_pc, n.kubernetes_cluster), []).append(n)
+        for (_pc, kname), group in system_ns.items():
+            ns_rows.append([
+                f"System namespaces ({len(group):,})", self.kube_cluster(group[0]), kname,
+                *(sum(getattr(n, f) for n in group) for f in (
+                    "pods", "deployments", "statefulsets", "daemonsets", "services",
+                    "volume_claims"))])
+            ns_src.append(group[0])
+        ch.add("Namespaces", make_table(
+            ["Namespace", "Cluster", "Kubernetes Cluster", "Pods", "Deployments",
+             "StatefulSets", "DaemonSets", "Services", "Volume Claims"],
+            ns_rows, "Namespaces (system namespaces summarised)", self.src(ns_src)))
+        ch.add("Storage", make_table(
+            ["Storage Class", "Cluster", "Kubernetes Cluster", "Provisioner",
+             "Storage Container", "Default", "Reclaim", "Binding"],
+            [[c.name, self.kube_cluster(c), c.kubernetes_cluster, c.provisioner,
+              c.storage_container, yes_no(c.default), c.reclaim_policy, c.binding_mode]
+             for c in env.kubernetes_storage_classes],
+            "Storage classes", self.src(env.kubernetes_storage_classes)),
+            make_table(
+            ["Volume", "Cluster", "Claim", "Storage Class", "Capacity", "Status"],
+            [[v.name, self.kube_cluster(v), v.claim, v.storage_class,
+              fmt_bytes(v.capacity_bytes), v.status] for v in env.kubernetes_volumes],
+            "Persistent volumes", self.src(env.kubernetes_volumes)),
+            make_table(
+            ["Service", "Cluster", "Kubernetes Cluster", "Namespace", "External IPs",
+             "Ports"],
+            [[v.name, self.kube_cluster(v), v.kubernetes_cluster, v.namespace,
+              ", ".join(v.external_ips), ", ".join(v.ports)]
+             for v in env.kubernetes_services],
+            "Load balancer services", self.src(env.kubernetes_services)))
+        apps = env.kubernetes_applications
+        user = [w for w in env.kubernetes_workloads if not w.system]
+        # Only user workloads: the platform's own are in the Excel workbook.
+        ch.add("Applications", make_table(
+            ["Application", "Cluster", "Kubernetes Cluster", "Namespace", "Kind",
+             "Workloads", "Ingress Hosts", "LB IPs", "Status"],
+            [[a.name, self.kube_cluster(a), a.kubernetes_cluster, a.namespace, a.kind,
+              ", ".join(a.workload_kinds), ", ".join(a.ingress_hosts),
+              ", ".join(a.addresses), a.status] for a in apps],
+            "User applications", self.src(apps)),
+            make_table(
+            ["Workload", "Cluster", "Namespace", "Kind", "Ready", "Helm Release", "Images",
+             "Status"],
+            [[w.name, self.kube_cluster(w), w.namespace, w.kind,
+              "" if w.replicas_desired is None
+              else f"{w.replicas_ready or 0}/{w.replicas_desired}",
+              w.helm_release, ", ".join(w.images), w.status] for w in user],
+            "User workloads", self.src(user)),
+            make_table(
+            ["Ingress", "Cluster", "Namespace", "Class", "Hosts", "Backends"],
+            [[i.name, self.kube_cluster(i), i.namespace, i.ingress_class, ", ".join(i.hosts),
+              ", ".join(i.backends)] for i in env.kubernetes_ingresses if not i.system],
+            "User ingresses",
+            self.src([i for i in env.kubernetes_ingresses if not i.system])))
+        ch.add("Platform Apps", make_table(
+            ["App", "Cluster", "Kubernetes Cluster", "Namespace", "Version", "Status",
+             "Kind"],
+            [[a.name, self.kube_cluster(a), a.kubernetes_cluster, a.namespace, a.version,
+              a.status, a.kind] for a in env.kubernetes_apps],
+            "Platform applications", self.src(env.kubernetes_apps)))
+        return ch
+
+    def kube_cluster(self, obj: Any) -> str | None:
+        """The Nutanix cluster of a Kubernetes object (its own, else its cluster's)."""
+        own = getattr(obj, "cluster_name", None)
+        if own:
+            return str(own)
+        return self.ctx.kube_home.get((getattr(obj, "source_pc", None),
+                                       getattr(obj, "kubernetes_cluster", "")))
 
     def identity(self) -> Chapter:
         env = self.env
@@ -1638,8 +1859,9 @@ class _Builder:
                          _API_LABEL.get(api, api) if api else None, detail])
         ch.blocks.append(Paragraph(
             "How each collection area finished and which API served it, as shown on the "
-            "app's Results screen. v3 REST APIs are retired by Nutanix in Q4 2026; the "
-            "routing table states what happens to each area after that sunset."
+            "app's Results screen. Nutanix is retiring the v3 REST APIs. The routing "
+            "table states what happens to each area once a Prism Central release no "
+            "longer serves them; until then every area collects as shown."
         ))
         ch.add("Collection Coverage", make_table(
             ["Area", "Outcome", "API", "Detail"], rows, "Collection outcome per area",
@@ -1653,7 +1875,7 @@ class _Builder:
             r_rows.append([areas, _API_LABEL.get(r["api"], r["api"]), r["reason"],
                            r["after_sunset"]["label"]])
         ch.add("API Routing and Compatibility", Paragraph(self.compat_sentence()),
-               make_table(["Areas", "API", "Reason", "After Q4 2026 v3 sunset"], r_rows,
+               make_table(["Areas", "API", "Reason", "When legacy APIs are removed"], r_rows,
                           "API routing per collection area",
                           r_src if env.is_combined else None),
                Bullets([clean(w) for w in env.warnings], intro="Compatibility warnings:")
@@ -1692,6 +1914,10 @@ def _fig(d: Diagram | None, caption: str) -> Figure | None:
     return Figure(d, caption) if d else None
 
 
+#: How a Kubernetes cluster's provenance reads in the reports.
+_KUBE_SOURCE = {"pc": "Prism Central", "kubernetes": "Kubernetes API",
+                "pc+kubernetes": "Prism Central + Kubernetes API"}
+
 #: Stands in for "(see Appendix A)" until numbering (`_Builder.executive_summary`).
 _APPENDIX_REF = "\x00appendix-ref\x00"
 
@@ -1699,8 +1925,8 @@ _APPENDIX_REF = "\x00appendix-ref\x00"
 _ORDER: tuple[str, ...] = (
     "executive_summary", "licensing", "assumptions", "prism_central", "logical_design",
     "physical_design", "workloads", "catalog", "storage_services", "networking",
-    "data_protection", "security", "databases", "identity", "automation", "health",
-    "lifecycle", "appendix",
+    "data_protection", "security", "databases", "kubernetes", "identity", "automation",
+    "health", "lifecycle", "appendix",
 )
 
 
@@ -1749,6 +1975,10 @@ def _disclose_tally(f: SceneFigure, tally: dict[str, int]) -> None:
         f.summary[idx] = bullet
 
 
+#: Chapter key -> its builder in `_ORDER`, where the two names differ.
+_CHAPTER_BUILDER = {"nus": "storage_services", "ndb": "databases"}
+
+
 def figure_scenes(env: Environment, opts: Any, type_id: str) -> list[Scene]:
     """The figures of one diagram type exactly as the report draws them (its section's
     budgets, parts per zone, cross references and edit marks), built from that
@@ -1763,13 +1993,14 @@ def figure_scenes(env: Environment, opts: Any, type_id: str) -> list[Scene]:
 
     b = _Builder(env, ExportOptions.coerce(opts))
     b.only_types = {type_id}
-    build: Callable[[], Chapter | None] | None = getattr(b, t.chapter, None)
+    builder = _CHAPTER_BUILDER.get(t.chapter, t.chapter)
+    build: Callable[[], Chapter | None] | None = getattr(b, builder, None)
     ch = build() if build is not None else None
     if ch is None:
         return []
     # Numbered where the default report puts it ("listed in Table 4-3" reads alike).
     avail = {a["id"]: a["available"] for a in report_sections.availability(env)}
-    before = _ORDER[:_ORDER.index(t.chapter)] if t.chapter in _ORDER else ()
+    before = _ORDER[:_ORDER.index(builder)] if builder in _ORDER else ()
     _number([ch], start=sum(1 for name in before if avail.get(name, True)))
     b.chapters = [ch]
     for finalize in b.finalizers:
@@ -1881,6 +2112,7 @@ def _number(chapters: list[Chapter], start: int = 0) -> None:
 
 __all__ = [
     "Block", "Bullets", "Chapter", "Cover", "Figure", "FigureRow", "FigureStrip",
+    "ProductItem", "ProductStrip",
     "Paragraph", "Report", "SceneFigure", "Section", "Status", "StripItem", "Table",
     "build_report",
     "cell_text", "make_table", "update_flag", "versions",

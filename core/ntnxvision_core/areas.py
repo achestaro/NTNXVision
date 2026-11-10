@@ -33,6 +33,7 @@ from ntnxvision_core.collectors import (
     LcmCollector,
     LicenseCollector,
     NcmCollector,
+    NkpCollector,
     ObjectsCollector,
     OvaCollector,
     PrismCentralConfigCollector,
@@ -77,82 +78,99 @@ class Area:
 
 
 #: In *run* order — the order the engine executes collectors (phase 1, then phase 2,
-#: with pc_config last because it sizes the PC from the system VMs).
+#: with pc_config after the VMs because it sizes the PC from the system VMs, and
+#: Health Alerts listed last because it is the one area off by default).
 AREAS: tuple[Area, ...] = (
     Area("clusters", "Clusters", INFRA, ClusterCollector, "clusters", ("clusters",),
          pe_supported=True, v4_area="clusters"),
-    Area("hosts", "Hosts / nodes", INFRA, HostCollector, "hosts", ("hosts", "blocks", "cvms"),
+    Area("hosts", "Hosts / Nodes", INFRA, HostCollector, "hosts", ("hosts", "blocks", "cvms"),
          pe_supported=True, v4_area="hosts"),
-    Area("storage_containers", "Storage containers", INFRA, StorageCollector,
+    Area("storage_containers", "Storage Containers", INFRA, StorageCollector,
          "storage_containers", ("storage_containers", "external_storages"), pe_supported=True,
          v4_area="storage_containers"),
-    Area("subnets", "Subnets / networks", INFRA, SubnetCollector, "subnets",
+    Area("subnets", "Subnets / Networks", INFRA, SubnetCollector, "subnets",
          ("subnets", "port_groups"),
          pe_supported=True, v4_area=None),
     # Runs after hosts: NICs are placed on clusters through their host.
-    Area("host_networking", "Host networking (virtual switches, NICs)", INFRA,
+    Area("host_networking", "Host Networking (Virtual Switches, NICs)", INFRA,
          HostNetworkCollector, "host_networking", ("virtual_switches", "host_nics"),
          v4_area="subnets", legacy_api="v2", requires=("hosts",)),
-    Area("vms", "Virtual machines", INFRA, VmCollector, "vms", ("vms", "system_vms"),
+    Area("vms", "Virtual Machines", INFRA, VmCollector, "vms", ("vms", "system_vms"),
          pe_supported=True, v4_area="vms"),
+    # Derived from the VMs (their KubernetesClusterName category) plus Self-Service apps.
+    Area("nkp", "NKP Clusters (Prism Central View)", PLATFORM, NkpCollector, "nkp",
+         ("kubernetes_clusters", "kubernetes_nodes"), v4_area=None, requires=("vms",)),
     Area("licenses", "Licensing", OPS, LicenseCollector, "licenses", ("licenses",),
          v4_area="licensing"),
-    Area("data_protection", "Data protection / DR", PLATFORM, DataProtectionCollector,
+    Area("data_protection", "Data Protection / DR", PLATFORM, DataProtectionCollector,
          "data_protection", ("protection_policies", "recovery_plans", "availability_zones"),
          v4_area="dataprotection",
          legacy_only=(("Availability zones", "Collected over v3 in this release"),)),
-    Area("alerts", "Health alerts", OPS, AlertsCollector, "alerts", ("alerts",),
-         v4_area="monitoring"),
-    Area("flow_security", "Flow network security", PLATFORM, FlowSecurityCollector,
+    Area("flow_security", "Flow Network Security", PLATFORM, FlowSecurityCollector,
          "flow_security",
          ("security_policies", "categories", "service_groups", "address_groups"),
          v4_area="microseg"),
-    Area("flow_networking", "Flow virtual networking", PLATFORM, FlowNetworkingCollector,
+    Area("flow_networking", "Flow Virtual Networking", PLATFORM, FlowNetworkingCollector,
          "flow_networking", ("vpcs", "floating_ips"), v4_area=None,
          legacy_only=(("VPCs · floating IPs", "Collected over v3 in this release"),)),
     Area("files", "Nutanix Files", PLATFORM, FilesCollector, "files",
-         ("file_servers", "file_shares"), v4_area=None,
+         ("file_servers", "file_server_vms", "file_shares"), v4_area=None,
          legacy_only=(("Nutanix Files", "Collected over v3 in this release"),)),
     Area("objects", "Nutanix Objects", PLATFORM, ObjectsCollector, "objects",
          ("object_stores", "buckets"), v4_area=None,
          legacy_only=(("Nutanix Objects", "Collected over v3 in this release"),)),
-    Area("volume_groups", "Volume groups", PLATFORM, VolumesCollector, "volume_groups",
+    Area("volume_groups", "Volume Groups", PLATFORM, VolumesCollector, "volume_groups",
          ("volume_groups",), v4_area="volumes"),
-    Area("iam", "IAM (users, roles, projects)", OPS, IamCollector, "iam",
+    Area("iam", "IAM (Users, Roles, Projects)", OPS, IamCollector, "iam",
          ("users", "roles", "projects"), v4_area="iam",
          legacy_only=(("IAM projects", "No v4 equivalent yet"),)),
-    Area("xplay", "X-Play playbooks", OPS, XPlayCollector, "xplay", ("playbooks",),
+    Area("xplay", "X-Play Playbooks", OPS, XPlayCollector, "xplay", ("playbooks",),
          v4_area=None, legacy_only=(("X-Play playbooks", "No v4 equivalent yet"),)),
-    Area("ncm_reports", "NCM reports", OPS, NcmCollector, "ncm_reports", ("ncm_reports",),
+    Area("ncm_reports", "NCM Reports", OPS, NcmCollector, "ncm_reports", ("ncm_reports",),
          v4_area="ncm_reports"),
-    Area("lcm", "LCM firmware and software", OPS, LcmCollector, "lcm_entities",
+    Area("lcm", "LCM Firmware and Software", OPS, LcmCollector, "lcm_entities",
          ("lcm_entities",), v4_area="lifecycle"),
     Area("images", "Images", INFRA, ImageCollector, "images", ("images",), v4_area="vms"),
-    Area("templates", "VM templates", INFRA, TemplateCollector, "templates", ("templates",),
+    Area("templates", "VM Templates", INFRA, TemplateCollector, "templates", ("templates",),
          v4_area="vms"),
     Area("ovas", "OVAs", INFRA, OvaCollector, "ovas", ("ovas",), v4_area="vms"),
-    Area("pc_config", "Prism Central configuration", OPS, PrismCentralConfigCollector,
+    Area("pc_config", "Prism Central Configuration", OPS, PrismCentralConfigCollector,
          "pc_config", ("pc_registrations", "pc_vms"), v4_area="clusters"),
+    # Off by default: a point-in-time alert list ages fastest of anything collected and is
+    # rarely what a design or migration review is after.
+    Area("alerts", "Health Alerts", OPS, AlertsCollector, "alerts", ("alerts",),
+         v4_area="monitoring", default_on=False),
 )
 
 #: NDB runs only when an NDB endpoint is given; it is not a checkbox in the area list.
-NDB_AREA = Area("ndb", "NDB databases", PLATFORM, None, "ndb",
+NDB_AREA = Area("ndb", "NDB Databases", PLATFORM, None, "ndb",
                 ("database_servers", "databases", "time_machines"), legacy_api="era")
 
 #: vCenter enrichment of ESXi clusters runs only when a target has a vCenter configured;
 #: like NDB it is not a checkbox. It adds no objects of its own (it fills ESXi gaps).
-VCENTER_AREA = Area("vcenter", "vCenter enrichment (ESXi)", INFRA, None, "vcenter", (),
+VCENTER_AREA = Area("vcenter", "vCenter Enrichment (ESXi)", INFRA, None, "vcenter", (),
                     legacy_api="vcenter")
 
-AREAS_BY_ID: dict[str, Area] = {a.id: a for a in (*AREAS, NDB_AREA, VCENTER_AREA)}
+#: The NKP clusters' own Kubernetes API runs only when Kubernetes endpoints are given;
+#: like NDB it is not a checkbox.
+KUBERNETES_AREA = Area("kubernetes", "NKP Clusters (Kubernetes API)", PLATFORM, None,
+                       "kubernetes",
+                       ("kubernetes_clusters", "kubernetes_nodes", "kubernetes_namespaces",
+                        "kubernetes_storage_classes", "kubernetes_volumes",
+                        "kubernetes_services", "kubernetes_apps", "kubernetes_workloads",
+                        "kubernetes_ingresses", "kubernetes_applications"),
+                       legacy_api="kubernetes")
+
+AREAS_BY_ID: dict[str, Area] = {a.id: a for a in (*AREAS, NDB_AREA, VCENTER_AREA,
+                                                  KUBERNETES_AREA)}
 
 #: Prism Element (v2.0) mode labels, keyed by area id.
 PE_LABELS = {
     "clusters": "Cluster",
-    "hosts": "Hosts / nodes",
-    "storage_containers": "Storage containers",
+    "hosts": "Hosts / Nodes",
+    "storage_containers": "Storage Containers",
     "subnets": "Networks",
-    "vms": "Virtual machines",
+    "vms": "Virtual Machines",
 }
 
 

@@ -13,9 +13,10 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { DiagramConnector, DiagramElement, DiagramScene, DiagramSide, SceneEdge, SceneNode, SceneStyle, SceneTextLine } from '@shared/ipc';
 import { isMod } from '../../lib/keyboard';
 import { clearDrop, nameOf, placedMeta, planDrop, subtreeOf } from './nesting';
-import type { DropPlan, NestContext } from './nesting';
+import type { DropPlan, LinkPlan, NestContext } from './nesting';
 import { edgeMarks, trimmedPoints } from './arrowheads';
 import type { CanvasBg, GridMode } from './CanvasOptions';
+import { ProductArt, productIcon } from './productIcons';
 
 const FONT = "'Figtree Variable', Figtree, Calibri, 'Segoe UI', Arial, sans-serif";
 /** Pointer travel (screen px) before a press becomes a drag. */
@@ -24,7 +25,9 @@ const DRAG_START = 4;
 const LANE_STEP = 3;
 
 /** Paint layer per node kind (mirrors scene.draw_order). */
-const LAYER: Record<string, number> = { container: 0, box: 1, swatch: 1, label: 1, strip: 3, pill: 3, tag: 3 };
+const LAYER: Record<string, number> = { container: 0, box: 1, swatch: 1, label: 1, strip: 3, pill: 3, tag: 3, glyph: 3 };
+/** A product glyph's inset inside its white tile (points, each side). */
+const GLYPH_INSET = 0.9;
 
 export type CanvasTool = 'select' | 'connect';
 
@@ -75,6 +78,11 @@ export interface CanvasProps {
   nest?: NestContext | null;
   /** A placed icon dropped into `parent` (null: out of its parent, free at x, y). */
   onNest?(id: string, parent: string | null, x: number, y: number): void;
+  /**
+   * A placed icon dropped on an element it is related to (a cluster on a Prism Central):
+   * into `plan.parent` (null: free at x, y, beside it) and connected to `plan.target`.
+   */
+  onLink?(id: string, plan: LinkPlan & { hint: string }, x: number, y: number): void;
   /** A placed frame dropped on a collected top-level frame it may hold: drawn around it. */
   onWrap?(id: string, target: string, x: number, y: number): void;
   /** A quiet line for the toolbar (a drop that could not nest). */
@@ -142,7 +150,7 @@ export function partOf(line: string, full: string | null | undefined): boolean {
   return !!l && !!full && norm(full).includes(l);
 }
 
-function rectFor(st: SceneStyle, x: number, y: number, w: number, h: number, extra: React.SVGProps<SVGRectElement> = {}): JSX.Element {
+function rectFor(st: SceneStyle, x: number, y: number, w: number, h: number, extra: React.SVGProps<SVGRectElement> = {}): React.JSX.Element {
   return (
     <rect
       x={x}
@@ -159,7 +167,7 @@ function rectFor(st: SceneStyle, x: number, y: number, w: number, h: number, ext
   );
 }
 
-function lines(ls: SceneTextLine[], ox: number, oy: number, onEdit?: (i: number) => void, hide?: number | null): JSX.Element[] {
+function lines(ls: SceneTextLine[], ox: number, oy: number, onEdit?: (i: number) => void, hide?: number | null): React.JSX.Element[] {
   return ls.map((t, i) =>
     i === hide ? (
       <React.Fragment key={i} />
@@ -187,7 +195,28 @@ function lines(ls: SceneTextLine[], ox: number, oy: number, onEdit?: (i: number)
   );
 }
 
-function EdgeShape({ e }: { e: SceneEdge }): JSX.Element {
+/**
+ * A product glyph (kind "glyph", data.product): decoration on the box it badges or the
+ * placed product icon it belongs to. Its white tile (style.fill) first, then the icon
+ * inset by GLYPH_INSET; with no fill the icon fills the node box. Never a hit target:
+ * pointer events pass through to its parent, which it moves with (`shift`).
+ */
+function GlyphShape({ n, shift }: { n: SceneNode; shift?: string }): React.JSX.Element {
+  const icon = productIcon(n.data?.product);
+  const tile = !!n.style.fill;
+  const inset = tile ? Math.min(GLYPH_INSET, n.w / 4) : 0;
+  const size = Math.max(0, Math.min(n.w, n.h) - 2 * inset);
+  const name = n.data?.name || n.data?.product || 'Nutanix product';
+  return (
+    <g data-glyph={n.data?.product ?? ''} transform={shift} pointerEvents="none" role="img" aria-label={name}>
+      <title>{name}</title>
+      {tile && rectFor(n.style, n.x, n.y, n.w, n.h)}
+      {icon && <ProductArt icon={icon} x={n.x + inset} y={n.y + inset} size={size} />}
+    </g>
+  );
+}
+
+function EdgeShape({ e }: { e: SceneEdge }): React.JSX.Element {
   // Arrowhead shapes and the trimmed stroke: the exports' geometry (arrowheads.ts).
   const color = e.style.stroke ?? '#000000';
   const pts = trimmedPoints(e);
@@ -264,7 +293,7 @@ export function laneSegment(points: [number, number][]): [Pt, Pt] | null {
   return best ?? (points.length >= 2 ? [points[0], points[1]] : null);
 }
 
-export function SceneCanvas(props: CanvasProps): JSX.Element {
+export function SceneCanvas(props: CanvasProps): React.JSX.Element {
   const { zoom, outline, connectors, selected, marked, editRequest, tool, connectFrom } = props;
   const { onSelect, onRename, onMove, onDelete, onPick, onStartConnect, onConnect, onReconnect, onSide, onBend, onCancelTool } = props;
   const legendOn = props.legend !== false;
@@ -331,7 +360,7 @@ export function SceneCanvas(props: CanvasProps): JSX.Element {
     (x: number, y: number, except?: string | null): string | null => {
       let best: SceneNode | null = null;
       for (const n of scene.nodes) {
-        if (!(outline.has(n.id) || endBox(n)) || n.id === except || !inside(n, x, y)) continue;
+        if (n.kind === 'glyph' || !(outline.has(n.id) || endBox(n)) || n.id === except || !inside(n, x, y)) continue;
         if (!best || n.w * n.h < best.w * best.h) best = n;
       }
       return best?.id ?? null;
@@ -523,6 +552,11 @@ export function SceneCanvas(props: CanvasProps): JSX.Element {
           const ny = n.y + d.dy;
           if (plan.mode === 'into') props.onNest?.(d.id, plan.parent, nx, ny);
           else if (plan.mode === 'wrap') props.onWrap?.(d.id, plan.target, nx, ny);
+        } else if (n && d.active && plan?.mode === 'link') {
+          // Related (a cluster on a Prism Central): into the element around the target
+          // that may hold it, else beside the target, never on top of it; connected.
+          const spot = plan.parent ? { x: n.x + d.dx, y: n.y + d.dy } : clearDrop(scene, { x: n.x + d.dx, y: n.y + d.dy, w: n.w, h: n.h }, subtreeOf(scene, d.id));
+          props.onLink?.(d.id, plan, spot.x, spot.y);
         } else if (n && d.active && (d.dx || d.dy || plan?.mode === 'out' || plan?.mode === 'refused')) {
           // A free drop never lands on top of another item: the dragged one moves aside
           // (one edit list, so one undo step).
@@ -801,7 +835,7 @@ export function SceneCanvas(props: CanvasProps): JSX.Element {
   };
   const resizing = drag?.kind === 'resize' ? drag : null;
 
-  const drawNode = (n: SceneNode): JSX.Element => {
+  const drawNode = (n: SceneNode): React.JSX.Element => {
     const elId = outline.has(n.id) ? n.id : null;
     const editOwner = textEdit ? (textEdit.kind === 'text' ? textEdit.key : textEdit.kind === 'conn' ? null : textEdit.id) : null;
     const hidden = editOwner === n.id && textEdit?.line ? n.lines.indexOf(textEdit.line) : null;
@@ -813,6 +847,8 @@ export function SceneCanvas(props: CanvasProps): JSX.Element {
       </>
     );
     const shift = freeDrag && riding(n) ? `translate(${freeDrag.dx} ${freeDrag.dy})` : undefined;
+    // Decoration only: not selectable, draggable or a connector end; rides with its parent.
+    if (n.kind === 'glyph') return <GlyphShape key={n.id} n={n} shift={shift} />;
     if (!elId) {
       // A zone's Prism Central (an end box) is a connector end of its own.
       const own = tool === 'connect' && endBox(n) ? n.id : owner(n.id);
@@ -863,7 +899,7 @@ export function SceneCanvas(props: CanvasProps): JSX.Element {
   const draggedEl = moveDrag ? outline.get(moveDrag.id) : undefined;
   const pad = 2.5;
   const fromNode = connectFrom ? byId.get(connectFrom) ?? null : null;
-  const ports = sel && tool === 'select' && !drag && outline.has(sel.id) && sel.kind !== 'tag' ? (['top', 'right', 'bottom', 'left'] as const) : null;
+  const ports = sel && tool === 'select' && !drag && outline.has(sel.id) && sel.kind !== 'tag' && sel.kind !== 'glyph' ? (['top', 'right', 'bottom', 'left'] as const) : null;
   const selFree = sel && tool === 'select' && outline.get(sel.id)?.free && (!drag || drag.kind === 'resize') ? sel : null;
   // Handles: 8 px to see, 14 px to hit, at any zoom.
   const handle = 4 / zoom;
@@ -907,6 +943,8 @@ export function SceneCanvas(props: CanvasProps): JSX.Element {
       if (n) {
         const at = { x: n.x + freeDrag.dx, y: n.y + freeDrag.dy + n.h + 10 };
         if (pl?.mode === 'into') return { ...at, text: `Drop into ${pl.label}`, warn: false };
+        if (pl?.mode === 'link')
+          return { ...at, text: `Drop to connect to ${props.nest ? nameOf(props.nest, pl.target) : 'it'} (${pl.label})${pl.parent && props.nest ? `, in ${nameOf(props.nest, pl.parent)}` : ''}`, warn: false };
         if (pl?.mode === 'out') return { ...at, text: `Drop to take it out of ${pl.label}`, warn: false };
         if (pl?.mode === 'wrap') return { ...at, text: `Drop to draw it around ${pl.label}`, warn: false };
         if (pl?.mode === 'stay') return { ...at, text: 'Drop to keep it in its place', warn: false };
@@ -1089,9 +1127,9 @@ export function SceneCanvas(props: CanvasProps): JSX.Element {
             );
           })}
         {/* The drop target of a dragged placed icon. */}
-        {freeDrag?.plan && (freeDrag.plan.mode === 'into' || freeDrag.plan.mode === 'wrap' || freeDrag.plan.mode === 'out') && (() => {
+        {freeDrag?.plan && (freeDrag.plan.mode === 'into' || freeDrag.plan.mode === 'wrap' || freeDrag.plan.mode === 'out' || freeDrag.plan.mode === 'link') && (() => {
           const pl = freeDrag.plan;
-          const t = byId.get(pl.mode === 'into' ? pl.parent : pl.mode === 'wrap' ? pl.target : pl.from);
+          const t = byId.get(pl.mode === 'into' ? pl.parent : pl.mode === 'wrap' || pl.mode === 'link' ? pl.target : pl.from);
           if (!t) return null;
           return <rect className={pl.mode === 'out' ? 'dg-drop-target out' : 'dg-drop-target'} x={t.x - 2} y={t.y - 2} width={t.w + 4} height={t.h + 4} rx={4} strokeWidth={1.4 / zoom} />;
         })()}

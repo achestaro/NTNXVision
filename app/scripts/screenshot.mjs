@@ -50,8 +50,11 @@ const stub = `window.__STUB_DIAGRAMS__ = ${await readFile(join(here, 'stub-diagr
 
 const rail = async (page, name) => {
   await page.getByRole('navigation', { name: 'Primary' }).getByRole('button', { name, exact: true }).click();
-  // New collection pre-fills the first saved target asynchronously.
-  if (name === 'New collection') await page.waitForFunction(() => document.querySelector('[data-testid="target-details"]'));
+  // New collection starts with no target picked: pick the first saved one (PC01).
+  if (name === 'New collection') {
+    await page.locator('#saved').selectOption('t-pc01');
+    await page.waitForFunction(() => document.querySelector('[data-testid="target-details"]'));
+  }
 };
 const settle = (page) => page.waitForTimeout(350);
 /** Inventory: no row selected and no details pane. */
@@ -89,6 +92,8 @@ const finishRun = async (p) => {
   await rail(p, 'New collection');
   await p.getByTestId('cluster-list').waitFor();
   await p.getByLabel('Snapshot name').fill('pc01 week 3');
+  // No report is selected by default; the Results shots show an Excel report.
+  await p.getByRole('checkbox', { name: /^Excel workbook/ }).check();
   await p.getByRole('button', { name: /Start collection/ }).click();
   await p.getByRole('heading', { name: 'Collection complete' }).waitFor();
   await p.waitForTimeout(5200); // let the toast auto-dismiss
@@ -140,6 +145,22 @@ const SHOTS = [
     await p.getByRole('dialog').getByRole('button', { name: 'Test connection' }).click();
     await p.getByRole('dialog').getByText('Connected to Prism Central').waitFor();
   }, 1100],
+  // The NKP clusters section: a saved endpoint, the read-only token help, and a new one
+  // whose test asks to trust the Kubernetes API certificate.
+  ['targets-edit-nkp', {}, async (p) => {
+    await rail(p, 'Targets');
+    await p.getByRole('button', { name: 'PC01 Production', exact: true }).click();
+    const dlg = p.getByRole('dialog');
+    await dlg.getByText('How to create a read-only token').click();
+    await dlg.getByRole('button', { name: 'Add NKP cluster' }).click();
+    const added = dlg.getByTestId('nkp-endpoint').last();
+    await added.getByLabel('Name').fill('nkp-dev');
+    await added.getByLabel('API endpoint host').fill('nkp-dev.example.com');
+    await added.getByLabel('ServiceAccount token').fill('eyJhbGciOiJSUzI1NiJ9.stub');
+    await added.getByRole('button', { name: 'Test nkp-dev' }).click();
+    await added.getByText('Trust the certificate of nkp-dev.example.com?').waitFor();
+    await added.getByRole('button', { name: 'Trust this certificate' }).scrollIntoViewIfNeeded();
+  }, 1100, 1300],
   // Test connection outcomes in the Targets editor and as a row-test toast: rejected
   // credentials, untrusted certificate, unreachable (failed) and an unsupported version (warning).
   ...['auth_failed', 'untrusted_cert', 'unreachable', 'version_unsupported'].map((t) => [
@@ -604,6 +625,16 @@ const SHOTS = [
     await p.getByRole('textbox', { name: 'Search icons' }).fill('clu');
     await list.getByRole('option', { name: 'Cluster', exact: true }).waitFor();
   }],
+  // The Nutanix product icons: their own art on the swatch; the canvas shows a Prism glyph
+  // badging each zone's Prism Central box.
+  ['diagrams-add-products', { diagrams: 'edited' }, async (p) => {
+    await rail(p, 'Diagrams');
+    await p.locator('.dg-sheet svg [data-glyph="prism"]').first().waitFor();
+    await p.getByRole('button', { name: 'Add', exact: true }).click();
+    const list = p.getByRole('listbox', { name: 'Icons' });
+    await p.getByRole('textbox', { name: 'Search icons' }).fill('nutanix product');
+    await list.getByRole('option', { name: 'Nutanix Unified Storage (NUS)', exact: true }).waitFor();
+  }],
   // Nesting: a hybrid example (a datacenter around the collected zone, a cloud region
   // holding NC2 on AWS with its VPC, a cluster and bare-metal nodes, Direct Connect). A nested node selected: its
   // inspector says where it sits, its edge and corner handles resize it.
@@ -865,11 +896,13 @@ const SHOTS = [
     await p.getByRole('dialog').getByText('Email isn’t set up.').waitFor();
   }, 1100],
   // ── Insights > Metrics ──
-  // No target chosen yet: the page opens the first saved Prism Central by itself.
-  ['metrics-auto', {}, async (p) => {
+  // No target chosen yet: the picker starts empty and nothing is read until one is picked.
+  ['metrics-no-target', {}, async (p) => {
     await rail(p, 'Metrics');
-    await p.getByRole('heading', { name: 'Health' }).waitFor();
-    if ((await p.getByRole('heading', { name: 'Choose a target' }).count()) > 0) throw new Error('the page asks to choose a target although targets exist');
+    await p.getByRole('heading', { name: 'Choose a target' }).waitFor();
+    if ((await p.getByRole('combobox', { name: 'Target' }).inputValue()) !== '') throw new Error('a target is selected by default');
+    if ((await p.evaluate(() => (window.__metricsCalls || []).length)) > 0) throw new Error('metrics were read before a target was picked');
+    if ((await p.getByRole('heading', { name: 'Health' }).count()) > 0) throw new Error('the dashboard opened without a target');
   }],
   ['metrics-empty', { noTargets: true }, async (p) => {
     await rail(p, 'Metrics');
@@ -1012,7 +1045,27 @@ const SHOTS = [
     await openMetrics(p);
     await p.getByRole('button', { name: 'All top VMs' }).click();
     await p.getByRole('heading', { level: 1, name: 'Top VMs' }).waitFor();
+    // Each list shows five and expands to ten.
+    const cpu = p.getByRole('table', { name: 'Top VMs by CPU' });
+    const rows = () => cpu.getByRole('row').count();
+    if ((await rows()) !== 6) throw new Error(`collapsed list should show 5 VMs, shows ${(await rows()) - 1}`);
+    const more = p.getByRole('button', { name: 'Show top 10' }).first();
+    await more.click();
+    if ((await rows()) !== 11) throw new Error(`expanded list should show 10 VMs, shows ${(await rows()) - 1}`);
+    if ((await p.getByRole('button', { name: 'Show top 5' }).first().getAttribute('aria-expanded')) !== 'true') throw new Error('aria-expanded not set');
   }, 1100],
+  // All clusters: the Network card has the totals and a row per cluster, Cluster first.
+  ['metrics-network-clusters', {}, async (p) => {
+    await openMetrics(p);
+    const t = p.getByRole('table', { name: 'Network per cluster' });
+    await t.scrollIntoViewIfNeeded();
+    const heads = await t.getByRole('columnheader').allTextContents();
+    if (heads[0] !== 'Cluster') throw new Error(`Cluster is not the first column: ${heads}`);
+    if ((await t.locator('tbody tr').count()) < 2) throw new Error('expected a row per cluster');
+    await p.getByRole('button', { name: 'All host NICs' }).click();
+    await p.getByRole('table', { name: 'Network per cluster' }).waitFor();
+    await p.getByRole('table', { name: 'Host NICs' }).waitFor();
+  }, 1300],
   ['metrics-network', {}, async (p) => {
     await openMetrics(p);
     await p.getByRole('group', { name: 'Clusters' }).getByRole('button', { name: 'AMS-EDGE-02' }).click();

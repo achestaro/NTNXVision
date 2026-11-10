@@ -22,9 +22,12 @@ from fontTools.pens.svgPathPen import SVGPathPen  # type: ignore[import-untyped]
 from fontTools.pens.transformPen import TransformPen  # type: ignore[import-untyped]
 from fontTools.ttLib import TTFont  # type: ignore[import-untyped]
 
+from ntnxvision_core.exporters import products as P
 from ntnxvision_core.exporters import theme as T
 
 from .. import text as tx
+from ..badges import KIND as GLYPH
+from ..badges import art_box
 from ..scene import Edge, EdgeLabel, Node, Scene, Style, TextLine, draw_order, num
 from .heads import arrow_points, marks, trimmed
 
@@ -111,6 +114,20 @@ def _text(lines: list[TextLine], ox: float, oy: float, mode: str = "live",
     return "".join(out)
 
 
+def _art(n: Node) -> str:
+    """A glyph node's product icon: its own paths, inline and scaled into the node (no
+    nested <svg> or <image>, which Office's SVG import handles worst)."""
+    product = n.data.get("product", "")
+    if product not in P.PRODUCTS:
+        return ""
+    a = P.art(product)
+    x, y, side = art_box(n)
+    k = side / a.viewbox[2]
+    tx_, ty_ = x - a.viewbox[0] * k, y - a.viewbox[1] * k
+    paths = "".join(f'<path fill="{fill}" d="{d}"/>' for fill, d in a.paths)
+    return f'<g transform="translate({num(tx_)} {num(ty_)}) scale({k:.6f})">{paths}</g>'
+
+
 def _node(n: Node, mode: str) -> str:
     names = {"data-kind"}
     attrs = ""
@@ -121,8 +138,13 @@ def _node(n: Node, mode: str) -> str:
             names.add(name)
             attrs += f" {name}={quoteattr(v)}"
     title = f"<title>{escape(n.data.get('name') or n.text)}</title>" if n.lines else ""
+    if n.kind == GLYPH:
+        title = f"<title>{escape(n.data.get('name', ''))}</title>"
     shape = "" if n.kind == "label" else _rect(n.x, n.y, n.w, n.h, n.style)
-    return (f'<g id={quoteattr(n.id)} data-kind="{n.kind}"{attrs}>{title}{shape}'
+    if n.kind == GLYPH and not (n.style.fill or n.style.stroke):
+        shape = ""
+    art = _art(n) if n.kind == GLYPH else ""
+    return (f'<g id={quoteattr(n.id)} data-kind="{n.kind}"{attrs}>{title}{shape}{art}'
             f"{_text(n.lines, n.x, n.y, mode, n.w)}</g>")
 
 

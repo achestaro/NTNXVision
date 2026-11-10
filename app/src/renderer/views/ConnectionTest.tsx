@@ -73,7 +73,7 @@ export function connectionSummary(test: TestState): {
 }
 
 /** The certificate a test presented: who it is for, who issued it, until when, and its SHA-256. */
-export function CertificateDetails({ certificate }: { certificate: NonNullable<TestConnectionResult['certificate']> }): JSX.Element {
+export function CertificateDetails({ certificate }: { certificate: NonNullable<TestConnectionResult['certificate']> }): React.JSX.Element {
   return (
     <dl className="grid-kv mono t12" style={{ marginTop: 8, color: 'var(--ink-2)' }}>
       <div className="kv">
@@ -106,11 +106,17 @@ export function TrustCallout({
   result,
   host,
   onTrust,
+  compareWith = 'the one Prism shows',
+  secret = 'the password',
 }: {
   result: TestConnectionResult;
   host: string;
   onTrust?(fingerprint: string): void;
-}): JSX.Element {
+  /** Where the user can check the fingerprint ("the one Prism shows"). */
+  compareWith?: string;
+  /** What has not been sent yet ("the password"; an NKP endpoint sends a token). */
+  secret?: string;
+}): React.JSX.Element {
   const changed = result.status === 'cert_changed';
   const cert = result.certificate;
   return (
@@ -128,7 +134,7 @@ export function TrustCallout({
     >
       {changed
         ? 'It is not the certificate you trusted before. That can be a renewed certificate, or someone intercepting the connection. Only trust it if you expect the change.'
-        : 'TLS verification is off for this target, so the app pins the server certificate instead. Nothing, not even the password, has been sent yet. Compare the fingerprint with the one Prism shows, then trust it.'}
+        : `TLS verification is off for this target, so the app pins the server certificate instead. Nothing, not even ${secret}, has been sent yet. Compare the fingerprint with ${compareWith}, then trust it.`}
       {cert ? <CertificateDetails certificate={cert} /> : <div className="mono t12">{result.message}</div>}
     </Callout>
   );
@@ -151,7 +157,7 @@ export function TestOutcome({
   /** Pin the certificate the test presented (trust on first use). */
   onTrust?(fingerprint: string): void;
   onRetry(): void;
-}): JSX.Element | null {
+}): React.JSX.Element | null {
   if (test.kind === 'error') {
     return (
       <Callout tone="error" title="The connection test didn’t complete." actions={<Button size="sm" onClick={onRetry}>Test again</Button>}>

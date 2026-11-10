@@ -13,8 +13,11 @@ from functools import lru_cache
 
 from PIL import Image, ImageDraw, ImageFont
 
+from ntnxvision_core.exporters import products as P
 from ntnxvision_core.exporters import theme as T
 
+from ..badges import KIND as GLYPH
+from ..badges import art_box
 from ..scene import Edge, EdgeLabel, Node, Scene, Style, TextLine, draw_order
 from .heads import marks, trimmed
 
@@ -90,9 +93,27 @@ def _text(d: ImageDraw.ImageDraw, lines: list[TextLine], ox: float, oy: float,
                font=_font(round(t.size * k), t.bold), fill=_rgb(t.color), anchor="ls")
 
 
-def _node(d: ImageDraw.ImageDraw, n: Node, k: float) -> None:
+@lru_cache(maxsize=64)
+def _icon(product: str, px: int) -> Image.Image:
+    with Image.open(io.BytesIO(P.png_bytes(product))) as im:
+        return im.convert("RGBA").resize((px, px), Image.Resampling.LANCZOS)
+
+
+def _glyph(img: Image.Image, n: Node, k: float) -> None:
+    product = n.data.get("product", "")
+    if product not in P.PRODUCTS:
+        return
+    x, y, side = art_box(n)
+    px = max(1, round(side * k))
+    icon = _icon(product, px)
+    img.paste(icon, (round(x * k), round(y * k)), icon)
+
+
+def _node(d: ImageDraw.ImageDraw, n: Node, k: float, img: Image.Image | None = None) -> None:
     if n.kind != "label":
         _shape(d, n.x, n.y, n.w, n.h, n.style, k)
+    if n.kind == GLYPH and img is not None:
+        _glyph(img, n, k)
     _text(d, n.lines, n.x, n.y, k)
 
 
@@ -133,7 +154,7 @@ def render_png(sc: Scene, dpi: int = 220, palette: bool = False) -> bytes:
     d = ImageDraw.Draw(img)
     for kind, item in draw_order(sc):
         if kind == "node":
-            _node(d, item, k)
+            _node(d, item, k, img)
         elif kind == "edge":
             _edge(d, item, k)
         else:

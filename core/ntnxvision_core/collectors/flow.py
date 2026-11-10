@@ -64,7 +64,16 @@ class FlowSecurityCollector(Collector):
         if self.conn.v4_ready("microseg"):
             self._collect_v4(env)
         else:
-            self._collect_v3(env)
+            try:
+                self._collect_v3(env)
+            except NutanixApiError as exc:
+                # Flow Network Security switched off: the v3 lists answer 500
+                # `kMicrosegDisabledError` ("... is not yet enabled"), not an empty list.
+                if "kMicrosegDisabledError" not in str(exc):
+                    raise
+                env.collection_notes[self.name] = (
+                    "skipped: Flow Network Security not enabled")
+                return
 
         env.flow.security_policy_count = len(env.security_policies)
         env.flow.category_count = len(env.categories)

@@ -65,7 +65,8 @@ class TextLine:
 @dataclass
 class Node:
     id: str  # stable, derived from object identity (never a counter or position)
-    #: container | box | strip | pill | tag | label | swatch
+    #: container | box | strip | pill | tag | label | swatch | glyph (a product icon,
+    #: ``data.product``: `badges`)
     kind: str
     x: float
     y: float
@@ -135,7 +136,7 @@ class Scene:
 #: Paint layer per node kind (lower first). Edges sit at layer 2, their labels at 2.5.
 #: Shared by every renderer (`draw_order`, the .vsdx and the .drawio writers).
 LAYER = {"container": 0, "box": 1, "swatch": 1, "label": 1, "strip": 3, "pill": 3,
-          "tag": 3}
+          "tag": 3, "glyph": 3}
 
 
 def draw_order(sc: Scene) -> list[tuple[str, Any]]:

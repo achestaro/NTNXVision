@@ -20,7 +20,19 @@ from dataclasses import dataclass
 from .. import fmt
 from .. import text as tx
 from .. import tokens as K
-from ..build import CHIP_H, LEGEND_GAP, Row, box, chip, chip_w, edge, legend, measure, place_lines
+from ..build import (
+    CHIP_H,
+    LEGEND_GAP,
+    Row,
+    box,
+    chip,
+    chip_w,
+    edge,
+    fit_container,
+    legend,
+    measure,
+    place_lines,
+)
 from ..facts import short_name
 from ..logical import (
     Array,
@@ -141,6 +153,10 @@ def _card(c: LCluster, x: float, y: float, w: float, parent: str, compact: bool 
             cy += 10.5
         for lab, pw in pills:
             pw = min(pw, inner)
+            # Below the title the pills wrap onto further rows rather than overflow the card.
+            if not inline and px > x + 5 and px + pw > x + w - 5:
+                px, py = x + 5, py + 10.5
+                cy += 10.5
             kids.append(box(f"{c.id}:svc:{lab}", "pill", px, py, pw,
                             [Row(lab, K.SIZE_SMALL, True, K.IRIS)], K.PILL, pad_x=3, pad_y=0,
                             h=8.5, valign="middle", parent=c.id))
@@ -454,7 +470,8 @@ def _layout_part(site: LSite, lines: list[list[_Seg]], width: float, cols: int, 
     if summarised_n:
         items.append(("box", K.MORE, "Summary card"))
     bottom = cont.y + cont.h
-    lh = legend(sc, items, MX, bottom + LEGEND_GAP, site_w)
+    sc.width = q(fit_container(sc, cont) + MX)
+    lh = legend(sc, items, MX, bottom + LEGEND_GAP, cont.w)
     sc.height = q(bottom + LEGEND_GAP + lh + 1)
     sc.meta = {"group": site.id, "group_name": site.name,
                "drawn": [c.id for c in drawn], "pods": pods_drawn}

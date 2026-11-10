@@ -496,6 +496,14 @@ try {
     if ((await page.getByLabel('Snapshot name').inputValue()) !== '') throw new Error('snapshot name was prefilled');
     await expectDisabled('[data-testid="start-collection"]', true, 'Start without a name');
     await page.getByTestId('start-blockers').getByText('Enter a snapshot name in step 3.').waitFor();
+    // The Summary has no Snapshot line until a name is typed.
+    if (await page.getByTestId('summary-snapshot').count()) throw new Error('Summary shows a Snapshot line with no name');
+    // No report is chosen by default: the run saves a snapshot only.
+    for (const f of ['Excel workbook', 'PDF report', 'Word ADD']) {
+      if (await page.getByRole('checkbox', { name: new RegExp(`^${f}`) }).isChecked()) throw new Error(`${f} is selected by default`);
+    }
+    await page.getByTestId('reports-none').waitFor();
+    await page.getByText('Snapshot only', { exact: true }).first().waitFor();
     await page.getByLabel('Snapshot name').focus();
     await page.getByLabel('Snapshot name').blur();
     await page.getByText('Enter a snapshot name.', { exact: true }).first().waitFor();
@@ -532,8 +540,11 @@ try {
   });
 
   await run('collecting', async () => {
+    // The results step checks the Excel file: tick it (nothing is selected by default).
+    await page.getByRole('checkbox', { name: /^Excel workbook/ }).check();
+    await page.getByTestId('summary-snapshot').getByText('pc01-week1').waitFor();
     await startButton().click();
-    await page.getByText(/Virtual machines/).first().waitFor({ timeout: 30_000 });
+    await page.getByText(/Virtual Machines/).first().waitFor({ timeout: 30_000 });
   });
   await run('results', async () => {
     await heading('Collection complete', 180_000);
@@ -581,6 +592,9 @@ try {
     if (await page.locator('#host, #tname, #user').count()) throw new Error('Step 1 still has editable connection fields');
     if (await page.getByText('Remember this target', { exact: false }).count()) throw new Error('"Remember this target" is still offered');
     await page.getByTestId('target-details').getByText('Keychain').waitFor();
+    // Services come from the target's last collection (pc01-week1), not a new pull.
+    await page.getByTestId('target-services-source').getByText(/^From the last collection, /).waitFor();
+    if (!(await page.getByTestId('target-services').innerText()).trim()) throw new Error('no services listed');
     await uxShot('connect-prism-central');
     await fillTarget('PE01');
     await page.getByTestId('target-details').getByText('Prism Element · one cluster').waitFor();
@@ -665,6 +679,11 @@ try {
     await targetRow('Lab PC01 renamed').getByRole('button', { name: 'Lab PC01 renamed', exact: true }).click();
     const dialog = page.getByRole('dialog');
     await dialog.getByRole('heading', { name: 'Edit Lab PC01 renamed' }).waitFor();
+    // vCenter is an add-on: its fields show once its switch is on.
+    const vcSwitch = dialog.getByRole('switch', { name: 'VMware vCenter' });
+    if ((await vcSwitch.getAttribute('aria-checked')) !== 'false') throw new Error('vCenter is on for a target without one');
+    if (await dialog.locator('#t-vc').count()) throw new Error('vCenter fields show while its switch is off');
+    await vcSwitch.click();
     await dialog.getByRole('button', { name: 'Find from Prism Central' }).click();
     await dialog.getByRole('button', { name: 'Use 198.51.100.20' }).click({ timeout: 30_000 });
     if ((await dialog.locator('#t-vc').inputValue()) !== '198.51.100.20') throw new Error('suggestion not applied');
@@ -707,7 +726,7 @@ try {
     await startButton().click();
     await heading('Collection complete', 180_000);
     await page.getByTestId('results-scope').getByText('Scope: All 4 clusters').waitFor();
-    await page.getByText('vCenter enrichment (ESXi)').first().waitFor({ timeout: 15_000 });
+    await page.getByText('vCenter Enrichment (ESXi)').first().waitFor({ timeout: 15_000 });
   });
 
   await run('remembered-ratio', async () => {
@@ -1148,6 +1167,26 @@ try {
     await page.getByRole('listbox', { name: 'Icons' }).getByRole('option', { name, exact: true }).click();
   };
 
+  await run('diagrams-products', async () => {
+    // The catalog's "Nutanix products" group: eight product cards, each swatch drawing its own art.
+    await page.getByRole('toolbar', { name: 'Add to diagram' }).getByRole('button', { name: 'Add', exact: true }).click();
+    const search = page.getByRole('textbox', { name: 'Search icons' });
+    await search.fill('nutanix products');
+    await page.locator('.dg-ip-grp', { hasText: 'Nutanix products' }).waitFor({ timeout: 15_000 });
+    const list = page.getByRole('listbox', { name: 'Icons' });
+    await list.getByRole('option', { name: 'Nutanix Unified Storage (NUS)', exact: true }).waitFor();
+    const art = await list.locator('.dg-ip-row .dg-ip-swatch path').count();
+    if (!art) throw new Error('the product rows draw no icon art');
+    // Close the picker (the Add button toggles it) and clear the search for the next step.
+    await search.fill('');
+    const picker = page.getByRole('dialog', { name: 'Add to the diagram' });
+    await search.press('Escape');
+    if (await picker.isVisible()) {
+      await page.getByRole('toolbar', { name: 'Add to diagram' }).getByRole('button', { name: 'Add', exact: true }).click();
+    }
+    await picker.waitFor({ state: 'hidden', timeout: 10_000 });
+  });
+
   await run('diagrams-add', async () => {
     await el('site:').first().click({ position: { x: 30, y: 12 } });
     await addFromPicker('Storage array, in this layout');
@@ -1377,12 +1416,22 @@ try {
     const nic = await box(chain[4]);
     const node = await box(chain[3]);
     if (node.x + node.width - (nic.x + nic.width) > 12 || node.y + node.height - (nic.y + nic.height) > 12) throw new Error('the NIC is not in the node corner');
-    // The selected NIC cannot hold a Direct Connect: placed beside it, a quiet hint.
+    // The selected NIC cannot hold a Direct Connect: it goes into the nearest frame
+    // around the NIC that can, NC2 on AWS, with a quiet hint.
     await addFromPicker('AWS Direct Connect', 'direct connect');
     await added(7);
-    await hint.getByText(/can’t go inside a physical NIC, so it is placed beside it/).waitFor({ timeout: 15_000 });
+    await hint.getByText(/AWS Direct Connect added into NC2 on AWS/).waitFor({ timeout: 15_000 });
     const dx = await selectedId();
-    // Dropped into the datacenter: nested there, and one undo takes it back out.
+    if (!inside(await box(chain[1]), await box(dx))) throw new Error('the Direct Connect is not inside NC2 on AWS');
+    // Taken out again: the rest of this step drags it around on its own.
+    await page.getByRole('button', { name: 'Take out' }).click();
+    await page.getByText('Take out').waitFor({ state: 'detached', timeout: 15_000 });
+    // Dropped into the datacenter: nested there, and one undo takes it back out. The whole
+    // figure on the canvas first: taken out, it sits right of NC2 on AWS, far from the
+    // datacenter (zoomed out for the drag, then back to fitting the canvas).
+    for (let i = 0; i < 3; i++) await page.getByRole('button', { name: 'Zoom out' }).click();
+    await page.locator(`[data-el="${dx}"]`).evaluate((e) => e.scrollIntoView({ block: 'center', inline: 'center' }));
+    await page.waitForTimeout(400);
     const dcBox = await box(dc);
     const dxBox = await box(dx);
     await page.mouse.move(dxBox.x + dxBox.width / 2, dxBox.y + dxBox.height / 2);
@@ -1394,6 +1443,8 @@ try {
     if (!inside(await box(dc), await box(dx))) throw new Error('the Direct Connect is not inside the datacenter');
     await page.keyboard.press(process.platform === 'darwin' ? 'Meta+z' : 'Control+z');
     await page.getByText('Take out').waitFor({ state: 'detached', timeout: 15_000 });
+    await page.getByRole('button', { name: 'Fit to the canvas' }).click();
+    await page.waitForTimeout(400);
     // The region frame resized by its right edge: wider, its children still inside.
     await page.locator(`[data-el="${region}"]`).click({ position: { x: 30, y: 12 } });
     // The handle well inside the canvas (the inspector may have covered the figure's right side).
@@ -1903,6 +1954,55 @@ try {
         throw new Error(`no prefixed ${stem} report: ${files.join(', ')}`);
       }
     }
+  });
+
+  // ── NKP clusters: a Kubernetes API endpoint on a Prism Central target (core mock: nkp01.demo.local) ──
+  await run('targets-nkp', async () => {
+    await rail('Targets');
+    await targetRow('Tiny').getByRole('button', { name: 'Tiny', exact: true }).click();
+    const dialog = page.getByRole('dialog');
+    await dialog.getByRole('heading', { name: 'Edit Tiny' }).waitFor();
+    // NKP is an add-on: turning its switch on shows one empty cluster to fill in.
+    const nkpOn = dialog.getByRole('switch', { name: 'NKP clusters' });
+    if ((await nkpOn.getAttribute('aria-checked')) !== 'false') throw new Error('NKP is on for a target without clusters');
+    await nkpOn.click();
+    if ((await dialog.getByTestId('nkp-endpoint').count()) !== 1) throw new Error('turning NKP on did not add one cluster');
+    const ep = dialog.getByTestId('nkp-endpoint').last();
+    await ep.getByLabel('Name').fill('nkp01');
+    await ep.getByLabel('API endpoint host').fill('nkp01.demo.local');
+    if ((await ep.getByLabel('Port').inputValue()) !== '6443') throw new Error('the Kubernetes API port does not default to 6443');
+    if (await ep.getByRole('checkbox', { name: 'Verify TLS certificate' }).isChecked()) throw new Error('TLS verification is on by default for an NKP cluster');
+    await ep.getByLabel('ServiceAccount token').fill('demo');
+    // TLS verification off: the first test only shows the certificate to trust.
+    await ep.getByRole('button', { name: 'Test nkp01' }).click();
+    await ep.getByText('Trust the certificate of nkp01.demo.local?').waitFor({ timeout: 30_000 });
+    await targetsShot('e2e-target-nkp-trust');
+    await ep.getByRole('button', { name: 'Trust this certificate' }).click();
+    const outcome = ep.locator('.nkp-result');
+    await outcome.waitFor({ timeout: 30_000 });
+    if ((await outcome.getAttribute('role')) !== 'status') throw new Error(`NKP test failed: ${await outcome.innerText()}`);
+    await targetsShot('e2e-target-nkp-ok');
+    await dialog.getByRole('button', { name: 'Save changes' }).click();
+    await dialog.waitFor({ state: 'detached', timeout: 15_000 });
+    // Saved: the token is in the keychain (the editor says so, and never shows it).
+    await targetRow('Tiny').getByRole('button', { name: 'Tiny', exact: true }).click();
+    if ((await page.getByRole('dialog').getByRole('switch', { name: 'NKP clusters' }).getAttribute('aria-checked')) !== 'true') throw new Error('NKP is off for a target with a cluster');
+    const saved = page.getByRole('dialog').getByTestId('nkp-endpoint').first();
+    await saved.getByText('Saved in your keychain. Leave blank to keep it.').waitFor();
+    if ((await saved.getByLabel('ServiceAccount token').inputValue()) !== '') throw new Error('the saved token came back to the renderer');
+    await page.getByRole('dialog').getByRole('button', { name: 'Cancel' }).click();
+  });
+
+  await run('nkp-collection', async () => {
+    await fillTarget('Tiny', '', 'tiny-nkp');
+    const nkpSwitch = page.getByRole('switch', { name: /Include NKP clusters \(1\)/ });
+    await nkpSwitch.waitFor({ timeout: 15_000 });
+    if ((await nkpSwitch.getAttribute('aria-checked')) !== 'true') throw new Error('Include NKP clusters is not on for a target with a token');
+    await startButton().click();
+    await heading('Collection complete', 180_000);
+    // The NKP detail is in the snapshot: Inventory lists a Kubernetes object type.
+    await rail('Inventory');
+    await page.getByRole('navigation', { name: 'Object types' }).getByText(/Kubernetes|NKP/).first().waitFor({ timeout: 15_000 });
   });
 
   await run('targets-delete', async () => {

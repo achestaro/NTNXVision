@@ -48,7 +48,7 @@ export function RouterProvider({
 }: {
   children: React.ReactNode;
   initial?: Route;
-}): JSX.Element {
+}): React.JSX.Element {
   const [stack, setStack] = useState<Route[]>([initial]);
   const guardRef = useRef<Guard | null>(null);
   const setGuard = useCallback((g: Guard | null) => {

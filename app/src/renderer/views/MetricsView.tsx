@@ -1,14 +1,14 @@
 // Insights > Metrics: a live executive dashboard for one saved Prism Central target.
 //
-// Opens on the last target viewed this session, else the first saved one; the header's
-// Target select switches. The page reads its clusters live (read-only) in two parts: the
+// Opens with no target chosen: the header's Target select starts empty and nothing is read
+// until one is picked (the route then carries it, so Back returns to it). The page reads its clusters live (read-only) in two parts: the
 // cards (health, utilization, storage, workloads, network) and, a little later, 90 days
 // of trends with the runway computed from them. "All clusters" or one cluster at a time.
 // Cards that hide detail open a subpage in place; the eyebrow's breadcrumbs lead back.
 // Auto refresh (off by default, remembered in settings) re-reads live on an interval;
 // see useAutoRefresh. Leaving the page cancels whatever is still loading. Pieces: views/metrics/*.
 
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { ArrowClockwiseIcon } from '@phosphor-icons/react';
 import { METRICS_REFRESH_MINUTES, type MetricsRefreshMinutes, type SavedConnection } from '@shared/ipc';
 import { Button, Callout, type Crumb, EmptyState, ErrorState, Loading, PageHeader, Panel, Segmented, Switch } from '../components';
@@ -32,39 +32,14 @@ import { SortMemoryProvider, useSortMemory } from './metrics/sorting';
 import { TRENDS_EVERY_MS, useAutoRefresh, useMetrics } from './metrics/useMetrics';
 import './metrics/metrics.css';
 
-const LAST_TARGET = 'ntnx.metrics.target';
-
-function rememberTarget(id: string): void {
-  try {
-    window.sessionStorage.setItem(LAST_TARGET, id);
-  } catch {
-    /* storage unavailable: nothing to remember */
-  }
-}
-
-function lastTarget(): string | null {
-  try {
-    return window.sessionStorage.getItem(LAST_TARGET);
-  } catch {
-    return null;
-  }
-}
-
-export function MetricsView({ target }: { target?: string }): JSX.Element {
+export function MetricsView({ target }: { target?: string }): React.JSX.Element {
   const { navigate } = useRouter();
   const targets = useAsync<SavedConnection[]>(() => window.ntnx.listConnections(), []);
   const pcs = useMemo(() => (targets.data ?? []).filter((t) => t.mode === 'prism_central'), [targets.data]);
 
-  // The route's target; without one (or when it is gone), the last one viewed this session,
-  // else the first saved one. Resolved here rather than by navigating, so Back never lands
-  // on a page that bounces forward again.
-  const routed = target ? pcs.find((t) => t.id === target) : undefined;
-  const remembered = lastTarget();
-  const selected = routed ?? pcs.find((t) => t.id === remembered) ?? pcs[0];
-  const gone = !!target && !routed;
-  useEffect(() => {
-    if (selected) rememberTarget(selected.id);
-  }, [selected]);
+  // Only the route's target: nothing is chosen (or read) until the user picks one.
+  const selected = target ? pcs.find((t) => t.id === target) : undefined;
+  const gone = !!target && !selected;
 
   const picker =
     pcs.length > 0 ? (
@@ -76,8 +51,15 @@ export function MetricsView({ target }: { target?: string }): JSX.Element {
           id="mx-target"
           className="input mx-target"
           value={selected?.id ?? ''}
-          onChange={(e) => navigate({ screen: 'metrics', target: e.target.value })}
+          onChange={(e) => {
+            if (e.target.value) navigate({ screen: 'metrics', target: e.target.value });
+          }}
         >
+          {!selected && (
+            <option value="" disabled>
+              Choose a target…
+            </option>
+          )}
           {pcs.map((t) => (
             <option key={t.id} value={t.id}>
               {targetLabel(t)}
@@ -95,7 +77,7 @@ export function MetricsView({ target }: { target?: string }): JSX.Element {
       </>
     );
   }
-  if (!selected) {
+  if (pcs.length === 0) {
     return (
       <>
         <PageHeader eyebrow="Insights / Metrics" title="Metrics" description="Health, utilization, runway and trends of a Prism Central, read live." />
@@ -114,7 +96,27 @@ export function MetricsView({ target }: { target?: string }): JSX.Element {
       </>
     );
   }
-  return <TargetMetrics key={selected.id} target={selected} picker={picker} gone={gone} />;
+  if (!selected) {
+    return (
+      <>
+        <PageHeader
+          eyebrow="Insights / Metrics"
+          title="Metrics"
+          description="Health, utilization, runway and trends of a Prism Central, read live."
+          actions={<div className="mx-actions-row">{picker}</div>}
+        />
+        {gone && <Callout tone="neutral" title="That target is no longer saved.">Choose another one.</Callout>}
+        <Panel>
+          <EmptyState
+            illustration="no-target"
+            title="Choose a target"
+            description="Pick a saved Prism Central in the Target list above to read its metrics live."
+          />
+        </Panel>
+      </>
+    );
+  }
+  return <TargetMetrics key={selected.id} target={selected} picker={picker} />;
 }
 
 /** "in 4 min", "in 20 s": when the next auto refresh is due. */
@@ -123,7 +125,7 @@ function fmtIn(ms: number): string {
   return s < 60 ? `in ${s} s` : `in ${Math.ceil(s / 60)} min`;
 }
 
-function TargetMetrics({ target, picker, gone }: { target: SavedConnection; picker: React.ReactNode; gone: boolean }): JSX.Element {
+function TargetMetrics({ target, picker }: { target: SavedConnection; picker: React.ReactNode }): React.JSX.Element {
   const { navigate } = useRouter();
   const { settings, update, appInfo } = useSettings();
   const metrics = useMetrics(target.id);
@@ -193,9 +195,10 @@ function TargetMetrics({ target, picker, gone }: { target: SavedConnection; pick
     ? [
         {
           label: 'Insights',
+          // The target's dashboard: Metrics without a target would ask for one again.
           onClick: () => {
             setDetail(null);
-            navigate({ screen: 'metrics' });
+            navigate({ screen: 'metrics', target: target.id });
           },
         },
         { label: 'Metrics', onClick: toDashboard },
@@ -213,13 +216,11 @@ function TargetMetrics({ target, picker, gone }: { target: SavedConnection; pick
       actions={actions}
     />
   );
-  const goneNote = gone ? <Callout tone="neutral" title="That target is no longer saved.">Showing {targetLabel(target)} instead.</Callout> : null;
 
   if (!data) {
     return (
       <>
         {header}
-        {goneNote}
         {now.error ? (
           <ErrorState title="Couldn’t read this Prism Central." error={now.error} onRetry={refresh} illustration="generic-error" />
         ) : (
@@ -275,7 +276,6 @@ function TargetMetrics({ target, picker, gone }: { target: SavedConnection; pick
     <SortMemoryProvider store={sorts}>
       {header}
       {scopeBar}
-      {goneNote}
       {now.error && <Callout tone="warn" title="Refresh failed; showing the last reading.">{now.error}</Callout>}
       {data.notes.length > 0 && (
         <Callout tone="warn" title={`${plural(data.notes.length, 'source')} did not answer, so some cards are incomplete.`}>

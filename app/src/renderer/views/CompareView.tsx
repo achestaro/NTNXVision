@@ -39,7 +39,7 @@ function pickBaseline(snaps: SnapshotInfo[], current: SnapshotInfo | undefined):
   return older.find((s) => s.source && s.source === current.source) ?? older[0] ?? snaps.find((s) => s.path !== current.path);
 }
 
-export function CompareView({ baseline: baseProp, current: curProp }: { baseline?: string; current?: string }): JSX.Element {
+export function CompareView({ baseline: baseProp, current: curProp }: { baseline?: string; current?: string }): React.JSX.Element {
   const { navigate } = useRouter();
   const { dataVersion } = useRun();
   const transfer = useSnapshotTransfer();
@@ -304,7 +304,7 @@ function CompareExportDialog({
   curName: string;
   summary: CompareResult['summary'];
   onClose(): void;
-}): JSX.Element {
+}): React.JSX.Element {
   const { settings, appInfo, update } = useSettings();
   const toast = useToast();
   const [format, setFormat] = useState<CompareFormat>('excel');

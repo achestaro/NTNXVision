@@ -268,6 +268,7 @@ class PrismConnection:
         page_size: int = 250,
         filter_criteria: str | None = None,
         multi_valued: tuple[str, ...] = (),
+        path: str = "/api/nutanix/v3/groups",
     ) -> list[dict[str, Any]]:
         """Query the Prism Central groups API for an entity type.
 
@@ -279,8 +280,12 @@ class PrismConnection:
         An attribute can carry several values (a VM's IP addresses, a NIC's IPv4
         addresses); only the first is kept unless the attribute is named in
         `multi_valued`, whose values then arrive as a list.
+
+        `path` addresses another groups endpoint of the same shape: Nutanix Objects serves
+        its stores at ``/oss/api/nutanix/v3/groups`` and each store's buckets behind
+        ``/oss/api/nutanix/v3/objectstore_proxy/<uuid>/groups``.
         """
-        url = f"{self.creds.base}/api/nutanix/v3/groups"
+        url = f"{self.creds.base}{path}"
         results: list[dict[str, Any]] = []
         offset = 0
         while True:

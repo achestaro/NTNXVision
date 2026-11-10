@@ -8,10 +8,14 @@ import type { MetricsResource, MetricsTopKey, Runway } from '@shared/ipc';
 import { Icon, Segmented, Status } from '../../components';
 import { NA, fmtCount, fmtRel } from '../../lib/format';
 import { BarList, Legend, MeterBar, Ring, SERIES_COLOR, Sparkline, TrendChart } from './charts';
+import { type SortColumn, SortableTable } from './sorting';
 import {
   HEALTH_LABEL,
   RESOURCES,
+  type NetClusterRow,
   type ScopeView,
+  TOP_MAX,
+  TOP_SHOWN,
   bytes,
   latency,
   latencyAxis,
@@ -31,7 +35,7 @@ export type Detail = 'alerts' | 'nodes' | 'vms' | 'network' | 'runway';
 
 // ─── building blocks ───────────────────────────────────────────────────
 
-export function Section({ title, note, right, children }: { title: string; note?: string; right?: React.ReactNode; children: React.ReactNode }): JSX.Element {
+export function Section({ title, note, right, children }: { title: string; note?: string; right?: React.ReactNode; children: React.ReactNode }): React.JSX.Element {
   const id = `mx-${title.toLowerCase().replace(/[^a-z]+/g, '-')}`;
   return (
     <section className="mx-section" aria-labelledby={id}>
@@ -59,7 +63,7 @@ export function Card({
   openLabel?: string;
   children: React.ReactNode;
   className?: string;
-}): JSX.Element {
+}): React.JSX.Element {
   const head = (
     <div className="mx-card-head">
       <span className="eyebrow">{title}</span>
@@ -82,7 +86,7 @@ export function Card({
   );
 }
 
-function Big({ children, unit }: { children: React.ReactNode; unit?: string }): JSX.Element {
+function Big({ children, unit }: { children: React.ReactNode; unit?: string }): React.JSX.Element {
   return (
     <div className="mx-big">
       {children}
@@ -91,7 +95,7 @@ function Big({ children, unit }: { children: React.ReactNode; unit?: string }): 
   );
 }
 
-function Line({ label, value }: { label: string; value: React.ReactNode }): JSX.Element {
+function Line({ label, value }: { label: string; value: React.ReactNode }): React.JSX.Element {
   return (
     <div className="mx-line">
       <span>{label}</span>
@@ -109,7 +113,7 @@ export function alertTitles(alerts: { title: string }[]): { title: string; count
 
 // ─── sections ──────────────────────────────────────────────────────────
 
-export function HealthSection({ v, onOpen, onScope }: { v: ScopeView; onOpen(d: Detail): void; onScope(uuid: string): void }): JSX.Element {
+export function HealthSection({ v, onOpen, onScope }: { v: ScopeView; onOpen(d: Detail): void; onScope(uuid: string): void }): React.JSX.Element {
   const h = HEALTH_LABEL[v.health.status];
   const firstAlerts = alertTitles(v.alerts).slice(0, 2);
   const badNodes = v.health.nodesTotal - v.health.nodesOk;
@@ -172,7 +176,7 @@ export function HealthSection({ v, onOpen, onScope }: { v: ScopeView; onOpen(d: 
   );
 }
 
-export function UtilizationSection({ v }: { v: ScopeView }): JSX.Element {
+export function UtilizationSection({ v }: { v: ScopeView }): React.JSX.Element {
   const u = v.utilization;
   const c = v.capacity;
   const memUsed = u.memory_pct !== null && c.memory_bytes ? (u.memory_pct / 100) * c.memory_bytes : null;
@@ -232,7 +236,7 @@ function RunwayCard({
   /** The all-clusters runway, said under a cluster's headline. */
   total?: Runway;
   onOpen(): void;
-}): JSX.Element {
+}): React.JSX.Element {
   const { runway } = head;
   const t80 = runway ? threshold(runway, 80) : undefined;
   const t100 = runway ? threshold(runway, 100) : undefined;
@@ -288,7 +292,7 @@ export function RunwaySection({
   onOpen(d: Detail): void;
   /** All clusters: each cluster's trends and runway, to lead with the one that reaches 80% first. */
   clusterRunways?: MetricsClusterTrends[];
-}): JSX.Element {
+}): React.JSX.Element {
   const picker = (
     <Segmented
       aria-label="Trend range"
@@ -351,7 +355,7 @@ export function soonestCluster(
   return { name: best.row.name, runway: best.r, trends: best.row.trends };
 }
 
-function TrendsPlaceholder({ state }: { state: PartState<MetricsTrendsResult> }): JSX.Element {
+function TrendsPlaceholder({ state }: { state: PartState<MetricsTrendsResult> }): React.JSX.Element {
   return (
     <div className="mx-card mx-placeholder" role="status">
       {state.error ? (
@@ -369,7 +373,7 @@ function TrendsPlaceholder({ state }: { state: PartState<MetricsTrendsResult> })
   );
 }
 
-function TrendsSection({ tr }: { tr: MetricsTrends }): JSX.Element {
+function TrendsSection({ tr }: { tr: MetricsTrends }): React.JSX.Element {
   const capacity = [
     { key: 'cpu', label: 'CPU', color: SERIES_COLOR.cpu, values: tr.cpu_pct },
     { key: 'memory', label: 'Memory', color: SERIES_COLOR.memory, values: tr.memory_pct },
@@ -427,7 +431,7 @@ function TrendsSection({ tr }: { tr: MetricsTrends }): JSX.Element {
   );
 }
 
-export function StorageSection({ v }: { v: ScopeView }): JSX.Element {
+export function StorageSection({ v }: { v: ScopeView }): React.JSX.Element {
   const c = v.capacity;
   const e = v.efficiency;
   // One basis in this card: usable space (after replication and the reserve). The
@@ -480,8 +484,8 @@ const TOP_TABS: { value: MetricsTopKey; label: string }[] = [
 
 export const TOP_LABEL: Record<MetricsTopKey, string> = { cpu: 'CPU', memory: 'Memory', iops: 'IOPS', latency: 'Latency' };
 
-export function topRows(v: ScopeView, key: MetricsTopKey, withCluster: boolean) {
-  return v.top[key].map((vm) => {
+export function topRows(v: ScopeView, key: MetricsTopKey, withCluster: boolean, limit: number = TOP_MAX) {
+  return v.top[key].slice(0, limit).map((vm) => {
     const value = key === 'cpu' ? vm.cpu_pct : key === 'memory' ? vm.memory_pct : key === 'iops' ? vm.iops : vm.latency_usecs;
     return {
       key: vm.uuid,
@@ -493,7 +497,7 @@ export function topRows(v: ScopeView, key: MetricsTopKey, withCluster: boolean) 
   });
 }
 
-export function WorkloadsSection({ v, onOpen }: { v: ScopeView; onOpen(d: Detail): void }): JSX.Element {
+export function WorkloadsSection({ v, onOpen }: { v: ScopeView; onOpen(d: Detail): void }): React.JSX.Element {
   const [tab, setTab] = useState<MetricsTopKey>('cpu');
   const pctScale = tab === 'cpu' || tab === 'memory' ? 100 : undefined;
   return (
@@ -505,7 +509,7 @@ export function WorkloadsSection({ v, onOpen }: { v: ScopeView; onOpen(d: Detail
             <Segmented<MetricsTopKey> aria-label="Top VMs by" value={tab} onChange={setTab} options={TOP_TABS} />
           </div>
           <BarList
-            rows={topRows(v, tab, v.clusterCount > 1)}
+            rows={topRows(v, tab, v.clusterCount > 1, TOP_SHOWN)}
             color={SERIES_COLOR[tab]}
             max={pctScale}
             sortId="dashboard.top"
@@ -517,29 +521,91 @@ export function WorkloadsSection({ v, onOpen }: { v: ScopeView; onOpen(d: Detail
             All top VMs
           </button>
         </div>
-        <Card title="Network" onOpen={() => onOpen('network')} openLabel="Network: open the NIC list">
-          <div className="mx-net">
-            <div>
-              <div className="mx-runway-label">Receive</div>
-              <div className="mx-net-num">{rate(v.network.rx_kBps)}</div>
-            </div>
-            <div>
-              <div className="mx-runway-label">Transmit</div>
-              <div className="mx-net-num">{rate(v.network.tx_kBps)}</div>
-            </div>
-          </div>
-          <Line label="Errors (last interval)" value={<span className={v.network.errors ? 'tone-warn' : undefined}>{fmtCount(v.network.errors)}</span>} />
-          <Line label="Dropped packets" value={<span className={v.network.dropped ? 'tone-warn' : undefined}>{fmtCount(v.network.dropped)}</span>} />
-          <p className="mx-sub">
-            {fmtCount(v.network.nics.length)} host NICs · {fmtCount(v.network.links_up)} links up
-          </p>
-        </Card>
+        <NetworkCard v={v} onOpen={() => onOpen('network')} />
       </div>
     </Section>
   );
 }
 
-export function SourcesFooter({ sources, notes, collectedAt, cached }: { sources: { card: string; api: string }[]; notes: string[]; collectedAt: string; cached: boolean }): JSX.Element {
+function warnCount(n: number | null): React.ReactNode {
+  return <span className={n ? 'tone-warn' : undefined}>{fmtCount(n)}</span>;
+}
+
+/** Network columns, shared by the dashboard card and the Network subpage. Cluster first. */
+export const NET_CLUSTER_COLUMNS: SortColumn<NetClusterRow>[] = [
+  { key: 'cluster', header: 'Cluster', className: 'nm', sortValue: (r) => r.cluster, render: (r) => r.cluster },
+  { key: 'rx', header: 'Receive', numeric: true, sortValue: (r) => r.rx_kBps, render: (r) => rate(r.rx_kBps) },
+  { key: 'tx', header: 'Transmit', numeric: true, sortValue: (r) => r.tx_kBps, render: (r) => rate(r.tx_kBps) },
+  { key: 'err', header: 'Errors', numeric: true, sortValue: (r) => r.errors, render: (r) => warnCount(r.errors) },
+  { key: 'drop', header: 'Dropped', numeric: true, sortValue: (r) => r.dropped, render: (r) => warnCount(r.dropped) },
+  {
+    key: 'links',
+    // Links up of host NICs: "32/32".
+    header: 'Links',
+    numeric: true,
+    sortValue: (r) => r.links_up,
+    render: (r) => (
+      <span title={`${fmtCount(r.links_up)} of ${fmtCount(r.nics)} host NICs have a link`}>
+        {fmtCount(r.links_up)}/{fmtCount(r.nics)}
+      </span>
+    ),
+  },
+];
+
+/**
+ * Receive, transmit, errors and drops for the scope. One cluster: its figures, and the whole
+ * card opens the NIC list. All clusters: the target's totals, then a row per cluster with the
+ * same figures; the NIC list opens from the link under it (the card holds sort buttons).
+ */
+function NetworkCard({ v, onOpen }: { v: ScopeView; onOpen(): void }): React.JSX.Element {
+  const n = v.network;
+  const perCluster = n.clusters.length > 1;
+  const body = (
+    <>
+      <div className="mx-net">
+        <div>
+          <div className="mx-runway-label">Receive{perCluster ? ' · all clusters' : ''}</div>
+          <div className="mx-net-num">{rate(n.rx_kBps)}</div>
+        </div>
+        <div>
+          <div className="mx-runway-label">Transmit{perCluster ? ' · all clusters' : ''}</div>
+          <div className="mx-net-num">{rate(n.tx_kBps)}</div>
+        </div>
+      </div>
+      <Line label="Errors (last interval)" value={warnCount(n.errors)} />
+      <Line label="Dropped packets" value={warnCount(n.dropped)} />
+      <p className="mx-sub">
+        {fmtCount(n.nics.length)} host NICs · {fmtCount(n.links_up)} links up
+      </p>
+    </>
+  );
+  if (!perCluster) {
+    return (
+      <Card title="Network" onOpen={onOpen} openLabel="Network: open the NIC list">
+        {body}
+      </Card>
+    );
+  }
+  return (
+    <Card title="Network">
+      {body}
+      <div className="mx-nettable">
+        <SortableTable<NetClusterRow>
+          sortId="dashboard.network"
+          ariaLabel="Network per cluster"
+          rows={n.clusters}
+          rowKey={(r) => r.uuid}
+          columns={NET_CLUSTER_COLUMNS}
+        />
+      </div>
+      <button type="button" className="textlink mx-more" onClick={onOpen}>
+        All host NICs
+      </button>
+    </Card>
+  );
+}
+
+export function SourcesFooter({ sources, notes, collectedAt, cached }: { sources: { card: string; api: string }[]; notes: string[]; collectedAt: string; cached: boolean }): React.JSX.Element {
   return (
     <details className="mx-sources">
       <summary>

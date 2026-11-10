@@ -15,7 +15,7 @@ const PAGE = 50;
 
 type Facet = 'severity' | 'cluster' | 'power';
 
-export function ComputeReview({ review, snapshotPath }: { review: Review; snapshotPath: string }): JSX.Element {
+export function ComputeReview({ review, snapshotPath }: { review: Review; snapshotPath: string }): React.JSX.Element {
   const { navigate } = useRouter();
   const [text, setText] = useState('');
   const [filters, setFilters] = useState<Partial<Record<Facet, string>>>({});
@@ -249,7 +249,7 @@ export function ComputeReview({ review, snapshotPath }: { review: Review; snapsh
 const LAYOUT_TIP = 'vCPUs · sockets × cores per socket · vNUMA nodes';
 
 /** A layout line; tokens that differ from the other side stand out, the rest recede. */
-function Layout({ tokens, recommended }: { tokens: LayoutToken[]; recommended?: boolean }): JSX.Element {
+function Layout({ tokens, recommended }: { tokens: LayoutToken[]; recommended?: boolean }): React.JSX.Element {
   return (
     <span className="opt-layout">
       {tokens.map((t, i) => (
@@ -266,7 +266,7 @@ function isOn(f: ComputeFinding): boolean {
   return (f.power_state ?? '').toUpperCase() === 'ON';
 }
 
-export function SeverityStatus({ severity }: { severity: OptimizationSeverity }): JSX.Element {
+export function SeverityStatus({ severity }: { severity: OptimizationSeverity }): React.JSX.Element {
   const s = SEVERITY[severity];
   return (
     <Status tone={s.tone} shape={s.shape}>
@@ -275,7 +275,7 @@ export function SeverityStatus({ severity }: { severity: OptimizationSeverity })
   );
 }
 
-function FindingDetail({ finding: f, onClose, onOpenInventory }: { finding: ComputeFinding; onClose(): void; onOpenInventory(): void }): JSX.Element {
+function FindingDetail({ finding: f, onClose, onOpenInventory }: { finding: ComputeFinding; onClose(): void; onOpenInventory(): void }): React.JSX.Element {
   const h = f.host;
   const rows: [string, (l: ComputeLayout) => string][] = [
     ['vCPUs', (l) => String(l.vcpus)],

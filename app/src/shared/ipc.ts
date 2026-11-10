@@ -64,6 +64,54 @@ export interface VcenterRequest {
   insecure?: boolean;
 }
 
+/** The default port of a Kubernetes API server (NKP clusters). */
+export const DEFAULT_KUBERNETES_PORT = 6443;
+
+/**
+ * An NKP (Nutanix Kubernetes Platform) cluster of a Prism Central target: its Kubernetes
+ * API endpoint, read with a ServiceAccount bearer token. The token lives only in the OS
+ * keychain (`target:<id>:k8s:<endpointId>:<hash of host, port, TLS flag>`), never here.
+ */
+export interface KubernetesEndpoint {
+  /** Stable id within the target (unchanged by edits to the name or address). */
+  id: string;
+  /** Display name; empty = the host. */
+  name: string;
+  host: string;
+  /** Default 6443. */
+  port: number;
+  /** Skip TLS verification (the NKP API uses the cluster's own CA); the certificate is pinned instead. */
+  insecure: boolean;
+  /** The SHA-256 fingerprint (AA:BB:...) trusted while `insecure` is on. */
+  pinnedCert?: string;
+}
+
+/** A Kubernetes endpoint as listed to the renderer: whether its token is saved, never the token. */
+export interface SavedKubernetesEndpoint extends KubernetesEndpoint {
+  hasToken: boolean;
+}
+
+/**
+ * One Kubernetes endpoint in a save request. `id` empty = a new endpoint. `token` empty or
+ * absent = keep the saved token (only while host, port and TLS flag are unchanged);
+ * `removeToken` drops it. `pinnedCert` absent = keep the saved pin (same endpoint); '' = none.
+ */
+export interface KubernetesEndpointSave {
+  id: string;
+  name: string;
+  host: string;
+  port: number;
+  insecure: boolean;
+  pinnedCert?: string;
+  token?: string;
+  removeToken?: boolean;
+}
+
+/** The longest ServiceAccount token accepted over IPC (JWTs are typically 1 to 2 KB). */
+export const MAX_KUBERNETES_TOKEN = 16384;
+/** The most NKP clusters one target may list. */
+export const MAX_KUBERNETES_ENDPOINTS = 32;
+
 /**
  * A saved target (Targets page). Passwords are NEVER stored here: they live in the OS
  * keychain under the target's stable id (see app/src/main/targets.ts).
@@ -96,6 +144,8 @@ export interface ConnectionProfile {
   ndbInsecure?: boolean;
   ndbPinnedCert?: string;
   vcenterPinnedCert?: string;
+  /** Prism Central only: NKP clusters read through their Kubernetes API (tokens in the keychain). */
+  kubernetes?: KubernetesEndpoint[];
   /**
    * Prism Central only: the cluster selection of the last collection from this target,
    * by cluster uuid, so the next one preselects it. `known` is every cluster listed at
@@ -134,13 +184,15 @@ export interface TargetTestInfo {
 }
 
 /** A saved target as listed to the renderer, with its keychain status. */
-export interface SavedConnection extends ConnectionProfile {
+export interface SavedConnection extends Omit<ConnectionProfile, 'kubernetes'> {
   /** True when the OS keychain holds a password for this target. */
   hasPassword: boolean;
   /** True when the OS keychain holds this target's NDB password. */
   ndbHasPassword?: boolean;
   /** True when the OS keychain holds this target's vCenter password. */
   vcenterHasPassword?: boolean;
+  /** Prism Central only: the NKP clusters, each with whether its token is in the keychain. */
+  kubernetes?: SavedKubernetesEndpoint[];
   lastTest?: TargetTestInfo | null;
   /** Set (to the warning text) while targets.json fails its integrity check: no passwords are released. */
   tamperedMessage?: string;
@@ -181,9 +233,15 @@ export interface TargetSaveRequest {
   pinnedCert?: string;
   ndbPinnedCert?: string;
   vcenterPinnedCert?: string;
+  /**
+   * Prism Central only: the whole list of NKP clusters. Absent = keep the saved list as it
+   * is; [] = remove every endpoint and its token. Endpoints left out are removed.
+   */
+  kubernetes?: KubernetesEndpointSave[];
 }
 
-export type TargetField = 'name' | 'host' | 'port' | 'username' | 'ndbHost' | 'vcenterHost' | 'form';
+/** `kubernetes:<index>` = that entry of TargetSaveRequest.kubernetes (its host or port). */
+export type TargetField = 'name' | 'host' | 'port' | 'username' | 'ndbHost' | 'vcenterHost' | 'form' | `kubernetes:${number}`;
 
 export interface TargetSaveResult {
   ok: boolean;
@@ -196,9 +254,11 @@ export interface TargetSaveResult {
 export interface TestConnectionRequest {
   /**
    * 'ndb' tests an NDB (Era) endpoint, 'vcenter' a VMware vCenter; port is ignored for
-   * both (they listen on 443).
+   * both (they listen on 443). 'kubernetes' tests an NKP cluster's Kubernetes API: the
+   * port is used, username is ignored and `password` carries the ServiceAccount token
+   * (empty = the saved token of `kubernetesId`, with the address and TLS flag unchanged).
    */
-  mode: ConnectionMode | 'ndb' | 'vcenter';
+  mode: ConnectionMode | 'ndb' | 'vcenter' | 'kubernetes';
   host: string;
   port: number;
   username: string;
@@ -215,10 +275,12 @@ export interface TestConnectionRequest {
    * target's own for this endpoint; '' = none (the test then asks the user to trust it).
    */
   pinnedCert?: string;
+  /** mode 'kubernetes': the saved endpoint of `targetId` being tested (its token and pin). */
+  kubernetesId?: string;
 }
 
-/** Which endpoint of a saved target a certificate belongs to. */
-export type TrustEndpoint = 'primary' | 'ndb' | 'vcenter';
+/** Which endpoint of a saved target a certificate belongs to (`kubernetes:<endpointId>` for an NKP cluster). */
+export type TrustEndpoint = 'primary' | 'ndb' | 'vcenter' | `kubernetes:${string}`;
 
 /** Trust the certificate a connection test showed, for one endpoint of a saved target. */
 export interface TrustCertificateRequest {
@@ -259,7 +321,7 @@ export interface TestConnectionResult {
   message: string;
   /** Mono detail line, e.g. "4 clusters · v4 for 14 areas, v3 for 5 · within supported range". */
   detail?: string | null;
-  product?: ConnectionMode | 'ndb' | 'vcenter' | null;
+  product?: ConnectionMode | 'ndb' | 'vcenter' | 'kubernetes' | null;
   /** Display name of what answered — cluster name for PE, PC host otherwise. */
   name?: string | null;
   version?: string | null;
@@ -457,6 +519,11 @@ export interface CollectionRequest {
   /** Optional vCenter enrichment of the ESXi clusters (password from the keychain). */
   vcenter?: VcenterRequest;
   /**
+   * Prism Central: true = also read the target's NKP clusters (every saved endpoint with a
+   * token in the keychain; the main process sends them). Off unless exactly true.
+   */
+  kubernetes?: boolean;
+  /**
    * Prism Central with the LCM area selected: start an LCM inventory on Prism Central and
    * each selected cluster before collecting LCM (the one non-read action; upgrades
    * nothing). Off unless exactly true; never remembered or inherited.
@@ -476,6 +543,8 @@ export interface MultiCollectionTarget {
   name: string;
   ndb?: NdbRequest;
   vcenter?: VcenterRequest;
+  /** True = also read this target's NKP clusters (see CollectionRequest.kubernetes). */
+  kubernetes?: boolean;
   /**
    * Ignored: the main process applies the per-cluster vCPU:pCPU targets remembered on
    * the saved target (set in New collection); other clusters use the global setting.
@@ -581,7 +650,7 @@ export interface ApiRoutingRow {
   areas: string;
   api: ApiVersion;
   reason: string;
-  /** What happens after the Q4 2026 v3 sunset. */
+  /** What happens once the PC no longer serves legacy APIs. Not date-based. */
   after_sunset: StatusValue;
   /** Combined runs only: the Prism Central host this row is about (`areas` is then
    *  prefixed "<host>: "). Each PC is judged against its own version. */
@@ -922,7 +991,11 @@ export interface ObjectDetail {
   status?: StatusValue | null;
   /** Mono context next to the status (cluster name). */
   context?: string | null;
-  fields: { label: string; value: string | null; mono?: boolean }[];
+  /**
+   * `parts`, when present, is `value` split for display: a ratio part carries "error"
+   * above the cluster's target vCPU:pCore ratio and "ok" at or under it.
+   */
+  fields: { label: string; value: string | null; mono?: boolean; parts?: { text: string; tone: 'ok' | 'error' | null }[] | null }[];
   categories?: string[];
   notes?: { tone: Tone; text: string }[];
   /** Deep link into Prism Central, when one exists. */
@@ -1027,7 +1100,10 @@ export interface SceneTextLine {
 export interface SceneNode {
   /** The model element id for boxes and containers (cluster:<uuid>, site:<host>, user:…). */
   id: string;
-  /** container | box | strip | pill | tag | label | swatch */
+  /**
+   * container | box | strip | pill | tag | label | swatch | glyph. A glyph (a product
+   * icon, `data.product` / `data.name`, square, no lines) is decoration on its parent.
+   */
   kind: string;
   x: number;
   y: number;
@@ -1140,6 +1216,16 @@ export interface DiagramIcon {
   ink: string;
   /** The kinds it may hold (diagrams/nesting.py CHILDREN): icon ids. */
   children?: string[];
+  /**
+   * The kinds it connects to instead of nesting (diagrams/nesting.py RELATED): kind ->
+   * the connector's label and whether it runs from this icon (`out`) or to it.
+   */
+  links?: Record<string, { label: string; out: boolean }>;
+  /**
+   * A Nutanix product icon (group "Nutanix products"): its product id (prism, nci, ncm,
+   * ndb, nus, nc2, nkp, nai), drawn from assets/product-icons. Absent from older cores.
+   */
+  product?: string | null;
 }
 
 /** Per placed icon on a scene (`scene.meta.placed`), from the nesting arrangement. */
@@ -1413,6 +1499,7 @@ export type ReportSectionId =
   | 'data_protection'
   | 'security'
   | 'ndb'
+  | 'kubernetes'
   | 'identity'
   | 'automation'
   | 'health'
@@ -1899,7 +1986,7 @@ export interface OverviewResult {
   coverage: CoverageCounts | null;
   /** Areas per API family in the latest run. */
   api_routing: { v4: number; v3: number; v2: number } | null;
-  /** Areas still on v3 that stop collecting at the Q4 2026 sunset. */
+  /** Areas on v3-only APIs: collected today, empty once the PC drops v3. */
   sunset_areas: string[];
   /** Path of the snapshot recommended as baseline for Compare (previous run of the same source). */
   compare_baseline?: string | null;
@@ -2461,6 +2548,7 @@ export interface MetricsClusterNow {
   prism_runway_days: { cpu: number | null; memory: number | null; storage: number | null; overall: number | null } | null;
   nodes: MetricsNode[];
   network: MetricsNetwork;
+  /** Up to ten VMs per list (the page shows five, expandable to ten). */
   top_vms: Record<MetricsTopKey, MetricsVm[]>;
 }
 
@@ -2473,6 +2561,18 @@ export interface MetricsTotalNow {
   efficiency: { saved_bytes: number | null };
   health: { critical: number; warning: number; ok: number; nodes_total: number; nodes_ok: number };
   alerts: { critical: number; warning: number };
+  /** Every cluster's network figures summed (absent from older sidecars). */
+  network?: MetricsNetworkTotal;
+}
+
+/** The target's network: the clusters' `MetricsNetwork` figures summed, NICs counted. */
+export interface MetricsNetworkTotal {
+  rx_kBps: number | null;
+  tx_kBps: number | null;
+  errors: number | null;
+  dropped: number | null;
+  nic_count: number;
+  links_up: number;
 }
 
 interface MetricsHead {

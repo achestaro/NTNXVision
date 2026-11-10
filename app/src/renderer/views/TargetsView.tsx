@@ -5,8 +5,18 @@
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { isPlainHost } from '@shared/host';
-import { MagnifyingGlassIcon, PlugIcon, PlusIcon } from '@phosphor-icons/react';
-import type { ConnectionMode, SavedConnection, SnapshotInfo, TargetField, TargetSaveRequest, TestConnectionResult } from '@shared/ipc';
+import { CopyIcon, MagnifyingGlassIcon, PlugIcon, PlusIcon, TrashIcon } from '@phosphor-icons/react';
+import { DEFAULT_KUBERNETES_PORT } from '@shared/ipc';
+import type {
+  ConnectionMode,
+  KubernetesEndpointSave,
+  SavedConnection,
+  SavedKubernetesEndpoint,
+  SnapshotInfo,
+  TargetField,
+  TargetSaveRequest,
+  TestConnectionResult,
+} from '@shared/ipc';
 import {
   Badge,
   Button,
@@ -25,6 +35,7 @@ import {
   Panel,
   Segmented,
   Status,
+  Switch,
   useToast,
 } from '../components';
 import type { MenuItem, SortState } from '../components';
@@ -55,7 +66,7 @@ function collectedByHost(snapshots: SnapshotInfo[]): Map<string, Collected> {
 
 const typeLabel = (m: ConnectionMode) => (m === 'prism_element' ? 'Prism Element' : 'Prism Central');
 
-export function TargetsView({ edit, returnTo }: { edit?: string; returnTo?: 'new' | 'multi' }): JSX.Element {
+export function TargetsView({ edit, returnTo }: { edit?: string; returnTo?: 'new' | 'multi' }): React.JSX.Element {
   const { navigate } = useRouter();
   const { settings, update } = useSettings();
   const toast = useToast();
@@ -103,7 +114,9 @@ export function TargetsView({ edit, returnTo }: { edit?: string; returnTo?: 'new
     const list = (targets ?? []).filter(
       (t) =>
         !text ||
-        [t.name, t.host, t.username, t.ndbHost ?? '', t.vcenterHost ?? '', typeLabel(t.mode)].some((v) => v.toLowerCase().includes(text)),
+        [t.name, t.host, t.username, t.ndbHost ?? '', t.vcenterHost ?? '', ...(t.kubernetes ?? []).flatMap((k) => [k.name, k.host]), typeLabel(t.mode)].some((v) =>
+          v.toLowerCase().includes(text),
+        ),
     );
     const val = (t: SavedConnection): string | number => {
       switch (sort.key) {
@@ -387,23 +400,21 @@ export function TargetsView({ edit, returnTo }: { edit?: string; returnTo?: 'new
                 className: 'mono',
                 style: { fontSize: 12 },
                 render: (t) => {
-                  const full = `${t.host}:${t.port}${t.ndbHost ? ` · NDB ${t.ndbHost}` : ''}${t.vcenterHost ? ` · vCenter ${t.vcenterHost}` : ''}${t.insecure ? (t.pinnedCert ? ' · TLS verification off, certificate pinned' : ' · TLS verification off, certificate not trusted yet') : ''}`;
+                  const full = `${t.host}:${t.port}${t.ndbHost ? ` · NDB ${t.ndbHost}` : ''}${t.vcenterHost ? ` · vCenter ${t.vcenterHost}` : ''}${t.kubernetes?.length ? ` · ${plural(t.kubernetes.length, 'NKP cluster')}` : ''}`;
+                  // Only the address here: the certificate trust state has its own column, so a
+                  // narrow column can no longer squeeze the address out in favour of the badge.
                   return (
-                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8, maxWidth: '100%' }}>
-                      <span className="clip t-addr" title={full}>
-                        {t.host}:{t.port}
-                      </span>
-                      {t.insecure && (
-                        <span
-                          title={t.pinnedCert ? 'TLS verification is off; the server certificate is pinned' : 'TLS verification is off and no certificate is trusted yet. Test the target and trust it.'}
-                          style={{ fontFamily: 'var(--font-sans)' }}
-                        >
-                          <Status tone="warn">{t.pinnedCert ? 'Pinned' : 'Not trusted'}</Status>
-                        </span>
-                      )}
+                    <span className="clip t-addr" title={full}>
+                      {t.host}:{t.port}
                     </span>
                   );
                 },
+              },
+              {
+                key: 'cert',
+                header: 'Certificate',
+                colClassName: 'col-cert',
+                render: (t) => <CertTrust target={t} />,
               },
               {
                 key: 'user',
@@ -455,7 +466,29 @@ export function TargetsView({ edit, returnTo }: { edit?: string; returnTo?: 'new
   );
 }
 
-function LastTest({ target: t, testing }: { target: SavedConnection; testing: boolean }): JSX.Element {
+/** How the target's TLS certificate is trusted: by a CA (verification on) or by a pinned fingerprint. */
+function CertTrust({ target: t }: { target: SavedConnection }): React.JSX.Element {
+  if (!t.insecure) {
+    return (
+      <span title="TLS verification is on: the certificate must chain to a trusted CA" data-testid="target-cert">
+        <Status tone="ok" shape="outline">
+          CA verified
+        </Status>
+      </span>
+    );
+  }
+  return t.pinnedCert ? (
+    <span title="TLS verification is off; the server certificate fingerprint is pinned (trusted on first use)" data-testid="target-cert">
+      <Status tone="ok">Pinned</Status>
+    </span>
+  ) : (
+    <span title="TLS verification is off and no certificate is trusted yet. Test the target and trust it." data-testid="target-cert">
+      <Status tone="warn">Not trusted</Status>
+    </span>
+  );
+}
+
+function LastTest({ target: t, testing }: { target: SavedConnection; testing: boolean }): React.JSX.Element {
   if (testing) return <Loading label="Testing…" />;
   const r = t.lastTest;
   if (!r) {
@@ -484,6 +517,86 @@ function LastTest({ target: t, testing }: { target: SavedConnection; testing: bo
 
 type Errors = Partial<Record<TargetField, string>>;
 
+type EndpointTest = { ok: boolean; message: string; result?: TestConnectionResult };
+
+/** One NKP cluster row of the editor (`key` is local; `id` is '' until saved). */
+interface KubeRow {
+  key: string;
+  id: string;
+  name: string;
+  host: string;
+  port: string;
+  token: string;
+  verify: boolean;
+  pin: string;
+  /** The saved endpoint this row edits (its token and TLS choice), if any. */
+  saved?: SavedKubernetesEndpoint;
+  test?: EndpointTest | null;
+  testing?: boolean;
+}
+
+let kubeKeySeq = 0;
+const kubeKey = () => `k${++kubeKeySeq}`;
+const newKubeRow = (): KubeRow => ({ key: kubeKey(), id: '', name: '', host: '', port: String(DEFAULT_KUBERNETES_PORT), token: '', verify: false, pin: '' });
+
+/** Section header of an optional add-on in the editor: its switch shows or hides its fields. */
+function AddOnToggle({
+  id,
+  title,
+  hint,
+  checked,
+  onChange,
+  removing,
+}: {
+  id: string;
+  title: string;
+  hint: string;
+  checked: boolean;
+  onChange(v: boolean): void;
+  /** Shown while the switch is off for an add-on the saved target has. */
+  removing?: string;
+}): React.JSX.Element {
+  return (
+    <div className="span-all" style={{ borderTop: '1px solid var(--rule-2)', paddingTop: 12, display: 'flex', alignItems: 'flex-start', gap: 12 }} data-testid={id}>
+      <Switch checked={checked} onChange={onChange} label={title} style={{ marginTop: 2 }} />
+      <div style={{ minWidth: 0 }}>
+        <div className="eyebrow" id={id}>
+          {title} <span className="muted">(optional)</span>
+        </div>
+        <div className="hint">{removing ?? hint}</div>
+      </div>
+    </div>
+  );
+}
+
+function kubeRows(t: SavedConnection | null): KubeRow[] {
+  return (t?.kubernetes ?? []).map((k) => ({
+    key: kubeKey(),
+    id: k.id,
+    name: k.name,
+    host: k.host,
+    port: String(k.port),
+    token: '',
+    verify: !k.insecure,
+    pin: k.pinnedCert ?? '',
+    saved: k,
+  }));
+}
+
+/** True when the row's saved token still applies: same host, port and TLS choice. */
+function kubeTokenApplies(r: KubeRow): boolean {
+  const s = r.saved;
+  return !!s?.hasToken && r.host.trim() === s.host && Number(r.port) === s.port && !r.verify === !!s.insecure;
+}
+
+/** Read-only access for NTNXVision: a ServiceAccount bound to a ClusterRole that can list and read, never secrets. */
+const NKP_SNIPPET = `kubectl create serviceaccount ntnxvision-reader -n kube-system
+kubectl create clusterrole ntnxvision-read --verb=get,list,watch \
+  --resource=nodes,namespaces,pods,services,deployments,statefulsets,daemonsets,persistentvolumes,persistentvolumeclaims,storageclasses
+kubectl create clusterrolebinding ntnxvision-read \
+  --clusterrole=ntnxvision-read --serviceaccount=kube-system:ntnxvision-reader
+kubectl create token ntnxvision-reader -n kube-system --duration=8760h`;
+
 /** Create / edit form. Also the target's detail view: last test, last collection, snapshots. */
 function TargetEditor({
   target,
@@ -497,7 +610,7 @@ function TargetEditor({
   stats: Collected | null;
   onClose(): void;
   onSaved(saved: SavedConnection, all: SavedConnection[], created: boolean): void;
-}): JSX.Element {
+}): React.JSX.Element {
   const [mode, setMode] = useState<ConnectionMode>(target?.mode ?? 'prism_central');
   const [name, setName] = useState(target?.name ?? '');
   const [host, setHost] = useState(target?.host ?? '');
@@ -523,6 +636,13 @@ function TargetEditor({
   const [vcTesting, setVcTesting] = useState(false);
   /** vCenter addresses Prism Central reports for its ESXi clusters (address → cluster names). */
   const [vcFound, setVcFound] = useState<{ address: string; clusters: string[] }[]>([]);
+  /** NKP clusters (Prism Central only): Kubernetes API endpoints read with a ServiceAccount token. */
+  const [kube, setKube] = useState<KubeRow[]>(() => kubeRows(target));
+  /** Optional add-ons (Prism Central only): a section's fields show only while its switch is on.
+   *  Saving with a switch off removes that add-on from the target, keychain secrets included. */
+  const [ndbOn, setNdbOn] = useState(!!target?.ndbHost);
+  const [vcOn, setVcOn] = useState(!!target?.vcenterHost);
+  const [kubeOn, setKubeOn] = useState(!!target?.kubernetes?.length);
   const [errors, setErrors] = useState<Errors>({});
   const [saving, setSaving] = useState(false);
   const [test, setTest] = useState<TestState>({ kind: 'idle' });
@@ -545,8 +665,27 @@ function TargetEditor({
     else if (!isPlainHost(host.trim())) e.host = 'Enter a host name or IP address only: no https://, user@, path, ? or #.';
     if (!Number.isInteger(portNum) || portNum < 1 || portNum > 65535) e.port = 'Port must be 1 to 65535.';
     if (!username.trim()) e.username = 'Enter a username.';
-    if (!isPe && ndbHost.trim() && !isPlainHost(ndbHost.trim())) e.ndbHost = 'Enter a host name or IP address only.';
-    if (!isPe && vcHost.trim() && !isPlainHost(vcHost.trim())) e.vcenterHost = 'Enter a host name or IP address only.';
+    if (!isPe && ndbOn) {
+      if (!ndbHost.trim()) e.ndbHost = 'Enter the NDB host, or turn NDB off.';
+      else if (!isPlainHost(ndbHost.trim())) e.ndbHost = 'Enter a host name or IP address only.';
+    }
+    if (!isPe && vcOn) {
+      if (!vcHost.trim()) e.vcenterHost = 'Enter the vCenter host, or turn vCenter off.';
+      else if (!isPlainHost(vcHost.trim())) e.vcenterHost = 'Enter a host name or IP address only.';
+    }
+    if (!isPe && kubeOn) {
+      const seen = new Set<string>();
+      kube.forEach((k, i) => {
+        const key: `kubernetes:${number}` = `kubernetes:${i}`;
+        const h = k.host.trim();
+        const p = Number(k.port);
+        if (!h) e[key] = 'Enter the API endpoint host.';
+        else if (!isPlainHost(h)) e[key] = 'Enter a host name or IP address only.';
+        else if (!Number.isInteger(p) || p < 1 || p > 65535) e[key] = 'Port must be 1 to 65535.';
+        else if (seen.has(`${h.toLowerCase()}:${p}`)) e[key] = 'This NKP cluster is already listed.';
+        seen.add(`${h.toLowerCase()}:${p}`);
+      });
+    }
     return e;
   };
 
@@ -647,11 +786,53 @@ function TargetEditor({
     void testEndpoint(kind, fingerprint);
   };
 
+  const patchKube = (key: string, patch: Partial<KubeRow>) => setKube((rows) => rows.map((r) => (r.key === key ? { ...r, ...patch } : r)));
+
+  /** Test one NKP cluster's Kubernetes API (read-only); a certificate to trust is shown. */
+  const testKube = async (row: KubeRow, pinOverride?: string) => {
+    const h = row.host.trim();
+    const p = Number(row.port);
+    const i = kube.findIndex((r) => r.key === row.key);
+    if (!h || !isPlainHost(h) || !Number.isInteger(p) || p < 1 || p > 65535) {
+      setErrors((x) => ({ ...x, [`kubernetes:${i}`]: !h ? 'Enter the API endpoint host.' : !isPlainHost(h) ? 'Enter a host name or IP address only.' : 'Port must be 1 to 65535.' }));
+      return;
+    }
+    if (!row.token && !kubeTokenApplies(row)) {
+      patchKube(row.key, { test: { ok: false, message: 'Paste the ServiceAccount token to test it.' } });
+      return;
+    }
+    patchKube(row.key, { testing: true, test: null });
+    try {
+      const r = await window.ntnx.testConnection({
+        mode: 'kubernetes',
+        host: h,
+        port: p,
+        username: '',
+        password: row.token,
+        insecure: !row.verify,
+        targetId: target?.id,
+        kubernetesId: row.id || undefined,
+        pinnedCert: pinOverride ?? row.pin,
+      });
+      patchKube(row.key, { testing: false, test: { ok: r.ok, message: [r.message, r.detail].filter(Boolean).join(' · '), result: r } });
+    } catch (err) {
+      patchKube(row.key, { testing: false, test: { ok: false, message: errorMessage(err) } });
+    }
+  };
+
+  const trustKube = (row: KubeRow, fingerprint: string) => {
+    patchKube(row.key, { pin: fingerprint });
+    void testKube({ ...row, pin: fingerprint }, fingerprint);
+  };
+
   const save = async () => {
     if (saving) return;
     const e = check();
     setErrors(e);
     if (Object.keys(e).some((k) => e[k as TargetField])) return;
+    const useNdb = !isPe && ndbOn;
+    const useVc = !isPe && vcOn;
+    const useKube = !isPe && kubeOn;
     const req: TargetSaveRequest = {
       id: target?.id ?? '',
       mode,
@@ -661,17 +842,31 @@ function TargetEditor({
       username: username.trim(),
       insecure: !verify,
       password,
-      ndbHost: isPe ? '' : ndbHost.trim(),
-      ndbUser: isPe ? undefined : ndbUser.trim(),
-      ndbPassword: isPe ? undefined : ndbPass,
-      vcenterHost: isPe ? '' : vcHost.trim(),
-      vcenterUser: isPe ? undefined : vcUser.trim(),
-      vcenterInsecure: isPe ? undefined : !vcVerify,
-      vcenterPassword: isPe ? undefined : vcPass,
-      ndbInsecure: isPe ? undefined : !ndbVerify,
+      // An empty host / an empty list is how the save path drops an add-on and its secrets.
+      ndbHost: useNdb ? ndbHost.trim() : '',
+      ndbUser: useNdb ? ndbUser.trim() : undefined,
+      ndbPassword: useNdb ? ndbPass : undefined,
+      vcenterHost: useVc ? vcHost.trim() : '',
+      vcenterUser: useVc ? vcUser.trim() : undefined,
+      vcenterInsecure: useVc ? !vcVerify : undefined,
+      vcenterPassword: useVc ? vcPass : undefined,
+      ndbInsecure: useNdb ? !ndbVerify : undefined,
       pinnedCert: verify ? '' : pin,
-      ndbPinnedCert: isPe || ndbVerify ? '' : ndbPin,
-      vcenterPinnedCert: isPe || vcVerify ? '' : vcPin,
+      ndbPinnedCert: !useNdb || ndbVerify ? '' : ndbPin,
+      vcenterPinnedCert: !useVc || vcVerify ? '' : vcPin,
+      kubernetes: !useKube
+        ? []
+        : kube.map(
+            (k): KubernetesEndpointSave => ({
+              id: k.id,
+              name: k.name.trim(),
+              host: k.host.trim(),
+              port: Number(k.port),
+              insecure: !k.verify,
+              pinnedCert: k.verify ? '' : k.pin,
+              ...(k.token ? { token: k.token } : {}),
+            }),
+          ),
     };
     setSaving(true);
     try {
@@ -833,73 +1028,127 @@ function TargetEditor({
           </div>
           {!isPe && (
             <>
-              <div className="span-all eyebrow" style={{ borderTop: '1px solid var(--rule-2)', paddingTop: 12 }}>
-                NDB (optional)
-              </div>
-              <Field id="t-ndb" label="NDB host" className="span-all" error={errors.ndbHost} hint="The Era API endpoint of Nutanix Database Service, if you use it.">
-                <input
-                  className="input mono"
-                  placeholder="ndb.example.com"
-                  value={ndbHost}
-                  spellCheck={false}
-                  autoCapitalize="off"
-                  onChange={(e) => {
-                    setNdbHost(e.target.value);
-                    setNdbPin('');
-                    setNdbTest(null);
-                    clear('ndbHost');
-                  }}
-                />
-              </Field>
-              <Field id="t-ndbu" label="NDB username">
-                <input className="input" value={ndbUser} onChange={(e) => setNdbUser(e.target.value)} disabled={!ndbHost.trim()} />
-              </Field>
-              <Field
-                id="t-ndbp"
-                label="NDB password"
-                className="connect-pw"
-                hint={target?.ndbHasPassword ? (ndbEdited ? 'Password needed: the NDB address, username or TLS setting changed. Type it again.' : 'Saved in your keychain. Leave empty to keep it.') : undefined}
-              >
-                <input
-                  className="input"
-                  type="password"
-                  value={ndbPass}
-                  placeholder={target?.ndbHasPassword && !ndbEdited ? 'Saved in your keychain' : 'Password'}
-                  onChange={(e) => {
-                    setNdbPass(e.target.value);
-                    setNdbTest(null);
-                  }}
-                  disabled={!ndbHost.trim()}
-                />
-              </Field>
-              <div className="span-all" style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-                <Checkbox
-                  checked={ndbVerify}
-                  onChange={(v) => {
-                    setNdbVerify(v);
-                    setNdbTest(null);
-                  }}
-                  disabled={!ndbHost.trim()}
-                >
-                  Verify NDB TLS certificate
-                </Checkbox>
-                <Button size="sm" icon={PlugIcon} onClick={() => void testEndpoint('ndb')} disabled={!ndbHost.trim() || ndbTesting}>
-                  Test NDB
-                </Button>
-              </div>
-              {ndbTesting && <Loading label="Testing NDB…" />}
-              {ndbTest &&
-                (ndbTest.result && (ndbTest.result.status === 'trust_required' || ndbTest.result.status === 'cert_changed') ? (
-                  <div className="span-all">
-                    <TrustCallout result={ndbTest.result} host={ndbHost.trim()} onTrust={(fp) => trustEndpoint('ndb', fp)} />
+              <AddOnToggle
+                id="t-ndb-on"
+                title="NDB"
+                hint="Nutanix Database Service, read through its Era API."
+                checked={ndbOn}
+                onChange={(v) => {
+                  setNdbOn(v);
+                  setNdbTest(null);
+                  clear('ndbHost');
+                }}
+                removing={!ndbOn && !!target?.ndbHost ? 'Saving removes NDB from this target, with its saved password.' : undefined}
+              />
+              {ndbOn && (
+                <>
+                  <Field id="t-ndb" label="NDB host" className="span-all" error={errors.ndbHost} hint="The Era API endpoint of Nutanix Database Service, if you use it.">
+                    <input
+                      className="input mono"
+                      placeholder="ndb.example.com"
+                      value={ndbHost}
+                      spellCheck={false}
+                      autoCapitalize="off"
+                      onChange={(e) => {
+                        setNdbHost(e.target.value);
+                        setNdbPin('');
+                        setNdbTest(null);
+                        clear('ndbHost');
+                      }}
+                    />
+                  </Field>
+                  <Field id="t-ndbu" label="NDB username">
+                    <input className="input" value={ndbUser} onChange={(e) => setNdbUser(e.target.value)} disabled={!ndbHost.trim()} />
+                  </Field>
+                  <Field
+                    id="t-ndbp"
+                    label="NDB password"
+                    className="connect-pw"
+                    hint={target?.ndbHasPassword ? (ndbEdited ? 'Password needed: the NDB address, username or TLS setting changed. Type it again.' : 'Saved in your keychain. Leave empty to keep it.') : undefined}
+                  >
+                    <input
+                      className="input"
+                      type="password"
+                      value={ndbPass}
+                      placeholder={target?.ndbHasPassword && !ndbEdited ? 'Saved in your keychain' : 'Password'}
+                      onChange={(e) => {
+                        setNdbPass(e.target.value);
+                        setNdbTest(null);
+                      }}
+                      disabled={!ndbHost.trim()}
+                    />
+                  </Field>
+                  <div className="span-all" style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+                    <Checkbox
+                      checked={ndbVerify}
+                      onChange={(v) => {
+                        setNdbVerify(v);
+                        setNdbTest(null);
+                      }}
+                      disabled={!ndbHost.trim()}
+                    >
+                      Verify NDB TLS certificate
+                    </Checkbox>
+                    <Button size="sm" icon={PlugIcon} onClick={() => void testEndpoint('ndb')} disabled={!ndbHost.trim() || ndbTesting}>
+                      Test NDB
+                    </Button>
                   </div>
-                ) : (
-                  <Callout className="span-all" tone={ndbTest.ok ? 'ok' : 'error'} title={ndbTest.message} />
-                ))}
-              <div className="span-all eyebrow" style={{ borderTop: '1px solid var(--rule-2)', paddingTop: 12 }}>
-                VMware vCenter (optional, ESXi clusters)
-              </div>
-              {vcFound.length > 0 && !vcFound.some((f) => f.address === vcHost.trim()) && (
+                  {ndbTesting && <Loading label="Testing NDB…" />}
+                  {ndbTest &&
+                    (ndbTest.result && (ndbTest.result.status === 'trust_required' || ndbTest.result.status === 'cert_changed') ? (
+                      <div className="span-all">
+                        <TrustCallout result={ndbTest.result} host={ndbHost.trim()} onTrust={(fp) => trustEndpoint('ndb', fp)} />
+                      </div>
+                    ) : (
+                      <Callout className="span-all" tone={ndbTest.ok ? 'ok' : 'error'} title={ndbTest.message} />
+                    ))}
+                </>
+              )}
+              <AddOnToggle
+                id="t-nkp-on"
+                title="NKP clusters"
+                hint="Nutanix Kubernetes Platform clusters, read through their Kubernetes API."
+                checked={kubeOn}
+                onChange={(v) => {
+                  setKubeOn(v);
+                  // Turning it on with nothing listed starts one empty cluster to fill in.
+                  if (v && kube.length === 0) setKube([newKubeRow()]);
+                  setErrors((x) => Object.fromEntries(Object.entries(x).filter(([k]) => !k.startsWith('kubernetes:'))));
+                }}
+                removing={!kubeOn && !!target?.kubernetes?.length ? `Saving removes ${plural(target.kubernetes.length, 'NKP cluster')} from this target, with ${target.kubernetes.length === 1 ? 'its' : 'their'} saved token${target.kubernetes.length === 1 ? '' : 's'}.` : undefined}
+              />
+              {kubeOn && (
+                <NkpClusters
+                  rows={kube}
+                  errors={errors}
+                  onPatch={(key, patch) => {
+                    patchKube(key, { ...patch, test: null });
+                    const i = kube.findIndex((r) => r.key === key);
+                    if (i >= 0) clear(`kubernetes:${i}`);
+                  }}
+                  onAdd={() => setKube((rows) => [...rows, newKubeRow()])}
+                  onRemove={(key) => {
+                    setKube((rows) => rows.filter((r) => r.key !== key));
+                    // Errors are keyed by position: drop them all after a removal.
+                    setErrors((x) => Object.fromEntries(Object.entries(x).filter(([k]) => !k.startsWith('kubernetes:'))));
+                  }}
+                  onTest={(row) => void testKube(row)}
+                  onTrust={trustKube}
+                />
+              )}
+              <AddOnToggle
+                id="t-vc-on"
+                title="VMware vCenter"
+                hint="ESXi clusters only. Adds the datastore of every disk and each port group's switch type."
+                checked={vcOn}
+                onChange={(v) => {
+                  setVcOn(v);
+                  setVcTest(null);
+                  clear('vcenterHost');
+                }}
+                removing={!vcOn && !!target?.vcenterHost ? 'Saving removes vCenter from this target, with its saved password.' : undefined}
+              />
+              {vcFound.length > 0 && !(vcOn && vcFound.some((f) => f.address === vcHost.trim())) && (
                 <Callout
                   className="span-all"
                   tone="neutral"
@@ -909,7 +1158,9 @@ function TargetEditor({
                       key={f.address}
                       size="sm"
                       onClick={() => {
+                        setVcOn(true);
                         setVcHost(f.address);
+                        setVcPin('');
                         setVcTest(null);
                         clear('vcenterHost');
                       }}
@@ -921,87 +1172,91 @@ function TargetEditor({
                   {vcFound.map((f) => `${f.address} for ${f.clusters.join(', ')}`).join('; ')}.
                 </Callout>
               )}
-              <Field
-                id="t-vc"
-                label="vCenter host"
-                className="span-all"
-                error={errors.vcenterHost}
-                hint="Read-only. Adds what Nutanix does not report for ESXi clusters: the datastore of every disk and each port group's switch type."
-              >
-                <input
-                  className="input mono"
-                  placeholder="vcenter.example.com"
-                  value={vcHost}
-                  spellCheck={false}
-                  autoCapitalize="off"
-                  onChange={(e) => {
-                    setVcHost(e.target.value);
-                    setVcPin('');
-                    setVcTest(null);
-                    clear('vcenterHost');
-                  }}
-                />
-              </Field>
-              <Field id="t-vcu" label="vCenter username">
-                <input
-                  className="input"
-                  value={vcUser}
-                  autoCapitalize="off"
-                  spellCheck={false}
-                  onChange={(e) => {
-                    setVcUser(e.target.value);
-                    setVcTest(null);
-                  }}
-                  disabled={!vcHost.trim()}
-                />
-              </Field>
-              <Field
-                id="t-vcp"
-                label="vCenter password"
-                className="connect-pw"
-                hint={target?.vcenterHasPassword ? (vcEdited ? 'Password needed: the vCenter address, username or TLS setting changed. Type it again.' : 'Saved in your keychain. Leave empty to keep it.') : undefined}
-              >
-                <input
-                  className="input"
-                  type="password"
-                  value={vcPass}
-                  placeholder={target?.vcenterHasPassword && !vcEdited ? 'Saved in your keychain' : 'Password'}
-                  onChange={(e) => {
-                    setVcPass(e.target.value);
-                    setVcTest(null);
-                  }}
-                  disabled={!vcHost.trim()}
-                />
-              </Field>
-              <div className="span-all" style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-                <Checkbox
-                  checked={vcVerify}
-                  onChange={(v) => {
-                    setVcVerify(v);
-                    setVcTest(null);
-                  }}
-                  disabled={!vcHost.trim()}
-                >
-                  Verify vCenter TLS certificate
-                </Checkbox>
-                <Button size="sm" icon={PlugIcon} onClick={() => void testEndpoint('vcenter')} disabled={!vcHost.trim() || vcTesting}>
-                  Test vCenter
-                </Button>
-                {mode === 'prism_central' && host.trim() && (
-                  <Button size="sm" onClick={() => void discoverVcenters()}>
-                    Find from Prism Central
-                  </Button>
-                )}
-              </div>
-              {vcTesting && <Loading label="Testing vCenter…" />}
-              {vcTest &&
-                (vcTest.result && (vcTest.result.status === 'trust_required' || vcTest.result.status === 'cert_changed') ? (
-                  <div className="span-all">
-                    <TrustCallout result={vcTest.result} host={vcHost.trim()} onTrust={(fp) => trustEndpoint('vcenter', fp)} />
+              {vcOn && (
+                <>
+                  <Field
+                    id="t-vc"
+                    label="vCenter host"
+                    className="span-all"
+                    error={errors.vcenterHost}
+                    hint="Read-only. Adds what Nutanix does not report for ESXi clusters."
+                  >
+                    <input
+                      className="input mono"
+                      placeholder="vcenter.example.com"
+                      value={vcHost}
+                      spellCheck={false}
+                      autoCapitalize="off"
+                      onChange={(e) => {
+                        setVcHost(e.target.value);
+                        setVcPin('');
+                        setVcTest(null);
+                        clear('vcenterHost');
+                      }}
+                    />
+                  </Field>
+                  <Field id="t-vcu" label="vCenter username">
+                    <input
+                      className="input"
+                      value={vcUser}
+                      autoCapitalize="off"
+                      spellCheck={false}
+                      onChange={(e) => {
+                        setVcUser(e.target.value);
+                        setVcTest(null);
+                      }}
+                      disabled={!vcHost.trim()}
+                    />
+                  </Field>
+                  <Field
+                    id="t-vcp"
+                    label="vCenter password"
+                    className="connect-pw"
+                    hint={target?.vcenterHasPassword ? (vcEdited ? 'Password needed: the vCenter address, username or TLS setting changed. Type it again.' : 'Saved in your keychain. Leave empty to keep it.') : undefined}
+                  >
+                    <input
+                      className="input"
+                      type="password"
+                      value={vcPass}
+                      placeholder={target?.vcenterHasPassword && !vcEdited ? 'Saved in your keychain' : 'Password'}
+                      onChange={(e) => {
+                        setVcPass(e.target.value);
+                        setVcTest(null);
+                      }}
+                      disabled={!vcHost.trim()}
+                    />
+                  </Field>
+                  <div className="span-all" style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+                    <Checkbox
+                      checked={vcVerify}
+                      onChange={(v) => {
+                        setVcVerify(v);
+                        setVcTest(null);
+                      }}
+                      disabled={!vcHost.trim()}
+                    >
+                      Verify vCenter TLS certificate
+                    </Checkbox>
+                    <Button size="sm" icon={PlugIcon} onClick={() => void testEndpoint('vcenter')} disabled={!vcHost.trim() || vcTesting}>
+                      Test vCenter
+                    </Button>
+                    {mode === 'prism_central' && host.trim() && (
+                      <Button size="sm" onClick={() => void discoverVcenters()}>
+                        Find from Prism Central
+                      </Button>
+                    )}
                   </div>
-                ) : (
-                  <Callout className="span-all" tone={vcTest.ok ? 'ok' : 'error'} title={vcTest.message} />
-                ))}
+                  {vcTesting && <Loading label="Testing vCenter…" />}
+                  {vcTest &&
+                    (vcTest.result && (vcTest.result.status === 'trust_required' || vcTest.result.status === 'cert_changed') ? (
+                      <div className="span-all">
+                        <TrustCallout result={vcTest.result} host={vcHost.trim()} onTrust={(fp) => trustEndpoint('vcenter', fp)} />
+                      </div>
+                    ) : (
+                      <Callout className="span-all" tone={vcTest.ok ? 'ok' : 'error'} title={vcTest.message} />
+                    ))}
+                </>
+              )}
             </>
           )}
         </div>
@@ -1023,5 +1278,142 @@ function TargetEditor({
         />
       </div>
     </Dialog>
+  );
+}
+
+/** Targets editor, Prism Central only: the NKP clusters read through their Kubernetes API. */
+function NkpClusters({
+  rows,
+  errors,
+  onPatch,
+  onAdd,
+  onRemove,
+  onTest,
+  onTrust,
+}: {
+  rows: KubeRow[];
+  errors: Errors;
+  onPatch(key: string, patch: Partial<KubeRow>): void;
+  onAdd(): void;
+  onRemove(key: string): void;
+  onTest(row: KubeRow): void;
+  onTrust(row: KubeRow, fingerprint: string): void;
+}): React.JSX.Element {
+  const toast = useToast();
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(NKP_SNIPPET);
+      toast.show({ tone: 'ok', title: 'Commands copied' });
+    } catch (e) {
+      toast.show({ tone: 'error', title: 'Couldn’t copy', detail: errorMessage(e) });
+    }
+  };
+  return (
+    <>
+      <div className="span-all hint" style={{ marginTop: -8 }} id="t-nkp">
+        Read-only. Each cluster is read with a ServiceAccount token, alongside the Prism Central run.
+      </div>
+      <details className="span-all nkp-help" data-testid="nkp-help">
+        <summary>How to create a read-only token</summary>
+        <p className="t12">
+          Create a ServiceAccount bound to a read-only ClusterRole (no secrets) and paste its token. Run these with a cluster-admin kubeconfig; NTNXVision itself never
+          gets more than get, list and watch.
+        </p>
+        <pre className="mono">{NKP_SNIPPET}</pre>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+          <Button size="sm" icon={CopyIcon} onClick={() => void copy()}>
+            Copy commands
+          </Button>
+          <span className="t12 muted">A client-certificate kubeconfig is not supported: use a ServiceAccount token.</span>
+        </div>
+      </details>
+      {rows.map((r, i) => {
+        const err = errors[`kubernetes:${i}`];
+        const tokenApplies = kubeTokenApplies(r);
+        const tokenLost = !!r.saved?.hasToken && !tokenApplies && !r.token;
+        const label = r.name.trim() || r.host.trim() || `NKP cluster ${i + 1}`;
+        return (
+          <div key={r.key} className="span-all nkp-endpoint" role="group" aria-label={`NKP cluster ${label}`} data-testid="nkp-endpoint">
+            <div className="connect-grid">
+              <Field id={`t-k8s-name-${r.key}`} label="Name">
+                <input className="input" value={r.name} placeholder="e.g. nkp-prod" spellCheck={false} autoComplete="off" onChange={(e) => onPatch(r.key, { name: e.target.value })} />
+              </Field>
+              <Field id={`t-k8s-host-${r.key}`} label="API endpoint host" error={err}>
+                <input
+                  className="input mono"
+                  value={r.host}
+                  placeholder="nkp.example.com"
+                  spellCheck={false}
+                  autoCapitalize="off"
+                  onChange={(e) => onPatch(r.key, { host: e.target.value, pin: '' })}
+                />
+              </Field>
+              <Field id={`t-k8s-port-${r.key}`} label="Port">
+                <input className="input mono" inputMode="numeric" value={r.port} onChange={(e) => onPatch(r.key, { port: e.target.value.replace(/[^0-9]/g, ''), pin: '' })} />
+              </Field>
+              <Field
+                id={`t-k8s-token-${r.key}`}
+                label="ServiceAccount token"
+                className="span-all"
+                hint={
+                  tokenLost
+                    ? 'Token needed: the host, port or TLS setting changed, so the saved token will be removed. Paste it again.'
+                    : tokenApplies
+                      ? 'Saved in your keychain. Leave blank to keep it.'
+                      : 'Saved to your OS keychain, never to disk.'
+                }
+              >
+                <input
+                  className="input mono"
+                  type="password"
+                  value={r.token}
+                  autoComplete="off"
+                  placeholder={tokenApplies ? 'Saved in your keychain' : 'Bearer token'}
+                  onChange={(e) => onPatch(r.key, { token: e.target.value.trim() })}
+                />
+              </Field>
+              <div className="span-all" style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+                <Checkbox checked={r.verify} onChange={(v) => onPatch(r.key, { verify: v })}>
+                  Verify TLS certificate
+                </Checkbox>
+                <span className="t12 muted" style={{ flex: '1 1 200px' }}>
+                  Off by default: the NKP API uses the cluster&apos;s own CA, so its certificate is pinned instead.
+                </span>
+                <Button size="sm" icon={PlugIcon} onClick={() => onTest(r)} disabled={r.testing} aria-label={`Test ${label}`}>
+                  Test
+                </Button>
+                <Button size="sm" variant="ghost" icon={TrashIcon} onClick={() => onRemove(r.key)} aria-label={`Remove ${label}`}>
+                  Remove
+                </Button>
+              </div>
+              {r.testing && (
+                <div className="span-all">
+                  <Loading label={`Testing ${label}…`} />
+                </div>
+              )}
+              {r.test &&
+                (r.test.result && (r.test.result.status === 'trust_required' || r.test.result.status === 'cert_changed') ? (
+                  <div className="span-all">
+                    <TrustCallout
+                      result={r.test.result}
+                      host={r.host.trim()}
+                      onTrust={(fp) => onTrust(r, fp)}
+                      compareWith="the API server's own certificate (for example from openssl s_client -connect host:6443), not the kubeconfig's CA"
+                      secret="the token"
+                    />
+                  </div>
+                ) : (
+                  <Callout className="span-all nkp-result" tone={r.test.ok ? 'ok' : 'error'} title={r.test.message} />
+                ))}
+            </div>
+          </div>
+        );
+      })}
+      <div className="span-all">
+        <Button size="sm" icon={PlusIcon} onClick={onAdd}>
+          Add NKP cluster
+        </Button>
+      </div>
+    </>
   );
 }

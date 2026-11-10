@@ -59,7 +59,7 @@ class Target:
     """Something answering at a demo hostname."""
 
     host: str
-    kind: str  # "pc" | "pe" | "ndb" | "vcenter"
+    kind: str  # "pc" | "pe" | "ndb" | "vcenter" | "kubernetes"
     build: Callable[[int], Any]
     epoch: int = 0
     #: "ca" = served with the demo-CA-signed cert; "self" = a self-signed cert.
@@ -208,6 +208,10 @@ class MockApi:
                                       authorization, headers or {})
             except _HttpError as exc:
                 return exc.status, exc.body, exc.headers
+        if target.kind == "kubernetes":
+            from ntnxvision_core.synthetic.kube import handle_kube
+
+            return handle_kube(target.estate(), method, path, query, authorization)
         if not _authorized(authorization):
             return 401, {"api_version": "3.1", "code": 401, "state": "ERROR",
                          "message_list": [{"message": "Authentication required.",
@@ -267,12 +271,28 @@ class MockApi:
         if method == "GET" and query.get("proxyClusterUuid") and \
                 path.startswith("/PrismGateway/services/rest/v2.0/"):
             return self._pe_proxy(est, path, query)
+        m = re.fullmatch(r"/api/nutanix/v3/vms/([0-9a-f-]+)", path)
+        if method == "GET" and m and est.features.files:
+            # Only the FSVMs, which the Files collector reads one by one.
+            found = next(((fs, v) for fs in est.file_servers for v in fs["vms"]
+                          if v["uuid"] == m.group(1)), None)
+            return (200, r.fsvm_v3(*found), {}) if found else _not_found_v3(path)
+        m = re.fullmatch(r"/api/nutanix/v3/apps/([0-9a-f-]+)", path)
+        if method == "GET" and m:
+            app = next((a for a in est.nkp_apps if a["metadata"]["uuid"] == m.group(1)), None)
+            if app is None:
+                return _not_found_v3(path)
+            return 200, app, {}
         m = re.fullmatch(r"/api/nutanix/v3/(.+)/list", path)
         if method == "POST" and m:
             return self._v3_list(est, m.group(1), body)
         if method == "POST" and path == "/api/nutanix/v3/groups":
             return self._v3_groups(est, body)
-        if method == "GET" and path.startswith("/api/") and re.search(r"/v4\.\d+/", path):
+        if method == "POST" and path.startswith("/oss/api/nutanix/v3/"):
+            return self._oss_groups(est, path, body)
+        # Also the pre-release namespaces (``files/v4.0.a2``) a real PC still serves.
+        if method == "GET" and path.startswith("/api/") and \
+                re.search(r"/v4\.\d+(\.[ab]\d+)?/", path):
             return self._v4(target, est, path[len("/api/"):], query, headers)
         if method == "GET" and path == "/api/nutanix/v3/prism_central":
             return 200, r.prism_central_v3(est), {}
@@ -280,6 +300,23 @@ class MockApi:
         if method == "GET" and m:
             return self._v3_service(est, m.group(1))
         return _not_found_v3(path)
+
+    def _oss_groups(self, est: PcEstate, path: str, body: dict[str, Any]) -> Response:
+        """Nutanix Objects' groups queries: stores, and one store's buckets."""
+        attrs = [a.get("attribute") for a in body.get("group_member_attributes") or []]
+        rows: list[dict[str, Any]] | None = None
+        if path == "/oss/api/nutanix/v3/groups" and body.get("entity_type") == "objectstore":
+            rows = [r.object_store_group_row(o) for o in est.object_stores]
+        m = re.fullmatch(r"/oss/api/nutanix/v3/objectstore_proxy/([0-9a-f-]+)/groups", path)
+        if m and body.get("entity_type") == "bucket":
+            store = next((o for o in est.object_stores if o["uuid"] == m.group(1)), None)
+            if store is None:
+                return 404, {"message": f"Unknown object store {m.group(1)}"}, {}
+            rows = store["buckets"]
+        if rows is None:
+            return 404, {"message": f"Not found: {path}"}, {}
+        etype = str(body.get("entity_type"))
+        return 200, r.groups_response(etype, rows, [a for a in attrs if a], len(rows)), {}
 
     def _v3_service(self, est: PcEstate, service: str) -> Response:
         on = {p["name"]: p["enabled"] for p in est.products}
@@ -373,6 +410,8 @@ class MockApi:
             "action_rules": (f.xplay, est.playbooks, r.playbook_v3),
             "report_configs": (f.ncm, est.report_configs, r.report_config_v3),
             "report_instances": (f.ncm, est.report_configs, r.report_instance_v3),
+            # Self-Service apps: summaries, the variables are in each app's own record.
+            "apps": (True, est.nkp_apps, _app_list_entry),
         }
         entry = table.get(kind)
         if entry is None or not entry[0]:
@@ -492,8 +531,8 @@ class MockApi:
             "prism/v4.0/config/categories": (est.categories, r.category_v4),
             "prism/v4.0/config/domain-managers": ([None], lambda _x: r.domain_manager_v4(est)),
             "files/v4.0/config/file-servers": (est.file_servers, r.file_server_v4),
-            "objects/v4.0/config/object-stores": (est.object_stores, lambda o: {
-                "extId": o["uuid"], "name": o["name"]}),
+            "files/v4.0.a2/config/file-servers": (est.file_servers, r.file_server_a2),
+            "objects/v4.0/config/object-stores": (est.object_stores, r.object_store_v4),
             "iam/v4.0/authn/users": (est.users, lambda u: r.user_v4(est, u)),
             "iam/v4.0/authn/directory-services": (
                 [x for x in est.directories if x["kind"] == "ldap"], r.directory_v4),
@@ -593,6 +632,18 @@ class MockApi:
             p = next((x for x in est.security_policies if x["uuid"] == m.group(1)), None)
             return (200, r.v4_single(r.security_policy_v4(p, detail=True)), {}) if p \
                 else _not_found_v4(path)
+        m = re.fullmatch(r"files/v4\.0/stats/file-servers/([^/]+)(?:/mount-targets/([^/]+))?",
+                         path)
+        if m:
+            fs = next((x for x in est.file_servers if x["uuid"] == m.group(1)), None)
+            if fs is None:
+                return _not_found_v4(path)
+            if not m.group(2):
+                return 200, r.v4_single(r.file_server_stats_v4(fs)), {}
+            sh = next((x for x in est.file_shares if x["uuid"] == m.group(2)
+                       and x["file_server"] == fs["name"]), None)
+            return (200, r.v4_single(r.file_share_stats_v4(sh)), {}) if sh \
+                else _not_found_v4(path)
         m = re.fullmatch(r"volumes/v4\.0/config/volume-groups/([^/]+)/(disks|vm-attachments)",
                          path)
         if m:
@@ -669,16 +720,28 @@ class MockApi:
         if method != "GET" or not path.startswith(prefix):
             return 404, {"errorCode": "ERA-404", "message": f"Not found: {path}"}, {}
         what = path[len(prefix):].strip("/")
-        tables = {"clusters": est.clusters, "dbservers": est.dbservers,
-                  "databases": est.databases, "tms": est.time_machines}
-        if what == "about":
-            return 200, {"version": est.version, "product": "Nutanix Database Service"}, {}
+        tables: dict[str, Any] = {
+            "clusters": est.clusters, "dbservers": est.dbservers, "databases": est.databases,
+            "tms": est.time_machines, "clones": est.clones, "profiles": est.profiles,
+            "slas": est.slas, "snapshots": est.snapshots, "maintenance": est.maintenance,
+            "tags": est.tags,
+            # The appliance itself (NDB 2.5 has no `about`: the version is in
+            # `downloads/versions`).
+            "downloads/versions": est.versions, "ha": est.ha,
+            "config/era-server": est.era_server, "config/about-era": est.about_era,
+        }
         if what not in tables:
             return 404, {"errorCode": "ERA-404", "message": f"Not found: {path}"}, {}
         return 200, tables[what], {}
 
 
 # ─── helpers ───────────────────────────────────────────────────────────
+
+
+def _app_list_entry(app: dict[str, Any]) -> dict[str, Any]:
+    from ntnxvision_core.synthetic.kube import app_list_entry
+
+    return app_list_entry(app)
 
 
 class _HttpError(Exception):
