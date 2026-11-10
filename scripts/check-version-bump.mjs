@@ -3,6 +3,7 @@
 // the base branch's, so every installed build says which fixes and features it has.
 // Usage: node scripts/check-version-bump.mjs <base-ref>   (e.g. origin/main)
 import { execFileSync } from 'node:child_process';
+import { section } from './bump-version.mjs';
 
 const base = process.argv[2] ?? 'origin/main';
 const git = (...args) => execFileSync('git', args, { encoding: 'utf-8' });
@@ -21,12 +22,11 @@ if (!shipped.length) {
   console.log(`No shipped code changed; version stays ${head}.`);
 } else if (!newer(head, was)) {
   console.error(`::error::This PR changes shipped code but the version is still ${head} (base ${was}). ` +
-    'Run `node scripts/bump-version.mjs patch` (fixes) or `minor` (features) and add a CHANGELOG.md entry.');
+    'Run `node scripts/bump-version.mjs patch` (fixes) or `minor` (features); it turns the CHANGELOG.md Unreleased notes into the section.');
   process.exit(1);
 } else {
-  const log = git('show', 'HEAD:CHANGELOG.md');
-  if (!log.includes(`## ${head}`)) {
-    console.error(`::error::CHANGELOG.md has no "## ${head}" section.`);
+  if (!section(git('show', 'HEAD:CHANGELOG.md'), head)) {
+    console.error(`::error::CHANGELOG.md has no notes under "## ${head}".`);
     process.exit(1);
   }
   console.log(`Version ${was} -> ${head}.`);

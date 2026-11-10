@@ -3,8 +3,12 @@
 NTNXVision follows [semantic versioning](https://semver.org): **patch** (0.4.1) for fixes,
 **minor** (0.5.0) for new features, **major** (1.0.0) for breaking changes such as a snapshot
 format older builds can't read. Windows shows the version as X.Y.Z.0 in Installed apps.
-Every pull request that changes shipped code raises it with `node scripts/bump-version.mjs`
-and adds a section here (CI checks both).
+Write notes under **Unreleased** as changes land. `node scripts/bump-version.mjs patch|minor`
+raises the version everywhere (app, core, README badge) and turns those notes into the
+release's section; every pull request that changes shipped code does this (CI checks it), and
+the release job publishes the section as the GitHub Release notes.
+
+## Unreleased
 
 ## 0.15.0 (2026-11-10)
 

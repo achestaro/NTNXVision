@@ -9,7 +9,7 @@ Document and editable design diagrams. Windows and macOS.
 </p>
 
 <p align="center">
-  <img alt="Version 0.13.0" src="https://img.shields.io/badge/version-0.13.0-5b3fd6">
+  <img alt="Version 0.15.0" src="https://img.shields.io/badge/version-0.15.0-5b3fd6">
   <img alt="Platforms: Windows and macOS" src="https://img.shields.io/badge/platforms-Windows%20%7C%20macOS-1f2937">
   <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-yellow.svg"></a>
 </p>
@@ -290,10 +290,12 @@ so a second run gives Compare a believable change list.
 
 Issues and pull requests are welcome. NTNXVision follows [semantic versioning](https://semver.org):
 the version lives in `app/package.json`, `core/pyproject.toml` and `ntnxvision_core.__version__`,
-set together by `node scripts/bump-version.mjs patch|minor|major`. Every pull request that
-changes shipped code bumps it (patch for fixes, minor for features) and adds a section to
-[`CHANGELOG.md`](CHANGELOG.md); CI checks both, and runs the tests, lint and installer builds on
-pull requests into `main`.
+set together by `node scripts/bump-version.mjs patch|minor|major`, which also updates the
+README version badge and turns the **Unreleased** notes in [`CHANGELOG.md`](CHANGELOG.md) into
+that version's section. Every pull request that changes shipped code bumps it (patch for fixes,
+minor for features); CI checks that every location agrees and the notes exist, and runs the
+tests, lint and installer builds on pull requests into `main`. A `v*` tag must match the
+version, and its CHANGELOG section becomes the release notes.
 
 The repository is public: use only example data in tests and screenshots (`example.lab`,
 `*.demo.local`, 192.0.2.x, 198.51.100.x), never real hostnames, addresses, usernames or exports.

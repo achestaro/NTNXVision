@@ -36,9 +36,12 @@ targets and six backdated snapshots (`demo_seed`).
 needs `pip install -e ".[dev]"`), then `npm run package` from `app/`. See `build/README.md`.
 
 **Versioning:** semver in `app/package.json`, `core/pyproject.toml` and
-`ntnxvision_core.__version__`, set together by `node scripts/bump-version.mjs patch|minor|major`.
-Every PR that changes shipped code (paths in `scripts/check-version-bump.mjs`) bumps it
-(patch = fixes, minor = features) and adds a `## <version>` section to `CHANGELOG.md`. CI enforces both.
+`ntnxvision_core.__version__` (plus the README badge), set together by
+`node scripts/bump-version.mjs patch|minor|major`, which also turns `CHANGELOG.md`'s
+`## Unreleased` notes into the `## <version> (date)` section. Write notes under Unreleased as
+changes land. Every PR that changes shipped code (paths in `scripts/check-version-bump.mjs`)
+bumps it (patch = fixes, minor = features). CI runs `bump-version.mjs --check` (all locations
+agree, the section has notes, a tag matches); the tag's section is the GitHub Release body.
 
 ## Git, CI and releases
 

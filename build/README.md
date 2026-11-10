@@ -164,7 +164,7 @@ the tag-only `release` job needs all of them, and pull requests require them bef
 
 ```
 t=0 ─┬─ core-tests ×4     "Core tests (shard I/4)"      ubuntu, pytest -n auto --shard I/4 ─┐
-     ├─ app-checks        "App lint, tests and audits"  eslint, npm test, version bump,     ├─ checks "Core tests + app lint"
+     ├─ app-checks        "App lint, tests and audits"  eslint, npm test, version check,    ├─ checks "Core tests + app lint"
      │                                                  npm audit ×2, notices (non-blocking)│   (aggregate, fails unless all passed)
      ├─ app-e2e           "App e2e (demo mode)"         macOS, npm run e2e ─────────────────┘
      ├─ python-audit      "Python dependency audit"
@@ -173,6 +173,7 @@ t=0 ─┬─ core-tests ×4     "Core tests (shard I/4)"      ubuntu, pytest -n
      └─ build ×3          "Package (windows-x64+arm64 | macos-arm64 | macos-x64)"
                                 │
    tags only: release  needs every job above ─ SHA256SUMS, attestation, draft GitHub Release
+                                            (notes = the tag's CHANGELOG.md section)
 ```
 
 * **Core test shards.** `pytest --shard I/N` (`core/tests/conftest.py`, `core/tests/sharding.py`)
@@ -227,6 +228,11 @@ pip, npm, and the Electron and electron-builder (WiX) download caches are cached
   isn't supported here). On a Mac, use CI.
 * DMG/ZIP for a given arch must be built on that arch. See above.
 * No auto-update channel is configured (`--publish never`). Releases are draft-only.
+* **Releasing:** on the batch's branch run `node scripts/bump-version.mjs patch|minor` (versions,
+  README badge, CHANGELOG Unreleased notes into the version's section), merge the PR, then tag
+  the merge: `git tag vX.Y.Z && git push origin vX.Y.Z`. `bump-version.mjs --check` fails the
+  tag run (so nothing is published) if the tag, a version location or the notes
+  disagree; the draft release's body is that CHANGELOG section plus the signing note.
 * Icons in `app/build/` (and the tray icons and favicon) are generated from `app/build/art/*.svg`
   by `npm run icons` (in `app/`); edit the SVGs, re-run on macOS (for `icon.icns`) and commit the outputs.
 
