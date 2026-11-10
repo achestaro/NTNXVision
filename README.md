@@ -35,13 +35,16 @@ Document and editable design diagrams. Windows and macOS.
 
 Point NTNXVision at a Prism Central, a single Prism Element cluster, or several Prism Centrals
 at once, and it inventories everything: clusters, hosts, VMs, storage, networking, data
-protection and DR, Flow security and VPCs, Files, Objects, volume groups, IAM, X-Play, NCM,
-licensing, LCM and NDB databases (through the Era API).
+protection and DR, Flow security and VPCs, Files (servers, FSVMs and shares), Objects (stores
+and buckets), volume groups, IAM, X-Play, NCM, licensing (as Prism Central's Licensing page
+shows it), LCM, NKP Kubernetes clusters, and NDB (the appliance and its databases, through
+the Era API). Health Alerts are available but off by default.
 
 - **Read-only.** Collectors only issue GET and list calls. A built-in guard refuses every write.
 - **Version-aware.** Each area uses the v4 API where the Prism Central version supports it, falls
-  back to v3, and uses v2.0 for cluster-local data. The Overview warns which areas still depend
-  on v3 before Nutanix retires it in Q4 2026.
+  back to v3, and uses v2.0 for cluster-local data. The Overview lists the areas that depend on
+  v3-only APIs: they collect normally today and come back empty only once a Prism Central
+  release stops serving v3.
 - **Scoped and cancellable.** Pick clusters and areas, watch live progress per area, and cancel
   at any time (a cancelled run saves nothing). Several Prism Centrals collect in parallel and can
   merge into one combined report.
@@ -73,12 +76,15 @@ names, sizes and the diagram files. The same snapshot always exports byte-identi
 
 The reports draw the architecture for you, from collected data: Solution Conceptual Overview,
 Logical Cluster Design, Management Plane Design, Host Network Configuration, Disaster Recovery
-Design, Network Segment Design, Flow Virtual Networking Design and Microsegmentation Design.
+Design, Network Segment Design, Flow Virtual Networking Design, Microsegmentation Design, and
+the Files, Objects, NKP and Database Service designs.
 Large estates split into parts, each with a design summary and the tables behind it.
 
 The **Diagrams** page lets you refine any figure before it goes into a report: rename, reorder
 by dragging cards to slots, add clusters, Prism Centrals, storage arrays, switches and notes, and
-draw **connectors** between elements (label, sides, lane, arrowheads). User-added items are drawn
+draw **connectors** between elements (label, sides, lane, arrowheads). The editor knows how
+elements relate: drop a node on a cluster and it nests inside it, drop a cluster on a Prism
+Central and it joins that PC's zone with a "Manages" connector. User-added items are drawn
 dashed amber, never appear in the tables, and are disclosed in the figure's summary. Edits carry
 forward to the next collection of the same estate when they still apply.
 
@@ -98,7 +104,8 @@ shapes and glued connectors, from the Export dialog or straight from the Diagram
 - **Compare**: diff two snapshots of the same estate (drift): what was added, removed and
   changed, field by field, exportable to Excel or PDF.
 - **Capacity**: per-cluster CPU and storage capacity with oversubscription ratios (full and N-1)
-  against a vCPU:pCPU target you can set per cluster.
+  against a vCPU:pCPU target you can set per cluster. In the cluster details, a ratio over
+  the target shows in bold red and one at or under it in green.
 
 <p>
   <img width="49%" alt="Inventory: storage containers with the details pane open" src=".github/readme/inventory.png">

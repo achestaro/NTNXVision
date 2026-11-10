@@ -93,3 +93,56 @@ test('adding with a placed icon selected: into it, or a frame drawn around it (r
   // Never the reverse: a region does not go into NC2 on AWS.
   assert.notEqual(N.planAdd(ctx, icons.get('region'), 'user:reg', 160, 64).mode, 'into');
 });
+
+// A collected zone holding a Prism Central and a cluster card with its nodes box, as the
+// management and logical figures draw them; the hierarchy and links as the core sends them.
+const estate = () => {
+  const icons = new Map(
+    [
+      { id: 'az', label: 'Availability zone', container: true, children: ['pc', 'cluster', 'storage'] },
+      { id: 'pc', label: 'Prism Central', container: false, children: [], links: { cluster: { label: 'Manages', out: true }, pc: { label: 'Paired with', out: true } } },
+      { id: 'cluster', label: 'Cluster', container: false, children: ['node', 'container'], links: { pc: { label: 'Manages', out: false }, cluster: { label: 'Replicates to', out: true } } },
+      { id: 'node', label: 'Node', container: false, children: ['nic'] },
+      { id: 'container', label: 'Storage container', container: false, children: [] },
+      { id: 'note', label: 'Note', container: false, children: [] },
+    ].map((i) => [i.id, i]),
+  );
+  const site = node('site:a', 0, 0, 600, 300);
+  const pc = node('site:a:pc', 10, 30, 580, 30, 'site:a');
+  const cl = node('cluster:1', 10, 80, 200, 120, 'site:a');
+  const nodes = node('cluster:1:nodes', 20, 110, 180, 40, 'cluster:1');
+  const sc = scene([site, pc, cl, nodes]);
+  const kinds = { 'site:a': 'az', 'site:a:pc': 'pc', 'cluster:1': 'cluster', 'cluster:1:nodes': 'node' };
+  return { icons, ctx: { icons, outline: new Map(), kinds, scene: sc } };
+};
+
+test('adding into a selection climbs to the nearest element that can hold the icon', () => {
+  const { icons, ctx } = estate();
+  // A cluster's nodes box selected: a storage container goes into the cluster.
+  const got = N.planAdd(ctx, icons.get('container'), 'cluster:1:nodes', 110, 16);
+  assert.deepEqual([got.mode, got.parent], ['into', 'cluster:1']);
+  assert.equal(N.fitFor(ctx, 'cluster:1:nodes', 'container'), 'into Cluster');
+  // Nothing around it holds a note: beside, as before.
+  assert.equal(N.planAdd(ctx, icons.get('note'), 'cluster:1:nodes', 120, 30).mode, 'beside');
+});
+
+test('a cluster added with a Prism Central selected goes into its zone, managed by it', () => {
+  const { icons, ctx } = estate();
+  const got = N.planAdd(ctx, icons.get('cluster'), 'site:a:pc', 120, 34);
+  assert.deepEqual([got.mode, got.target, got.parent, got.label, got.out], ['link', 'site:a:pc', 'site:a', 'Manages', false]);
+  assert.equal(got.hint, 'Cluster added into Availability zone and connected to Prism Central (Manages).');
+  assert.equal(N.fitFor(ctx, 'site:a:pc', 'cluster'), 'connects to Prism Central');
+});
+
+test('a placed cluster dropped on the Prism Central: into the zone and connected, once', () => {
+  const { ctx } = estate();
+  const free = node('user:c', 700, 40, 120, 34);
+  ctx.scene.nodes.push(free);
+  ctx.scene.meta = { placed: { 'user:c': { parent: null, slot: 'free', wraps: [] } } };
+  ctx.outline = new Map([['user:c', { id: 'user:c', free: true, icon: 'cluster' }]]);
+  const got = N.planDrop(ctx, 'user:c', 300, 45);
+  assert.deepEqual([got.mode, got.target, got.parent, got.label], ['link', 'site:a:pc', 'site:a', 'Manages']);
+  // Already connected: a plain drop into the zone instead of a second connector.
+  ctx.scene.edges.push({ id: 'user:l', src: 'site:a:pc', dst: 'user:c' });
+  assert.deepEqual([N.planDrop(ctx, 'user:c', 300, 45).mode, N.planDrop(ctx, 'user:c', 300, 45).parent], ['into', 'site:a']);
+});

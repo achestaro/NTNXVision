@@ -271,6 +271,12 @@ class MockApi:
         if method == "GET" and query.get("proxyClusterUuid") and \
                 path.startswith("/PrismGateway/services/rest/v2.0/"):
             return self._pe_proxy(est, path, query)
+        m = re.fullmatch(r"/api/nutanix/v3/vms/([0-9a-f-]+)", path)
+        if method == "GET" and m and est.features.files:
+            # Only the FSVMs, which the Files collector reads one by one.
+            found = next(((fs, v) for fs in est.file_servers for v in fs["vms"]
+                          if v["uuid"] == m.group(1)), None)
+            return (200, r.fsvm_v3(*found), {}) if found else _not_found_v3(path)
         m = re.fullmatch(r"/api/nutanix/v3/apps/([0-9a-f-]+)", path)
         if method == "GET" and m:
             app = next((a for a in est.nkp_apps if a["metadata"]["uuid"] == m.group(1)), None)
@@ -284,7 +290,9 @@ class MockApi:
             return self._v3_groups(est, body)
         if method == "POST" and path.startswith("/oss/api/nutanix/v3/"):
             return self._oss_groups(est, path, body)
-        if method == "GET" and path.startswith("/api/") and re.search(r"/v4\.\d+/", path):
+        # Also the pre-release namespaces (``files/v4.0.a2``) a real PC still serves.
+        if method == "GET" and path.startswith("/api/") and \
+                re.search(r"/v4\.\d+(\.[ab]\d+)?/", path):
             return self._v4(target, est, path[len("/api/"):], query, headers)
         if method == "GET" and path == "/api/nutanix/v3/prism_central":
             return 200, r.prism_central_v3(est), {}
@@ -523,6 +531,7 @@ class MockApi:
             "prism/v4.0/config/categories": (est.categories, r.category_v4),
             "prism/v4.0/config/domain-managers": ([None], lambda _x: r.domain_manager_v4(est)),
             "files/v4.0/config/file-servers": (est.file_servers, r.file_server_v4),
+            "files/v4.0.a2/config/file-servers": (est.file_servers, r.file_server_a2),
             "objects/v4.0/config/object-stores": (est.object_stores, r.object_store_v4),
             "iam/v4.0/authn/users": (est.users, lambda u: r.user_v4(est, u)),
             "iam/v4.0/authn/directory-services": (
@@ -623,6 +632,18 @@ class MockApi:
             p = next((x for x in est.security_policies if x["uuid"] == m.group(1)), None)
             return (200, r.v4_single(r.security_policy_v4(p, detail=True)), {}) if p \
                 else _not_found_v4(path)
+        m = re.fullmatch(r"files/v4\.0/stats/file-servers/([^/]+)(?:/mount-targets/([^/]+))?",
+                         path)
+        if m:
+            fs = next((x for x in est.file_servers if x["uuid"] == m.group(1)), None)
+            if fs is None:
+                return _not_found_v4(path)
+            if not m.group(2):
+                return 200, r.v4_single(r.file_server_stats_v4(fs)), {}
+            sh = next((x for x in est.file_shares if x["uuid"] == m.group(2)
+                       and x["file_server"] == fs["name"]), None)
+            return (200, r.v4_single(r.file_share_stats_v4(sh)), {}) if sh \
+                else _not_found_v4(path)
         m = re.fullmatch(r"volumes/v4\.0/config/volume-groups/([^/]+)/(disks|vm-attachments)",
                          path)
         if m:
@@ -699,13 +720,16 @@ class MockApi:
         if method != "GET" or not path.startswith(prefix):
             return 404, {"errorCode": "ERA-404", "message": f"Not found: {path}"}, {}
         what = path[len(prefix):].strip("/")
-        tables = {"clusters": est.clusters, "dbservers": est.dbservers,
-                  "databases": est.databases, "tms": est.time_machines,
-                  "clones": est.clones, "profiles": est.profiles, "slas": est.slas,
-                  "snapshots": est.snapshots, "maintenance": est.maintenance,
-                  "tags": est.tags}
-        if what == "about":
-            return 200, {"version": est.version, "product": "Nutanix Database Service"}, {}
+        tables: dict[str, Any] = {
+            "clusters": est.clusters, "dbservers": est.dbservers, "databases": est.databases,
+            "tms": est.time_machines, "clones": est.clones, "profiles": est.profiles,
+            "slas": est.slas, "snapshots": est.snapshots, "maintenance": est.maintenance,
+            "tags": est.tags,
+            # The appliance itself (NDB 2.5 has no `about`: the version is in
+            # `downloads/versions`).
+            "downloads/versions": est.versions, "ha": est.ha,
+            "config/era-server": est.era_server, "config/about-era": est.about_era,
+        }
         if what not in tables:
             return 404, {"errorCode": "ERA-404", "message": f"Not found: {path}"}, {}
         return 200, tables[what], {}

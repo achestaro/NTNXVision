@@ -258,7 +258,7 @@ def test_summary_names_only_included_chapters(estates: dict[str, Environment],
     assert "environment are omitted." in bare
     assert "record why" not in bare and "records why" not in bare
     assert "Appendix" not in bare and "\x00" not in bare
-    assert "retires in Q4 2026" in bare and "after the sunset." in bare
+    assert "that Nutanix is retiring." in bare and "typically after an upgrade." in bare
 
 
 def test_summary_references_follow_reordering(estates: dict[str, Environment],

@@ -289,7 +289,7 @@ def figures(env: Any, areas: list[dict[str, Any]] | None = None) -> list[dict[st
 
 
 _SUNSET_OK = {"tone": "ok", "label": "Unaffected"}
-_SUNSET_UPGRADE = {"tone": "ok", "label": "Moves to v4 after a PC upgrade"}
+_SUNSET_UPGRADE = {"tone": "ok", "label": "Switches to v4 after a PC upgrade"}
 _SUNSET_STOPS = {"tone": "warn", "label": "Stops collecting"}
 
 
@@ -297,9 +297,11 @@ def api_routing(env: Any, areas: list[dict[str, Any]],
                 limit: int | None = 8) -> list[dict[str, Any]]:
     """Group the run's areas by API and reason, plus the always-v3 sub-features.
 
-    "After sunset" says what happens to each group when Nutanix retires the legacy APIs
-    in Q4 2026: v4 groups are unaffected; areas on v3 only because *this* PC is old move
-    to v4 after an upgrade; areas with no v4 equivalent stop collecting.
+    "After sunset" says what happens to each group once the Prism Central being collected
+    no longer serves the legacy APIs. Nothing here is date-based: the app keeps calling
+    v3 for as long as the PC answers it, and a retired endpoint just comes back empty.
+    v4 groups are unaffected; areas on v3 only because *this* PC is old switch to v4
+    after an upgrade; areas with no v4 equivalent stop collecting.
 
     A combined run's area ids are ``"<host>: <area id>"``. Each is judged against its own
     Prism Central (version and negotiated v4 namespaces) and grouped per source, so a row
@@ -393,7 +395,7 @@ def _join_labels(labels: list[str], limit: int | None = 8) -> str:
 
 
 def sunset_areas(routing: list[dict[str, Any]]) -> list[str]:
-    """Lower-cased names of the areas that stop collecting at the v3 sunset."""
+    """Lower-cased names of the areas that stop collecting once the PC drops v3."""
     out: list[str] = []
     for row in routing:
         if row.get("after_sunset", {}).get("tone") != "warn":

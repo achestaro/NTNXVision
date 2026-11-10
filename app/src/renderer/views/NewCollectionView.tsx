@@ -13,6 +13,7 @@ import type {
   ConnectionMode,
   ExportFormat,
   SavedConnection,
+  SnapshotInfo,
 } from '@shared/ipc';
 import { DEFAULT_VCPU_RATIO } from '@shared/ipc';
 import {
@@ -41,7 +42,7 @@ import { useSettings, modKey } from '../lib/settings';
 import { useRun } from '../lib/run';
 import { useConfirmShortcut } from '../lib/keyboard';
 import { useRouter } from '../lib/router';
-import { NA, REPORT_EXT, errorMessage, fmtCount, fmtRatio, reportFileName, sanitizeSnapshotName, snapshotNameIssue, targetLabel, tildify } from '../lib/format';
+import { NA, REPORT_EXT, errorMessage, fmtCount, fmtDay, fmtRatio, reportFileName, sanitizeSnapshotName, snapshotNameIssue, targetLabel, tildify } from '../lib/format';
 import { ClusterPicker, initialSelection } from './ClusterPicker';
 import type { ClusterListState } from './ClusterPicker';
 import { RatioOverrides, initialRatioText, ratioIssue, ratioOverrides } from './RatioOverrides';
@@ -50,10 +51,54 @@ import { TestOutcome, connectionSummary } from './ConnectionTest';
 import type { TestState } from './ConnectionTest';
 import { LCM_INVENTORY_DEFAULT_SECONDS, LcmInventoryToggle } from './LcmInventory';
 
+/**
+ * Services Prism Central runs, read from the counts of a snapshot's summary (nothing is
+ * fetched from the target for this). Order is the order they are listed in.
+ */
+const DISCOVERED_SERVICES: { label: string; keys: string[] }[] = [
+  { label: 'Files', keys: ['file_servers'] },
+  { label: 'Objects', keys: ['object_stores'] },
+  { label: 'FNS', keys: ['security_policies'] },
+  { label: 'FVN', keys: ['vpcs'] },
+  { label: 'NDR', keys: ['protection_policies', 'recovery_plans'] },
+  { label: 'NDB', keys: ['ndb_clusters', 'database_servers', 'databases'] },
+  { label: 'NKP', keys: ['kubernetes_clusters'] },
+];
+
+/** The newest non-combined snapshot collected from `host` (null when there is none). */
+function latestSnapshotOf(snapshots: SnapshotInfo[], host: string, kind: 'pc' | 'pe'): SnapshotInfo | null {
+  const h = host.trim().toLowerCase();
+  if (!h) return null;
+  let best: SnapshotInfo | null = null;
+  for (const s of snapshots) {
+    if ((s.source ?? '').toLowerCase() !== h || (s.kind && s.kind !== kind)) continue;
+    if (!best || (s.collected_at ?? '') > (best.collected_at ?? '')) best = s;
+  }
+  return best;
+}
+
+/** The services a snapshot shows running (a non-zero count), in display order. */
+function servicesInSnapshot(s: SnapshotInfo | null): string[] {
+  if (!s?.summary) return [];
+  return DISCOVERED_SERVICES.filter((d) => d.keys.some((k) => (s.summary[k] ?? 0) > 0)).map((d) => d.label);
+}
+
 const FORMATS: { id: ExportFormat; label: string; desc: string }[] = [
-  { id: 'excel', label: 'Excel workbook', desc: 'One sheet per object type, RVTools-style' },
-  { id: 'pdf', label: 'PDF report', desc: 'Executive summary plus per-area sections' },
-  { id: 'word', label: 'Word ADD', desc: 'Editable Architecture Design Document' },
+  {
+    id: 'excel',
+    label: 'Excel workbook',
+    desc: 'One sheet per object type, RVTools-style',
+  },
+  {
+    id: 'pdf',
+    label: 'PDF report',
+    desc: 'Executive summary plus per-area sections',
+  },
+  {
+    id: 'word',
+    label: 'Word ADD',
+    desc: 'Editable Architecture Design Document',
+  },
 ];
 
 export function NewCollectionView({
@@ -93,13 +138,21 @@ export function NewCollectionView({
   const [lcmInv, setLcmInv] = useState(false);
   useEffect(() => setLcmInv(false), [selected]);
 
-  const [fmt, setFmt] = useState<Record<ExportFormat, boolean>>({ excel: true, pdf: false, word: false });
+  const [fmt, setFmt] = useState<Record<ExportFormat, boolean>>({
+    excel: false,
+    pdf: false,
+    word: false,
+  });
   const [name, setName] = useState('');
   const [nameTouched, setNameTouched] = useState(false);
   /** Existing snapshot names, lower-cased: a typed name must not be one of them. */
   const [existingNames, setExistingNames] = useState<Set<string>>(new Set());
+  /** The saved snapshots (local index only): names, and each target's last collection. */
+  const [snapshots, setSnapshots] = useState<SnapshotInfo[]>([]);
   const [startTried, setStartTried] = useState(false);
-  const [clusterState, setClusterState] = useState<ClusterListState>({ kind: 'idle' });
+  const [clusterState, setClusterState] = useState<ClusterListState>({
+    kind: 'idle',
+  });
   const [clusterSel, setClusterSel] = useState<Set<string>>(new Set());
   /** Per-cluster vCPU:pCPU targets as typed, by cluster uuid (empty = the default). */
   const [ratioText, setRatioText] = useState<RatioText>({});
@@ -109,7 +162,12 @@ export function NewCollectionView({
   const nameRef = useRef<HTMLInputElement>(null);
   const [dir, setDir] = useState('');
   const [prefix, setPrefix] = useState('');
-  const [errors, setErrors] = useState<{ host?: string; name?: string; port?: string; areas?: string }>({});
+  const [errors, setErrors] = useState<{
+    host?: string;
+    name?: string;
+    port?: string;
+    areas?: string;
+  }>({});
   const [startError, setStartError] = useState<string | null>(null);
   const clusterReq = useRef(0);
 
@@ -137,8 +195,14 @@ export function NewCollectionView({
       .catch(() => setProfiles([]));
     window.ntnx
       .listSnapshots()
-      .then((l) => setExistingNames(new Set(l.snapshots.map((x) => x.name.toLowerCase()))))
-      .catch(() => setExistingNames(new Set()));
+      .then((l) => {
+        setSnapshots(l.snapshots);
+        setExistingNames(new Set(l.snapshots.map((x) => x.name.toLowerCase())));
+      })
+      .catch(() => {
+        setSnapshots([]);
+        setExistingNames(new Set());
+      });
   }, []);
 
   function applyProfile(p: SavedConnection) {
@@ -279,7 +343,13 @@ export function NewCollectionView({
   const trustCertificate = async (fingerprint: string) => {
     if (!profile) return;
     try {
-      setProfiles(await window.ntnx.trustCertificate({ targetId: profile.id, endpoint: 'primary', fingerprint }));
+      setProfiles(
+        await window.ntnx.trustCertificate({
+          targetId: profile.id,
+          endpoint: 'primary',
+          fingerprint,
+        }),
+      );
     } catch (err) {
       setTest({ kind: 'error', message: errorMessage(err) });
       return;
@@ -316,13 +386,24 @@ export function NewCollectionView({
   // The clusters being collected: a single listed cluster always is (PE mode, or a PC with one).
   const nkp = !isPe && profile ? (profile.kubernetes ?? []).filter((k) => k.hasToken) : [];
   const nkpOn = kubeOn && nkp.length > 0;
-  /** The extra services configured on the target, for the Connect step's Services row. */
-  const services: string[] = [];
+  /** The Connect step's Services row: what the target's last collection found running on
+   *  Prism Central, plus the endpoints configured on the target (NDB, NKP, vCenter). */
+  const lastSnap = profile && !isPe ? latestSnapshotOf(snapshots, profile.host, 'pc') : null;
+  const discovered = servicesInSnapshot(lastSnap);
+  const configured: string[] = [];
   if (profile && !isPe) {
-    if (profile.kubernetes?.length) services.push('NKP');
-    if (profile.ndbHost) services.push('NDB');
-    if (profile.vcenterHost) services.push('vCenter');
+    if (profile.ndbHost) configured.push('NDB');
+    if (profile.kubernetes?.length) configured.push('NKP');
+    if (profile.vcenterHost) configured.push('vCenter');
   }
+  const services = [...discovered, ...configured.filter((c) => !discovered.includes(c))];
+  const servicesFrom = discovered.length
+    ? `From the last collection, ${fmtDay(lastSnap?.collected_at)}${configured.length ? ', and the target' : ''}`
+    : configured.length
+      ? 'Configured on the target'
+      : lastSnap
+        ? `None found in the last collection, ${fmtDay(lastSnap.collected_at)}`
+        : 'Collect once to list the services Prism Central runs';
   const collectedClusters = clusters.length === 1 ? clusters : chosenClusters;
   const defaultRatio = settings.vcpuRatio ?? DEFAULT_VCPU_RATIO;
   const badRatios = collectedClusters.filter((c) => ratioIssue(ratioText[c.uuid]));
@@ -446,12 +527,26 @@ export function NewCollectionView({
             <PanelHeader id="s1" step={1} title="Connect">
               {connection.header && <span style={{ fontSize: 12 }}>{connection.header}</span>}
             </PanelHeader>
-            <div style={{ padding: 16, display: 'flex', flexDirection: 'column', gap: 16 }}>
+            <div
+              style={{
+                padding: 16,
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 16,
+              }}
+            >
               <div>
                 <label className="lbl" htmlFor="saved">
                   Target
                 </label>
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'center' }}>
+                <div
+                  style={{
+                    display: 'flex',
+                    flexWrap: 'wrap',
+                    gap: 12,
+                    alignItems: 'center',
+                  }}
+                >
                   <select
                     id="saved"
                     className="input"
@@ -518,8 +613,13 @@ export function NewCollectionView({
                   {!isPe && (
                     <div className="kv">
                       <dt>Services</dt>
-                      <dd className={services.length ? undefined : 'dash'} data-testid="target-services">
-                        {services.length ? services.join(', ') : NA}
+                      <dd data-testid="target-services">
+                        <span className={services.length ? undefined : 'dash'}>
+                          {services.length ? services.join(', ') : NA}
+                        </span>
+                        <div className="hint" data-testid="target-services-source">
+                          {servicesFrom}
+                        </div>
                       </dd>
                     </div>
                   )}
@@ -537,42 +637,52 @@ export function NewCollectionView({
                   </div>
                 </dl>
               )}
-              <div className="connect-pw" style={{ maxWidth: 420 }}>
-                <label className="lbl" htmlFor="pw">
-                  {profile?.hasPassword ? 'Password for this run (optional)' : 'Password for this run'}
-                </label>
-                <div className="input-wrap">
-                  <input
-                    id="pw"
-                    className="input"
-                    type="password"
-                    value={password}
-                    aria-describedby="pw-hint"
-                    placeholder={usingKeychain ? 'Using the password saved in your keychain' : 'Password'}
-                    onChange={(e) => {
-                      setPassword(e.target.value);
-                      resetTest();
-                    }}
-                    onBlur={maybeListClusters}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter') maybeListClusters();
-                    }}
-                    style={usingKeychain ? { paddingRight: 96 } : undefined}
-                  />
-                  {usingKeychain && (
-                    <Badge className="input-badge">
-                      <Icon icon={LockSimpleIcon} size={12} />
-                      Keychain
-                    </Badge>
-                  )}
+              {/* Nothing to ask for until a target says whose password it would be. */}
+              {profile && (
+                <div className="connect-pw" style={{ maxWidth: 420 }}>
+                  <label className="lbl" htmlFor="pw">
+                    {profile?.hasPassword ? 'Password for this run (optional)' : 'Password for this run'}
+                  </label>
+                  <div className="input-wrap">
+                    <input
+                      id="pw"
+                      className="input"
+                      type="password"
+                      value={password}
+                      aria-describedby="pw-hint"
+                      placeholder={usingKeychain ? 'Using the password saved in your keychain' : 'Password'}
+                      onChange={(e) => {
+                        setPassword(e.target.value);
+                        resetTest();
+                      }}
+                      onBlur={maybeListClusters}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') maybeListClusters();
+                      }}
+                      style={usingKeychain ? { paddingRight: 96 } : undefined}
+                    />
+                    {usingKeychain && (
+                      <Badge className="input-badge">
+                        <Icon icon={LockSimpleIcon} size={12} />
+                        Keychain
+                      </Badge>
+                    )}
+                  </div>
+                  <div className="hint below" id="pw-hint">
+                    {profile?.hasPassword
+                      ? 'Leave empty to use the saved password. A password typed here is used for this run only, never saved.'
+                      : 'No password is saved for this target. Type one for this run, or save one with Edit target.'}
+                  </div>
                 </div>
-                <div className="hint below" id="pw-hint">
-                  {profile?.hasPassword
-                    ? 'Leave empty to use the saved password. A password typed here is used for this run only, never saved.'
-                    : 'No password is saved for this target. Type one for this run, or save one with Edit target.'}
-                </div>
-              </div>
-              <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 12 }}>
+              )}
+              <div
+                style={{
+                  display: 'flex',
+                  flexWrap: 'wrap',
+                  alignItems: 'center',
+                  gap: 12,
+                }}
+              >
                 <Button icon={PlugIcon} onClick={() => void runTest()} disabled={test.kind === 'testing' || !profile}>
                   Test connection
                 </Button>
@@ -607,7 +717,12 @@ export function NewCollectionView({
                 onToggle={() => setRatioOpen((o) => !o)}
               />
             )}
-            <div style={{ borderTop: '1px solid var(--rule-2)', padding: '16px 16px 0' }}>
+            <div
+              style={{
+                borderTop: '1px solid var(--rule-2)',
+                padding: '16px 16px 0',
+              }}
+            >
               <ChecklistHeader label="Resources" id="resLbl">
                 {catalogue.data && (
                   <span className="mono t12 muted">
@@ -734,6 +849,12 @@ export function NewCollectionView({
                   <FormatCard key={f.id} title={f.label} description={f.desc} checked={fmt[f.id]} onChange={(v) => setFmt((p) => ({ ...p, [f.id]: v }))} />
                 ))}
               </div>
+              {chosenFormats.length === 0 && (
+                <div className="hint" data-testid="reports-none" style={{ marginTop: -8 }}>
+                  No report chosen: the collection saves a snapshot only. Export reports from it any time on the
+                  Snapshots page.
+                </div>
+              )}
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 240px), 1fr))', gap: 16 }}>
                 <Field
                   id="sname"
@@ -809,10 +930,16 @@ export function NewCollectionView({
                   </Status>
                 </dd>
               </div>
-              <div className="kv">
-                <dt>Snapshot</dt>
-                <dd className={sanitizedName ? 'strong' : 'dash'}>{sanitizedName || NA}</dd>
-              </div>
+              {/* The name typed in step 3, as it will be saved; hidden until there is one
+                  (Start's blocker line already asks for it). */}
+              {sanitizedName && (
+                <div className="kv">
+                  <dt>Snapshot</dt>
+                  <dd className="strong" data-testid="summary-snapshot">
+                    {sanitizedName}
+                  </dd>
+                </div>
+              )}
               <div className="kv">
                 <dt>Clusters</dt>
                 <dd className="mono" data-testid="summary-clusters">

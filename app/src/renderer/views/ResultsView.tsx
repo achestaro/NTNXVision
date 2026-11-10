@@ -337,7 +337,7 @@ function ResultsBody({
                       ),
                     },
                     { key: 'why', header: 'Why', className: 'wrap', render: (x) => x.reason },
-                    { key: 'after', header: 'After Q4 2026 v3 sunset', render: (x) => <StatusFromValue value={x.after_sunset} /> },
+                    { key: 'after', header: 'When legacy APIs are removed', render: (x) => <StatusFromValue value={x.after_sunset} /> },
                   ]}
                 />
               </div>

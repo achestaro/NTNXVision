@@ -1234,6 +1234,70 @@ def file_server_v4(fs: dict[str, Any]) -> dict[str, Any]:
                                                "version": fs["version"]})
 
 
+def _files_ip(value: str) -> dict[str, Any]:
+    return {"ipv4": {"value": value, "prefixLength": 32}}
+
+
+def file_server_a2(fs: dict[str, Any]) -> dict[str, Any]:
+    """`files/v4.0.a2/config/file-servers`: the full file server, FSVMs included."""
+    def network(name: str, ips: list[str], vip: str | None = None) -> dict[str, Any]:
+        net: dict[str, Any] = {"$objectType": "files.v4.config.Network",
+                               "virtualNetworkName": name, "isManaged": True,
+                               "ipAddresses": [_files_ip(x) for x in ips]}
+        if vip:
+            net["virtualIpAddress"] = _files_ip(vip)
+        return net
+
+    vms = fs["vms"]
+    return _v4("files.v4.config.FileServer", {
+        "extId": fs["uuid"], "name": fs["name"], "clusterExtId": fs["cluster_uuid"],
+        "version": fs["version"], "nvmsCount": fs["fsvms"], "vcpus": fs["vcpus"],
+        "memoryGib": fs["memory_gib"], "memoryGiBytes": fs["memory_gib"],
+        "sizeInGib": fs["size_gib"], "sizeGiBytes": fs["size_gib"],
+        "dnsDomainName": fs["dns_domain"],
+        "dnsServers": [{"value": x} for x in fs["dns_servers"]],
+        "ntpServers": [{"fqdn": {"value": x}} for x in fs["ntp_servers"]],
+        "externalNetworks": [network(fs["external"], [v["client_ip"] for v in vms])],
+        "internalNetworks": [network(fs["internal"], [v["storage_ip"] for v in vms],
+                                     fs["storage_vip"])],
+        "platformType": "ON_PREM", "deploymentType": "PRISM_CENTRAL",
+        "vms": [{"$objectType": "files.v4.config.FileServerVM", "extId": v["uuid"],
+                 "name": v["name"], "vcpus": fs["vcpus"], "memoryGib": fs["memory_gib"],
+                 "externalNetworks": [{"ipAddresses": [_files_ip(v["client_ip"])]}],
+                 "internalNetworks": [{"ipAddresses": [_files_ip(v["storage_ip"])]}]}
+                for v in vms],
+    })
+
+
+def _series(value: int) -> list[dict[str, Any]]:
+    return [{"timestamp": "2026-01-01T00:00:00Z", "value": value}]
+
+
+def file_server_stats_v4(fs: dict[str, Any]) -> dict[str, Any]:
+    return _v4("files.v4.stats.FileServerStats", {
+        "extId": fs["uuid"], "totalSpaceUsedBytes": _series(fs["used"]),
+        "datasetSpaceUsedBytes": _series(fs["used"]), "numberOfFiles": _series(fs["files"]),
+        "numberOfConnections": _series(4)})
+
+
+def file_share_stats_v4(sh: dict[str, Any]) -> dict[str, Any]:
+    return _v4("files.v4.stats.MountTargetStats", {
+        "extId": sh["uuid"], "usedBytes": _series(sh["used"]),
+        "physicalUsedBytes": _series(sh["used"]), "numberOfFiles": _series(sh["files"])})
+
+
+def fsvm_v3(fs: dict[str, Any], vm: dict[str, Any]) -> dict[str, Any]:
+    """`GET v3 vms/{uuid}` of an FSVM: the fields the Files collector reads."""
+    return {"metadata": {"kind": "vm", "uuid": vm["uuid"]}, "spec": {"name": vm["name"]},
+            "status": {"name": vm["name"],
+                       "cluster_reference": ref("cluster", vm["cluster_uuid"],
+                                                vm["cluster_name"]),
+                       "resources": {"num_sockets": fs["vcpus"], "num_vcpus_per_socket": 1,
+                                     "memory_size_mib": fs["memory_gib"] * 1024,
+                                     "power_state": "ON",
+                                     "host_reference": ref("host", None, vm["host"])}}}
+
+
 def object_store_v4(o: dict[str, Any]) -> dict[str, Any]:
     ip = lambda v: {"ipv4": {"value": v, "prefixLength": 32}}  # noqa: E731
     return _v4("objects.v4.config.ObjectStore", {

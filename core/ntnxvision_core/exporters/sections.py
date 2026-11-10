@@ -164,6 +164,7 @@ SHEET_SECTION: dict[str, str] = {
     "service_groups": "security",
     "address_groups": "security",
     "file_servers": "nus",
+    "file_server_vms": "nus",
     "file_shares": "nus",
     "object_stores": "nus",
     "buckets": "nus",

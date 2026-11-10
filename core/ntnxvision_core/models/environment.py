@@ -595,6 +595,8 @@ class LicenseInfo(SourcedObject):
     category: str | None = None
     expiry: str | None = None
     quantity: int | None = None
+    #: What `quantity` counts (CORES, TIB, VMS…) when the API says.
+    unit: str | None = None
     compliance: str | None = None
 
 
@@ -1067,12 +1069,41 @@ class FileServer(SourcedObject):
     cluster_name: str | None = None
     version: str | None = None
     num_fsvm: int | None = None
+    cluster_uuid: str | None = None
+    #: Files names the networks from the FSVMs' side: internal = the storage network (to
+    #: the CVMs), external = the client network (SMB / NFS clients).
     internal_network: str | None = None
     external_network: str | None = None
+    storage_vip: str | None = None  # the internal (storage) network's virtual IP
+    dns_domain: str | None = None
+    dns_servers: list[str] = Field(default_factory=list)
+    ntp_servers: list[str] = Field(default_factory=list)
+    fsvm_vcpus: int | None = None  # per FSVM
+    fsvm_memory_bytes: int | None = None  # per FSVM
     size_bytes: int | None = None
     used_bytes: int | None = None
+    file_count: int | None = None
     share_count: int | None = None
     api_source: str = "v3"
+
+
+class FileServerVm(SourcedObject):
+    """One file server VM (FSVM) of a Nutanix Files file server."""
+
+    uuid: str  # the FSVM's VM uuid
+    name: str | None = None
+    cluster_name: str | None = None
+    cluster_uuid: str | None = None
+    file_server_name: str | None = None
+    file_server_uuid: str | None = None
+    client_ips: list[str] = Field(default_factory=list)  # external (client) network
+    storage_ips: list[str] = Field(default_factory=list)  # internal (storage) network
+    num_vcpus: int | None = None
+    memory_bytes: int | None = None
+    host_name: str | None = None
+    power_state: str | None = None
+    version: str | None = None  # the file server's Files version
+    api_source: str = "v4"
 
 
 class FileShare(SourcedObject):
@@ -1082,6 +1113,7 @@ class FileShare(SourcedObject):
     share_type: str | None = None  # v3: SMB / NFS; v4: Standard / Distributed
     max_size_bytes: int | None = None
     used_bytes: int | None = None
+    file_count: int | None = None
     protocol: str | None = None
     path: str | None = None
     description: str | None = None
@@ -1148,6 +1180,34 @@ class VolumeGroup(SourcedObject):
 
 
 # ─── NDB — Nutanix Database Service ────────────────────────────────────
+
+
+class NdbAppliance(SourcedObject):
+    """The NDB control plane itself: the NDB server VM(s) the Era API runs on.
+
+    From ``downloads/versions`` (the "ERA Server" component), ``ha``, ``config/era-server``
+    and ``config/about-era``; any of them may be missing on an older NDB.
+    """
+
+    id: str
+    name: str | None = None  # the NDB server VM's name
+    host: str | None = None  # the address NTNXVision connected to
+    version: str | None = None  # "2.5.1.1"
+    build: str | None = None  # build id (a commit hash)
+    build_date: str | None = None
+    cluster_name: str | None = None  # the Nutanix cluster the NDB server VM runs on
+    ip_addresses: list[str] = Field(default_factory=list)
+    ha_enabled: bool | None = None
+    ha_status: str | None = None  # NDB service HA status as reported ("invalid" when off)
+    cluster_ip: str | None = None  # the HA virtual IP
+    server_vms: list[str] = Field(default_factory=list)  # NDB server VM hostnames
+    registered_clusters: int | None = None
+    multi_cluster: bool | None = None
+    timezone: str | None = None
+    dns_servers: list[str] = Field(default_factory=list)
+    ntp_servers: list[str] = Field(default_factory=list)
+    smtp_server: str | None = None  # "host:port" (no SMTP credentials are kept)
+    api_source: str = "ndb"
 
 
 class DatabaseServer(SourcedObject):
@@ -1797,12 +1857,14 @@ class Environment(_Base):
 
     # ─ Phase 2: NUS (Files / Objects / Volumes) ─
     file_servers: list[FileServer] = Field(default_factory=list)
+    file_server_vms: list[FileServerVm] = Field(default_factory=list)
     file_shares: list[FileShare] = Field(default_factory=list)
     object_stores: list[ObjectStore] = Field(default_factory=list)
     buckets: list[Bucket] = Field(default_factory=list)
     volume_groups: list[VolumeGroup] = Field(default_factory=list)
 
     # ─ Phase 2: NDB ─
+    ndb_appliances: list[NdbAppliance] = Field(default_factory=list)
     database_servers: list[DatabaseServer] = Field(default_factory=list)
     databases: list[Database] = Field(default_factory=list)
     time_machines: list[TimeMachine] = Field(default_factory=list)
@@ -1897,10 +1959,12 @@ class Environment(_Base):
             "address_groups": len(self.address_groups),
             "vpcs": len(self.vpcs),
             "file_servers": len(self.file_servers),
+            "file_server_vms": len(self.file_server_vms),
             "file_shares": len(self.file_shares),
             "object_stores": len(self.object_stores),
             "buckets": len(self.buckets),
             "volume_groups": len(self.volume_groups),
+            "ndb_appliances": len(self.ndb_appliances),
             "database_servers": len(self.database_servers),
             "databases": len(self.databases),
             "time_machines": len(self.time_machines),

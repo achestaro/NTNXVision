@@ -87,6 +87,8 @@ def test_ndb(demo: Any) -> None:
     r = check({"mode": "ndb", "host": "ndb.demo.local", "username": "admin",
                "password": "x", "insecure": False})
     assert r["status"] == "ok" and "12 database servers" in r["detail"]
+    # The version comes from `downloads/versions` (NDB 2.5 has no `about`).
+    assert r["version"] == "2.5.6" and r["message"] == "Connected to NDB 2.5.6"
 
 
 def test_missing_host_is_an_error_result() -> None:

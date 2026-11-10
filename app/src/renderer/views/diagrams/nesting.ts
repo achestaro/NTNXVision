@@ -2,7 +2,9 @@
 // defined once, in the core (diagrams/nesting.py CHILDREN, sent as each icon's
 // `children`); the arrangement (slots, growth, wrapping a collected zone) is the core's
 // too. This file only answers the editor's questions: what a new icon goes into given
-// the selection, and which container a dragged icon is dropped into.
+// the selection (the selection itself, or the nearest element around it, that may hold it),
+// which container a dragged icon is dropped into, and which related element (a Prism
+// Central for a cluster: core RELATED, sent as each icon's `links`) it is connected to instead.
 
 import type { DiagramElement, DiagramIcon, DiagramPlacedMeta, DiagramScene, SceneNode } from '@shared/ipc';
 
@@ -32,6 +34,32 @@ export function holds(ctx: NestContext, parent: string | null, child: string | n
   return !!parent && !!child && (ctx.icons.get(parent)?.children ?? []).includes(child);
 }
 
+/** How kind `kind` connects to kind `other` when neither holds the other (core RELATED). */
+export function linkOf(ctx: NestContext, kind: string | null, other: string | null): { label: string; out: boolean } | null {
+  return (kind && other && ctx.icons.get(kind)?.links?.[other]) || null;
+}
+
+/** `id`, then each element around it, innermost first: placed parents, then the scene's. */
+export function ancestors(ctx: NestContext, id: string): string[] {
+  const meta = placedMeta(ctx.scene);
+  const out: string[] = [];
+  for (let cur: string | null | undefined = id, i = 0; cur && i < 64 && !out.includes(cur); i++) {
+    out.push(cur);
+    cur = meta[cur]?.parent ?? ctx.scene.nodes.find((n) => n.id === cur)?.parent;
+  }
+  return out;
+}
+
+/** The innermost of `id` and the elements around it that may hold kind `kind`. */
+export function holderFor(ctx: NestContext, id: string, kind: string | null): string | null {
+  return ancestors(ctx, id).find((a) => holds(ctx, kindOf(ctx, a), kind)) ?? null;
+}
+
+/** Whether a connector already joins `a` and `b`, either way round. */
+export function joined(scene: DiagramScene, a: string, b: string): boolean {
+  return scene.edges.some((e) => (e.src === a && e.dst === b) || (e.src === b && e.dst === a));
+}
+
 /** What the figure calls an element: its label, else its first text line, else its kind. */
 export function nameOf(ctx: NestContext, id: string): string {
   const el = ctx.outline.get(id);
@@ -48,8 +76,37 @@ export function aKind(ctx: NestContext, kind: string | null): string {
   return `${/^[aeiouAEIOU]/.test(lower) && !/^(NC2|VPC)/.test(lower) ? 'an' : 'a'} ${lower}`;
 }
 
+/**
+ * A related pair (a cluster put on a Prism Central): the icon goes into `parent`, the
+ * nearest element around `target` that may hold it (null: beside `target`), and a
+ * connector labelled `label` joins the two, from the icon when `out`.
+ */
+export interface LinkPlan {
+  mode: 'link';
+  target: string;
+  parent: string | null;
+  label: string;
+  out: boolean;
+}
+
+/** "Cluster added into AZ01 and connected to Prism Central (Manages)." */
+function linkHint(ctx: NestContext, what: string, plan: Omit<LinkPlan, 'mode'>, verb: string): string {
+  const where = plan.parent ? ` into ${nameOf(ctx, plan.parent)}` : ' beside it';
+  return `${what} ${verb}${where} and connected to ${nameOf(ctx, plan.target)} (${plan.label}).`;
+}
+
+/** The link plan for an element of kind `kind` put on `target`, if they are related. */
+function planLink(ctx: NestContext, kind: string | null, target: string, self?: string): Omit<LinkPlan, 'mode'> | null {
+  const rel = linkOf(ctx, kind, kindOf(ctx, target));
+  if (!rel || target === self) return null;
+  const above = ancestors(ctx, target).slice(1);
+  const parent = above.find((a) => a !== self && holds(ctx, kindOf(ctx, a), kind)) ?? null;
+  return { target, parent, label: rel.label, out: rel.out };
+}
+
 export type AddPlan =
   | { mode: 'into'; parent: string; hint: string }
+  | (LinkPlan & { x: number; y: number; hint: string })
   | { mode: 'wrap'; target: string; hint: string }
   | { mode: 'adopt'; child: string; hint: string }
   | { mode: 'beside'; x: number; y: number; hint: string }
@@ -59,15 +116,23 @@ const isTop = (ctx: NestContext, n: SceneNode) => !n.parent && !ctx.outline.get(
 
 /**
  * Where a new icon goes, given the selection: into the selected element when the
- * hierarchy allows it; around it when the new icon is a frame that may hold the selected
- * collected top-level frame (a datacenter around the zone); else beside it, with a quiet
- * hint; with nothing selected, anywhere free.
+ * hierarchy allows it; next to it and connected when the two are related (a cluster
+ * with a Prism Central selected goes into the PC's zone, managed by it); around it when
+ * the new icon is a frame that may hold the selected collected top-level frame (a
+ * datacenter around the zone); into the nearest element around the selection that may
+ * hold it (a storage container with a cluster's nodes selected goes into the cluster);
+ * else beside it, with a quiet hint; with nothing selected, anywhere free.
  */
 export function planAdd(ctx: NestContext, icon: DiagramIcon, selected: string | null, w: number, h: number): AddPlan {
   const n = selected ? ctx.scene.nodes.find((o) => o.id === selected) : undefined;
   if (!selected || !n) return { mode: 'free' };
   const k = kindOf(ctx, selected);
   if (holds(ctx, k, icon.id)) return { mode: 'into', parent: selected, hint: `${icon.label} added into ${nameOf(ctx, selected)}.` };
+  const link = planLink(ctx, icon.id, selected);
+  if (link) {
+    const [x, y] = link.parent ? [Math.round(n.x), Math.round(n.y)] : besideSpot(ctx.scene, n, w, h);
+    return { mode: 'link', ...link, x, y, hint: linkHint(ctx, icon.label, link, 'added') };
+  }
   const meta = placedMeta(ctx.scene)[selected];
   if (icon.container && isTop(ctx, n) && k && holds(ctx, icon.id, k) && !meta)
     return { mode: 'wrap', target: selected, hint: `${icon.label} drawn around ${nameOf(ctx, selected)}.` };
@@ -75,6 +140,8 @@ export function planAdd(ctx: NestContext, icon: DiagramIcon, selected: string | 
   // region): the frame goes where it is and takes it in.
   if (icon.container && ctx.outline.get(selected)?.free && meta && !meta.parent && !(meta.wraps ?? []).length && holds(ctx, icon.id, k))
     return { mode: 'adopt', child: selected, hint: `${icon.label} drawn around ${nameOf(ctx, selected)}.` };
+  const up = holderFor(ctx, selected, icon.id);
+  if (up) return { mode: 'into', parent: up, hint: `${icon.label} added into ${nameOf(ctx, up)}.` };
   // Beside the outermost frame around the selection, so it never looks nested.
   let top = n;
   for (let p = n.parent, i = 0; p && i < 64; i++) {
@@ -90,6 +157,18 @@ export function planAdd(ctx: NestContext, icon: DiagramIcon, selected: string | 
     y,
     hint: `${aKind(ctx, icon.id)[0].toUpperCase()}${aKind(ctx, icon.id).slice(1)} can’t go inside ${aKind(ctx, k)}, so it is placed beside it.`,
   };
+}
+
+/**
+ * What adding kind `kind` with `selected` selected does, for the picker's tag: "into
+ * Cluster A", "connects to PC (Manages)", or null when it is placed beside it.
+ */
+export function fitFor(ctx: NestContext, selected: string, kind: string): string | null {
+  if (holds(ctx, kindOf(ctx, selected), kind)) return `into ${nameOf(ctx, selected)}`;
+  const link = planLink(ctx, kind, selected);
+  if (link) return `connects to ${nameOf(ctx, selected)}`;
+  const up = holderFor(ctx, selected, kind);
+  return up ? `into ${nameOf(ctx, up)}` : null;
 }
 
 /** A clear spot right of `n` (else under it) for a `w` x `h` icon, in scene points. */
@@ -222,6 +301,7 @@ export function subtreeOf(scene: DiagramScene, id: string): Set<string> {
 
 export type DropPlan =
   | { mode: 'into'; parent: string; label: string }
+  | (LinkPlan & { hint: string })
   | { mode: 'out'; from: string; label: string }
   | { mode: 'wrap'; target: string; label: string }
   | { mode: 'refused'; target: string; label: string }
@@ -230,7 +310,9 @@ export type DropPlan =
 
 /**
  * What a placed icon dragged to scene point (x, y) does on drop: go into the innermost
- * element under the pointer that may hold it; out of its parent when dropped outside it;
+ * element under the pointer when that may hold it; connect to it when the two are
+ * related (into the nearest element around it that may hold the icon, else beside it);
+ * else go into the innermost element under the pointer that may hold it; out of its parent when dropped outside it;
  * around a collected top-level frame it may hold (a datacenter dropped on the zone);
  * stay (its parent's slots place it); or move freely.
  */
@@ -243,6 +325,12 @@ export function planDrop(ctx: NestContext, id: string, x: number, y: number): Dr
     .filter((n) => !skip.has(n.id) && (n.kind === 'box' || n.kind === 'container') && !n.id.startsWith('legend:') && x >= n.x && x <= n.x + n.w && y >= n.y && y <= n.y + n.h)
     .sort((a, b) => a.w * a.h - b.w * b.h);
   const parent = mine?.parent ?? null;
+  const first = under[0];
+  if (first && !holds(ctx, kindOf(ctx, first.id), kind)) {
+    const link = planLink(ctx, kind, first.id, id);
+    if (link && !joined(ctx.scene, id, first.id))
+      return { mode: 'link', ...link, hint: linkHint(ctx, nameOf(ctx, id), link, 'moved') };
+  }
   const into = under.find((n) => holds(ctx, kindOf(ctx, n.id), kind));
   if (into) {
     if (into.id === parent) return { mode: 'stay' };

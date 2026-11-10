@@ -13,7 +13,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { DiagramConnector, DiagramElement, DiagramScene, DiagramSide, SceneEdge, SceneNode, SceneStyle, SceneTextLine } from '@shared/ipc';
 import { isMod } from '../../lib/keyboard';
 import { clearDrop, nameOf, placedMeta, planDrop, subtreeOf } from './nesting';
-import type { DropPlan, NestContext } from './nesting';
+import type { DropPlan, LinkPlan, NestContext } from './nesting';
 import { edgeMarks, trimmedPoints } from './arrowheads';
 import type { CanvasBg, GridMode } from './CanvasOptions';
 import { ProductArt, productIcon } from './productIcons';
@@ -78,6 +78,11 @@ export interface CanvasProps {
   nest?: NestContext | null;
   /** A placed icon dropped into `parent` (null: out of its parent, free at x, y). */
   onNest?(id: string, parent: string | null, x: number, y: number): void;
+  /**
+   * A placed icon dropped on an element it is related to (a cluster on a Prism Central):
+   * into `plan.parent` (null: free at x, y, beside it) and connected to `plan.target`.
+   */
+  onLink?(id: string, plan: LinkPlan & { hint: string }, x: number, y: number): void;
   /** A placed frame dropped on a collected top-level frame it may hold: drawn around it. */
   onWrap?(id: string, target: string, x: number, y: number): void;
   /** A quiet line for the toolbar (a drop that could not nest). */
@@ -547,6 +552,11 @@ export function SceneCanvas(props: CanvasProps): React.JSX.Element {
           const ny = n.y + d.dy;
           if (plan.mode === 'into') props.onNest?.(d.id, plan.parent, nx, ny);
           else if (plan.mode === 'wrap') props.onWrap?.(d.id, plan.target, nx, ny);
+        } else if (n && d.active && plan?.mode === 'link') {
+          // Related (a cluster on a Prism Central): into the element around the target
+          // that may hold it, else beside the target, never on top of it; connected.
+          const spot = plan.parent ? { x: n.x + d.dx, y: n.y + d.dy } : clearDrop(scene, { x: n.x + d.dx, y: n.y + d.dy, w: n.w, h: n.h }, subtreeOf(scene, d.id));
+          props.onLink?.(d.id, plan, spot.x, spot.y);
         } else if (n && d.active && (d.dx || d.dy || plan?.mode === 'out' || plan?.mode === 'refused')) {
           // A free drop never lands on top of another item: the dragged one moves aside
           // (one edit list, so one undo step).
@@ -933,6 +943,8 @@ export function SceneCanvas(props: CanvasProps): React.JSX.Element {
       if (n) {
         const at = { x: n.x + freeDrag.dx, y: n.y + freeDrag.dy + n.h + 10 };
         if (pl?.mode === 'into') return { ...at, text: `Drop into ${pl.label}`, warn: false };
+        if (pl?.mode === 'link')
+          return { ...at, text: `Drop to connect to ${props.nest ? nameOf(props.nest, pl.target) : 'it'} (${pl.label})${pl.parent && props.nest ? `, in ${nameOf(props.nest, pl.parent)}` : ''}`, warn: false };
         if (pl?.mode === 'out') return { ...at, text: `Drop to take it out of ${pl.label}`, warn: false };
         if (pl?.mode === 'wrap') return { ...at, text: `Drop to draw it around ${pl.label}`, warn: false };
         if (pl?.mode === 'stay') return { ...at, text: 'Drop to keep it in its place', warn: false };
@@ -1115,9 +1127,9 @@ export function SceneCanvas(props: CanvasProps): React.JSX.Element {
             );
           })}
         {/* The drop target of a dragged placed icon. */}
-        {freeDrag?.plan && (freeDrag.plan.mode === 'into' || freeDrag.plan.mode === 'wrap' || freeDrag.plan.mode === 'out') && (() => {
+        {freeDrag?.plan && (freeDrag.plan.mode === 'into' || freeDrag.plan.mode === 'wrap' || freeDrag.plan.mode === 'out' || freeDrag.plan.mode === 'link') && (() => {
           const pl = freeDrag.plan;
-          const t = byId.get(pl.mode === 'into' ? pl.parent : pl.mode === 'wrap' ? pl.target : pl.from);
+          const t = byId.get(pl.mode === 'into' ? pl.parent : pl.mode === 'wrap' || pl.mode === 'link' ? pl.target : pl.from);
           if (!t) return null;
           return <rect className={pl.mode === 'out' ? 'dg-drop-target out' : 'dg-drop-target'} x={t.x - 2} y={t.y - 2} width={t.w + 4} height={t.h + 4} rx={4} strokeWidth={1.4 / zoom} />;
         })()}

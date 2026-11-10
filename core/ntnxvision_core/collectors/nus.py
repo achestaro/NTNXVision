@@ -13,10 +13,27 @@ Objects is not enabled. When v3 has no file server list (pc.7.5 answers 404) but
 file servers, those are recorded from v4: the v4 file server carries only its name, so the
 cluster, Files version, FSVM count and usage come from the groups entity
 `file_server_service`, and the shares from each server's v4 mount targets.
+
+Checked against Files 5.3.0.3 on pc.7.5.1.6 (2026-11-06). Wherever Files v4 answers (either
+path), each server is enriched from:
+
+* ``files/v4.0.a2/config/file-servers``: the only Files namespace that returns the full file
+  server (``files/v4.0`` answers extId and name only, even with ``$select=*``): cluster,
+  networks (``externalNetworks`` = client, ``internalNetworks`` = storage, with the storage
+  VIP), DNS domain / servers, NTP, per-FSVM vCPU / memory, size, and ``vms``: one entry per
+  FSVM with its name, VM uuid and client / storage IPs. There is no FSVM sub-resource.
+* the FSVMs' own VM records (already collected VMs, else ``GET v3 vms/{uuid}``) for the host
+  and power state. Without the a2 namespace the FSVMs come from the groups entity
+  ``file_server_service`` (``nvm_uuid_list`` holds their VM uuids) and those VM records.
+* ``files/v4.0/stats/file-servers/{id}`` and ``.../mount-targets/{id}`` with ``$select=*``
+  (without it only the file count and latency come back): used bytes and file counts, as
+  one-point time series (the latest point is kept). Neither the mount target nor any groups
+  entity (``file_server_share``) carries usage, so the shares' used space comes only from here.
 """
 
 from __future__ import annotations
 
+from types import SimpleNamespace
 from typing import Any
 
 from ntnxvision_core.api import v4_client
@@ -25,6 +42,7 @@ from ntnxvision_core.collectors.base import Collector
 from ntnxvision_core.models import (
     Bucket,
     FileServer,
+    FileServerVm,
     FileShare,
     ObjectStore,
     PlatformService,
@@ -32,6 +50,9 @@ from ntnxvision_core.models import (
 )
 
 FILE_SERVERS_V4 = "files/v4.0/config/file-servers"
+#: The full file server (networks, DNS, FSVMs); `files/v4.0` returns extId and name only.
+FILE_SERVERS_A2 = "files/v4.0.a2/config/file-servers"
+FILES_STATS_V4 = "files/v4.0/stats/file-servers"
 FILE_SERVER_GROUP_ATTRS = ["name", "cluster_name", "afs_version", "nvm_uuid_list",
                            "last_used_size_bytes"]
 SHARE_TYPES = {"GENERAL": "Standard", "HOMES": "Distributed"}
@@ -122,6 +143,8 @@ class FilesCollector(Collector):
         self._shares(env)
         for fs in env.file_servers:
             fs.share_count = sum(1 for s in env.file_shares if s.file_server_name == fs.name)
+        if v4:
+            self._enrich(env, self._server_groups())
         status, _reason, api = _service_status(self.conn, "files", len(servers), "v3")
         record_service(env, "FILES", status, len(servers), api)
         env.collection_notes[self.name] = "ok"
@@ -149,7 +172,130 @@ class FilesCollector(Collector):
             self._v4_shares(env, uuid, row.get("name"))
         for fs in env.file_servers:
             fs.share_count = sum(1 for s in env.file_shares if s.file_server_name == fs.name)
+        self._enrich(env, extra)
         return len(rows)
+
+    # ─── enrichment (Files v4) ─────────────────────────────────────
+
+    def _enrich(self, env: Any, groups: dict[str, dict[str, Any]]) -> None:
+        """FSVMs, networks, DNS and usage of every collected file server (best effort)."""
+        try:
+            full = {str(r.get("extId")): r for r in self.conn.v4_list(FILE_SERVERS_A2)}
+        except Exception:  # noqa: BLE001 — the a2 namespace is optional enrichment
+            full = {}
+        vms = {v.uuid: v for v in [*env.vms, *env.system_vms] if v.uuid}
+        # Collected VMs get their host name only when the run resolves references (after
+        # every collector): name the host from the hosts already collected.
+        hosts = {h.uuid: h.name for h in env.hosts if h.uuid and h.name}
+        for vm in vms.values():
+            if not vm.host_name and vm.host_uuid in hosts:
+                vms[vm.uuid] = vm.model_copy(update={"host_name": hosts[vm.host_uuid]})
+        for fs in env.file_servers:
+            detail = full.get(fs.uuid)
+            if detail:
+                self._apply_detail(fs, detail)
+            fsvms = self._fsvms(fs, detail, groups.get(fs.uuid, {}), vms)
+            env.file_server_vms.extend(fsvms)
+            if fsvms and not fs.num_fsvm:
+                fs.num_fsvm = len(fsvms)
+            self._server_stats(fs)
+        servers = {fs.name: fs.uuid for fs in env.file_servers}
+        for share in env.file_shares:
+            server = servers.get(share.file_server_name)
+            if server and share.uuid:
+                self._share_stats(share, server)
+
+    @staticmethod
+    def _apply_detail(fs: FileServer, d: dict[str, Any]) -> None:
+        external = d.get("externalNetworks") or []
+        internal = d.get("internalNetworks") or []
+        fs.cluster_uuid = fs.cluster_uuid or d.get("clusterExtId")
+        fs.version = fs.version or d.get("version")
+        fs.num_fsvm = fs.num_fsvm or _as_int(d.get("nvmsCount"))
+        fs.external_network = fs.external_network or _v4_net_name(external)
+        fs.internal_network = fs.internal_network or _v4_net_name(internal)
+        fs.storage_vip = next((ip for ip in (_ip(n.get("virtualIpAddress")) for n in internal)
+                               if ip), None)
+        fs.dns_domain = d.get("dnsDomainName") or None
+        fs.dns_servers = [x for x in (_addr(a) for a in d.get("dnsServers") or []) if x]
+        fs.ntp_servers = [x for x in (_addr(a) for a in d.get("ntpServers") or []) if x]
+        fs.fsvm_vcpus = _as_int(d.get("vcpus"))
+        memory = d.get("memoryGib", d.get("memoryGiBytes"))
+        fs.fsvm_memory_bytes = _as_int(memory, scale=1024**3)
+        size = d.get("sizeInGib", d.get("sizeGiBytes"))
+        fs.size_bytes = fs.size_bytes or _as_int(size, scale=1024**3)
+
+    def _fsvms(self, fs: FileServer, detail: dict[str, Any] | None, group: dict[str, Any],
+               vms: dict[str, Any]) -> list[FileServerVm]:
+        entries = list((detail or {}).get("vms") or [])
+        if not entries:
+            entries = [{"extId": u} for u in group.get("nvm_uuid_list") or [] if u]
+        out = []
+        for e in entries:
+            uuid = str(e.get("extId") or "")
+            if not uuid:
+                continue
+            vm = vms.get(uuid)
+            if vm is None or not vm.host_name:
+                vm = self._vm(uuid) or vm
+            memory = e.get("memoryGib", e.get("memoryGiBytes"))
+            out.append(FileServerVm(
+                uuid=uuid,
+                name=e.get("name") or getattr(vm, "name", None),
+                cluster_name=fs.cluster_name or getattr(vm, "cluster_name", None),
+                cluster_uuid=fs.cluster_uuid or getattr(vm, "cluster_uuid", None),
+                file_server_name=fs.name,
+                file_server_uuid=fs.uuid,
+                client_ips=_nic_ips(e.get("externalNetworks")),
+                storage_ips=_nic_ips(e.get("internalNetworks")),
+                num_vcpus=_as_int(e.get("vcpus")) or getattr(vm, "num_vcpus", None),
+                memory_bytes=_as_int(memory, scale=1024**3) or getattr(vm, "memory_bytes", None),
+                host_name=getattr(vm, "host_name", None),
+                power_state=getattr(vm, "power_state", None),
+                version=fs.version,
+                api_source="v4" if detail else "v3",
+            ))
+        return out
+
+    def _vm(self, uuid: str) -> Any:
+        """An FSVM's VM record (host, power state, sizing) when the VMs were not collected."""
+        try:
+            entity = self.conn.get_json(f"{self.conn.creds.base}/api/nutanix/v3/vms/{uuid}")
+        except Exception:  # noqa: BLE001 — host / power state stay unknown
+            return None
+        status = entity.get("status") or {}
+        res = status.get("resources") or {}
+        sockets, per = res.get("num_sockets"), res.get("num_vcpus_per_socket") or 1
+        return SimpleNamespace(
+            name=status.get("name"),
+            cluster_name=(status.get("cluster_reference") or {}).get("name"),
+            cluster_uuid=(status.get("cluster_reference") or {}).get("uuid"),
+            num_vcpus=sockets * per if isinstance(sockets, int) else None,
+            memory_bytes=_as_int(res.get("memory_size_mib"), scale=1024**2),
+            host_name=(res.get("host_reference") or {}).get("name"),
+            power_state=res.get("power_state"),
+        )
+
+    def _server_stats(self, fs: FileServer) -> None:
+        stats = self._stats(f"{FILES_STATS_V4}/{fs.uuid}")
+        used = _latest(stats.get("totalSpaceUsedBytes"))
+        if used is not None:
+            fs.used_bytes = used  # the sum of its shares' usedBytes (groups' figure is not)
+        fs.file_count = _latest(stats.get("numberOfFiles"))
+
+    def _share_stats(self, share: FileShare, server_uuid: str) -> None:
+        stats = self._stats(f"{FILES_STATS_V4}/{server_uuid}/mount-targets/{share.uuid}")
+        used = _latest(stats.get("usedBytes"))
+        if used is not None:
+            share.used_bytes = used
+        share.file_count = _latest(stats.get("numberOfFiles"))
+
+    def _stats(self, path: str) -> dict[str, Any]:
+        try:
+            data = self.conn.v4_get(path, params={"$select": "*"}).get("data")
+        except Exception:  # noqa: BLE001 — usage is enrichment only
+            return {}
+        return data if isinstance(data, dict) else {}
 
     def _server_groups(self) -> dict[str, dict[str, Any]]:
         try:
@@ -497,6 +643,36 @@ class VolumesCollector(Collector):
 
 
 # ─── helpers ───────────────────────────────────────────────────────────
+
+
+def _latest(series: Any) -> int | None:
+    """The newest value of a v4 stats time series (``[{timestamp, value}, ...]``)."""
+    if not isinstance(series, list):
+        return None
+    points = [p for p in series if isinstance(p, dict) and p.get("value") is not None]
+    if not points:
+        return None
+    return _as_int(max(points, key=lambda p: str(p.get("timestamp") or ""))["value"])
+
+
+def _addr(value: Any) -> str | None:
+    """An IPv4Address, IPAddress or IPAddressOrFQDN as text."""
+    if not isinstance(value, dict):
+        return None
+    if value.get("value"):
+        return str(value["value"])
+    fqdn = value.get("fqdn") or {}
+    return fqdn.get("value") or _ip(value)
+
+
+def _nic_ips(nics: Any) -> list[str]:
+    return [ip for n in nics or [] for ip in (_addr(a) for a in n.get("ipAddresses") or [])
+            if ip]
+
+
+def _v4_net_name(networks: list[dict[str, Any]]) -> str | None:
+    return next((n.get("virtualNetworkName") for n in networks if n.get("virtualNetworkName")),
+                None)
 
 
 def _enabled(value: Any) -> bool | None:

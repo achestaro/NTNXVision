@@ -109,6 +109,7 @@ export const OBJECT_TYPE_MARK: Record<string, NutanixMarkName> = {
   service_groups: 'policies',
   address_groups: 'policies',
   file_servers: 'acropolis-file-services',
+  file_server_vms: 'acropolis-file-services',
   file_shares: 'acropolis-file-services',
   object_stores: 'objects',
   buckets: 'objects',

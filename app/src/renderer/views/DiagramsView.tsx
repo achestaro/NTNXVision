@@ -53,7 +53,7 @@ import type { CanvasTool } from './diagrams/SceneCanvas';
 import { IconPicker } from './diagrams/IconPicker';
 import { ConnectorsMenu } from './diagrams/ConnectorsMenu';
 import type { PickerChoice } from './diagrams/IconPicker';
-import { holds, kindOf, nameOf, originOf, placedMeta, planAdd, unwarp } from './diagrams/nesting';
+import { fitFor, holds, kindOf, nameOf, originOf, placedMeta, planAdd, unwarp } from './diagrams/nesting';
 import { gridBackground } from './diagrams/CanvasGrid';
 import type { NestContext } from './diagrams/nesting';
 // ─ canvas chrome: view options, legend overlay, context menu, wheel zoom ─
@@ -838,6 +838,14 @@ export function DiagramsView({ snapshot: snapProp, type: typeProp, part: partPro
         return { op: 'position', id: m.id, x: Math.round(x * 2) / 2, y: Math.round(y * 2) / 2, ...(m.w !== undefined ? { w: m.w } : {}), ...(m.h !== undefined ? { h: m.h } : {}) };
       }),
     );
+  /** The connector a related pair gets (a Prism Central managing a cluster). */
+  const linkOp = (id: string, plan: { target: string; label: string; out: boolean }): DiagramOp => ({
+    op: 'connect',
+    id: newId(),
+    a: plan.out ? id : plan.target,
+    b: plan.out ? plan.target : id,
+    label: plan.label,
+  });
   const placeIcon = (icon: DiagramIcon) => {
     if (!scene) return;
     // The legend's place counts even while it is hidden: the icon goes above it.
@@ -850,7 +858,7 @@ export function DiagramsView({ snapshot: snapProp, type: typeProp, part: partPro
     const plan = nest ? planAdd(nest, icon, selected, w, h) : ({ mode: 'free' } as const);
     const sn = selected ? scene.nodes.find((n) => n.id === selected) : undefined;
     const [fx, fy] =
-      plan.mode === 'beside'
+      plan.mode === 'beside' || plan.mode === 'link'
         ? [plan.x, plan.y]
         : plan.mode === 'free' || !sn
           ? freeSpot(scene.nodes, scene.width, scene.height, w, h, scene.edges, icon.container, maxX)
@@ -858,11 +866,19 @@ export function DiagramsView({ snapshot: snapProp, type: typeProp, part: partPro
     const [x, y] = unwarp(scene, fx, fy).map(Math.round) as [number, number];
     const id = newId();
     // A nested icon takes the size its parent's slots give it; a frame grows to hold.
-    const sized = (w !== icon.w || h !== icon.h) && !(plan.mode === 'into' && icon.container) ? { w, h } : {};
-    const nesting = plan.mode === 'into' ? { parent: plan.parent } : plan.mode === 'wrap' ? { wraps: [plan.target] } : {};
+    const into = plan.mode === 'into' || (plan.mode === 'link' && plan.parent);
+    const sized = (w !== icon.w || h !== icon.h) && !(into && icon.container) ? { w, h } : {};
+    const nesting =
+      plan.mode === 'into' ? { parent: plan.parent } : plan.mode === 'link' && plan.parent ? { parent: plan.parent } : plan.mode === 'wrap' ? { wraps: [plan.target] } : {};
     const placed: DiagramOp = { op: 'place', id, icon: icon.id, scene: scene.id, x, y, ...sized, ...nesting };
-    // A frame drawn around a placed icon on its own takes it in: one step, one undo.
-    const ops: DiagramOp[] = plan.mode === 'adopt' ? [placed, { op: 'position', id: plan.child, x, y, parent: id }] : [placed];
+    // A frame drawn around a placed icon on its own takes it in; a related pair (a
+    // cluster with a Prism Central selected) is connected: one step, one undo.
+    const ops: DiagramOp[] =
+      plan.mode === 'adopt'
+        ? [placed, { op: 'position', id: plan.child, x, y, parent: id }]
+        : plan.mode === 'link'
+          ? [placed, linkOp(id, plan)]
+          : [placed];
     if (apply(ops)) {
       setNestHint(plan.mode === 'free' ? null : plan.hint);
       setSelected(id);
@@ -1101,7 +1117,7 @@ export function DiagramsView({ snapshot: snapProp, type: typeProp, part: partPro
               icons={detail?.icons ?? []}
               disabled={!view || !scene}
               onPick={pickAdd}
-              into={nest && selected && kindOf(nest, selected) ? { label: nameOf(nest, selected), accepts: (k) => holds(nest, kindOf(nest, selected), k) } : null}
+              into={nest && selected && kindOf(nest, selected) ? { label: nameOf(nest, selected), fits: (k) => fitFor(nest, selected, k) } : null}
             />
             <button
               type="button"
@@ -1289,6 +1305,14 @@ export function DiagramsView({ snapshot: snapProp, type: typeProp, part: partPro
                 onNest={(id, parent, fx, fy) => {
                   const [x, y] = unwarp(scene, fx, fy);
                   apply({ op: 'position', id, x: Math.round(x * 2) / 2, y: Math.round(y * 2) / 2, parent });
+                }}
+                onLink={(id, plan, fx, fy) => {
+                  const [x, y] = unwarp(scene, fx, fy);
+                  const ops: DiagramOp[] = [];
+                  if (plan.parent !== (placedMeta(scene)[id]?.parent ?? null) || !plan.parent)
+                    ops.push({ op: 'position', id, x: Math.round(x * 2) / 2, y: Math.round(y * 2) / 2, parent: plan.parent });
+                  ops.push(linkOp(id, plan));
+                  if (apply(ops)) setNestHint(plan.hint);
                 }}
                 onWrap={(id, target, fx, fy) => {
                   const [x, y] = unwarp(scene, fx, fy);

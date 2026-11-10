@@ -103,9 +103,10 @@ export function OverviewView(): React.JSX.Element {
           {o.sunset_areas.length > 0 && (
             <Callout
               tone="warn"
-              title={`${o.sunset_areas.length} ${o.sunset_areas.length === 1 ? 'area still uses a v3 API' : 'areas still use v3 APIs'} that Nutanix retires in Q4 2026.`}
+              title={`${o.sunset_areas.length} ${o.sunset_areas.length === 1 ? 'area depends on a v3 API' : 'areas depend on v3 APIs'} that Nutanix is retiring.`}
             >
-              {listSentence(o.sunset_areas)} will stop collecting after the sunset.{' '}
+              {listSentence(o.sunset_areas)} {o.sunset_areas.length === 1 ? 'collects' : 'collect'} normally today. {o.sunset_areas.length === 1 ? 'It' : 'They'} will come back empty only once
+              your Prism Central no longer serves v3, typically after an upgrade. The app has no cut-off date.{' '}
               <button type="button" className="textlink" onClick={() => navigate({ screen: 'results', snapshot: latest.path })}>
                 See API routing
               </button>
@@ -175,7 +176,7 @@ export function OverviewView(): React.JSX.Element {
 }
 
 function listSentence(items: string[]): string {
-  if (items.length <= 1) return items.join('');
+  if (items.length <= 1) return items.map((i) => `${i.charAt(0).toUpperCase()}${i.slice(1)}`).join('');
   const [first, ...rest] = items;
   const head = [first, ...rest.slice(0, -1)].join(', ');
   return `${head.charAt(0).toUpperCase()}${head.slice(1)} and ${rest[rest.length - 1]}`;

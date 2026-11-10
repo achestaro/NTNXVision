@@ -78,7 +78,8 @@ class Area:
 
 
 #: In *run* order — the order the engine executes collectors (phase 1, then phase 2,
-#: with pc_config last because it sizes the PC from the system VMs).
+#: with pc_config after the VMs because it sizes the PC from the system VMs, and
+#: Health Alerts listed last because it is the one area off by default).
 AREAS: tuple[Area, ...] = (
     Area("clusters", "Clusters", INFRA, ClusterCollector, "clusters", ("clusters",),
          pe_supported=True, v4_area="clusters"),
@@ -105,8 +106,6 @@ AREAS: tuple[Area, ...] = (
          "data_protection", ("protection_policies", "recovery_plans", "availability_zones"),
          v4_area="dataprotection",
          legacy_only=(("Availability zones", "Collected over v3 in this release"),)),
-    Area("alerts", "Health Alerts", OPS, AlertsCollector, "alerts", ("alerts",),
-         v4_area="monitoring"),
     Area("flow_security", "Flow Network Security", PLATFORM, FlowSecurityCollector,
          "flow_security",
          ("security_policies", "categories", "service_groups", "address_groups"),
@@ -115,7 +114,7 @@ AREAS: tuple[Area, ...] = (
          "flow_networking", ("vpcs", "floating_ips"), v4_area=None,
          legacy_only=(("VPCs · floating IPs", "Collected over v3 in this release"),)),
     Area("files", "Nutanix Files", PLATFORM, FilesCollector, "files",
-         ("file_servers", "file_shares"), v4_area=None,
+         ("file_servers", "file_server_vms", "file_shares"), v4_area=None,
          legacy_only=(("Nutanix Files", "Collected over v3 in this release"),)),
     Area("objects", "Nutanix Objects", PLATFORM, ObjectsCollector, "objects",
          ("object_stores", "buckets"), v4_area=None,
@@ -137,6 +136,10 @@ AREAS: tuple[Area, ...] = (
     Area("ovas", "OVAs", INFRA, OvaCollector, "ovas", ("ovas",), v4_area="vms"),
     Area("pc_config", "Prism Central Configuration", OPS, PrismCentralConfigCollector,
          "pc_config", ("pc_registrations", "pc_vms"), v4_area="clusters"),
+    # Off by default: a point-in-time alert list ages fastest of anything collected and is
+    # rarely what a design or migration review is after.
+    Area("alerts", "Health Alerts", OPS, AlertsCollector, "alerts", ("alerts",),
+         v4_area="monitoring", default_on=False),
 )
 
 #: NDB runs only when an NDB endpoint is given; it is not a checkbox in the area list.

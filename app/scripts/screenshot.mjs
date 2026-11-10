@@ -92,6 +92,8 @@ const finishRun = async (p) => {
   await rail(p, 'New collection');
   await p.getByTestId('cluster-list').waitFor();
   await p.getByLabel('Snapshot name').fill('pc01 week 3');
+  // No report is selected by default; the Results shots show an Excel report.
+  await p.getByRole('checkbox', { name: /^Excel workbook/ }).check();
   await p.getByRole('button', { name: /Start collection/ }).click();
   await p.getByRole('heading', { name: 'Collection complete' }).waitFor();
   await p.waitForTimeout(5200); // let the toast auto-dismiss

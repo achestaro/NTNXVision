@@ -749,10 +749,13 @@ class _Builder:
         items.append(self.compat_sentence())
         if self.sunset:
             items.append(
-                f"{plural(len(self.sunset), 'area')} still "
-                f"{'uses a v3 API' if len(self.sunset) == 1 else 'use v3 APIs'} that Nutanix "
-                f"retires in Q4 2026 ({', '.join(self.sunset)}) and will stop collecting "
-                f"after the sunset{_APPENDIX_REF}."
+                f"{plural(len(self.sunset), 'area')} "
+                f"({', '.join(self.sunset)}) "
+                f"{'depends on a v3 API' if len(self.sunset) == 1 else 'depend on v3 APIs'} "
+                f"that Nutanix is retiring. "
+                f"{'It collects' if len(self.sunset) == 1 else 'They collect'} normally "
+                f"today and will come back empty only once Prism Central no longer serves "
+                f"v3, typically after an upgrade{_APPENDIX_REF}."
             )
         cap = sum(c.max_capacity_bytes or 0 for c in env.storage_containers)
         used = sum(c.used_bytes or 0 for c in env.storage_containers)
@@ -1396,17 +1399,29 @@ class _Builder:
         self.design_sections(ch)  # Files Design, Objects Design (diagrams.svcdesigns)
         v4_shares = [s for s in env.file_shares if s.api_source == "v4"]
         ch.add("Files", make_table(
-            ["File Server", "Cluster", "Version", "FSVMs", "Size (GiB)", "Used (GiB)", "Shares"],
+            ["File Server", "Cluster", "Version", "FSVMs", "Size (GiB)", "Used", "Shares",
+             "Client Network", "Storage Network", "DNS Domain"],
+            # Used reads in its own unit: a new file server holds a few MB, 0.0 in GiB.
             [[f.name, self.cluster(f), f.version, f.num_fsvm, gib(f.size_bytes),
-              gib(f.used_bytes), f.share_count] for f in env.file_servers],
-            "Nutanix Files servers", self.src(env.file_servers)),
+              fmt_bytes(f.used_bytes), f.share_count, f.external_network,
+              f.internal_network, f.dns_domain] for f in env.file_servers],
+            "Nutanix Files servers", self.src(env.file_servers),
+            prune=("Client Network", "Storage Network", "DNS Domain")),
             make_table(
-            ["Share", "File Server", "Type", "Protocol", "Max Size (GiB)", "Used (GiB)"],
+            ["FSVM", "Cluster", "File Server", "Client IPs", "Storage IPs", "vCPU",
+             "Memory (GiB)", "Host", "Power"],
+            [[v.name, self.cluster(v), v.file_server_name, ", ".join(v.client_ips),
+              ", ".join(v.storage_ips), v.num_vcpus, gib(v.memory_bytes), v.host_name,
+              v.power_state] for v in env.file_server_vms],
+            "File server VMs", self.src(env.file_server_vms), prune=("Host", "Power")),
+            make_table(
+            ["Share", "File Server", "Type", "Protocol", "Max Size (GiB)", "Used", "Files"],
             # v4 reports no quota as 0 (stored as None): the share is unlimited.
             [[s.name, s.file_server_name, s.share_type, s.protocol,
               gib(s.max_size_bytes) if s.max_size_bytes or s.api_source != "v4"
-              else "Unlimited", gib(s.used_bytes)] for s in env.file_shares],
-            "File shares", self.src(env.file_shares)),
+              else "Unlimited", fmt_bytes(s.used_bytes), s.file_count]
+             for s in env.file_shares],
+            "File shares", self.src(env.file_shares), prune=("Files",)),
             make_table(
             ["Share", "ABE", "Continuous Availability", "SMB3 Encryption", "Compression",
              "Previous Versions"],
@@ -1549,6 +1564,13 @@ class _Builder:
         env = self.env
         ch = Chapter("ndb", "Database Services (NDB)", "platform_services")
         self.design_sections(ch)  # Database Service Design (diagrams.svcdesigns)
+        ch.add("NDB Appliance", make_table(
+            ["NDB Server", "Cluster", "NDB Version", "IP", "High Availability",
+             "Registered Clusters", "Timezone"],
+            [[a.name, self.cluster(a), a.version, ", ".join(a.ip_addresses),
+              yes_no(a.ha_enabled), a.registered_clusters, a.timezone]
+             for a in env.ndb_appliances],
+            "NDB appliance", self.src(env.ndb_appliances)))
         dbs = [d for d in env.databases if not d.clone]
         clones = [d for d in env.databases if d.clone]
         ch.add("Databases", make_table(
@@ -1837,8 +1859,9 @@ class _Builder:
                          _API_LABEL.get(api, api) if api else None, detail])
         ch.blocks.append(Paragraph(
             "How each collection area finished and which API served it, as shown on the "
-            "app's Results screen. v3 REST APIs are retired by Nutanix in Q4 2026; the "
-            "routing table states what happens to each area after that sunset."
+            "app's Results screen. Nutanix is retiring the v3 REST APIs. The routing "
+            "table states what happens to each area once a Prism Central release no "
+            "longer serves them; until then every area collects as shown."
         ))
         ch.add("Collection Coverage", make_table(
             ["Area", "Outcome", "API", "Detail"], rows, "Collection outcome per area",
@@ -1852,7 +1875,7 @@ class _Builder:
             r_rows.append([areas, _API_LABEL.get(r["api"], r["api"]), r["reason"],
                            r["after_sunset"]["label"]])
         ch.add("API Routing and Compatibility", Paragraph(self.compat_sentence()),
-               make_table(["Areas", "API", "Reason", "After Q4 2026 v3 sunset"], r_rows,
+               make_table(["Areas", "API", "Reason", "When legacy APIs are removed"], r_rows,
                           "API routing per collection area",
                           r_src if env.is_combined else None),
                Bullets([clean(w) for w in env.warnings], intro="Compatibility warnings:")

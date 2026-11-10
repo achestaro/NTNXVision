@@ -25,6 +25,13 @@ Field mapping checked against NDB 2.5.1.1 (2026-11-06):
   (matched on ``nxClusterUUID``); the Clusters list keeps NDB's name.
 - Profiles, SLAs, snapshots, maintenance windows and tags are read when the NDB version has
   them; a missing endpoint skips that list only.
+- The appliance (one ``NdbAppliance`` row) comes from four endpoints, each optional:
+  ``downloads/versions`` (its "ERA Server" component carries the NDB version and build; the
+  ``ERA_HOST`` rows are the DB servers' agents), ``ha`` (``serverNodes`` are the NDB server
+  VMs; ``clusterIP`` is set and the HA statuses stop being ``invalid`` only with HA on),
+  ``config/era-server`` (VM name and id, the cluster it runs on, DNS, NTP, timezone, SMTP;
+  the SMTP credentials are never read into the model) and ``config/about-era``.
+  ``/era/v0.9/about`` does not exist on 2.5.
 """
 
 from __future__ import annotations
@@ -37,6 +44,7 @@ from ntnxvision_core.api.ndb_client import NdbConnection
 from ntnxvision_core.models import (
     Database,
     DatabaseServer,
+    NdbAppliance,
     NdbCluster,
     NdbMaintenanceWindow,
     NdbProfile,
@@ -54,6 +62,7 @@ def collect_ndb(conn: NdbConnection, env: Any) -> None:
         profiles=_optional(conn, "profiles"),
     )
     _clusters(ctx, env)
+    _appliance(conn, ctx, env)
     _profiles(ctx, env)
     servers = conn.get("dbservers", params={"detailed": "true"}) or []
     dbs = conn.get("databases", params={"detailed": "true"}) or []
@@ -101,6 +110,69 @@ def _optional(conn: NdbConnection, path: str, params: dict[str, Any] | None = No
     except NutanixApiError:
         return []
     return rows if isinstance(rows, list) else []
+
+
+def _optional_obj(conn: NdbConnection, path: str) -> dict[str, Any]:
+    """An object endpoint that older NDB versions may not have."""
+    try:
+        body = conn.get(path)
+    except NutanixApiError:
+        return {}
+    return body if isinstance(body, dict) else {}
+
+
+def ndb_version(conn: NdbConnection) -> tuple[str | None, dict[str, Any]]:
+    """NDB's own version and its ``downloads/versions`` row (the "ERA Server" component)."""
+    rows = _optional(conn, "downloads/versions")
+    server = next((r for r in rows if str(r.get("component") or "").upper()
+                   in ("ERA SERVER", "ERA_SERVER")), {})
+    return _known(server.get("version")), server
+
+
+def _appliance(conn: NdbConnection, ctx: _Context, env: Any) -> None:
+    version, row = ndb_version(conn)
+    ha = _optional_obj(conn, "ha")
+    server = _optional_obj(conn, "config/era-server")
+    about = _optional_obj(conn, "config/about-era")
+    nodes = [n for n in ha.get("serverNodes") or [] if isinstance(n, dict)]
+    host = getattr(getattr(conn, "creds", None), "host", None)
+    statuses = {str(s).lower() for s in (ha.get("eraServiceHAStatus"), ha.get("repoHAStatus"))
+                if s}
+    ha_on = (bool(ha.get("clusterIP")) or len(nodes) > 1
+             or bool(statuses - {"invalid", "disabled", "not_configured"})) if ha else None
+    ips = [str(n["ip"]) for n in nodes if n.get("ip")] or (
+        [str(row["machineIp"])] if row.get("machineIp") else [])
+    cluster_id = server.get("clusterId") or next(
+        (n.get("nxClusterId") for n in nodes if n.get("nxClusterId")), None)
+    smtp_config = server.get("smtpConfig")
+    smtp: dict[str, Any] = smtp_config if isinstance(smtp_config, dict) else {}
+    env.ndb_appliances.append(NdbAppliance(
+        id=str(server.get("vmId") or row.get("machineERAId") or host or "ndb"),
+        name=about.get("eraName") or server.get("vmName")
+        or next((n.get("hostname") for n in nodes if n.get("hostname")), None) or host,
+        host=host,
+        version=version,
+        build=_known(row.get("buildId")),
+        build_date=_known(row.get("date")),
+        cluster_name=ctx.cluster_name(cluster_id) if cluster_id else None,
+        ip_addresses=ips,
+        ha_enabled=ha_on,
+        ha_status=ha.get("eraServiceHAStatus"),
+        cluster_ip=ha.get("clusterIP"),
+        server_vms=[str(n["hostname"]) for n in nodes if n.get("hostname")],
+        registered_clusters=len(ctx.clusters),
+        multi_cluster=about.get("multiClusterEnabled"),
+        timezone=server.get("timezone") or None,
+        dns_servers=[str(s) for s in server.get("dnsServers") or [] if s],
+        ntp_servers=[str(s) for s in server.get("ntpServers") or [] if s],
+        smtp_server=smtp.get("smtpServerIPPort") or None,
+    ))
+
+
+def _known(value: Any) -> str | None:
+    """NDB writes ``<Not Available>`` / ``NA`` where it has no value."""
+    text = str(value).strip() if value is not None else ""
+    return None if text.upper() in ("", "NA", "<NOT AVAILABLE>", "NONE") else text
 
 
 def _clusters(ctx: _Context, env: Any) -> None:
@@ -306,7 +378,8 @@ def _use_prism_cluster_names(ctx: _Context, env: Any) -> None:
               if name and uuid in pc_names}
     if not rename:
         return
-    for row in [*env.database_servers, *env.databases, *env.time_machines]:
+    for row in [*env.ndb_appliances, *env.database_servers, *env.databases,
+                *env.time_machines]:
         if row.cluster_name:
             row.cluster_name = ", ".join(rename.get(n, n) for n in row.cluster_name.split(", "))
 

@@ -43,6 +43,7 @@ from ntnxvision_core.api.kube_client import KubeConnection, KubeCredentials
 from ntnxvision_core.api.ndb_client import NdbConnection, NdbCredentials
 from ntnxvision_core.api.vcenter_client import VcenterConnection, VcenterCredentials
 from ntnxvision_core.areas import AREAS, TYPICAL_SECONDS
+from ntnxvision_core.collectors.ndb import ndb_version
 from ntnxvision_core.compat import check_aos, check_prism_central
 from ntnxvision_core.numfmt import fmt_count
 from ntnxvision_core.runinfo import AOS_RANGE, PC_RANGE
@@ -269,11 +270,7 @@ def _test_ndb(host: str, username: str, password: str, insecure: bool,
     creds = NdbCredentials(host=host, username=username, password=password,
                            verify_ssl=not insecure, pinned_sha256=pinned)
     with NdbConnection(creds, timeout=TEST_TIMEOUT) as conn:
-        version = None
-        with contextlib.suppress(NutanixApiError):
-            about = conn.get("about")
-            if isinstance(about, dict):
-                version = about.get("version")
+        version, _row = ndb_version(conn)  # GET downloads/versions; None when absent
         servers = _len_or_none(conn, "dbservers")
         databases = _len_or_none(conn, "databases")
     detail = " · ".join(p for p in (

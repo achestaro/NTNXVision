@@ -159,3 +159,63 @@ def test_licenses_are_collected_when_v4_serves_them() -> None:
     assert len(env.licenses) == 1
     assert env.licenses[0].product == "AOS"
     assert env.collection_notes["licenses"] == "ok"
+
+
+class _PathConn(_Conn):
+    """Answers each v4 list path with its own rows, and PrismGateway v1 `license` with
+    `v1` (None: that call fails, as on a PC that does not serve it)."""
+
+    def __init__(self, rows: dict[str, list[dict[str, Any]]],
+                 v1: dict[str, Any] | None = None) -> None:
+        super().__init__("pc.7.5.1.6")
+        self.rows = rows
+        self.v1 = v1
+        self.creds = type("C", (), {"base": "https://pc:9440"})()
+
+    def get_json(self, url: str) -> dict[str, Any]:
+        if self.v1 is None or not url.endswith("license?showAllClusters=true"):
+            raise NutanixApiError("404")
+        return self.v1
+
+    def v4_list(self, path: str) -> list[dict[str, Any]]:
+        self.lists.append(path)
+        return list(self.rows.get(path, []))
+
+
+def test_entitlements_are_collected_when_no_key_is_applied() -> None:
+    """The NVD lab (pc.7.5.1.6): no license keys; one entitlement per cluster, keyed by the
+    cluster uuid, plus a detail-less one for the PC itself."""
+    from ntnxvision_core.collectors.licenses import ENTITLEMENTS
+
+    env = Environment()
+    conn = _PathConn({ENTITLEMENTS: [
+        {"extId": "c1", "isMulticluster": False, "name": "nvd-move-target", "type": "NUTANIX",
+         "details": [{"name": "Prism Starter", "type": "PRISM", "category": "STARTER",
+                      "subCategory": "$UNKNOWN", "meter": "$UNKNOWN", "quantity": 0.0,
+                      "scope": "$UNKNOWN"}]},
+        {"extId": "pc1", "isMulticluster": True, "name": "move-target-pc", "type": "NUTANIX"},
+    ]})
+    LicenseCollector(conn).collect(env)  # type: ignore[arg-type]
+    assert [(x.cluster_uuid, x.cluster_name, x.product, x.edition, x.category, x.quantity, x.unit)
+            for x in env.licenses] == [
+        ("c1", "nvd-move-target", "Prism", "Prism Starter", "Starter", None, None)]
+    assert env.collection_notes["licenses"] == "ok"
+
+
+def test_prism_license_wins_over_entitlements() -> None:
+    """The NVD lab: v4 entitlements say Prism Starter, Prism's page (v1) the trial."""
+    from ntnxvision_core.collectors.licenses import ENTITLEMENTS
+
+    env = Environment()
+    conn = _PathConn(
+        {ENTITLEMENTS: [{"extId": "c1", "name": "nvd-move-target",
+                         "details": [{"name": "Prism Starter", "type": "PRISM"}]}]},
+        v1={"licenseInfoDTO": {"pcDetailsDTO": {"licenseDetails": [], "clusters": [
+            {"uuid": "c1", "name": "nvd-move-target", "licenseDetails": [
+                {"type": "PRISM", "category": "ULTIMATE_TRIAL", "name": "Prism Ultimate Trial",
+                 "expiryDate": "2054-03-27", "capacity": None}]}]}}})
+    LicenseCollector(conn).collect(env)  # type: ignore[arg-type]
+    assert [(x.cluster_uuid, x.cluster_name, x.product, x.edition, x.category, x.expiry,
+             x.compliance) for x in env.licenses] == [
+        ("c1", "nvd-move-target", "Prism", "Prism Ultimate Trial", "Ultimate trial",
+         "2054-03-27", "COMPLIANT")]

@@ -37,7 +37,8 @@ def fmt_bytes(value: int | float | None) -> str | None:
     if value is None:
         return None
     v = float(value)
-    for unit, size in (("PB", 1024**5), ("TB", TIB), ("GB", GIB), ("MB", 1024**2)):
+    for unit, size in (("PB", 1024**5), ("TB", TIB), ("GB", GIB), ("MB", 1024**2),
+                       ("KB", 1024)):
         if abs(v) >= size:
             n = v / size
             return f"{n:.1f} {unit}".replace(".0 ", " ") if n < 100 else f"{n:,.0f} {unit}"
@@ -284,6 +285,9 @@ def _facts(spec: TableSpec, env: Environment, total: int) -> str:
         parts.append(f"{fmt_count(on)} powered on")
     if spec.type == "clusters":
         parts.append(f"{fmt_count(len(env.hosts))} hosts")
+    if spec.type == "file_shares":
+        n = len(env.file_servers)
+        parts.append(f"{fmt_count(n)} file server{'s' if n != 1 else ''}")
     if env.is_combined:
         parts.append(f"{fmt_count(len(env.source_environments))} Prism Centrals")
     return " · ".join(parts)
@@ -292,6 +296,26 @@ def _facts(spec: TableSpec, env: Environment, total: int) -> str:
 #: Object types only an ESXi / vCenter estate has: left out of the type list of a snapshot
 #: with none of them and no vCenter data, rather than listed with a count of 0.
 VCENTER_ONLY_TYPES = frozenset({"port_groups"})
+
+
+#: The NDB types beside Databases: left out of the type list of a snapshot with no NDB
+#: data, so a Prism Central without NDB shows one "Databases" entry, not ten.
+NDB_DETAIL_TYPES = frozenset({"ndb_appliance", "database_servers", "time_machines",
+                              "ndb_snapshots", "ndb_clusters", "ndb_profiles", "ndb_slas",
+                              "ndb_maintenance_windows", "ndb_tags"})
+
+_NDB_FIELDS = ("ndb_appliances", "databases", "database_servers", "time_machines",
+               "ndb_clusters", "ndb_profiles", "ndb_slas", "ndb_snapshots",
+               "ndb_maintenance_windows", "ndb_tags")
+
+
+def has_ndb_data(env: Environment) -> bool:
+    """Whether the snapshot holds NDB objects, or a successful NDB step (an NDB with
+    nothing registered yet)."""
+    if any(getattr(env, f) for f in _NDB_FIELDS):
+        return True
+    return any((k == "ndb" or k.endswith(": ndb")) and v.startswith("ok")
+               for k, v in env.collection_notes.items())
 
 
 def has_vcenter_data(env: Environment) -> bool:
@@ -309,13 +333,15 @@ def type_counts(env: Environment) -> list[dict[str, Any]]:
     """The left-hand object-type list: count per type, None when not collected.
 
     vCenter-only types (`VCENTER_ONLY_TYPES`) are left out when the snapshot has none of
-    them and no vCenter data at all.
+    them and no vCenter data at all; the NDB types beside Databases (`NDB_DETAIL_TYPES`)
+    when it has no NDB data.
     """
     out = []
     selected = None
     if env.run and isinstance(env.run.get("areas"), list):
         selected = {a.get("id") for a in env.run["areas"]}
     vcenter: bool | None = None
+    ndb = has_ndb_data(env)
     for type_id in INVENTORY_TYPES:
         spec = SPECS[type_id]
         count: int | None = len(spec.items(env))
@@ -324,6 +350,8 @@ def type_counts(env: Environment) -> list[dict[str, Any]]:
                 vcenter = has_vcenter_data(env)
             if not vcenter:
                 continue
+        if type_id in NDB_DETAIL_TYPES and not ndb:
+            continue
         if count == 0 and not _collected(env, spec, selected):
             count = None
         out.append({"type": type_id, "label": spec.label, "group": spec.group or "Other",
@@ -494,6 +522,24 @@ def _with_n1(full: str, n1: str | None) -> str:
     return f"{full} · N-1 {n1 or NA}"
 
 
+def _ratio_parts(target: float | None, ratio: float | None,
+                 *n1: float | None) -> list[dict[str, Any]] | None:
+    """A vCPU:pCore value split so the pane can mark each ratio against the target:
+    "error" above it (the oversubscription to act on), "ok" at or under it. A ratio
+    with no value, or a cluster with no target, gets no tone. Pass the N-1 ratio
+    (when the value shows one) after the full one, joined as `_with_n1` does."""
+    def tone(v: float | None) -> str | None:
+        if v is None or not target:
+            return None
+        return "error" if round(v, 1) > round(target, 1) else "ok"
+
+    parts: list[dict[str, Any]] = [{"text": fmt_ratio(ratio), "tone": tone(ratio)}]
+    if n1:
+        parts.append({"text": " · N-1 ", "tone": None})
+        parts.append({"text": fmt_ratio(n1[0]) if n1[0] is not None else NA, "tone": tone(n1[0])})
+    return parts
+
+
 def capacity_fields(cap: Any) -> list[dict[str, Any]]:
     """The cluster detail pane's capacity block: short values, N-1 after a "·"."""
     if cap is None:
@@ -519,8 +565,10 @@ def capacity_fields(cap: Any) -> list[dict[str, Any]]:
                                              f"{fmt_count(cap.provisioned_vcpus_on)} on",
          "mono": True},
         {"label": "vCPU:pCore", "value": n1(fmt_ratio(cap.cpu_ratio), cap.cpu_ratio_n1,
-                                            fmt_ratio(cap.cpu_ratio_n1)), "mono": True},
-        {"label": "vCPU:pCore (on)", "value": fmt_ratio(cap.cpu_ratio_on), "mono": True},
+                                            fmt_ratio(cap.cpu_ratio_n1)), "mono": True,
+         "parts": _ratio_parts(cap.target_ratio, cap.cpu_ratio, cap.cpu_ratio_n1)},
+        {"label": "vCPU:pCore (on)", "value": fmt_ratio(cap.cpu_ratio_on), "mono": True,
+         "parts": _ratio_parts(cap.target_ratio, cap.cpu_ratio_on)},
         {"label": "Raw storage", "value": fmt_bytes(cap.raw_bytes) or NA, "mono": True},
         {"label": f"Storage Total (RF {cap.rf or NA})", "value": n1(
             fmt_bytes(cap.storage_total_bytes) or NA, cap.storage_total_n1_bytes,

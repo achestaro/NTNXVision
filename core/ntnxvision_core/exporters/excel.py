@@ -83,10 +83,11 @@ _SPECS = (
     T.SECURITY_POLICIES, T.CATEGORIES, T.SERVICE_GROUPS, T.ADDRESS_GROUPS, T.VPCS,
     T.FLOATING_IPS,
     # Phase 2: NUS
-    T.FILE_SERVERS, T.FILE_SHARES, T.OBJECT_STORES, T.BUCKETS, T.VOLUME_GROUPS,
+    T.FILE_SERVERS, T.FILE_SERVER_VMS, T.FILE_SHARES, T.OBJECT_STORES, T.BUCKETS,
+    T.VOLUME_GROUPS,
     # Phase 2: NDB
-    T.DATABASES, T.DATABASE_SERVERS, T.TIME_MACHINES, T.NDB_CLUSTERS, T.NDB_PROFILES,
-    T.NDB_SLAS, T.NDB_SNAPSHOTS, T.NDB_MAINTENANCE, T.NDB_TAGS,
+    T.NDB_APPLIANCE, T.DATABASES, T.DATABASE_SERVERS, T.TIME_MACHINES, T.NDB_CLUSTERS,
+    T.NDB_PROFILES, T.NDB_SLAS, T.NDB_SNAPSHOTS, T.NDB_MAINTENANCE, T.NDB_TAGS,
     # Kubernetes (NKP)
     T.KUBERNETES_CLUSTERS, T.KUBERNETES_NODES, T.KUBERNETES_NAMESPACES,
     T.KUBERNETES_STORAGE_CLASSES, T.KUBERNETES_VOLUMES, T.KUBERNETES_SERVICES,
@@ -301,8 +302,9 @@ class ExcelExporter:
         sunset = sunset_areas(api_routing(env, areas, limit=None))
         for label, value, tone in (
             ("Coverage", summary, "warn" if cov["failed"] else None),
-            ("After the Q4 2026 v3 sunset",
-             (f"{', '.join(sunset)}: stop collecting (see the API Routing sheet)"
+            ("When legacy APIs are removed",
+             (f"{', '.join(sunset)}: collected today, empty once Prism Central no "
+              f"longer serves v3 (see the API Routing sheet)"
               if sunset else "No area depends on a v3-only API"),
              "warn" if sunset else "ok"),
         ):
@@ -461,7 +463,7 @@ class ExcelExporter:
                     srcs if env.is_combined else None)
 
     def _routing_sheet(self, wb: Workbook, env: Environment) -> None:
-        """Which API served each area and what happens to it after the Q4 2026 sunset."""
+        """Which API served each area and what happens to it once the PC drops legacy APIs."""
         from ntnxvision_core.exporters.content import _API_LABEL, run_areas
         from ntnxvision_core.runinfo import api_routing
 
@@ -473,7 +475,7 @@ class ExcelExporter:
                 srcs.append(str(r["source"]))
             rows.append([areas, _API_LABEL.get(r["api"], r["api"]), r["reason"],
                          r["after_sunset"]["label"]])
-        self._table(wb, "API Routing", ["Areas", "API", "Reason", "After Q4 2026 v3 sunset"],
+        self._table(wb, "API Routing", ["Areas", "API", "Reason", "When legacy APIs are removed"],
                     rows, srcs if env.is_combined else None, wrap=("Areas",))
 
     def _properties(self, wb: Workbook, env: Environment, opts: Any) -> None:

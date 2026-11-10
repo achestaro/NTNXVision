@@ -8,6 +8,9 @@ selected, or drop one icon on another). This module is the one place that says
   VPC / VNet and the NC2 clusters, a zone holds PODs, Prism Centrals and clusters, a
   cluster holds nodes, a node holds its NICs and its CVM, a VPC its overlay subnets, a
   policy its category groups, ...;
+* **what connects to what instead** (`RELATED`): a cluster put on a Prism Central is
+  managed by it (it goes into the PC's zone, with a "Manages" connector), clusters
+  replicate to clusters, a node uplinks to a top-of-rack switch, ...;
 * **where a child goes in its parent** (`slot`): a Prism Central sits on top of the
   clusters (``top``), a NIC is a small badge in its node's bottom-right corner
   (``badge_br``, the CVM bottom-left), storage containers and segments are full-width
@@ -79,6 +82,75 @@ CHILDREN: dict[str, tuple[str, ...]] = {
 def can_contain(parent: str | None, child: str | None) -> bool:
     """Whether an element of kind `parent` may hold one of kind `child`."""
     return bool(parent and child) and child in CHILDREN.get(str(parent), ())
+
+
+#: Relationships that are not containment: putting one of these kinds on the other draws
+#: a connector instead, from the first kind to the second, with this label. Read by the
+#: editor (`icons.catalog_docs` sends each icon's `links`): adding an icon with a related
+#: element selected, or dropping one on it, places the icon in the nearest frame around
+#: that element that may hold it (a cluster dropped on a Prism Central goes into the
+#: PC's zone) and connects the two. Containment (`CHILDREN`) always wins over a link.
+#:
+#: * management: Prism Central manages Nutanix clusters (on premises and NC2), the NC2
+#:   console manages NC2 clusters (a vCenter is drawn inside the cluster it manages);
+#: * protection: clusters replicate to clusters (on premises, NC2, either way), zones and
+#:   Prism Centrals pair for disaster recovery, a cluster backs up to cloud storage;
+#: * storage: an external array presents storage to a cluster or a node;
+#: * physical network: nodes, NICs, bonds and virtual switches uplink to a top-of-rack
+#:   switch, switches peer with each other, a ToR uplinks to a gateway, a gateway routes
+#:   segments and reaches the external network;
+#: * hybrid cloud: Direct Connect / ExpressRoute / Interconnect / VPN connect a gateway
+#:   or ToR on premises to a transit hub or cloud VPC; a transit hub attaches cloud VPCs;
+#: * services: a Nutanix product card runs on a cluster.
+RELATED: tuple[tuple[str, str, str], ...] = (
+    ("pc", "cluster", "Manages"),
+    ("pc", "nc2_cluster", "Manages"),
+    ("nc2_portal", "nc2_cluster", "Manages"),
+    ("cluster", "cluster", "Replicates to"),
+    ("cluster", "nc2_cluster", "Replicates to"),
+    ("nc2_cluster", "nc2_cluster", "Replicates to"),
+    ("az", "az", "Paired with"),
+    ("az", "remote", "Paired with"),
+    ("pc", "pc", "Paired with"),
+    ("cluster", "cloud_storage", "Backs up to"),
+    ("nc2_cluster", "cloud_storage", "Backs up to"),
+    ("storage", "cluster", "Presents storage to"),
+    ("storage", "node", "Presents storage to"),
+    *((k, "tor", "Uplinks to") for k in ("node", "bm_node", "nic", "bond", "switch")),
+    ("tor", "tor", "Peer link"),
+    ("tor", "gateway", "Uplinks to"),
+    ("gateway", "segment", "Routes"),
+    ("gateway", "external", "Reaches"),
+    *((link, end, "Connects") for link in LINKS
+      for end in ("gateway", "tor", "transit", "cloud_net")),
+    ("transit", "cloud_net", "Attaches"),
+    *((p, "cluster", "Runs on") for p in PRODUCTS if p != "product_prism"),
+    *((p, "nc2_cluster", "Runs on") for p in PRODUCTS if p != "product_prism"),
+)
+
+
+def relation(a: str | None, b: str | None) -> tuple[str, bool] | None:
+    """(label, a is the connector's source) when kinds `a` and `b` are related (`RELATED`)
+    and neither may hold the other; else None."""
+    if not a or not b or can_contain(a, b) or can_contain(b, a):
+        return None
+    for src, dst, label in RELATED:
+        if (src, dst) == (a, b):
+            return label, True
+        if (src, dst) == (b, a):
+            return label, False
+    return None
+
+
+def links_of(kind: str) -> dict[str, dict[str, Any]]:
+    """Every kind `kind` connects to: {other kind: {label, out}} (`out`: the connector
+    runs from `kind` to the other one)."""
+    out: dict[str, dict[str, Any]] = {}
+    for other in sorted({k for pair in RELATED for k in pair[:2]}):
+        rel = relation(kind, other)
+        if rel:
+            out[other] = {"label": rel[0], "out": rel[1]}
+    return out
 
 
 def slot(parent: str, child: str) -> str:
@@ -632,6 +704,6 @@ def meta(arranged: Arranged) -> dict[str, dict[str, Any]]:
     return dict(sorted(out.items()))
 
 
-__all__ = ["CHILDREN", "FRAMES", "LINKS", "CLOUDS", "Arranged", "Box", "arrange",
-           "can_contain", "collected_kind", "collected_kinds", "insert_space", "meta",
-           "slot"]
+__all__ = ["CHILDREN", "FRAMES", "LINKS", "CLOUDS", "RELATED", "Arranged", "Box",
+           "arrange", "can_contain", "collected_kind", "collected_kinds", "insert_space",
+           "links_of", "meta", "relation", "slot"]

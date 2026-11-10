@@ -443,6 +443,12 @@ class NdbEstate:
     snapshots: list[dict[str, Any]] = field(default_factory=list)
     maintenance: list[dict[str, Any]] = field(default_factory=list)
     tags: list[dict[str, Any]] = field(default_factory=list)
+    #: The appliance's own endpoints: `downloads/versions`, `ha`, `config/era-server`,
+    #: `config/about-era` (shapes as NDB 2.5.1.1 returns them).
+    versions: list[dict[str, Any]] = field(default_factory=list)
+    ha: dict[str, Any] = field(default_factory=dict)
+    era_server: dict[str, Any] = field(default_factory=dict)
+    about_era: dict[str, Any] = field(default_factory=dict)
 
 
 # ─── Prism Central estate ──────────────────────────────────────────────
@@ -1228,18 +1234,38 @@ def _nus(est: PcEstate) -> None:
     if feats.files:
         for i, name in enumerate(["fs-corp", "fs-home"][: max(1, len(est.clusters) - 1)]):
             c = est.clusters[i % len(est.clusters)]
+            hosts = [h["name"] for h in est.hosts if h["cluster_uuid"] == c["uuid"]] or [None]
+            # FSVMs as Files v4 (a2) lists them: client IPs on the external network,
+            # storage IPs on the internal one; host and power state from their VM records.
+            fsvms = [{
+                "uuid": uid(seed, "fsvm", name, n), "name": f"NTNX-{name}-{n}",
+                "client_ip": f"10.21.{40 + i}.{20 + n}", "storage_ip": f"10.21.{50 + i}.{20 + n}",
+                "host": hosts[(n - 1) % len(hosts)], "cluster_uuid": c["uuid"],
+                "cluster_name": c["name"],
+            } for n in range(1, 4)]
+            shares = []
+            for j, share in enumerate(["projects", "finance", "profiles", "scratch"]):
+                # "scratch" is near-empty: a few KB must show as such, not as 0 GiB.
+                used = 12 * 1024 if share == "scratch" else int(1024 * (j + 1) * GIB * 0.12)
+                shares.append({
+                    "uuid": uid(seed, "share", name, share), "name": f"{share}",
+                    "file_server": name, "file_server_uuid": uid(seed, "fs", name),
+                    "protocol": "SMB" if j % 3 else "NFS",
+                    "max_gib": 1024 * (j + 1), "used": used,
+                    "files": 3 if share == "scratch" else 1800 * (j + 1),
+                })
+            est.file_shares.extend(shares)
             est.file_servers.append({
                 "uuid": uid(seed, "fs", name), "name": name, "cluster_name": c["name"],
+                "cluster_uuid": c["uuid"],
                 "version": "5.0.0.1", "fsvms": 3, "size_gib": 20480 * (i + 1),
-                "used": int(20480 * (i + 1) * GIB * 0.41),
+                "used": sum(sh["used"] for sh in shares),
+                "files": sum(sh["files"] for sh in shares),
                 "internal": f"{c['name'].lower()}-mgmt", "external": f"{c['name'].lower()}-prod",
+                "storage_vip": f"10.21.{50 + i}.10", "dns_domain": "files.example.lab",
+                "dns_servers": ["10.21.0.53"], "ntp_servers": ["pool.ntp.example.lab"],
+                "vcpus": 4, "memory_gib": 12, "vms": fsvms,
             })
-            for j, share in enumerate(["projects", "finance", "profiles", "scratch"]):
-                est.file_shares.append({
-                    "uuid": uid(seed, "share", name, share), "name": f"{share}",
-                    "file_server": name, "protocol": "SMB" if j % 3 else "NFS",
-                    "max_gib": 1024 * (j + 1),
-                })
     if feats.objects:
         c = est.clusters[0]
         store = {
@@ -1867,4 +1893,43 @@ def build_ndb_estate(host: str, version: str = "2.5.6", *, seed: str | None = No
         "entityTaskAssoc": [{"entityType": "ERA_DBSERVER", "entityId": s["id"], "taskType": t}
                             for s in pg for t in ("OS_PATCHING", "DB_PATCHING")],
     })
+    _ndb_appliance(est)
     return est
+
+
+def _ndb_appliance(est: NdbEstate) -> None:
+    """A single (non-HA) NDB server on the first registered cluster."""
+    seed, vm_id, ip = est.seed, uid(est.seed, "ndbvm"), "10.21.0.5"
+    vm_name = "ndb-server-01"
+    build = uid(seed, "ndbbuild").replace("-", "")[:32] + "0a1b2c3d"
+    est.versions = [{
+        "versionPrefix": "Nutanix ERA", "component": "ERA Server",
+        "machineERAId": uid(seed, "ndbmachine"), "machineIp": ip, "version": est.version,
+        "buildId": build, "branch": None, "warVersion": est.version, "warBuildId": "NA",
+        "warBuildDate": "NA", "manifest": None, "date": "2026-08-14 10:12:00",
+    }] + [{
+        # The DB servers' agents: listed, with no version of their own.
+        "versionPrefix": "Nutanix ERA", "component": "ERA_HOST",
+        "machineERAId": s["id"], "machineIp": s["ipAddresses"][0],
+        "version": "<Not Available>", "buildId": "NA", "branch": None, "warVersion": "NA",
+        "warBuildId": "NA", "warBuildDate": None, "manifest": None, "date": "<Not Available>",
+    } for s in est.dbservers]
+    est.ha = {
+        "clusterIP": None, "writePort": None, "readPort": None, "proxyNodes": None,
+        "repoNodes": None, "repoHAStatus": "invalid", "eraServiceHAStatus": "invalid",
+        "serverNodes": [{"hostname": vm_name, "ip": ip, "uuid": vm_id,
+                         "nxClusterId": est.clusters[0]["id"], "leader": False,
+                         "dbserver": None}],
+    }
+    est.era_server = {
+        "vmName": vm_name, "vmId": vm_id, "clusterId": est.clusters[0]["id"],
+        "dnsServers": ["10.21.0.2", "10.21.0.3"], "ntpServers": ["0.pool.ntp.example.lab",
+                                                                "1.pool.ntp.example.lab"],
+        "timezone": "UTC",
+        "smtpConfig": {"smtpServerIPPort": "smtp.example.lab:587", "smtpUsername": "ndb",
+                       "smtpPassword": "", "isSmtpPasswordChanged": False,
+                       "emailFromAddress": "ndb@example.lab", "tlsEnabled": True,
+                       "testEmailToAddress": None, "slackAPIURL": None, "unsecured": False,
+                       "universalMailConfig": None},
+    }
+    est.about_era = {"eraName": None, "multiClusterEnabled": len(est.clusters) > 1}

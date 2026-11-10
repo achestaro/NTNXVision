@@ -650,7 +650,7 @@ export interface ApiRoutingRow {
   areas: string;
   api: ApiVersion;
   reason: string;
-  /** What happens after the Q4 2026 v3 sunset. */
+  /** What happens once the PC no longer serves legacy APIs. Not date-based. */
   after_sunset: StatusValue;
   /** Combined runs only: the Prism Central host this row is about (`areas` is then
    *  prefixed "<host>: "). Each PC is judged against its own version. */
@@ -991,7 +991,11 @@ export interface ObjectDetail {
   status?: StatusValue | null;
   /** Mono context next to the status (cluster name). */
   context?: string | null;
-  fields: { label: string; value: string | null; mono?: boolean }[];
+  /**
+   * `parts`, when present, is `value` split for display: a ratio part carries "error"
+   * above the cluster's target vCPU:pCore ratio and "ok" at or under it.
+   */
+  fields: { label: string; value: string | null; mono?: boolean; parts?: { text: string; tone: 'ok' | 'error' | null }[] | null }[];
   categories?: string[];
   notes?: { tone: Tone; text: string }[];
   /** Deep link into Prism Central, when one exists. */
@@ -1212,6 +1216,11 @@ export interface DiagramIcon {
   ink: string;
   /** The kinds it may hold (diagrams/nesting.py CHILDREN): icon ids. */
   children?: string[];
+  /**
+   * The kinds it connects to instead of nesting (diagrams/nesting.py RELATED): kind ->
+   * the connector's label and whether it runs from this icon (`out`) or to it.
+   */
+  links?: Record<string, { label: string; out: boolean }>;
   /**
    * A Nutanix product icon (group "Nutanix products"): its product id (prism, nci, ncm,
    * ndb, nus, nc2, nkp, nai), drawn from assets/product-icons. Absent from older cores.
@@ -1977,7 +1986,7 @@ export interface OverviewResult {
   coverage: CoverageCounts | null;
   /** Areas per API family in the latest run. */
   api_routing: { v4: number; v3: number; v2: number } | null;
-  /** Areas still on v3 that stop collecting at the Q4 2026 sunset. */
+  /** Areas on v3-only APIs: collected today, empty once the PC drops v3. */
   sunset_areas: string[];
   /** Path of the snapshot recommended as baseline for Compare (previous run of the same source). */
   compare_baseline?: string | null;

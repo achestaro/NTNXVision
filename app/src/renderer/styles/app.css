@@ -864,6 +864,15 @@ p {
 .tone-ok {
   color: var(--ok);
 }
+/* vCPU:pCore against the cluster's target ratio (inventory detail pane): over it is the
+   number to act on, so it is bold as well as red; at or under it reads as fine. */
+.ratio-error {
+  color: var(--error);
+  font-weight: 700;
+}
+.ratio-ok {
+  color: var(--ok);
+}
 .tone-live {
   color: var(--live);
 }
@@ -1503,6 +1512,7 @@ dl {
   align-items: center;
   gap: 8px;
   min-width: 0;
+  white-space: nowrap;
 }
 .ot .ot-count {
   font-family: var(--font-mono);

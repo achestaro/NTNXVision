@@ -19,7 +19,9 @@ class FakeNdb:
                        "databases": est.databases, "tms": est.time_machines,
                        "clones": est.clones, "profiles": est.profiles, "slas": est.slas,
                        "snapshots": est.snapshots, "maintenance": est.maintenance,
-                       "tags": est.tags}
+                       "tags": est.tags, "downloads/versions": est.versions,
+                       "ha": est.ha, "config/era-server": est.era_server,
+                       "config/about-era": est.about_era}
         self.missing = missing
 
     def get(self, path: str, params: dict[str, Any] | None = None) -> Any:
@@ -103,7 +105,58 @@ def test_ndb_cluster_names_follow_prism_central_when_the_uuid_matches() -> None:
         "phx-prod-01")
     assert next(t for t in env.time_machines if t.name == "pg-db-01_TM").cluster_name == (
         "phx-prod-01")
+    assert env.ndb_appliances[0].cluster_name == "phx-prod-01"
     # The unmatched cluster keeps NDB's name; NDB's own cluster list keeps its names.
     assert next(s for s in env.database_servers if s.name == "ora-srv-02").cluster_name == (
         "PHX-PROD-02")
     assert [c.name for c in env.ndb_clusters] == ["NDB-Cluster-A", "PHX-PROD-02"]
+
+
+# ─── The appliance ─────────────────────────────────────────────────────
+
+APPLIANCE_PATHS = ("downloads/versions", "ha", "config/era-server", "config/about-era")
+
+
+def test_the_appliance_takes_version_ha_cluster_and_config() -> None:
+    env = _collect()
+    [a] = env.ndb_appliances
+    assert (a.name, a.version, a.cluster_name) == ("ndb-server-01", "2.5.6", "PHX-PROD-01")
+    assert a.ip_addresses == ["10.21.0.5"] and a.server_vms == ["ndb-server-01"]
+    # The ERA Server row, not a DB server agent's "<Not Available>".
+    assert a.build and len(a.build) == 40 and a.build_date == "2026-08-14 10:12:00"
+    # One server node, no virtual IP, statuses "invalid": HA is off.
+    assert (a.ha_enabled, a.ha_status, a.cluster_ip) == (False, "invalid", None)
+    assert (a.registered_clusters, a.multi_cluster, a.timezone) == (2, True, "UTC")
+    assert a.dns_servers == ["10.21.0.2", "10.21.0.3"] and len(a.ntp_servers) == 2
+    assert a.smtp_server == "smtp.example.lab:587"
+    # No SMTP credentials are kept.
+    assert not any("password" in k or "user" in k for k in a.model_dump())
+
+
+def test_an_ha_appliance_lists_every_server_vm() -> None:
+    fake = FakeNdb()
+    node = fake.tables["ha"]["serverNodes"][0]
+    fake.tables["ha"] = {**fake.tables["ha"], "clusterIP": "10.21.0.4",
+                         "eraServiceHAStatus": "HEALTHY",
+                         "serverNodes": [node, {**node, "hostname": "ndb-server-02",
+                                                "ip": "10.21.0.6", "leader": True}]}
+    env = Environment()
+    collect_ndb(fake, env)  # type: ignore[arg-type]
+    a = env.ndb_appliances[0]
+    assert (a.ha_enabled, a.cluster_ip) == (True, "10.21.0.4")
+    assert a.server_vms == ["ndb-server-01", "ndb-server-02"]
+    assert a.ip_addresses == ["10.21.0.5", "10.21.0.6"]
+
+
+def test_an_ndb_without_the_appliance_endpoints_still_lists_the_appliance() -> None:
+    env = _collect(missing=APPLIANCE_PATHS)
+    [a] = env.ndb_appliances
+    assert a.version is None and a.ha_enabled is None and a.cluster_name is None
+    assert a.registered_clusters == 2 and a.id
+    assert env.databases and env.collection_notes["ndb"] == "ok"
+
+
+def test_old_snapshots_without_the_appliance_still_load() -> None:
+    data = Environment().model_dump(mode="json")
+    data.pop("ndb_appliances")
+    assert Environment.model_validate(data).ndb_appliances == []

@@ -2,7 +2,8 @@
 // grouped, plus this diagram's own additions that join its layout (a cluster into the
 // selected zone). Each row shows a swatch drawn with the generated element's own style,
 // so what is picked is what lands on the figure. With a container selected, the icons it
-// can hold (the core's hierarchy) say they go into it; the rest are placed beside it.
+// can hold (the core's hierarchy) say they go into it (or the nearest element around it
+// that can), related ones say they connect to it; the rest are placed beside it.
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { MagnifyingGlassIcon, PlusIcon } from '@phosphor-icons/react';
@@ -89,7 +90,7 @@ export function IconPicker({
   disabled?: boolean;
   onPick(choice: PickerChoice): void;
   /** The selection, when it is an element icons can go into: its name and what it holds. */
-  into?: { label: string; accepts(iconId: string): boolean } | null;
+  into?: { label: string; fits(iconId: string): string | null } | null;
 }): React.JSX.Element {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
@@ -190,6 +191,7 @@ export function IconPicker({
             {shown.map((r, i) => {
               const head = r.group !== last ? r.group : null;
               last = r.group;
+              const fit = into && r.choice.kind === 'icon' ? into.fits(r.choice.icon.id) : null;
               return (
                 <React.Fragment key={r.key}>
                   {head && (
@@ -210,9 +212,9 @@ export function IconPicker({
                   >
                     <Swatch icon={r.swatch} />
                     <span className="dg-ip-label">{r.label}</span>
-                    {into && r.choice.kind === 'icon' && into.accepts(r.choice.icon.id) ? (
-                      <span className="dg-ip-into" title={`Goes into ${into.label}`}>
-                        into {into.label}
+                    {fit ? (
+                      <span className="dg-ip-into" title={`${fit[0].toUpperCase()}${fit.slice(1)}`}>
+                        {fit}
                       </span>
                     ) : (
                       <span className="dg-ip-hint">{r.hint}</span>
@@ -224,7 +226,7 @@ export function IconPicker({
           </div>
           <div className="dg-ip-foot hint">
             {into
-              ? `Icons that fit go into ${into.label}; the rest are placed beside it.`
+              ? `Icons that fit go into ${into.label} or the nearest element around it, related ones are connected to it, the rest are placed beside it.`
               : 'Select a container first to add into it. Placed icons can be dragged, dropped into each other, resized and connected.'}
           </div>
         </div>

@@ -304,7 +304,10 @@ def catalog_docs() -> list[dict[str, Any]]:
                     "product": PRODUCT_ICONS.get(i.id),
                     # The kinds it may hold (`nesting.CHILDREN`), for "add into the
                     # selection" and drops.
-                    "children": list(NEST.CHILDREN.get(i.id, ()))})
+                    "children": list(NEST.CHILDREN.get(i.id, ())),
+                    # The kinds it connects to instead (`nesting.RELATED`): a cluster
+                    # put on a Prism Central goes into the PC's zone, connected.
+                    "links": NEST.links_of(i.id)})
     return out
 
 
